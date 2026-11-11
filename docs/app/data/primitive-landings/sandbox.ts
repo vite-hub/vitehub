@@ -37,7 +37,12 @@ export const SandboxLanding = {
     const packageFile: PrimitiveProjectFile = {
       path: "package.json",
       language: "json",
-      content: JSON.stringify({ private: true, type: "module", dependencies }, null, 2),
+      content: JSON.stringify({
+        private: true,
+        type: "module",
+        ...(variant.framework === "nuxt" ? { engines: { pnpm: ">=11.5.0" } } : {}),
+        dependencies,
+      }, null, 2),
     };
 
     return {

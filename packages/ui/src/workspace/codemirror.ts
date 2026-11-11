@@ -4,8 +4,34 @@ import { bracketMatching, HighlightStyle, indentOnInput, type LanguageSupport, s
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import pierreDark from "@pierre/theme/pierre-dark";
+import pierreLight from "@pierre/theme/pierre-light";
 
-// Token colors use CSS variables from styles.css, so the editor follows the Pierre light and dark themes of `FileView`.
+// The TextMate scope whose color each kind of token takes in the Pierre themes. Comments and punctuation are gray, so
+// they take the muted text tokens of styles.css instead.
+const syntaxScopes = {
+  attribute: "entity.other.attribute-name",
+  function: "entity.name.function",
+  keyword: "keyword",
+  number: "constant.numeric",
+  string: "string",
+  tag: "entity.name.tag",
+  type: "entity.name.type",
+  variable: "variable",
+} as const;
+
+/** The `--vh-ws-code-*` syntax colors of one Pierre theme, the same ones that `FileView` paints. */
+function syntaxColors(theme: typeof pierreLight): Record<string, string> {
+  const colors: Record<string, string> = {};
+  for (const [name, scope] of Object.entries(syntaxScopes)) {
+    const rule = theme.tokenColors.find(({ scope: scopes }) => (typeof scopes === "string" ? scopes.split(",").map(item => item.trim()) : scopes ?? []).includes(scope));
+    const color = rule?.settings.foreground;
+    if (color) colors[`--vh-ws-code-${name}`] = color;
+  }
+  return colors;
+}
+
+// Token colors use CSS variables, so the editor follows the Pierre light and dark themes of `FileView`.
 const pierreHighlight = HighlightStyle.define([
   { color: "var(--vh-ws-code-comment)", fontStyle: "italic", tag: tags.comment },
   { color: "var(--vh-ws-code-keyword)", tag: [tags.keyword, tags.controlKeyword, tags.moduleKeyword, tags.definitionKeyword, tags.modifier] },
@@ -22,8 +48,10 @@ const pierreHighlight = HighlightStyle.define([
   { color: "var(--vh-ws-code-string)", tag: tags.link, textDecoration: "underline" },
 ]);
 
+// The surface, the gutter, the caret, and the selection come from the `--vh-ws-code-*` tokens of styles.css.
 const theme = EditorView.theme({
-  "&": { backgroundColor: "var(--vh-ws-code-bg)", color: "var(--vh-ws-code-fg)", fontSize: "13px", height: "100%" },
+  "&": { ...syntaxColors(pierreLight), backgroundColor: "var(--vh-ws-code-bg)", color: "var(--vh-ws-code-fg)", fontSize: "13px", height: "100%" },
+  ".dark &": syntaxColors(pierreDark),
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": { fontFamily: "var(--vh-ws-font-mono)", lineHeight: "1.6" },
   ".cm-content": { caretColor: "var(--vh-ws-code-cursor)", paddingBlock: "8px" },

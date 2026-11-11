@@ -1,13 +1,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { isIP } from "node:net"
 import { dirname, extname, join, resolve } from "node:path"
-import { parseJSONC, parseTOML } from "confbox"
+import { parseJSONC } from "confbox/jsonc"
+import { parseTOML } from "confbox/toml"
+import { isRecord } from "@vite-hub/internal/object"
 
 const wranglerConfigFiles = ["wrangler.json", "wrangler.jsonc", "wrangler.toml"]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 /** The project's wrangler config, found the way Nitro's Cloudflare preset finds it: the nearest file from `rootDir` up. */
 export function readProjectWranglerConfig(rootDir: string): Record<string, unknown> | undefined {

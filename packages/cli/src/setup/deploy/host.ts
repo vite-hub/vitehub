@@ -8,6 +8,7 @@ import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type { SetupLink } from "../link.ts"
@@ -277,9 +278,7 @@ export function lastJsonObject(text: string): Record<string, unknown> | undefine
   }
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+export { isRecord }
 
 export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined

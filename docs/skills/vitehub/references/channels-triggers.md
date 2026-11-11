@@ -2,8 +2,9 @@
 
 Use this for Agent Channels and Triggers: GitHub, Gmail, Teams, Telegram,
 Discord, web chat, custom webhooks, message history, admission, concurrency,
-or Agent delivery effects. Outbound application message delivery uses the
-separate [`@vite-hub/channels`](primitives/channels.md) primitive.
+or Agent delivery effects. Every Channel is one file in `server/channels` with
+`defineChannel()` from [`vite-hub/channels`](primitives/channels.md), for both
+directions; an Agent lists it by name with `defineAgent({ channels: ['name'] })`.
 
 ## Select one current page
 

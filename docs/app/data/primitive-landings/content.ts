@@ -7,9 +7,9 @@ const contentFiles: PrimitiveProjectFile[] = [
     content: `import sqlite from "comark-content/database/sqlite-node"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { defineContent } from "vite-hub/content"
-import { glob } from "vite-hub/source/glob"
+import { glob } from "vite-hub/source"
 
-export const content = defineContent({
+export default defineContent({
   plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
     docs: glob({ cwd: "docs", include: "**/*.md" }),
@@ -30,6 +30,7 @@ function packageFile(framework: "vite" | "nitro" | "nuxt"): PrimitiveProjectFile
     content: JSON.stringify({
       private: true,
       type: "module",
+      ...(framework === "nuxt" ? { engines: { pnpm: ">=11.5.0" } } : {}),
       scripts: { dev: framework === "vite" ? "vite" : `${framework} dev` },
       dependencies: {
         "vite-hub": "^0.0.4",
@@ -90,7 +91,7 @@ export default defineNitroConfig({
           path: "server/routes/api/content/[...path].ts",
           language: "typescript",
           content: `import { defineContentHandler } from "vite-hub/content"
-import { content } from "../../../content"
+import content from "../../../content"
 
 export default defineContentHandler(content)`,
         },

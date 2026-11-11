@@ -4,11 +4,11 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { UserConfig } from "vite"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler, createAgentWebhookWarmup } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
+import { agentRuntimeModule } from "../src/vite.ts"
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 const cleanups: Array<() => Promise<void> | void> = []
@@ -28,7 +28,7 @@ function deferred() {
 function hookAgent(secretToken: () => string) {
   return defineAgent({
     channels: {
-      hook: defineChannel("hook", {
+      hook: channelAdapter("hook", {
         messages: false,
         triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
         webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secretToken, signature: "github-sha256" },
@@ -140,7 +140,7 @@ async function generate(options: Record<string, unknown>) {
   await mkdir(join(root, "server", "agents"), { recursive: true })
   await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
   const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:agent-state.sqlite" } }, ...options })
-  if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+  if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
   // SAFETY: The hook reads only command and root from this test config.
   await plugin.configResolved.call({} as never, { command: "build", root } as never)
   const read = (file: string) => readFile(join(root, ".vitehub/agent", file), "utf8")
@@ -150,7 +150,7 @@ async function generate(options: Record<string, unknown>) {
 async function nitroHandlers(options: Record<string, unknown>, handlers: unknown[] = []) {
   const { hubAgent } = await import("../src/vite.ts")
   const plugin = hubAgent(options)
-  if (!isRuntimeFunction(plugin.config)) throw new Error("Expected the Agent Vite config hook.")
+  if (typeof plugin.config !== "function") throw new Error("Expected the Agent Vite config hook.")
   const config = { nitro: { handlers }, root: hostedAgentRoot }
   // SAFETY: The fixture supplies only the config fields read by the Agent config hook.
   await plugin.config.call({} as never, config as UserConfig, { command: "build", mode: "production" })
@@ -163,7 +163,7 @@ describe("generated readiness route", () => {
   it("warms every webhook handler and answers from the warm-up state", async () => {
     const { read } = await generate({})
     const route = await read("chat-webhook-route.ts")
-    expect(route).toContain('import { createAgentWebhookWarmup, installChannelsConsoleHost } from "@vite-hub/agent/server/internal"')
+    expect(route).toContain(`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
     expect(route).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
     expect(route).toContain("export const warmWebhookRoutes = () => webhookWarmup.warm()")
     const ready = await read("ready-route.ts")
@@ -180,7 +180,7 @@ describe("generated readiness route", () => {
     expect(preparation).toContain("fetch(request: Request) {")
     expect(preparation).toContain("if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(request.method)")
     expect(preparation).toContain("return preparation.response(request.method)")
-    expect(preparationPlugin).toContain('import { onShutdown } from "@vite-hub/agent/server/internal"')
+    expect(preparationPlugin).toContain(`import { onShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
     expect(preparationPlugin).toContain('onShutdown(nitroApp, "agent.preparation", () => preparation.stop())')
     expect(preparationPlugin).not.toContain('nitroApp.hooks.hook("close"')
     await expect(read("ready-route.ts")).rejects.toMatchObject({ code: "ENOENT" })

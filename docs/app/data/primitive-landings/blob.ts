@@ -51,7 +51,7 @@ export const BlobLanding = {
         {
           path: "nuxt.config.ts",
           language: "typescript",
-          content: 'import { hubBlob } from "@vite-hub/blob/vite"\n\nexport default defineNuxtConfig({\n  modules: ["vite-hub/nuxt"],\n  vite: { plugins: [hubBlob({ driver: "fs" })] },\n})',
+          content: '// Use pnpm 11.5 or newer for the Nuxt 5 nightly alias.\n// Install: pnpm add vite-hub @vite-hub/blob nuxt@npm:nuxt-nightly@5x\nimport { hubBlob } from "@vite-hub/blob/vite"\n\nexport default defineNuxtConfig({\n  modules: ["vite-hub/nuxt"],\n  vite: { plugins: [hubBlob({ driver: "fs" })] },\n})',
         },
         {
           path: "server/api/blob.ts",

@@ -14,7 +14,8 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import consolePreflightPlugin from "../src/console/runtime/server/console-preflight.ts"
 import { consoleTokenMatchesHash } from "../src/console/runtime/server/console-token.ts"
-import { answerConsolePreflight, installConsoleOrigins, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import { answerConsolePreflight, installConsoleOrigins, isConsoleCrossOriginCall, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import envManageHandler from "../src/console/runtime/server/env-manage.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
@@ -30,6 +31,8 @@ const app = "https://app.example.com"
 const consoleOrigin = "https://console.vitehub.dev"
 const token = "test-console-token-0123456789abcdef"
 const tokenHash = createHash("sha256").update(token).digest("hex")
+const ciToken = "test-ci-token-0123456789abcdef0123"
+const ciTokenHash = createHash("sha256").update(ciToken).digest("hex")
 const policyKey = Symbol.for("vitehub.console.access")
 const originsKey = Symbol.for("vitehub.console.origins")
 
@@ -51,6 +54,7 @@ function send(request: Request): Promise<Response> {
 }
 
 afterEach(() => {
+  installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   Reflect.deleteProperty(globalThis, originsKey)
@@ -75,6 +79,37 @@ describe("console: { auth: \"token\" }", () => {
     expect((await send(request)).status).toBe(200)
   })
 
+  it("accepts the token of every VITEHUB_CONSOLE_TOKEN_SHA256_<NAME> variable, so removing one revokes only that caller", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", tokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CI", ` ${ciTokenHash.toUpperCase()} `)
+    expect((await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+    expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", undefined)
+    const revoked = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
+    expect(revoked.status).toBe(401)
+    await expect(revoked.json()).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID" })
+    expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+  })
+
+  it("reads the named variables from the Cloudflare env of the request too", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    const request = Object.assign(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }), {
+      runtime: { name: "cloudflare", cloudflare: { context: { passThroughOnException: vi.fn(), waitUntil: vi.fn() }, env: { DB: {}, VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE: tokenHash } } },
+    })
+    expect((await send(request)).status).toBe(200)
+  })
+
+  it("ignores variables that only start like the name", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256X", tokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_lower", tokenHash)
+    expect((await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))).status).toBe(401)
+  })
+
   it.each([
     ["a wrong token", `Bearer ${token}x`, "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
     ["the hash in place of the token", `Bearer ${tokenHash}`, "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
@@ -92,10 +127,12 @@ describe("console: { auth: \"token\" }", () => {
   })
 
   it.each([
-    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment, and it is not set"],
-    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "it is not set"],
+    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` or a `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>` variable in the server environment, and none is set"],
+    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "none is set"],
     ["the hash is not 64 hex characters", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.slice(1) }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["the hash has a non-hex character", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash.slice(1)}g` }, "is not 64 hex characters"],
+    ["a named variable is not a hash", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash, VITEHUB_CONSOLE_TOKEN_SHA256_CI: token }, "`VITEHUB_CONSOLE_TOKEN_SHA256_CI` is not 64 hex characters"],
+    ["a comma list", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash},${ciTokenHash}` }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["only the raw token is set", { VITEHUB_CONSOLE_TOKEN: token }, "`VITEHUB_CONSOLE_TOKEN` is set, but the server reads only `VITEHUB_CONSOLE_TOKEN_SHA256`"],
   ] satisfies Array<[string, Record<string, string>, string]>)("refuses every request with a diagnostic when %s", async (_name, env, message) => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
@@ -129,15 +166,16 @@ describe("console: { auth: \"token\" }", () => {
     expect(seen[0]).not.toHaveProperty("user")
   })
 
-  it("compares in constant time: it hashes the bearer with SHA-256 and compares the digests", async () => {
-    const expected = Uint8Array.from(Buffer.from(tokenHash, "hex"))
+  it("compares in constant time: it hashes the bearer once with SHA-256 and compares it with every digest", async () => {
+    const expected = [tokenHash, ciTokenHash].map(hash => Uint8Array.from(Buffer.from(hash, "hex")))
     const digest = vi.spyOn(crypto.subtle, "digest")
     await expect(consoleTokenMatchesHash(expected, token)).resolves.toBe(true)
+    await expect(consoleTokenMatchesHash(expected, ciToken)).resolves.toBe(true)
     await expect(consoleTokenMatchesHash(expected, `${token}x`)).resolves.toBe(false)
     await expect(consoleTokenMatchesHash(expected, tokenHash)).resolves.toBe(false)
-    expect(digest.mock.calls.map(([algorithm]) => algorithm)).toEqual(["SHA-256", "SHA-256", "SHA-256"])
+    expect(digest.mock.calls.map(([algorithm]) => algorithm)).toEqual(["SHA-256", "SHA-256", "SHA-256", "SHA-256"])
     const hashed = digest.mock.calls.map(([, data]) => new TextDecoder().decode(data as Uint8Array))
-    expect(hashed).toEqual([token, `${token}x`, tokenHash])
+    expect(hashed).toEqual([token, ciToken, `${token}x`, tokenHash])
   })
 
   it("never gives an Agent's operation calls the token context, which means a verified token", async () => {
@@ -181,7 +219,7 @@ describe("console.origins", () => {
   it.each([
     ["an open Console", { mode: "open" }],
     ["a session Console", { check: async () => undefined, mode: "auth" }],
-  ] satisfies Array<[string, ConsoleAccessPolicy]>)("never lets %s take a cross-origin call, even from a listed origin with a bearer header", async (_name, policy) => {
+  ] satisfies Array<[string, ConsoleAccessPolicy]>)("never lets %s in production take a cross-origin call, even from a listed origin with a bearer header", async (_name, policy) => {
     install(policy)
     const response = await send(rpc({ authorization: `Bearer ${token}`, cookie: "better-auth.session_token=abc", origin: consoleOrigin, "sec-fetch-site": "cross-site" }))
     expect(response.status).toBe(403)
@@ -199,6 +237,32 @@ describe("console.origins", () => {
     expect(response.status).toBe(403)
     expect(response.headers.has("access-control-allow-origin")).toBe(false)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
+  })
+
+  it.each(["local", "open"] as const)("lets the hosted Console call a %s development server from a listed origin without a token", (mode) => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin, "sec-fetch-site": "cross-site" }), { mode, sections: "all" })).toBe(true)
+  })
+
+  it.each(["local", "open"] as const)("refuses a listed origin without a token on a %s production server", (mode) => {
+    installConsoleDevelopment("/test/app", false)
+    install({ mode })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode, sections: "all" })).toBe(false)
+  })
+
+  it("refuses an unlisted origin on a development server without sign-in", () => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode: "open" })
+    expect(isConsoleCrossOriginCall(rpc({ origin: "https://evil.example" }), { mode: "open", sections: "all" })).toBe(false)
+  })
+
+  it("still needs a bearer token for the token mode, in development too", () => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode: "token" })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode: "token", sections: "all" })).toBe(false)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "token", sections: "all", via: "token" })).toBe(true)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "auth", sections: "all" })).toBe(false)
   })
 
   it("keeps same-origin calls as they were", async () => {
@@ -224,11 +288,11 @@ describe("console.origins", () => {
   it("lets Channel replay take a token call from a listed origin", async () => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
-    const replay = (origin: string) => channelReplayHandler(requestEvent(new Request(`${app}/_vitehub/channels/replay`, {
+    const replay = (origin: string) => channelReplayHandler.fetch(new Request(`${app}/_vitehub/channels/replay`, {
       body: JSON.stringify({}),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin },
       method: "POST",
-    })))
+    }))
     const listed = await replay(consoleOrigin)
     // The origin check passed: the route now asks for an Agent name.
     expect(listed.status).toBe(400)
@@ -374,11 +438,13 @@ describe("Console data route responses", () => {
 })
 
 describe("Console origin and token options", () => {
-  it("defaults origins to the hosted Console and keeps them only for the token mode", () => {
+  it("defaults origins to the hosted Console and keeps them for bearer modes and development without sign-in", () => {
     expect(resolveConsoleOrigins(undefined)).toEqual([consoleOrigin])
     expect(resolveConsoleAccessBuild({ auth: "token" }, { root: process.cwd() })).toEqual({ mode: "token", origins: [consoleOrigin] })
     expect(resolveConsoleAccessBuild({ auth: "token", origins: [] }, { root: process.cwd() })).toEqual({ mode: "token", origins: [] })
-    expect(resolveConsoleAccessBuild({ auth: false, origins: [consoleOrigin] }, { root: process.cwd() })).not.toHaveProperty("origins")
+    expect(resolveConsoleAccessBuild({ auth: false }, { root: process.cwd() })).toEqual({ mode: "open", origins: [consoleOrigin] })
+    expect(resolveConsoleAccessBuild({ auth: false, origins: [] }, { root: process.cwd() })).toEqual({ mode: "open", origins: [] })
+    expect(resolveConsoleAccessBuild({ auth: "app" }, { root: process.cwd() })).not.toHaveProperty("origins")
     expect(resolveConsoleOptions({ auth: "token" })).toEqual({ auth: "token" })
   })
 

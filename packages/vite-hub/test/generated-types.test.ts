@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { H3Event } from "h3"
 
 const generatedHandlerReadGate = vi.hoisted<{
   path: string | undefined
@@ -63,18 +62,26 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubAuth } from "@vite-hub/auth/vite"
-import { hubSource, mergeGeneratedSourceNitroConfig, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
+import { hubSource, mergeGeneratedSourceNitroConfig, prepareSourceGeneration, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
-import {
-  hubSource as frameworkHubSource,
-  prepareSourceGeneration as prepareFrameworkSourceGeneration,
-} from "../src/source/vite.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 
 const tempDirectories: string[] = []
+
+const frameworkImports = { contentImportBase: "vite-hub/content", importBase: "vite-hub/source" }
+
+/** The Source plugins as `vitehub()` composes them: generated code imports `vite-hub/*`. */
+function frameworkHubSource(options: Parameters<typeof hubSource>[0] = {}) {
+  const source = hubSource({ ...frameworkImports, ...options })
+  return [source, viteHubTypesPlugin({ prepareSources: source.api.prepareSources })] as const
+}
+
+function prepareFrameworkSourceGeneration(options: Parameters<typeof prepareSourceGeneration>[0]) {
+  return prepareSourceGeneration({ ...frameworkImports, ...options })
+}
 
 async function createNestedProject() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-generated-types-"))
@@ -100,9 +107,13 @@ function collectionModule(name: string): string {
   ].join("\n")
 }
 
+/** Counts evaluations of the server/content.ts fixture. */
+const contentEvaluations = "__vitehubContentEvaluations"
+
 function contentModule(): string {
   return [
-    `export const content = {`,
+    `Reflect.set(globalThis, ${JSON.stringify(contentEvaluations)}, (Reflect.get(globalThis, ${JSON.stringify(contentEvaluations)}) ?? 0) + 1)`,
+    `export default {`,
     `  async handler(request: Request) {`,
     `    return Response.json({`,
     `      aborted: request.signal.aborted,`,
@@ -335,6 +346,25 @@ describe("framework generated types", () => {
     await expect(readFile(join(viteRoot, ".vitehub/types.d.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("clears declarations from disabled plugins before collecting generated types", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const workflowTypes = join(root, ".vitehub/workflow.d.ts")
+    await writeFile(workflowTypes, 'import "../server/workflows/removed-step.ts"\n')
+    await writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n")
+    await configResolved(viteHubTypesPlugin())({ root: viteRoot })
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./workflow.d.ts")
+
+    const plugin = viteHubTypesPlugin({ disabledTypeFiles: ["workflow.d.ts"] })
+    await config(plugin)({ root: viteRoot })
+    await configResolved(plugin)({ root: viteRoot })
+
+    await expect(readFile(workflowTypes, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    const entry = await readFile(join(root, ".vitehub/types.d.ts"), "utf8")
+    expect(entry).not.toContain("workflow.d.ts")
+    expect(entry).toContain("./env/env.d.ts")
+    await expect(readFile(join(root, ".vitehub/env/env.d.ts"), "utf8")).resolves.toBe("interface ImportMetaEnv {}\n")
+  })
+
   it("ignores directory symlinks that revisit a generated type directory", async () => {
     const { root, viteRoot } = await createNestedProject()
     const generatedTypes = join(root, ".vitehub/types")
@@ -424,9 +454,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
     )
-    await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).resolves.toBe(
-      '/// <reference path="./collections.d.ts" />\n',
-    )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
   })
 
@@ -493,22 +520,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toContain(
       'from "@vite-hub/content"',
     )
-  })
-
-  it("uses framework imports when direct Source options explicitly leave the import base undefined", async () => {
-    const { root } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    await prepareFrameworkSourceGeneration({ importBase: undefined, projectRoot: root })
-    const generatedRoute = join(root, ".vitehub/source/routes/meals.mjs")
-    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
-
-    await rm(generatedRoute)
-    const [source] = frameworkHubSource({ importBase: undefined })
-    await configResolved(source!)({ root })
-
-    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
   })
 
   it("preserves a custom framework import base during CLI preparation", async () => {
@@ -645,66 +656,8 @@ describe("framework generated types", () => {
     await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
 
     await writeFile(definition, "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
-    await configResolved(source)({ auth: false, plugins: [auth], root })
-    await source.api.prepareSources({ projectRoot: root })
-    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
     await configResolved(source)({ plugins: [], root })
     await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
-  })
-
-  it("omits Auth's authorizer when the resolved Vite config disables Auth", async () => {
-    const { root } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    const [source] = frameworkHubSource({
-      auth: ({ configuredAuth }) => configuredAuth !== false,
-    })
-    await configResolved(source!)({ auth: false, root })
-
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
-      [
-        `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
-        ``,
-        `export default defineCollectionHandler(collection)`,
-        ``,
-      ].join("\n"),
-    )
-
-    await (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
-      [
-        `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
-        ``,
-        `export default defineCollectionHandler(collection)`,
-        ``,
-      ].join("\n"),
-    )
-  })
-
-  it("keeps queued Source preparation on the latest resolved Auth setting", async () => {
-    const { root, viteRoot } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    const [source] = frameworkHubSource({
-      auth: ({ configuredAuth }) => configuredAuth !== false,
-    })
-    const resolveConfig = configResolved(source!)({ auth: false, root: viteRoot })
-    const queuedPreparation = (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
-    await Promise.all([resolveConfig, queuedPreparation])
-
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
-      [
-        `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
-        ``,
-        `export default defineCollectionHandler(collection)`,
-        ``,
-      ].join("\n"),
-    )
   })
 
   it("serves server/content.ts through the Comark Content runtime", async () => {
@@ -723,15 +676,18 @@ describe("framework generated types", () => {
       handler: join(root, ".vitehub/content/preview.mjs"),
       plugin: true,
     }, {
+      handler: join(root, ".vitehub/content/types.mjs"),
+      plugin: true,
+    }, {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
-    // Agents receive this file's `content` export as the content primitive.
+    // Agents receive this file's default export as the content primitive.
     expect(plugin.api.getContentDefinition(root)).toEqual({ handler: join(root, "server/content.ts") })
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineContentHandler } from "vite-hub/content"`,
-        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        `import content from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
         ``,
         `export default defineContentHandler(content)`,
         ``,
@@ -739,29 +695,50 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/content/preview.mjs"), "utf8")).resolves.toBe(
       [
-        `import { defineContentPreviewPlugin } from "vite-hub/content"`,
-        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        `import { defineContentPreviewPlugin } from "vite-hub/content/preview"`,
         ``,
-        `export default defineContentPreviewPlugin(content)`,
+        `export default defineContentPreviewPlugin(() => import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}).then(module => module.default))`,
         ``,
       ].join("\n"),
     )
+    Reflect.deleteProperty(globalThis, contentEvaluations)
     const previewModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
     const previewPlugin = Reflect.get(Object(previewModule), "default")
     if (!(previewPlugin instanceof Function)) throw new TypeError("Expected a generated Content preview plugin.")
-    // The plugin wraps Nitro's fetch entry; a request without the preview cookie passes straight through.
-    const nitroApp = { fetch: () => "next" }
+    // The plugin wraps Nitro's fetch entry; a request without the preview cookie passes straight through, and the
+    // server starts without loading server/content.ts.
+    const nitroApp = { fetch: (_request?: Request) => "next" }
     previewPlugin(nitroApp)
-    expect(nitroApp.fetch()).toBe("next")
-    const generatedModule: unknown = await import(pathToFileURL(handlers[1]!.handler).href)
+    expect(nitroApp.fetch(new Request("https://example.test/blog"))).toBe("next")
+    expect(Reflect.get(globalThis, contentEvaluations)).toBeUndefined()
+    // The first preview request loads it. This runtime has no preview, so the request passes through.
+    await expect(nitroApp.fetch(new Request("https://example.test/blog", { headers: { cookie: "vitehub-content-preview=v1.1.token" } }))).resolves.toBe("next")
+    expect(Reflect.get(globalThis, contentEvaluations)).toBe(1)
+    await expect(readFile(join(root, ".vitehub/content/types.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentTypesPlugin } from "vite-hub/content"`,
+        `import { useRuntimeConfig } from "nitro/runtime-config"`,
+        ``,
+        `// A production build drops this branch, so the server does not load Content at startup.`,
+        `const write = async (declarations) => {`,
+        `  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })`,
+        '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
+        `}`,
+        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).default, write, { moduleName: "vite-hub/content" }) : () => {}`,
+        ``,
+      ].join("\n"),
+    )
+    // Until a development server writes the types, `.vitehub/types.d.ts` references an empty file.
+    await expect(readFile(join(root, ".vitehub/types/content.d.ts"), "utf8")).resolves.toBe("export {}\n")
+    const generatedModule: unknown = await import(pathToFileURL(handlers[2]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
-    if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
-    const request = new Request("https://example.test/api/content/custom", {
+    const fetchHandler: unknown = Reflect.get(Object(generatedHandler), "fetch")
+    if (!(fetchHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
+    const response: unknown = await fetchHandler(new Request("https://example.test/api/content/custom", {
       body: "content body",
       headers: { "x-content-test": "preserved" },
       method: "POST",
-    })
-    const response: unknown = await generatedHandler(new H3Event(request))
+    }))
     if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
     await expect(response.json()).resolves.toEqual({
       aborted: false,
@@ -773,9 +750,7 @@ describe("framework generated types", () => {
 
     const abort = new AbortController()
     abort.abort()
-    const abortedResponse: unknown = await generatedHandler(
-      new H3Event(new Request("https://example.test/api/content/aborted", { signal: abort.signal })),
-    )
+    const abortedResponse: unknown = await fetchHandler(new Request("https://example.test/api/content/aborted", { signal: abort.signal }))
     if (!(abortedResponse instanceof Response)) throw new TypeError("Expected an aborted Content response.")
     await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
   })
@@ -786,7 +761,7 @@ describe("framework generated types", () => {
     const file = join(root, "server/content.ts")
     const write = async (route: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
 const publicRoute = ${route}
-export const content = defineContent({ route: publicRoute, source: { async items() { return [] } }, seo: { sitemap: true, robots: true } })
+export default defineContent({ route: publicRoute, source: { async items() { return [] } }, seo: { sitemap: true, robots: true } })
 `)
     await write("true")
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
@@ -808,7 +783,7 @@ export const content = defineContent({ route: publicRoute, source: { async items
     const file = join(root, "server/content.ts")
     const preview = { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true }
     const write = async (options: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
-export const content = defineContent(${options})
+export default defineContent(${options})
 `)
     // Previews read drafts of collections. A plugin without them would only load Content when the server starts.
     await write("{ sources: { docs: { async items() { return [] } } } }")
@@ -829,7 +804,7 @@ export const content = defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export const content = defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ sitemap: true, robots: { disallow: ["/admin"] } }`)
@@ -843,12 +818,12 @@ export const content = defineContent(${options})
     const load = async (name: string) => {
       const module: unknown = await import(`${pathToFileURL(join(root, `.vitehub/content/${name}.mjs`)).href}?t=${Date.now()}`)
       const handler = Reflect.get(Object(module), "default")
-      if (!(handler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
-      return handler
+      const fetchHandler: unknown = Reflect.get(Object(handler), "fetch")
+      if (!(fetchHandler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
+      return { fetch: (request: Request): Promise<Response> => fetchHandler.call(handler, request) }
     }
-    // The request origin fills in the site.
-    const robots: unknown = await (await load("robots"))(new H3Event(new Request("https://example.test/robots.txt")))
-    if (!(robots instanceof Response)) throw new TypeError("Expected a robots.txt response.")
+    // Nitro 3 passes the Web request; the request origin fills in the site.
+    const robots = await (await load("robots")).fetch(new Request("https://example.test/robots.txt"))
     expect(robots.headers.get("content-type")).toBe("text/plain; charset=utf-8")
     await expect(robots.text()).resolves.toBe("User-agent: *\nDisallow: /admin\n\nSitemap: https://example.test/sitemap.xml\n")
     const sitemap = await (await load("sitemap")).fetch(new Request("https://site.test/sitemap.xml"))
@@ -871,7 +846,7 @@ export const content = defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export const content = defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ markdown: true }`)
@@ -888,7 +863,7 @@ export const content = defineContent(${options})
     const middleware = Reflect.get(Object(module), "default")
     if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
     // Without a published Markdown document at the path, the request passes through to the app.
-    await expect(middleware(new H3Event(new Request("https://example.test/guide.md")))).resolves.toBeUndefined()
+    await expect(middleware({ req: new Request("https://example.test/guide.md") })).resolves.toBeUndefined()
 
     await write(`{ markdown: false }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).some((handler: { route?: string }) => handler.route === "/**")).toBe(false)
@@ -915,7 +890,13 @@ export const content = defineContent(${options})
     await expect(sourcePlugin().api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir],
-    })).rejects.toThrow('must export a Comark Content instance named "content"')
+    })).rejects.toThrow("must default-export the result of defineContent()")
+
+    await writeFile(join(firstServerDir, "content.ts"), "export const content = {}\n")
+    await expect(sourcePlugin().api.prepareSources({
+      projectRoot: root,
+      serverDirs: [firstServerDir],
+    })).rejects.toThrow(expect.objectContaining({ code: "SOURCE_B0009", message: expect.stringContaining("`export default defineContent({ ... })`") }))
   })
 
   it("preserves generated Collection artifacts when Content discovery fails", async () => {
@@ -940,7 +921,7 @@ export const content = defineContent(${options})
       writeFile(join(root, "server/content.ts"), "export const other = {}\n"),
     ])
     await expect(sourcePlugin().api.prepareSources({ projectRoot: root })).rejects.toThrow(
-      'must export a Comark Content instance named "content"',
+      "must default-export the result of defineContent()",
     )
 
     await expect(readFile(collectionRoute, "utf8")).resolves.toBe(routeBeforeFailure)
@@ -969,7 +950,7 @@ export const content = defineContent(${options})
     expect(Reflect.get(Object(contribution), "nitro")).toEqual({
       handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), lazy: true, route: "/api/content/**" }],
       modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
-      plugins: [join(root, ".vitehub/content/preview.mjs")],
+      plugins: [join(root, ".vitehub/content/preview.mjs"), join(root, ".vitehub/content/types.mjs")],
     })
   })
 
@@ -1009,7 +990,7 @@ export const content = defineContent(${options})
 
     const [handler] = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
-    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
+    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default.fetch", expect.any(Function))
   })
 
   it("registers generated Collection handlers in plain Vite Nitro config", async () => {
@@ -1478,6 +1459,31 @@ export const content = defineContent(${options})
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("restores Content declarations when removing Content fails to restart the host", async () => {
+    const { root } = await createNestedProject()
+    const definition = join(root, "server/content.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, "export default defineContent({})")
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const types = join(root, ".vitehub/types/content.d.ts")
+    const declarations = "// Existing Content declarations\nexport {}\n"
+    await writeFile(types, declarations)
+    const restartHost = vi.fn().mockRejectedValueOnce(new Error("host restart failed")).mockResolvedValue(undefined)
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+    await rm(definition)
+    await listeners.get("unlink")?.(definition)
+    await expect(readFile(types, "utf8")).resolves.toBe(declarations)
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
+    await expect(readFile(types, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("retries when Vite fulfills a failed restart without replacing the server", async () => {
@@ -2240,7 +2246,6 @@ export const content = defineContent(${options})
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
       await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
-      await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )

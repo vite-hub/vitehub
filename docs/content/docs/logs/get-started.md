@@ -7,11 +7,18 @@ layout: tutorial
 icon: i-lucide-logs
 ---
 
+Logs shows what your server did on each request. ViteHub uses [Evlog](https://evlog.dev), a logging library, to write one log event for each request. You add your own data to that event, and you read it in the Console.
+
+In this tutorial, you add data to the log event of one API route. Then you call the route and read its event in the Console.
+
+> [!NOTE] Before you start
+> Use a Vite app with Nitro 3, such as the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Everything runs on your computer.
+
 ::tutorial-step{title="Install Evlog"}
 
-Install Evlog in your application:
+Add Evlog to your app:
 
-```sh [commands/install]
+```bash pm [commands/install]
 pnpm add evlog
 ```
 
@@ -19,26 +26,65 @@ pnpm add evlog
 
 ::tutorial-step{title="Enable local capture"}
 
-Enable local capture in a Vite application with Nitro 3:
+Add `observability.logs` and `console` to the ViteHub options of your app. Keep the other options of your app. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+const isDev = process.env.NODE_ENV === 'development'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false, local: true } }),
-    nitro(),
-  ],
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      nitro(),
+    ],
+  }
 })
 ```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+    ],
+  }
+})
+```
+::::
+:::
+
+- `observability: { logs: true }` saves the log events on your computer while the dev server runs.
+- `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/development/console) before you deploy.
 
 ::
 
 ::tutorial-step{title="Add request data"}
 
-Enrich the automatic request event through Evlog's framework adapter:
+Create `server/api/status.get.ts`. It adds a message and the environment name to the log event of the request:
 
 ```ts [server/api/status.get.ts]
 import { useLogger } from 'evlog/nitro/v3'
@@ -50,22 +96,47 @@ export default defineHandler((event) => {
 })
 ```
 
+- `useLogger(event)` gets the log event of this request. Evlog makes it for you.
+- `.set()` adds your fields to that event.
+
 ::
 
 ::tutorial-step{title="Inspect the request"}
 
-Start your dev server:
+Start the dev server:
 
 ```sh [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Request `/api/status`, then open `/_vitehub/logs`. Select a row to inspect its structured data. Switch between Explorer and Stream. Follow polls for new events.
+1. Open `http://localhost:3000/api/status` in your browser. It shows `{"ok":true}`.
+2. Open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development). Select **Continue**, then **Logs**, and find the row `Status checked`. A row shows the `message` of the event. An event without a `message` shows its path, such as `/api/status`.
+3. Select the row. The **Event details** panel shows your `message` and `deployment` fields, and the `path` `/api/status`.
+4. Switch between the **Explorer** and **Stream** views.
+5. Select **Follow**. The Console checks for new events every 2 seconds. Open `/api/status` again to see a new row.
 
 ::
 
-Local `logs: true` capture currently supports Nitro 3.
+## What happens when you deploy
 
-The repository's `playground/logs` includes a checkout request, redaction, and a serialized Nostics diagnostic. Follow its README to run the example.
+Local capture works only in development. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
-Local capture is development only. For production, configure an [existing backend source](/docs/logs/configure#read-an-existing-backend).
+Local capture requires Nitro 3, in Vite or Nuxt 5.
+
+For a larger example, run `playground/logs` in the ViteHub repository. It shows a checkout request, redacted fields, and a diagnostic. Its README tells you how to start it.
+
+## Next steps
+
+::card-group
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/logs/configure"}
+Pass Evlog options and read logs from your own backend.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/logs/hosts"}
+See how Logs works on Cloudflare, Vercel, and other hosts.
+:::
+
+:::card{title="Server API" icon="i-lucide-code" to="/docs/logs/server-api"}
+Use the Evlog logger and write your own log source.
+:::
+::

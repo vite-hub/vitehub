@@ -1,5 +1,5 @@
 import { appendResponseHeader, defineEventHandler, getCookie, getRequestHeader, getRequestURL, setResponseHeader } from "h3";
-import { docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
+import { docsSidebarCollapses, docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
 import { getRouteRules, useRuntimeConfig } from "nuxt/server";
 import manifest from "#docs/manifest";
 
@@ -65,12 +65,15 @@ export function shouldServePrerenderedAsset(input: {
 // This keeps Markdown negotiation and avoids slow server rendering of pages
 // that Nitro already prerendered.
 export default defineEventHandler(async (event) => {
-  const isTutorial = findDocsPage(manifest, getRequestURL(event).pathname)?.page.codePanel === true;
-  if (isTutorial) {
+  const path = getRequestURL(event).pathname.replace(/\/+$/, "");
+  const page = findDocsPage(manifest, path)?.page;
+  // These app pages opt in through definePageMeta, so they are absent from the content manifest.
+  const collapses = path === "/playground" || /^\/learn\/[^/]+$/.test(path) || (!!page && docsSidebarCollapses(page));
+  if (collapses) {
     // The browser must request the layout again after the navigation cookie changes.
     setResponseHeader(event, "Cache-Control", "private, no-store");
     appendResponseHeader(event, "Vary", "Cookie");
-    // Prerendered tutorials have no navigation. Render saved open layouts with the
+    // Prerendered pages show the collapsed sidebar. Render saved open layouts with the
     // request cookie so the server and client agree before hydration.
     if (getCookie(event, docsTutorialNavigationCookie) === "true") return;
   }
@@ -95,7 +98,7 @@ export default defineEventHandler(async (event) => {
     // The asset response must carry the route rule headers too, such as
     // the cross-origin isolation of `/learn/**`.
     for (const [name, value] of Object.entries(getRouteRules(event).headers ?? {})) headers.set(name, value);
-    if (isTutorial) {
+    if (collapses) {
       headers.set("Cache-Control", "private, no-store");
       headers.append("Vary", "Cookie");
       // H3 applies staged headers to returned Responses. Keep the asset's full Vary value.

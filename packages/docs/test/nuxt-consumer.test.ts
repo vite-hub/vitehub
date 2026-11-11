@@ -48,6 +48,14 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
       expect.objectContaining({ route: "/api/_docs/search.json" }),
       expect.objectContaining({ route: "/mcp" }),
     ]))
+    // The site lists no @vite-hub/ui, and still gets the design system: its tokens, its focus rule, and Geist.
+    const styles = nuxt.options.build.templates.find(template => template.filename === "docs/docs.css")
+    const theme = /@import "([^"]+\/theme\.css)"/.exec(String(await styles?.getContents?.({} as never)))?.[1]
+    expect(theme && await readFile(theme, "utf8")).toContain(":focus-visible {\n  outline: 2px solid var(--vh-focus);")
+    expect((nuxt.options as { fonts?: { families?: unknown[] } }).fonts?.families).toEqual(expect.arrayContaining([
+      { name: "Geist", global: true },
+      { name: "Geist Mono", global: true },
+    ]))
   }
   finally {
     await nuxt?.close()

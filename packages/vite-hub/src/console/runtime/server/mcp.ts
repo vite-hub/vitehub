@@ -1,21 +1,20 @@
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
-import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
+import { checkViteHubMcpInput, getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { serveMcp } from "./mcp-protocol.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { isConsoleDevelopmentRuntime } from "./request.ts"
+import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
+import type { McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import type { ConsoleAccess } from "./access.ts"
-import type { McpTool, McpToolResult } from "./mcp-protocol.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const serverInfo = { name: "vitehub", title: "ViteHub MCP", version: "1" }
 
@@ -25,9 +24,15 @@ const instructions = "ViteHub MCP gives Agents the operations and server primiti
 const registeredToolRequestBytes = 256 * 1_024
 const inputSchemas = new WeakMap<AnyOperation, Record<string, unknown>>()
 
+/** What is wrong with the arguments, or nothing when they match the tool's schema. */
+function invalidInput(tool: ViteHubMcpTool, input: Record<string, unknown>): string | undefined {
+  const problem = checkViteHubMcpInput(tool.inputSchema, input)
+  return problem ? `Invalid arguments for ${tool.name}: ${problem}` : undefined
+}
+
 interface ToolContext {
   access: ConsoleAccess
-  event: H3Event
+  event: ConsoleRequestEvent
   request: Request
 }
 
@@ -70,7 +75,6 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
         description: operation.description,
         inputSchema,
         annotations: { readOnlyHint: operation.kind === "read", destructiveHint: operation.kind === "destructive", openWorldHint: false },
-        checksInput: true,
         maxRequestBytes: operation.maxRequestBytes ?? defaultRequestBytes,
         scopes: [consoleOperationScope(operation)],
         async handler(arguments_) {
@@ -121,6 +125,7 @@ function registeredTools({ access, event }: ToolContext, tools: readonly ViteHub
       description: tool.description,
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,
+      validate: input => invalidInput(tool, input),
       maxRequestBytes: registeredToolRequestBytes,
       scopes: [consoleOperationScope({ kind: tool.annotations?.readOnlyHint === true ? "read" : "write" })],
       async handler(input) {
@@ -165,7 +170,7 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
   }, { headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(await oauthState(event)) }, status: 401 })
 }
 
-const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
+const guarded = withConsoleAccess(async (event: ConsoleRequestEvent, access: ConsoleAccess) => {
   const request = getStandardContext(event).req
   const context = { access, event, request }
   const installed = getConsoleSections()
@@ -186,11 +191,11 @@ const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) 
  * `/_vitehub/mcp`: ViteHub MCP, a stateless Streamable HTTP MCP server. It runs with the Console access of the request,
  * a session or an OAuth access token, and lists the operations and registered tools that the person may use.
  */
-const handler: (event: H3Event) => Promise<Response> = async (event) => {
+const consoleMcpRoute: ConsoleRoute = consoleRoute(async (event) => {
   const response = await guarded(event)
   if (isBearerRejection(response)) return response
   // A sign-in that is missing is a 401 for the client, even where the Console would redirect a browser.
   if (response.status === 401 || (response.status >= 300 && response.status < 400)) return mcpUnauthorized(event)
   return response
-}
-export default handler
+})
+export default consoleMcpRoute
