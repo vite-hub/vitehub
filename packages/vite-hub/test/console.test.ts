@@ -1115,6 +1115,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
       // App Auth access routes leave the signed Console RPC to its own check.
       expect(generated).toContain('vitehubExcludeAuthAccessRoute("POST", "/_vitehub/rpc")')
+      expect(generated).toContain('vitehubExcludeAuthAccessRoute("GET", "/_vitehub/rpc")')
       expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
     } finally {
       await rm(root, { force: true, recursive: true })

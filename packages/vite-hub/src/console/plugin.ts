@@ -192,9 +192,10 @@ function renderConsoleNitroPlugin(
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
-    // The Console route checks its own access, and a signed caller has no app session. App Auth access routes such as
-    // `/**` leave its exact POST route to that check. Other methods, such as an app GET handler on the same path, keep them.
-    ...(excludeAppAuth ? [`vitehubExcludeAuthAccessRoute("POST", ${JSON.stringify(rpcRoute)})`] : []),
+    // The Console route checks its own access: a signed POST has no app session, and a GET has a one-time ticket as its
+    // only proof. App Auth access routes such as `/**` leave both methods of the exact route to that check. The Console
+    // refuses app route files on the same path at build time, so no app handler answers there without the check.
+    ...(excludeAppAuth ? ["POST", "GET"].map(method => `vitehubExcludeAuthAccessRoute(${JSON.stringify(method)}, ${JSON.stringify(rpcRoute)})`) : []),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,

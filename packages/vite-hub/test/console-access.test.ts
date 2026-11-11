@@ -347,7 +347,7 @@ describe("generated Console access", () => {
     expect(plugin).not.toContain("vitehubExcludeAuthAccessRoute")
   })
 
-  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("leaves only the Console POST route below %s out of app Auth access routes", async (base, route) => {
+  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("leaves only the Console POST and ticket GET route below %s out of app Auth access routes", async (base, route) => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
@@ -361,6 +361,8 @@ describe("generated Console access", () => {
     const plugin = await generatedPlugin({ console: {}, resolveAuthConfig: () => auth }, "build", { base, nitro: { handlers: [] } })
     expect(plugin).toContain('import { excludeAuthAccessRoute as vitehubExcludeAuthAccessRoute } from "vite-hub/auth/runtime/server"')
     expect(plugin).toContain(`vitehubExcludeAuthAccessRoute("POST", ${JSON.stringify(route)})`)
+    // A preview link opens without an app session: the one-time ticket is its proof.
+    expect(plugin).toContain(`vitehubExcludeAuthAccessRoute("GET", ${JSON.stringify(route)})`)
   })
 
   it("serves development operations with Setup-only navigation and no app-served pages", async () => {
