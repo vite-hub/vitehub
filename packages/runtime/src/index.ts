@@ -18,6 +18,19 @@ export {
   type ExecutionBudgetUsage,
 } from "./execution-budget.ts"
 
+export {
+  createMemoryLeaseStore,
+  createSqlLeaseStore,
+  leaseTable,
+  type Lease,
+  type LeaseAcquireOptions,
+  type LeaseErrorCode,
+  type LeaseOperation,
+  type LeaseRecord,
+  type LeaseSqlClient,
+  type LeaseSqlParam,
+  type LeaseStore,
+} from "./lease.ts"
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
 export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
@@ -1301,17 +1314,6 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
       })),
     ]
   })
-}
-
-export interface Lease {
-  expiresAt?: Date | string
-  id: string
-  key: string
-  release(): MaybePromise<void>
-}
-
-export interface LeaseStore {
-  acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
 type NormalizedRuntimeConfig<TConfig> = Exclude<TConfig, null | undefined> extends Record<string, unknown>

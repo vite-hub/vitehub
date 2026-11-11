@@ -22,6 +22,7 @@ import { workspaceOperations } from "../src/operations.ts"
 import { workspaceCommitRequestBytes } from "../src/results.ts"
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 import { createFakeGitHub } from "./fake-github.ts"
+import { operationRpcBody, operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
 import type { WorkspaceDefinition, WorkspaceWriteCommit } from "../src/core/types.ts"
@@ -65,7 +66,7 @@ async function app(user: OperationUser | null = null, rules?: WorkspaceDefinitio
   const root = await tempDir("app")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const definition: WorkspaceDefinition = { name: workspace, store: createBlobDatabaseWorkspaceStore({ blob, database, workspace }), rules }
@@ -77,15 +78,15 @@ async function app(user: OperationUser | null = null, rules?: WorkspaceDefinitio
   const notes = useWorkspace("notes", { definition: notesDefinition, mode: "write" }).history
   const calls: string[] = []
   const fetch = async (url: string | URL | Request, init?: RequestInit) => {
-    expect(String(url)).toBe(`${remote}/_vitehub/rpc/__call`)
-    const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
+    expect(String(url)).toBe(`${remote}/_vitehub/rpc`)
+    const { input, operation } = operationRpcRequest(init!.body)
     calls.push(operation)
     // The operation RPC rejects a body over the request limit of the operation, 64 KiB by default.
     if (Buffer.byteLength(String(init!.body)) > (registry.get(operation)?.maxRequestBytes ?? 64 * 1_024)) {
-      return Response.json({ ok: false, code: "OPERATION_REQUEST_TOO_LARGE", message: "Operation request exceeds the byte limit.", status: 413 }, { status: 413 })
+      return operationRpcResponse(init!.body, { ok: false, code: "OPERATION_REQUEST_TOO_LARGE", message: "Operation request exceeds the byte limit.", status: 413 })
     }
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user })
-    return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
+    return operationRpcResponse(init!.body, result)
   }
   /** An edit in the Console: one commit on `draft`. */
   const edit = async (changes: { put?: Record<string, string | Uint8Array>, delete?: string[] }) => {
@@ -450,7 +451,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const remoteApp = await app()
     await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
     const local = await project(async (url, init) => {
-      const body = JSON.parse(String(init!.body)) as { operation: string }
+      const body = operationRpcRequest(init!.body)
       // The first commit races a Console save of another file.
       if (body.operation === "workspace.commit" && !raced) {
         raced = true
@@ -474,11 +475,11 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const remoteApp = await app()
     // As the GitHub Store does, the first commit to a ref that does not exist starts it from the files of another ref.
     const local = await project(async (url, init) => {
-      const body = JSON.parse(String(init!.body)) as { operation: string, input: { ifHead: string | null } }
+      const body = operationRpcRequest(init!.body) as { operation: string, input: { ifHead: string | null } }
       if (body.operation === "workspace.commit" && body.input.ifHead === null) {
         const base = await remoteApp.edit({ put: { "posts/base.md": post("Base", "Published.") } })
         body.input.ifHead = base.id
-        return await remoteApp.fetch(url, { ...init, body: JSON.stringify(body) })
+        return await remoteApp.fetch(url, { ...init, body: operationRpcBody(body.operation, body.input, String(JSON.parse(String(init!.body)).i)) })
       }
       return await remoteApp.fetch(url, init)
     }, "new-ref")
@@ -647,9 +648,9 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
       return input
     } } } })
     const local = await project(async (_url, init) => {
-      const { operation, input } = JSON.parse(String(init!.body)) as { operation: string, input: unknown }
+      const { operation, input } = operationRpcRequest(init!.body)
       const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
-      return Response.json(result)
+      return operationRpcResponse(init!.body, result, { status: 200 })
     }, "fork-attributes")
     expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
     await local.write("run.sh", "echo local\n")
@@ -680,7 +681,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     await remoteApp.edit({ put: { "note.txt": "BASE\n" } })
     const local = await project(async (url, init) => {
       const response = await remoteApp.fetch(url, init)
-      if ((JSON.parse(String(init!.body)) as { operation: string }).operation === "workspace.commit") await local.write("note.txt", "edited again\n")
+      if (operationRpcRequest(init!.body).operation === "workspace.commit") await local.write("note.txt", "edited again\n")
       return response
     }, "edit-during-push")
     await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)

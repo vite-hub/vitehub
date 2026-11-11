@@ -24,7 +24,7 @@ export function normalizeAgentOptions(options: AgentOptions | false | undefined)
     providers: {
       state: {
         ...options?.providers?.state,
-        provider: options?.providers?.state?.provider || "auto",
+        driver: options?.providers?.state?.driver || "auto",
       },
     },
     routes: {
