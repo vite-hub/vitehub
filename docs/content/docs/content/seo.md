@@ -1,6 +1,6 @@
 ---
 title: Content SEO
-description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap, robots.txt, and RSS feed.
+description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap, robots.txt, RSS feed, and page MCP server.
 navigation.title: SEO
 navigation.order: 12
 icon: i-lucide-search-check
@@ -15,6 +15,7 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`contentHead()`](#head-tags) | Head tags from a document, its `seo()` values, and site defaults. |
 | [`defineContent({ seo })`](#sitemap-and-robotstxt) | Generated `/sitemap.xml` and `/robots.txt`. |
 | [`seo: { rss }`](#rss-feed) | A generated `/rss.xml` with the newest pages, dated from their history. |
+| [`seo: { mcp }`](#page-mcp-server) | A public read-only MCP server at `/mcp`, so agents can list and read your pages. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
 
 ## Document URLs
@@ -164,6 +165,7 @@ export default defineContent({
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves a `/robots.txt` that allows every crawler. `{ disallow }` keeps paths out. It names `/sitemap.xml` when the sitemap is on. |
 | `rss` | `true`, or `{ title, description, limit }`, serves [`/rss.xml`](#rss-feed). |
+| `mcp` | `true`, or `{ name }`, serves a [page MCP server](#page-mcp-server) at `/mcp`. |
 
 In a collection with locales, the sitemap lists each published translation at its own URL, with `locale` on each entry. It leaves out pages that show the source locale as a fallback: their canonical link points to the source locale page.
 
@@ -218,6 +220,35 @@ Each item has the page `title` (the `seo()` title, else the title field), its ab
 Content keeps the dates of `github()` Source pages in memory and in ViteHub KV per head commit, so later requests, and other server instances, make no GitHub request. The first feed or sitemap after the head commit moves asks GitHub only for the pages that changed since the last dates: one compare request, then one GraphQL request per 150 changed pages. With no earlier dates, such as on the first deploy, it asks for every page: 2,600 pages cost 18 GraphQL requests, which fits the 50 subrequests of a free Cloudflare Worker. A compare that GitHub cannot list in full (300 files or more, or a head that does not descend from the last one) also reads every page. Collection dates come from the Workspace and cost no request.
 
 Add the feed to your pages with `contentHead(document, { rss: true })`. `content.rss()` returns the same XML. ViteHub generates `/rss.xml` like the sitemap; in another server, mount `defineContentRssHandler(content)`. `renderContentRss(channel, items)` renders your own items.
+
+## Page MCP server
+
+`seo: { mcp: true }` serves a public read-only MCP server at `/mcp`. Agents connect to it to find and read your pages. It has the same two tools as the MCP server of a [docs site](/docs/docs-site/configure), so an agent that knows one knows the other.
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), description: z.string().optional() } }),
+  },
+  seo: { site: 'https://vitehub.dev', mcp: { name: 'ViteHub blog' } },
+})
+```
+
+| Tool | Returns |
+| --- | --- |
+| `list-pages` | `[{ title, path, description, url }]` for the Markdown pages that the sitemap lists. At most 1,000 per call; pass `offset` for the next ones. |
+| `get-page` | `{ title, path, description, content, url }` for one page. `content` is its Markdown copy: the title as a heading, unless the body has its own, the description as a quote, then the body with absolute links. |
+
+The tools read only what readers can see: published collection documents, and the files of the [head commit](/docs/content/configure) of a `github()` Source. Drafts, `noindex` pages, and pages whose `canonical` points elsewhere are left out. `get-page` takes a path from `list-pages`, a full URL, or a path that ends in `.md`. For any other path it returns the tool error `[404] No page at <path>`. A page longer than 200,000 characters is cut, and the cut names the page URL.
+
+`name` is the server name that MCP clients show. It defaults to the host name of `site`, or of the request. The server answers `POST` in the stateless JSON form of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, and refuses requests from a browser page on another origin.
+
+`content.pages({ offset, limit })` and `content.page(path)` return the same data from code. ViteHub generates `/mcp` like the sitemap. The [app MCP server](/docs/development/app-mcp) also answers at `/mcp`, so give one of them another path when you turn on both. In another server, mount `defineContentMcpHandler(content)`.
 
 ## Console
 

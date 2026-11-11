@@ -35,6 +35,7 @@ const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
 const contentRssEntry = ".vitehub/content/rss.mjs"
+const contentMcpEntry = ".vitehub/content/mcp.mjs"
 const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentGitHubWebhookEntry = ".vitehub/content/github-webhook.mjs"
 const contentPreviewRoutesEntry = ".vitehub/content/preview-routes.mjs"
@@ -199,7 +200,7 @@ function methodsOverlap(left: string | undefined, right: string | undefined): bo
 }
 
 function generatedRouteOwner(handler: GeneratedSourceRoute): "Collection" | "Content" {
-  return handler.middleware || handler.route === "/api/content/**" || handler.route === "/_vitehub/content/github" || handler.route === "/sitemap.xml" || handler.route === "/robots.txt" || handler.route === "/rss.xml" ? "Content" : "Collection"
+  return handler.middleware || handler.route === "/api/content/**" || handler.route === "/_vitehub/content/github" || handler.route === "/sitemap.xml" || handler.route === "/robots.txt" || handler.route === "/rss.xml" || handler.route === "/mcp" ? "Content" : "Collection"
 }
 
 function generatedRouteDescription(handler: GeneratedSourceRoute): string {
@@ -400,6 +401,8 @@ export interface ContentEntryFeatures {
   markdown: boolean
   /** `seo: { rss }` that is not literally false. */
   rss: boolean
+  /** `seo: { mcp }` that is not literally false. */
+  mcp: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
   /** `previews` that is set and not literally false: Content serves refs of its `github()` Source at `/tree`, `/blob`, and `/pr` URLs. */
@@ -440,7 +443,7 @@ function unwrapAst(node: unknown): unknown {
 /**
  * Read the `defineContent()` call that the default export holds. Collections count as present unless the call
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
- * `sitemap`, `robots`, `markdown`, or `rss` that is not `false`, or a `seo` value that discovery cannot follow.
+ * `sitemap`, `robots`, `markdown`, `rss`, or `mcp` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
   return { ...inspectContentOptions(program, contentImportBase), sqlite: importsContentSqlite(program, contentImportBase), github: importsGitHubSource(program) }
@@ -462,7 +465,7 @@ function importsContentSqlite(program: unknown, contentImportBase?: string): boo
 }
 
 function inspectContentOptions(program: unknown, contentImportBase?: string): Omit<ContentEntryFeatures, "github" | "sqlite"> {
-  const maybe: Omit<ContentEntryFeatures, "github" | "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, live: true, previews: false }
+  const maybe: Omit<ContentEntryFeatures, "github" | "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, live: true, previews: false }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -537,11 +540,11 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
     && astName(calleeNode.property) === "defineContent"
   if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
-  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, rss: false, live: true, previews: false }
+  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, live: true, previews: false }
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, live: true, previews: true }
+  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: true, live: true, previews: true }
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
@@ -553,6 +556,7 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
     robots: false,
     markdown: false,
     rss: false,
+    mcp: false,
     live: !(isAstNode(live) && live.type === "Literal" && live.value === false),
     previews: options.has("previews") && !(isAstNode(previews) && previews.type === "Literal" && previews.value === false),
   }
@@ -562,8 +566,8 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
   }
   if (options.has("seo")) {
     const seo = properties(resolveNode(options.get("seo")))
-    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true, rss: true }
-    for (const key of ["sitemap", "robots", "markdown", "rss"] as const) {
+    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true, rss: true, mcp: true }
+    for (const key of ["sitemap", "robots", "markdown", "rss", "mcp"] as const) {
       if (!seo.has(key)) continue
       const value = unwrapAst(seo.get(key))
       features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
@@ -581,7 +585,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, live: true, previews: false, sqlite: false, github: false }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, live: true, previews: false, sqlite: false, github: false }
   }
 }
 
@@ -595,13 +599,14 @@ async function writeContentArtifact(
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   const markdown = resolve(options.projectRoot, contentMarkdownEntry)
   const rss = resolve(options.projectRoot, contentRssEntry)
+  const mcp = resolve(options.projectRoot, contentMcpEntry)
   const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   const githubWebhook = resolve(options.projectRoot, contentGitHubWebhookEntry)
   const previewRoutes = resolve(options.projectRoot, contentPreviewRoutesEntry)
   const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
   const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown, rss, sqlite, githubWebhook, previewRoutes, typesPlugin, types].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, rss, mcp, sqlite, githubWebhook, previewRoutes, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -684,13 +689,15 @@ async function writeContentArtifact(
     handlers.push({ handler: previewRoutes, plugin: true })
   }
   else await rm(previewRoutes, { force: true })
-  // `defineContent({ seo: { sitemap, robots, markdown, rss } })` adds the site-wide SEO routes. Markdown copies sit at
-  // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.
+  // `defineContent({ seo: { sitemap, robots, markdown, rss, mcp } })` adds the site-wide SEO routes. Markdown copies sit
+  // at every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware. The MCP server answers
+  // POST and refuses other methods itself.
   for (const [enabled, path, helper, route] of [
     [features.sitemap, sitemap, "defineContentSitemapHandler", "/sitemap.xml"],
     [features.robots, robots, "defineContentRobotsHandler", "/robots.txt"],
     [features.markdown, markdown, "defineContentMarkdownHandler", "/**"],
     [features.rss, rss, "defineContentRssHandler", "/rss.xml"],
+    [features.mcp, mcp, "defineContentMcpHandler", "/mcp"],
   ] as const) {
     if (!enabled) {
       await rm(path, { force: true })
@@ -703,7 +710,7 @@ async function writeContentArtifact(
       `export default ${helper}(content)`,
       "",
     ].join("\n"))
-    handlers.push(route === "/**" ? { handler: path, middleware: true, route } : { handler: path, method: "get", route })
+    handlers.push(route === "/**" ? { handler: path, middleware: true, route } : route === "/mcp" ? { handler: path, route } : { handler: path, method: "get", route })
   }
   return handlers
 }

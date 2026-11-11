@@ -26,13 +26,14 @@ import type { ContentSourceHeads } from "./source-heads.ts"
 import type { ContentSourceRef } from "./source-refs.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
-import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
+import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition, parseDocumentFile } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview, createRequestScope } from "./preview.ts"
 import { parseContentPreviewPath, previewResponse, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
-import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
+import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import type {
   AnyContentCollection,
@@ -58,7 +59,7 @@ import type {
   ContentRevisionsResult,
   ContentSingleton,
 } from "./collections-types.ts"
-import type { ContentSourceInput } from "./content-source.ts"
+import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
 import type { ContentCollectionDefinition, ContentFields, DocumentsDefinition, SingletonDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
 import type {
@@ -69,6 +70,7 @@ import type {
   ContentSchedulesOptions,
   ContentUnscheduleOptions,
 } from "./schedules.ts"
+import type { ContentPageMarkdown, ContentPageSummary, ContentPagesOptions } from "./mcp.ts"
 import type { ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
@@ -140,6 +142,8 @@ export type {
 export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
 export type { ContentRssOptions, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export { renderContentRss } from "./rss.ts"
+export { defineContentMcpHandler } from "./mcp.ts"
+export type { ContentMcpOptions, ContentPageMarkdown, ContentPageSummary, ContentPagesOptions } from "./mcp.ts"
 export type { ContentRssChannel, ContentRssItem } from "./rss.ts"
 export type {
   ContentCollectionDefinition,
@@ -290,7 +294,8 @@ export type DefineContentOptions<
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
    * Markdown document of those collections at its URL plus `.md`; `rss: true` serves `/rss.xml` with the newest
-   * Markdown pages. ViteHub generates the routes when this call sets them.
+   * Markdown pages; `mcp: true` serves a public read-only MCP server at `/mcp` with `list-pages` and `get-page`.
+   * ViteHub generates the routes when this call sets them.
    */
   seo?: DefineContentSeoOptions
   /**
@@ -385,6 +390,17 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * Markdown document has that URL.
    */
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
+  /**
+   * The published Markdown pages that the sitemap lists, as `{ title, path, description, url }`: collection documents
+   * and the pages of Sources with a `url`, read at the head commit of a `github()` Source. At most 1,000 per call; pass
+   * `offset` for more. The `list-pages` tool of `seo.mcp` returns them.
+   */
+  pages(options?: ContentPagesOptions): Promise<ContentPageSummary[]>
+  /**
+   * One page of `pages()` with its Markdown copy in `content`, or null when no listed page has that path. The path may
+   * end in `.md` or be an absolute URL. The `get-page` tool of `seo.mcp` returns it.
+   */
+  page(path: string, options?: ContentSitemapOptions): Promise<ContentPageMarkdown | null>
 }
 
 /**
@@ -483,10 +499,14 @@ export function defineContent<
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
   const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [] })
+  /** How each `github()` Source reads its head commit, for the raw files of `content.page()`. */
+  const sourceCommits = new Map<string, ContentSourceCommits>()
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
-    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input, snapshots?.[name]))
+    const commits = heads.commits(name, input, snapshots?.[name])
+    if (commits) sourceCommits.set(name, commits)
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, commits)
     heads.attach(name, instance)
     if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
     else if (heads.github(name)) snapshotTargets.push({ name, instance, keys: async () => [], commit: () => heads.snapshot(name) })
@@ -640,6 +660,37 @@ export function defineContent<
     }))
     return { pages, dates }
   }
+  /** The text of one Source file: from the head commit of a `github()` Source, else from the Source as it is. */
+  async function sourceText(name: string, key: string): Promise<string | null> {
+    const commits = sourceCommits.get(name)
+    const revision = await commits?.revision()
+    let content: unknown
+    if (commits && revision) content = (await commits.files(revision)).find(file => file.key === key || file.path === key)?.content
+    else {
+      const source = from(name).getSource(name)
+      if (source && "getItem" in source) content = await source.getItem(key)
+    }
+    if (content instanceof Uint8Array) return new TextDecoder().decode(content)
+    return String(content) === content ? content : null
+  }
+  /** The Markdown copy of a routed page, from its published collection document or its Source file. */
+  async function pageMarkdown(page: ContentRoutedPage, site: string | undefined): Promise<string | null> {
+    if (page.key !== undefined) {
+      const text = await sourceText(page.collection, page.key)
+      if (text === null) return null
+      const parsed = parseDocumentFile(text)
+      if ("issues" in parsed) return null
+      return await renderMarkdownCopy({ title: page.title, description: page.description, body: parsed.body }, site)
+    }
+    if (!documentsRuntime) return null
+    const collection = documentsRuntime.collection(page.collection)
+    const document = await collection.get(page.id, { ref: "published", ...(page.locale === undefined ? {} : { locale: page.locale }) })
+    return document ? await renderMarkdownCopy({ title: page.title, description: page.description, body: document.body }, site) : null
+  }
+  /** The routed Markdown pages that `content.pages()` lists. */
+  async function markdownPages(site: string | undefined): Promise<ContentRoutedPage[]> {
+    return (await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)).filter(page => page.markdown)
+  }
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
@@ -658,6 +709,26 @@ export function defineContent<
       const options = seo?.rss !== null && typeof seo?.rss === "object" ? seo.rss : {}
       const { pages, dates } = await routedPages(site)
       return renderContentRss(contentRssChannel(options, site), contentRssItems(pages, dates, options.limit ?? contentRssLimit))
+    },
+    pages: async (pagesOptions: ContentPagesOptions = {}) => {
+      const site = siteFor(pagesOptions) ?? "http://localhost"
+      const offset = pagesOptions.offset ?? 0
+      const limit = Math.min(pagesOptions.limit ?? contentPagesLimit, contentPagesLimit)
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) {
+        throw contentErrorDiagnostics.CONTENT_R0070({ message: `[vitehub] content.pages() takes a whole offset of 0 or more and a limit from 1 to ${contentPagesLimit}.` })
+      }
+      return (await markdownPages(site)).slice(offset, offset + limit).map(page => contentPageSummary(page, site))
+    },
+    page: async (path: string, pageOptions?: ContentSitemapOptions) => {
+      if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0070({ message: "[vitehub] content.page() takes a page path such as /blog/hello." })
+      const site = siteFor(pageOptions) ?? "http://localhost"
+      const key = contentPageKey(path)
+      const page = (await markdownPages(site)).find(candidate => contentPageKey(contentPagePath(candidate.loc)) === key)
+      if (!page) return null
+      let markdown = await pageMarkdown(page, site)
+      if (markdown === null) return null
+      if (markdown.length > contentPageCharacters) markdown = `${markdown.slice(0, contentPageCharacters)}\n\n[The page is longer than ${contentPageCharacters} characters and ends here. Open ${contentPageSummary(page, site).url} for the rest.]\n`
+      return { ...contentPageSummary(page, site), content: markdown }
     },
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,

@@ -144,5 +144,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `previews: true` with one `github()` Source in `sources`, or name the Source with `previews: { source: \"docs\" }`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    /** `content.pages()` or `content.page()` got an argument that is not valid. */
+    CONTENT_R0070: {
+      fix: "Pass a page path such as `/blog/hello` to `content.page()`, and a whole `offset` of 0 or more and a `limit` from 1 to 1000 to `content.pages()`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
   },
 })
