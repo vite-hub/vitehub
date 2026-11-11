@@ -1,3 +1,5 @@
+export { useForge } from "./use-forge.ts"
+export type { Forge, ForgeAppIdentity, ForgeCallOptions, ForgeEnvSource, ForgeErrorCode, ForgeProviderOf, ForgeToken, ForgeTokenErrorCode, UseForgeOptions } from "./use-forge.ts"
 export { forgeEnv, readForgeEnv } from "./env.ts"
 export type { ForgeEnv, ForgeEnvField } from "./env.ts"
 export { forgeArchive } from "./gaps/archive.ts"

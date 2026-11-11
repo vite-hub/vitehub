@@ -1,7 +1,7 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
 // (`agentRuntimeModule()` in `./vite`). They are not public exports.
@@ -25,13 +25,15 @@ const bundledPreviewPackages = /^(?:@vite-hub\/internal|@t3tools\/(?:provider-ru
 const bundledPreviewImporters = /[\\/]node_modules[\\/](?:@t3tools[\\/](?:provider-runtime|contracts)|forges|effect)[\\/]/;
 
 function alwaysBundle(id: string, importer: string | undefined): boolean {
+  // The default invocation journal must work without the optional Database package.
+  if (id === "@vite-hub/database/runtime/libsql-drizzle") return true;
   if (bundledPreviewPackages.test(id)) return true;
   return !!importer && bundledPreviewImporters.test(importer) && !isBuiltin(id);
 }
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle,
       neverBundle: [
@@ -116,10 +118,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

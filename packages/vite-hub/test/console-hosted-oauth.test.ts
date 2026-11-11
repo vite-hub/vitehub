@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { defineOperation } from "@vite-hub/internal/operations"
-import { defineHandler } from "h3"
 import * as v from "valibot"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
@@ -33,6 +32,7 @@ const mcpResource = `${app}/_vitehub/mcp`
 const consoleResource = `${app}/_vitehub`
 const hosted = "https://console.vitehub.dev"
 const callback = `${hosted}/oauth/callback`
+const clientId = `${hosted}/oauth-client.json`
 const policyKey = Symbol.for("vitehub.console.access")
 const originsKey = Symbol.for("vitehub.console.origins")
 
@@ -55,22 +55,41 @@ const rename = defineOperation({
 })
 
 const database = new DatabaseSync(":memory:")
-const definition = defineAuth(() => ({ baseURL: app, database, emailAndPassword: { enabled: true }, plugins: consoleMcpOAuth({ resource: mcpResource }), secret: "test-secret-at-least-32-bytes-long" }))
+const definition = defineAuth(() => ({
+  baseURL: app,
+  database,
+  emailAndPassword: { enabled: true },
+  plugins: consoleMcpOAuth({
+    clientMetadataFetch: async (url) => {
+      expect(url).toBe(clientId)
+      return Response.json({
+        client_id: clientId,
+        client_name: "ViteHub Console",
+        grant_types: ["authorization_code", "refresh_token"],
+        redirect_uris: [callback],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      })
+    },
+    resource: mcpResource,
+  }),
+  secret: "test-secret-at-least-32-bytes-long",
+}))
 const real = (request: Pick<Request, "headers" | "url">) => createAuthForRequest(definition, request)
 // SAFETY: Better Auth's plugins add the OAuth endpoints to this instance at runtime.
 const auth = (request: Request) => real(request) as unknown as ConsoleOAuthAuth
 const authCall = (path: string, init: RequestInit = {}) => real(new Request(mcpResource)).handler(new Request(`${app}/api/auth${path}`, init))
 const post = (path: string, body: Record<string, unknown>, cookie = "") => authCall(path, { body: JSON.stringify(body), headers: { "content-type": "application/json", cookie, origin: app }, method: "POST" })
 
-let clientId = ""
+let mcpClientId = ""
 const tokens = { console: "", mcp: "", mcpReadOnly: "", readOnly: "" }
 const exchangeHeaders: Headers[] = []
 
 /** Sign in and consent on the app Auth as the hosted Console does, then exchange the code with PKCE for an access token. */
-async function issue(resource: string, scope: string): Promise<string> {
+async function issue(resource: string, scope: string, client = clientId): Promise<string> {
   const verifier = randomBytes(32).toString("base64url")
   const challenge = createHash("sha256").update(verifier).digest("base64url")
-  const query = new URLSearchParams({ client_id: clientId, code_challenge: challenge, code_challenge_method: "S256", redirect_uri: callback, resource, response_type: "code", scope, state: "hosted-console" })
+  const query = new URLSearchParams({ client_id: client, code_challenge: challenge, code_challenge_method: "S256", redirect_uri: callback, resource, response_type: "code", scope, state: "hosted-console" })
   const login = new URL((await authCall(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
   expect(login.pathname).toBe("/_vitehub/sign-in")
   const signedIn = await post("/sign-in/email", { email: "ada@example.com", oauth_query: login.search.slice(1), password: "test-password-123" })
@@ -88,7 +107,7 @@ async function issue(resource: string, scope: string): Promise<string> {
   const code = redirect.searchParams.get("code")
   if (!code) throw new Error(`Expected an authorization code: ${redirect}`)
   const exchange = await authCall("/oauth2/token", {
-    body: new URLSearchParams({ client_id: clientId, code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: callback, resource }),
+    body: new URLSearchParams({ client_id: client, code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: callback, resource }),
     headers: { "content-type": "application/x-www-form-urlencoded", origin: hosted },
     method: "POST",
   })
@@ -106,14 +125,14 @@ beforeAll(async () => {
   installConsoleOrigins([hosted])
   await (await real(new Request(mcpResource)).$context).runMigrations()
   expect((await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "test-password-123" })).status).toBe(200)
-  // The hosted Console registers as a public browser client. A client ID Metadata Document would replace this step.
-  const registration = await post("/oauth2/register", { client_name: "ViteHub Console", redirect_uris: [callback], token_endpoint_auth_method: "none" })
+  // Dynamic registration remains available to MCP clients, without granting the Console resource.
+  const registration = await post("/oauth2/register", { client_name: "MCP client", redirect_uris: [callback], token_endpoint_auth_method: "none" })
   expect(registration.status, await registration.clone().text()).toBe(201)
-  clientId = v.parse(v.object({ client_id: v.string() }), await registration.json()).client_id
+  mcpClientId = v.parse(v.object({ client_id: v.string() }), await registration.json()).client_id
   tokens.console = await issue(consoleResource, "vitehub:read vitehub:write")
   tokens.readOnly = await issue(consoleResource, "vitehub:read")
-  tokens.mcp = await issue(mcpResource, "vitehub:read vitehub:write")
-  tokens.mcpReadOnly = await issue(mcpResource, "vitehub:read")
+  tokens.mcp = await issue(mcpResource, "vitehub:read vitehub:write", mcpClientId)
+  tokens.mcpReadOnly = await issue(mcpResource, "vitehub:read", mcpClientId)
 })
 
 afterAll(() => {
@@ -138,7 +157,7 @@ function install(): void {
 }
 
 function rpc(operation: string, headers: Record<string, string>, input: unknown = {}): Promise<Response> {
-  return defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__call`, {
+  return consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
     body: JSON.stringify({ input, operation }),
     headers: { "content-type": "application/json", ...headers },
     method: "POST",
@@ -146,6 +165,28 @@ function rpc(operation: string, headers: Record<string, string>, input: unknown 
 }
 
 describe("hosted Console sign-in with app Auth OAuth", () => {
+  it("refuses the Console resource to a dynamically registered MCP client", async () => {
+    install()
+    const challenge = createHash("sha256").update(randomBytes(32)).digest("base64url")
+    const query = new URLSearchParams({
+      client_id: mcpClientId,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      redirect_uri: callback,
+      resource: consoleResource,
+      response_type: "code",
+      scope: "vitehub:read",
+      state: "mcp-client",
+    })
+    const response = await authCall(`/oauth2/authorize?${query}`)
+    expect(response.status).toBe(302)
+    const redirect = new URL(response.headers.get("location") ?? "", app)
+    expect(redirect.origin + redirect.pathname).toBe(callback)
+    expect(redirect.searchParams.get("error")).toBe("invalid_target")
+    expect(redirect.searchParams.get("state")).toBe("mcp-client")
+    expect(redirect.searchParams.has("code")).toBe(false)
+  })
+
   it("makes discovery and cookie-free token responses readable by the hosted browser", async () => {
     install()
     for (const [handler, path] of [
@@ -183,21 +224,23 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     expect(session.headers.has("access-control-allow-origin")).toBe(false)
   })
 
-  it("keeps direct management routes restricted to write-scoped tokens", async () => {
+  it("requires write scope for mutations on direct management routes", async () => {
     install()
-    for (const [handler, path] of [
-      [consoleAuthManageHandler, "/_vitehub/auth/manage"],
-      [consoleEnvManageHandler, "/_vitehub/env/manage"],
-      [consoleChannelReplayHandler, "/_vitehub/channels/replay"],
-      [consoleScheduleRunHandler, "/_vitehub/schedules/run"],
+    installConsoleSections("/tmp/console-hosted-oauth", ["fixture", "env", "auth", "agents", "schedules"])
+    for (const [handler, path, body] of [
+      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "ban", userId: "someone" }],
+      [consoleEnvManageHandler, "/_vitehub/env/manage", {}],
+      [consoleChannelReplayHandler, "/_vitehub/channels/replay", {}],
+      [consoleScheduleRunHandler, "/_vitehub/schedules/run", {}],
     ] as const) {
       const response = await handler.fetch(new Request(`${app}${path}`, {
-        body: "{}",
+        body: JSON.stringify(body),
         headers: { authorization: `Bearer ${tokens.readOnly}`, origin: hosted, "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       }))
       expect(response.status, await response.clone().text()).toBe(403)
       expect(response.headers.get("access-control-allow-origin")).toBe(hosted)
+      expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
       await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED" })
     }
   })
@@ -268,28 +311,27 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     await expect(resolveConsoleAppAuthIdentity(request, requestEvent(request), true)).resolves.toBeUndefined()
   })
 
-  it("resolves the user of a valid token at the app Auth middleware, and leaves unlisted origins to Auth", async () => {
+  it("resolves the token user at the app Auth middleware before the route checks origins", async () => {
     install()
     const listed = new Request(`${app}/_vitehub/rpc/__call`, { headers: { authorization: `Bearer ${tokens.console}`, origin: hosted }, method: "POST" })
     await expect(resolveConsoleAppAuthIdentity(listed, requestEvent(listed), false)).resolves.toMatchObject({ email: "ada@example.com" })
     const unlisted = new Request(`${app}/_vitehub/rpc/__call`, { headers: { authorization: `Bearer ${tokens.console}`, origin: "https://evil.example.com" }, method: "POST" })
-    await expect(resolveConsoleAppAuthIdentity(unlisted, requestEvent(unlisted), false)).resolves.toBeUndefined()
+    await expect(resolveConsoleAppAuthIdentity(unlisted, requestEvent(unlisted), false)).resolves.toMatchObject({ email: "ada@example.com" })
   })
 
   it("does not accept the token from an unlisted origin", async () => {
     install()
     const response = await rpc("project.get", { authorization: `Bearer ${tokens.console}`, origin: "https://evil.example.com" })
-    // The token is not checked, so the request falls to the session check.
-    expect(response.status, await response.clone().text()).toBe(401)
-    await expect(response.json()).resolves.toMatchObject({ code: "TEST_NO_SESSION" })
+    expect(response.status, await response.clone().text()).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
     expect(response.headers.has("access-control-allow-origin")).toBe(false)
   })
 
-  it("keeps same-origin requests with a bearer on the session check", async () => {
+  it("accepts a Console bearer without an Origin header or app session", async () => {
     install()
     const response = await rpc("project.get", { authorization: `Bearer ${tokens.console}`, [consoleRpcHeader]: "1" })
-    expect(response.status, await response.clone().text()).toBe(401)
-    await expect(response.json()).resolves.toMatchObject({ code: "TEST_NO_SESSION" })
+    expect(response.status, await response.clone().text()).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ ok: true })
   })
 
   it("rejects an MCP token on the RPC, and a Console token on MCP", async () => {

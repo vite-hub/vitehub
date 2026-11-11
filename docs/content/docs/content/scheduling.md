@@ -16,7 +16,7 @@ import { defineContent } from 'vite-hub/content'
 import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -25,7 +25,7 @@ export const content = defineContent({
 ```
 
 ```ts [server/utils/schedule-launch.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function scheduleLaunch() {
   const posts = content.collection('posts')
@@ -47,7 +47,7 @@ Add a Schedule Definition that calls `content.publishDue()`, and turn on Schedul
 
 ```ts [server/schedules/content-publish.ts] fragment
 import { defineSchedule } from 'vite-hub/schedule'
-import { content } from '../content'
+import content from '../content'
 
 export default defineSchedule({
   cron: '* * * * *',
@@ -129,7 +129,7 @@ Runs can overlap, for example from two replicas. Each publish checks the digests
 `status()` shows each document's pending, overdue, or else failed schedule as `schedule: { id, at, status, digest, failure? }`. `state` stays `draft`, `changed`, or `deleted` until it publishes. If `schedule.digest` differs from `draft`, the run will fail.
 
 ```ts [server/utils/launch-status.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function launchStatus() {
   return await content.collection('posts').status('launch')

@@ -895,7 +895,7 @@ export interface ContentPreviewHost {
   preview?: ContentPreview
 }
 
-/** Loads the Content runtime, such as `() => import("./server/content.ts").then(module => module.content)`. */
+/** Loads the Content runtime, such as `() => import("./server/content.ts").then(module => module.default)`. */
 export type ContentPreviewHostLoader = () => Promise<ContentPreviewHost>
 
 interface PreviewSource {

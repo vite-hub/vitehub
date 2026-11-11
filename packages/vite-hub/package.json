@@ -442,6 +442,11 @@
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
     },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
+    },
     "./forms": {
       "types": "./dist/forms.d.ts",
       "import": "./dist/forms.js",
@@ -1011,6 +1016,7 @@
     "@aws-sdk/s3-request-presigner": "catalog:storage",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@fontsource-variable/geist": "catalog:ui",
@@ -1052,6 +1058,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
@@ -1114,6 +1121,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
@@ -1138,6 +1146,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
@@ -1193,6 +1202,9 @@
       "optional": true
     },
     "@azure/storage-blob": {
+      "optional": true
+    },
+    "@better-auth/cimd": {
       "optional": true
     },
     "@better-auth/oauth-provider": {
@@ -1265,6 +1277,9 @@
       "optional": true
     },
     "@vite-hub/email": {
+      "optional": true
+    },
+    "@vite-hub/forge": {
       "optional": true
     },
     "@vite-hub/forms": {
