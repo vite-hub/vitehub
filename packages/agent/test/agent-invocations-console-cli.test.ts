@@ -1,3 +1,4 @@
+import { operationCredentialHint } from "@vite-hub/internal/operations"
 import { describe, expect, it, vi } from "vitest"
 
 import { runAgentInvocationsCli } from "../src/cli.ts"
@@ -139,8 +140,8 @@ describe("vitehub agent invocations with a deployed Console", () => {
   })
 
   it.each([
-    [401, { message: "Unauthorized", ok: false, status: 401 }, "Console authentication failed with HTTP 401: Unauthorized. Set VITEHUB_CONSOLE_AUTHORIZATION"],
-    [302, undefined, "Console authentication failed with HTTP 302. Set VITEHUB_CONSOLE_AUTHORIZATION"],
+    [401, { message: "Unauthorized", ok: false, status: 401 }, "Console authentication failed with HTTP 401: Unauthorized. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
+    [302, undefined, "Console authentication failed with HTTP 302. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
     [404, { message: "Invocation not found", ok: false, status: 404 }, "Console request failed with HTTP 404: Invocation not found."],
     [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub Console (HTTP 404)."],
   ])("reports a Console HTTP %s response", async (status, body, message) => {
@@ -153,7 +154,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
   it("adds the credential hint to a 403 only when no Console credential is set", async () => {
     const forbidden = () => Response.json({ message: "Forbidden.", ok: false, status: 403 }, { status: 403 })
     const anonymous = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(forbidden).fetch, {})
-    expect(anonymous.stderr).toBe("Console denied the request with HTTP 403: Forbidden. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.\n")
+    expect(anonymous.stderr).toBe(`Console denied the request with HTTP 403: Forbidden. ${operationCredentialHint}\n`)
     const signedIn = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(forbidden).fetch)
     expect(signedIn.stderr).toBe("Console denied the request with HTTP 403: Forbidden.\n")
   })

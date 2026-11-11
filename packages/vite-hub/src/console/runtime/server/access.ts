@@ -7,7 +7,7 @@ import { consoleMountBase } from "../console-route.ts"
 import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleChallenge, consoleMcpReadScope, consoleMcpWriteScope, isConsoleDataPath, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleBearerResult, type ConsoleOAuthConfig } from "./bearer.ts"
-import { checkConsoleToken } from "./console-token.ts"
+import { checkConsoleSignature } from "./console-signature.ts"
 import { withListedConsoleOrigin, withResponseHeaders } from "./cors.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
@@ -26,7 +26,8 @@ export { consoleOpenAccessWarning, installConsoleAccess } from "./access-policy.
  * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
- * - `token`: `Authorization: Bearer` with a token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. See `checkConsoleToken()`.
+ * - `token`: a request signed with a key whose public key is in a `VITEHUB_CONSOLE_KEY_<NAME>` variable. See
+ *   `checkConsoleSignature()`.
  * `impersonation: true` is `console.impersonation`. The Auth section can then start and stop impersonation.
  */
 export type ConsoleAccessPolicy =
@@ -66,10 +67,18 @@ export interface ConsoleAccess {
   /** The verified OAuth token's login session, used only by Auth management. */
   readonly sessionId?: string
   /**
-   * The bearer that the access check accepted: `"token"` for `VITEHUB_CONSOLE_TOKEN`, `"oauth"` for an OAuth access token.
-   * Not set for a session, Cloudflare Access, or an open Console. Only a bearer call may come from another origin.
+   * How the caller proved itself: `"oauth"` for an OAuth access token, `"console"` or `"cli"` for a signed request, by
+   * who signed it. Not set for a session, Cloudflare Access, or an open Console. Only an OAuth call may come from another
+   * origin.
    */
-  readonly via?: "oauth" | "token"
+  readonly via?: "oauth" | "console" | "cli"
+  /** The Console team of a signed request from the Console, and the role of the user in it. */
+  readonly team?: { readonly id: string, readonly role?: string }
+  /**
+   * The signed request: the name of its key, and the SHA-256 of the body that the signature covers. The reader of the
+   * body compares the digest before it acts on the body.
+   */
+  readonly signature?: { readonly key: string, readonly bodySha256: string }
 }
 
 /**
@@ -210,7 +219,7 @@ export async function resolveConsoleAppAuthIdentity(request: Request, event: obj
 
 /**
  * Whether the OAuth scopes of the access allow one call. A `read` call, or one that only reads, needs `vitehub:read`.
- * A `write` or `destructive` call needs `vitehub:write`. A session, the Console token, and other access without scopes
+ * A `write` or `destructive` call needs `vitehub:write`. A session, a signed request, and other access without scopes
  * have no scope limit. `console.authorize` still decides the sections.
  */
 export function consoleScopesAllow(access: ConsoleAccess, call: OperationCallKind): boolean {
@@ -238,6 +247,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   let scopes: readonly string[] | undefined
   let sessionId: string | undefined
   let via: ConsoleAccess["via"]
+  let team: ConsoleAccess["team"]
+  let signature: ConsoleAccess["signature"]
   if (policy.mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
@@ -245,10 +256,15 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     // open access intentionally performs no authentication
   }
   else if (policy.mode === "token") {
-    // The token is the only way in. A cookie or a session never counts.
-    const token = await checkConsoleToken(consoleRequest(event), event)
-    if (!token.ok) return token.response
-    via = "token"
+    // A signature is the only way in. A cookie, a session, or a bearer token never counts.
+    const signed = await checkConsoleSignature(consoleRequest(event), event)
+    if (!signed.ok) return signed.response
+    via = signed.caller.via
+    signature = { key: signed.key, bodySha256: signed.bodySha256 }
+    if (signed.caller.via === "console") {
+      user = { ...signed.caller.user }
+      team = signed.caller.team
+    }
   }
   else {
     const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
@@ -284,7 +300,13 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const request = consoleRequest(event)
-    const result: unknown = await policy.authorize(policy.mode === "token" ? { request, via: "token" } : user ? { request, user } : { request })
+    const result: unknown = await policy.authorize(
+      signature && via === "cli"
+        ? { key: signature.key, request, via }
+        : signature && via === "console" && user
+          ? { key: signature.key, request, user, via, ...(team ? { team } : {}) }
+          : user ? { request, user } : { request },
+    )
     if (isRuntimeResponse(result)) {
       authorizeResponses.add(result)
       return result
@@ -297,7 +319,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       sections = allowed
     }
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}), ...(sessionId ? { sessionId } : {}), ...(via ? { via } : {}) })
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}), ...(sessionId ? { sessionId } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(signature ? { signature } : {}) })
   if (policy.mode === "auth" && !user && policy.user) {
     // Read the user once per access, however many handlers ask for it.
     let pending: Promise<ConsoleUser | undefined> | undefined
@@ -341,7 +363,7 @@ export function consoleAccessWrites(access: ConsoleAccess, section: ConsoleSecti
   return operationAccessAllows(access, section, { kind: "write" })
 }
 
-/** Whether the access may read or write by its OAuth scopes. A session or a Console token has no scope limit. */
+/** Whether the access may read or write by its OAuth scopes. A session or a signed request has no scope limit. */
 export function consoleAccessHasScope(access: ConsoleAccess, kind: "read" | "write"): boolean {
   return !access.scopes || access.scopes.includes(kind === "read" ? consoleMcpReadScope : consoleMcpWriteScope)
 }

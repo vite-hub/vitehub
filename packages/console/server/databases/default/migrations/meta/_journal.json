@@ -15,6 +15,13 @@
       "when": 1794373200000,
       "tag": "0001_keep_sign_in_method",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794408000000,
+      "tag": "0002_sign_project_calls",
+      "breakpoints": true
     }
   ]
 }

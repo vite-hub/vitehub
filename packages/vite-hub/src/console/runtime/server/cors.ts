@@ -15,7 +15,7 @@ const originsKey: unique symbol = Symbol.for("vitehub.console.origins")
 const scope = globalThis as typeof globalThis & { [originsKey]?: readonly string[] }
 
 /** The Console data routes that answer a cross-origin call and accept a bearer token, below any application mount. */
-export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/schedules/run"]
+export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc", "/_vitehub/auth/manage", "/_vitehub/env/manage"]
 
 /** The request headers that a listed origin may send. The CLI surface and project headers stay same-origin. */
 export const consoleCorsAllowedHeaders = "authorization, content-type, x-vitehub-console"
@@ -54,13 +54,13 @@ export function isListedConsoleOrigin(origin: string | null | undefined): boolea
 
 /**
  * Whether a cross-origin request may reach a Console data route: `console.origins` lists its `Origin`, and the access
- * check accepted its `Authorization: Bearer` token (`access.via`: the Console token or an OAuth access token), or the
- * development server has no sign-in. A cookie or a session never authorizes a cross-origin call.
+ * check accepted its OAuth access token as `Authorization: Bearer`, or the development server has no sign-in. A cookie,
+ * a session, or a signed request never authorizes a cross-origin call: browsers do not sign.
  */
 export function isConsoleCrossOriginCall(request: Request, access: ConsoleAccess): boolean {
   if (listedConsoleOrigin(request.headers.get("origin")) === undefined) return false
   if (access.mode === "local" || access.mode === "open") return isConsoleDevelopmentRuntime()
-  return access.via !== undefined
+  return access.via === "oauth"
     && listedConsoleOrigin(request.headers.get("origin")) !== undefined
     && /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "")
 }

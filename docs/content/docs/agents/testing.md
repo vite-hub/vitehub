@@ -174,7 +174,9 @@ curl -X POST -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
 (`vitehub_console.session_token`, with a `__Secure-` prefix over HTTPS). If the
 host uses a separate bearer policy, send its header instead:
 `curl -H "Authorization: $VITEHUB_CONSOLE_AUTHORIZATION" ...`. These are shell
-variables. `VITEHUB_CONSOLE_TOKEN` is not a ViteHub setting.
+variables. An app with `auth: "token"` takes only
+[signed requests](/docs/development/console#sign-console-requests): use
+`vitehub agent invocations --url` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` there.
 
 This calls `agent.status()`. `ready` means the probe found enough executable,
 authentication, and quota evidence. It runs no Agent turn. See

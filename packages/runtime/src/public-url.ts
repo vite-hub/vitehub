@@ -53,11 +53,12 @@ function isInternalRequestHost(hostname: string): boolean {
  *
  * Order: the Agent's origin from `vitehub({ publicUrl })`, the single configured
  * origin, the configured origin with the same host as the request, the configured
- * origin for an internal request host, and then the request origin.
+ * origin for an internal request host, and then the request origin. Set
+ * `configuredOnly` when incoming authority must not supply the fallback.
  */
-export function resolvePublicUrl(options: { agentName?: string, request: Pick<Request, "url"> }): string
-export function resolvePublicUrl(options?: { agentName?: string, request?: Pick<Request, "url"> }): string | undefined
-export function resolvePublicUrl(options: { agentName?: string, request?: Pick<Request, "url"> } = {}): string | undefined {
+export function resolvePublicUrl(options: { agentName?: string, request: Pick<Request, "url">, configuredOnly?: false }): string
+export function resolvePublicUrl(options?: { agentName?: string, request?: Pick<Request, "url">, configuredOnly?: boolean }): string | undefined
+export function resolvePublicUrl(options: { agentName?: string, request?: Pick<Request, "url">, configuredOnly?: boolean } = {}): string | undefined {
   const config = publicUrlConfig()
   const discoveredName = options.agentName ? publicUrlAgentNames.get(options.agentName) : undefined
   const agentUrl = options.agentName
@@ -69,8 +70,9 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   const configuredAgents = Object.values(config.agents ?? {})
   const requestHostUrl = configuredAgents.find(url => new URL(url).host === request.host)
   if (requestHostUrl) return requestHostUrl
-  if (isInternalRequestHost(request.hostname)) return agentUrl ?? (configuredAgents.length === 1 ? configuredAgents[0] : request.origin)
-  return request.origin
+  const fallback = options.configuredOnly ? undefined : request.origin
+  if (isInternalRequestHost(request.hostname)) return agentUrl ?? (configuredAgents.length === 1 ? configuredAgents[0] : fallback)
+  return fallback
 }
 
 /**

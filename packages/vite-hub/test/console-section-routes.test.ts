@@ -15,7 +15,7 @@ it.each([
   ["only Server Env", { env: true }, ["/_vitehub/env/manage"]],
   ["only KV", { env: false, kv: true }, []],
   ["Agents", { agent: true, env: false }, []],
-  ["only Schedules", { schedule: true, env: false }, ["/_vitehub/schedules/run"]],
+  ["only Schedules", { schedule: true, env: false }, []],
 ] as const)("builds only the Console routes of enabled sections: %s", async (_name, features, sectionRoutes) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-section-routes-"))
   try {

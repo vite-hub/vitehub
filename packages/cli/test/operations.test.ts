@@ -4,6 +4,7 @@ import { join } from "node:path"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { writeViteHubDevServerFile } from "@vite-hub/internal/cli"
+import { consoleBodySha256, createConsoleKeyPair, readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
@@ -69,7 +70,7 @@ const digest = defineOperation({
 })
 
 const trigger = defineOperation({
-  cli: { dispatch: "/_vitehub/triggers/run", positional: ["name"] },
+  cli: { positional: ["name"] },
   description: "Run a trigger now.",
   input: v.strictObject({ name: v.string() }),
   kind: "write",
@@ -334,9 +335,7 @@ describe("generated operation commands", () => {
     })
   })
 
-  describe("signed dispatch", () => {
-    const key = "ab".repeat(32)
-
+  describe("signed calls", () => {
     async function runTrigger(env: NodeJS.ProcessEnv, fetch: ReturnType<typeof vi.fn>, url = "https://app.example.com", args: string[] = []) {
       const stdout = stream()
       const stderr = stream()
@@ -345,57 +344,33 @@ describe("generated operation commands", () => {
       return { code, stderr: stderr.output(), stdout: stdout.output() }
     }
 
-    it("signs the input with VITEHUB_DISPATCH_KEY and posts it to the dispatch route", async () => {
+    it("signs the RPC call with VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>, and the public key verifies it", async () => {
+      const { privateKey, publicKey } = await createConsoleKeyPair()
       const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-        expect(String(url)).toBe("https://app.example.com/_vitehub/triggers/run")
+        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
         const headers = new Headers(init?.headers)
-        expect(headers.get("x-vitehub-dispatch-signature")).toMatch(/^v1=[0-9a-f]{64}$/)
-        expect(headers.get("x-vitehub-dispatch-timestamp")).toBeTruthy()
-        expect(headers.get("x-vitehub-dispatch-nonce")).toBeTruthy()
         expect(headers.get("authorization")).toBeNull()
-        expect(JSON.parse(String(init?.body))).toEqual({ name: "nightly" })
-        return Response.json({ run: { id: "r1", name: "nightly" } })
+        const keys = readConsolePublicKeys({ VITEHUB_CONSOLE_KEY_CI: publicKey })
+        if (!(keys instanceof Map)) throw new Error(keys.message)
+        await expect(verifyConsoleSignature({ headers, keys, method: "POST", origin: "https://app.example.com", url: String(url) })).resolves.toEqual({
+          bodySha256: await consoleBodySha256(String(init?.body)),
+          caller: { via: "cli" },
+          key: "CI",
+          ok: true,
+        })
+        return operationRpcResponse(init?.body, { ok: true, value: { run: { id: "r1", name: "nightly" } } })
       })
-      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch)
+      const result = await runTrigger({ VITEHUB_CONSOLE_PRIVATE_KEY_CI: privateKey }, fetch)
+      expect(result.stderr).toBe("")
       expect(result.code).toBe(0)
       expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r1", name: "nightly" } })
       expect(fetch).toHaveBeenCalledTimes(1)
     })
 
-    it("forwards Access service tokens without Console session credentials", async () => {
-      const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-        const headers = new Headers(init?.headers)
-        expect(headers.get("cf-access-client-id")).toBe("access-id")
-        expect(headers.get("cf-access-client-secret")).toBe("access-secret")
-        expect(headers.get("authorization")).toBeNull()
-        expect(headers.get("cookie")).toBeNull()
-        return Response.json({ run: { id: "r1" } })
-      })
-      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key, CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret", VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token", VITEHUB_CONSOLE_COOKIE: "session=console-cookie" }, fetch)
-      expect(result.code).toBe(0)
-      expect(fetch).toHaveBeenCalledOnce()
-    })
-
-    it.each([
-      ["http://app.example.com", "must use HTTPS"],
-      ["http://localhost.example.com", "must use HTTPS"],
-      ["ftp://localhost", "must use HTTPS"],
-      ["not a url", "must be a URL"],
-      ["https://user:password@app.example.com", "must not contain credentials"],
-      ["https://app.example.com?token=private", "must not contain credentials"],
-      ["https://app.example.com#fragment", "must not contain credentials"],
-    ])("rejects unsafe dispatch URL %s without fetching", async (url, message) => {
-      const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
-      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)
-      expect(result.code).toBe(1)
-      expect(result.stderr).toContain(`CLI_R0003: --url ${message}`)
-      expect(fetch).not.toHaveBeenCalled()
-    })
-
     it.each([
       "http://app.example.com", "http://localhost.example.com", "ftp://localhost", "not a url",
       "https://user:password@app.example.com", "https://app.example.com?token=private", "https://app.example.com#fragment",
-    ])("rejects unsafe RPC fallback URL %s before sending credentials", async (url) => {
+    ])("rejects unsafe URL %s before sending credentials", async (url) => {
       const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
       const result = await runTrigger({
         VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
@@ -407,7 +382,7 @@ describe("generated operation commands", () => {
       expect(result.stderr).not.toMatch(/private|access-secret|password/)
     })
 
-    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts safe RPC fallback URL %s", async (url) => {
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts safe URL %s", async (url) => {
       const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
         const headers = new Headers(init?.headers)
         expect(headers.get("authorization")).toBe("Bearer token")
@@ -424,74 +399,20 @@ describe("generated operation commands", () => {
       expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc`, expect.any(Object))
     })
 
-    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts dispatch URL %s", async (url) => {
-      const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
-      expect((await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)).code).toBe(0)
-      expect(fetch.mock.calls[0]).toEqual([`${url}/_vitehub/triggers/run`, expect.any(Object)])
-    })
-
-    it.each([[], ["--json"]])("redacts signed results and failures with flags %j", async (...args) => {
-      const message = "Request failed: Bearer fake-token at https://user:fake-password@example.com"
-      const outputs = [
-        vi.fn(async () => Response.json({ run: { id: "r1", error: { name: "token=fake-name", message } }, items: Array.from({ length: 120 }, (_, i) => i), text: "x".repeat(11_000) })),
-        vi.fn(async () => Response.json({ message }, { status: 500 })),
-        vi.fn(async () => { throw new Error(message) }),
-      ]
-      for (const [index, fetch] of outputs.entries()) {
-        const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, undefined, args)
-        const output = result.stdout + result.stderr
-        expect(output).toContain("[redacted]")
-        expect(output).not.toContain("fake-token")
-        expect(output).not.toContain("fake-password")
-        expect(output).not.toContain("fake-name")
-        expect(result.code).toBe(index === 0 ? 0 : 1)
-        if (index === 0) {
-          const value = JSON.parse(result.stdout)
-          expect(value.items).toHaveLength(120)
-          expect(value.text).toHaveLength(11_000)
-        }
-      }
-    })
-
-    it.each([[], ["--json"]])("redacts nested secret-named fields without truncating signed results with flags %j", async (...args) => {
-      const fetch = vi.fn(async () => Response.json({
-        run: { details: { token: "opaque-token", password: "opaque-password", authorization: "opaque-authorization", cookie: "opaque-cookie", apiKey: { value: "opaque-key" } } },
-        items: Array.from({ length: 120 }, (_, i) => ({ id: i, credential: "opaque-credential" })),
-        text: "x".repeat(11_000),
-      }))
-      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, undefined, args)
-      expect(result.code).toBe(0)
-      const value = JSON.parse(result.stdout)
-      expect(value.run.details).toEqual({ token: "[redacted]", password: "[redacted]", authorization: "[redacted]", cookie: "[redacted]", apiKey: "[redacted]" })
-      expect(value.items).toEqual(Array.from({ length: 120 }, (_, i) => ({ id: i, credential: "[redacted]" })))
-      expect(value.text).toBe("x".repeat(11_000))
-      expect(result.stdout).not.toContain("opaque-")
-    })
-
-    it("uses the RPC with Console credentials when no key is set", async () => {
-      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
-        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
-        return operationRpcResponse(init?.body, { ok: true, value: { run: { id: "r2" } } })
-      })
-      const result = await runTrigger({ VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch)
-      expect(result.code).toBe(0)
-      expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r2" } })
-    })
-
-    it("names the key when the app refuses the signature", async () => {
-      const fetch = vi.fn(async () => Response.json({ message: "The dispatch signature does not match." }, { status: 401 }))
-      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch)
+    it("names the fix when the app refuses the signature", async () => {
+      const { privateKey } = await createConsoleKeyPair()
+      const fetch = vi.fn(async () => Response.json({ code: "CONSOLE_KEY_UNKNOWN", fix: "Set the VITEHUB_CONSOLE_KEY_<NAME> line on the app.", message: "This app has no `VITEHUB_CONSOLE_KEY_CI`.", ok: false, status: 401 }, { status: 401 }))
+      const result = await runTrigger({ VITEHUB_CONSOLE_PRIVATE_KEY_CI: privateKey }, fetch)
       expect(result.code).toBe(1)
-      expect(result.stderr).toContain("CLI_R0006: The signed request failed with HTTP 401: The dispatch signature does not match.")
-      expect(result.stderr).toContain("VITEHUB_DISPATCH_KEY")
+      expect(result.stderr).toContain("CONSOLE_KEY_UNKNOWN: This app has no `VITEHUB_CONSOLE_KEY_CI`.")
+      expect(result.stderr).toContain("Set the VITEHUB_CONSOLE_KEY_<NAME> line on the app.")
     })
 
-    it("rejects a malformed key before it calls the app", async () => {
+    it("rejects a malformed private key before it calls the app", async () => {
       const fetch = vi.fn()
-      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: "nope" }, fetch)
+      const result = await runTrigger({ VITEHUB_CONSOLE_PRIVATE_KEY_CI: "nope" }, fetch)
       expect(result.code).toBe(1)
-      expect(result.stderr).toContain("VITEHUB_DISPATCH_KEY must be the 64-character hex key")
+      expect(result.stderr).toContain("VITEHUB_CONSOLE_PRIVATE_KEY_CI must be the 43-character private key")
       expect(fetch).not.toHaveBeenCalled()
     })
   })
