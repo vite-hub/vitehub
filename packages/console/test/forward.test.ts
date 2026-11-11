@@ -63,7 +63,10 @@ describe("forwardProjectRequest", () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("refuses a body larger than 9 MiB", async () => {
+  it("sends a 9 MiB file as base64, and refuses a larger body", async () => {
+    const accepted = upstream()
+    const file = JSON.stringify({ operation: "media.upload", input: { data: Buffer.alloc(9 * 1024 * 1024).toString("base64"), filename: "a.bin", section: "content" } })
+    expect((await forwardProjectRequest(call({ body: file }), target, "/_vitehub/rpc/__call", accepted)).status).toBe(200)
     const send = upstream()
     const response = await forwardProjectRequest(call({ body: new Uint8Array(maxForwardBodyBytes + 1) }), target, "/_vitehub/rpc/__call", send)
     expect(response.status).toBe(413)

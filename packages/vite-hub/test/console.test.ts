@@ -221,7 +221,6 @@ describe("Agent invocation console", () => {
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
         "/**",
         "/_vitehub/rpc/**",
-        "/_vitehub/channels/replay",
         "/_vitehub/mcp",
       ])
       expect(config.nitro.publicAssets).toEqual([
@@ -365,7 +364,6 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
         `${mount}/_vitehub/rpc/**`,
-        `${mount}/_vitehub/channels/replay`,
         `${mount}/_vitehub/mcp`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
@@ -397,7 +395,6 @@ describe("Agent invocation console", () => {
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
         "/portal/_vitehub/rpc/**",
-        "/portal/_vitehub/channels/replay",
         "/portal/_vitehub/mcp",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.

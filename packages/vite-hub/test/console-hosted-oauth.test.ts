@@ -14,7 +14,6 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
 import consoleAuthManageHandler from "../src/console/runtime/server/auth-manage.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
-import consoleChannelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
 import consoleEnvManageHandler from "../src/console/runtime/server/env-manage.ts"
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
@@ -228,9 +227,8 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     install()
     installConsoleSections("/tmp/console-hosted-oauth", ["fixture", "env", "auth", "agents", "schedules"])
     for (const [handler, path, body] of [
-      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "ban", userId: "someone" }],
+      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "impersonate", userId: "someone" }],
       [consoleEnvManageHandler, "/_vitehub/env/manage", {}],
-      [consoleChannelReplayHandler, "/_vitehub/channels/replay", {}],
       [consoleScheduleRunHandler, "/_vitehub/schedules/run", {}],
     ] as const) {
       const response = await handler.fetch(new Request(`${app}${path}`, {
@@ -248,8 +246,9 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
   it("checks upload scopes before loading the optional media library", async () => {
     install()
     for (const [token, status] of [[tokens.readOnly, 403], [tokens.console, 404]] as const) {
-      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=content`, {
-        headers: { authorization: `Bearer ${token}`, origin: hosted, [consoleRpcHeader]: "1" },
+      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
+        body: JSON.stringify({ operation: "media.upload", input: { data: "eA==", filename: "a.txt", section: "content" } }),
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin: hosted, [consoleRpcHeader]: "1" },
         method: "POST",
       }))
       expect(response.status, await response.clone().text()).toBe(status)

@@ -54,7 +54,6 @@ export function addConsoleRpcHandler(
     { suffix: "/_vitehub/rpc/**", handler: join(consoleRuntimeRoot, "server/rpc.js") },
     { suffix: "/_vitehub/auth/manage", handler: join(consoleRuntimeRoot, "server/auth-manage.js"), method: "post" },
     { suffix: "/_vitehub/env/manage", handler: join(consoleRuntimeRoot, "server/env-manage.js"), method: "post" },
-    { suffix: "/_vitehub/channels/replay", handler: join(consoleRuntimeRoot, "server/channel-replay.js"), method: "post" },
     { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js"), method: "post" },
     // The MCP endpoint answers every method itself. Its OAuth metadata lives at the origin root, where clients look.
     { suffix: "/_vitehub/mcp", handler: join(consoleRuntimeRoot, "server/mcp.js") },
@@ -129,7 +128,6 @@ export function addConsoleRpcHandler(
     // Other Console access modes leave the application's origin-wide OAuth discovery routes alone.
     if (registration.absolute && !oauth) continue
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
-    if (registration.suffix === "/_vitehub/channels/replay" && !sections.includes("agents")) continue;
     // Only the Schedules section installs the manual Schedules that this route runs.
     if (registration.suffix === "/_vitehub/schedules/run" && !sections.includes("schedules")) continue;
     const route = registration.absolute ? registration.suffix : mountPath(base, registration.suffix)
@@ -140,7 +138,7 @@ export function addConsoleRpcHandler(
       const message =
         registration.suffix === "/_vitehub/rpc/**"
           ? `Cannot mount the ViteHub Console handler at "${route}" because that route already uses "${conflict.handler}".`
-          : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("channels") ? "Channel replay" : registration.suffix.includes("mcp") ? "MCP" : "Schedule run"} handler at "${route}" because that route is already registered.`;
+          : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("mcp") ? "MCP" : "Schedule run"} handler at "${route}" because that route is already registered.`;
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })
     }
     const handler: NitroHandler = registration.middleware ? { handler: registration.handler, middleware: true } : { handler: registration.handler, route }
