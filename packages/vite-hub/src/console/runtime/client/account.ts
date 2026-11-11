@@ -77,28 +77,41 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T
 }
 
-/** The signed-in account, its teams, and the projects of the active team, or `undefined` before sign-in. */
-export async function loadConsoleAccount(): Promise<ConsoleAccount | undefined> {
+/**
+ * The signed-in account, its teams, and the projects of the active team, or `undefined` before sign-in. With
+ * `expectSession`, the page has a session cookie, so the details load together with the session, in one round trip.
+ */
+export async function loadConsoleAccount(expectSession = false): Promise<ConsoleAccount | undefined> {
+  const teams = () => auth().organization.list()
+  const member = () => auth().organization.getActiveMember()
+  const list = () => json<{ projects: ConsoleAccountProject[] }>("/api/projects").catch(() => ({ projects: [] }))
+  const early = expectSession ? { teams: teams(), member: member(), projects: list() } : undefined
+  // A stale cookie leaves the early answers unread.
+  if (early) for (const answer of Object.values(early)) void answer.catch(() => undefined)
   const { data } = await auth().getSession()
   if (!data?.session) return undefined
   const teamId: unknown = Reflect.get(data.session, "activeOrganizationId")
-  const [teams, member, projects] = await Promise.all([
-    auth().organization.list(),
-    teamId ? auth().organization.getActiveMember() : undefined,
-    teamId ? json<{ projects: ConsoleAccountProject[] }>("/api/projects").catch(() => ({ projects: [] })) : { projects: [] },
+  const [joined, active, projects] = await Promise.all([
+    early?.teams ?? teams(),
+    teamId ? early?.member ?? member() : undefined,
+    teamId ? early?.projects ?? list() : { projects: [] },
   ])
   return {
     user: { id: data.user.id, name: data.user.name, email: data.user.email, image: data.user.image },
     hasEmail: !data.user.email.endsWith(passkeyEmailDomain),
-    teams: (teams.data ?? []).map(team => ({ id: team.id, name: team.name, slug: team.slug })),
+    teams: (joined.data ?? []).map(team => ({ id: team.id, name: team.name, slug: team.slug })),
     ...(String(teamId) === teamId ? { teamId } : {}),
-    roles: String(member?.data?.role ?? "").split(",").map(role => role.trim()).filter(Boolean),
+    roles: String(active?.data?.role ?? "").split(",").map(role => role.trim()).filter(Boolean),
     projects: projects.projects,
   }
 }
 
+let signInMethods: Promise<ConsoleSignInMethods> | undefined
+
+/** The sign-in methods of this Console. They do not change while the page is open, so the page asks once. */
 export function loadConsoleSignInMethods(): Promise<ConsoleSignInMethods> {
-  return json<ConsoleSignInMethods>("/api/sign-in-methods").catch(() => ({ github: false }))
+  signInMethods ??= json<ConsoleSignInMethods>("/api/sign-in-methods").catch(() => ({ github: false }))
+  return signInMethods
 }
 
 /** Leave for GitHub. GitHub sends the browser back to `callbackURL`. */

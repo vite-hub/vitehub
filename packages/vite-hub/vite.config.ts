@@ -78,6 +78,7 @@ const runtimeEntries = [
   "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/account.ts",
+  "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",

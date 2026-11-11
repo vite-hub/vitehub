@@ -123,6 +123,11 @@ interface ConsoleProjectsState {
   persistent: Ref<boolean>
   /** The signed-in account of an `account` Console. */
   account: ShallowRef<ConsoleAccount | undefined>
+  /**
+   * The frame of a project that is still opening in an `account` Console: the rail of an open app, or the team sidebar.
+   * It matches the first paint of the page, so a slow app does not change the frame twice.
+   */
+  openingView: "app" | "shell"
 }
 
 let state: ConsoleProjectsState | undefined
@@ -265,6 +270,7 @@ export function startConsoleProjects(options: {
     }),
     gate: shallowRef(options.mode !== "embedded" && !current ? { kind: "empty" } : { kind: "opening" }),
     account: shallowRef(),
+    openingView: "app",
     home: options.home,
     info: shallowRef(),
     linkOpen: ref(false),
@@ -797,11 +803,20 @@ function rememberedAccountProject(teamId: string | undefined): string | undefine
  * Start an `account` Console: read the session, then the projects of the active team from the Console server. Without
  * a session, or on an `/invite/<id>` page, the gate shows the sign-in page.
  */
-export async function startConsoleAccount(options: { home: string, navigate: (url: string) => void, pageOrigin: string, pathname: string, search?: string, showPath: (path: string) => void }): Promise<void> {
+export async function startConsoleAccount(options: {
+  home: string
+  navigate: (url: string) => void
+  pageOrigin: string
+  pathname: string
+  search?: string
+  showPath: (path: string) => void
+  /** The first paint of the page, which the Console server picked from the path and the cookies. */
+  boot?: string
+}): Promise<void> {
   showAccountPath = options.showPath
   // Only an `account` Console loads the Better Auth client.
   const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
-  const account = await loadConsoleAccount().catch(() => undefined)
+  const account = await loadConsoleAccount(options.boot === "app" || options.boot === "shell").catch(() => undefined)
   const storage = memoryProjectStorage()
   let missingApp = false
   if (account) {
@@ -819,6 +834,7 @@ export async function startConsoleAccount(options: { home: string, navigate: (ur
   }
   const started = startConsoleProjects({ base: "", home: options.home, mode: "account", navigate: options.navigate, pageOrigin: options.pageOrigin, storage })
   started.account.value = account
+  if (options.boot === "shell") started.openingView = "shell"
   const invitation = consoleInvitationOf(options.pathname)
   const page = accountPageOf(options.pathname)
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }

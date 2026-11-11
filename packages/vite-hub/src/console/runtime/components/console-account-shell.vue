@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, watch, watchEffect } from "vue";
+import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, ref, watch, watchEffect } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
+import { consoleAccountViewsKey } from "../client/account-views";
 import { accountAppStatusLabels, canManageConsoleProjects, checkConsoleAccountProject } from "../client/account";
 import { accountProjectPath, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
@@ -15,8 +16,10 @@ import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleToaster from "./console-toaster.vue";
 
-const ConsoleAccountTeam = defineAsyncComponent(() => import("./console-account-team.vue"));
-const ConsoleAccountSettings = defineAsyncComponent(() => import("./console-account-settings.vue"));
+// The page loads the page of its first paint before it mounts.
+const views = inject(consoleAccountViewsKey, {});
+const ConsoleAccountTeam = views.team ?? defineAsyncComponent(() => import("./console-account-team.vue"));
+const ConsoleAccountSettings = views.settings ?? defineAsyncComponent(() => import("./console-account-settings.vue"));
 
 /**
  * The frame of an `account` Console before a project opens: a sidebar with the team, its apps, the members, and the
@@ -36,7 +39,7 @@ const unlinking = ref(false);
 
 const page = computed(() => {
   if (gate.value.kind === "home") return gate.value.page;
-  if (gate.value.kind === "setup" || gate.value.kind === "problem") return "app";
+  if (gate.value.kind === "setup" || gate.value.kind === "problem" || gate.value.kind === "opening") return "app";
   return "home";
 });
 const currentApp = computed(() => page.value === "app" ? projects.current.value?.id : undefined);
@@ -188,6 +191,10 @@ async function retry(): Promise<void> {
           <ConsoleAccountTeam v-else-if="page === 'team'" />
           <ConsoleAccountSettings v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
+          <p v-else-if="gate.kind === 'opening'" role="status" class="flex items-center gap-2 text-sm text-muted">
+            <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+            Opening {{ title }}…
+          </p>
           <div v-else-if="gate.kind === 'problem'" class="grid max-w-2xl gap-6">
             <header class="grid gap-1" role="alert">
               <h2 class="text-xl font-semibold text-highlighted">{{ gate.problem.title }}</h2>

@@ -4,7 +4,7 @@ import "@vite-hub/ui/styles.css";
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
 import { vitehubTheme } from "@vite-hub/ui/theme";
-import { createApp } from "vue";
+import { createApp, watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
@@ -31,11 +31,12 @@ import {
 } from "../console-route";
 import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSectionId } from "../sections";
 import App from "./app.vue";
+import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { takeConsoleOAuthCallback } from "./oauth";
 import { continueConsoleOpen, startConsoleOpen } from "./open-link";
-import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, startConsoleAccount, startConsoleLink, startConsoleNewProject, startConsoleProjects, useConsoleProjects } from "./project-session";
+import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, openConsoleProject, startConsoleAccount, startConsoleLink, startConsoleNewProject, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
@@ -50,10 +51,48 @@ const hosted = pageMode === "hosted";
 const hostBase = hosted || account ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted || account ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
+// Apply the stored appearance before the first render so the page does not flash the other scheme. An `account`
+// Console waits for its account before it renders, so the scheme comes first.
+const appearance = startConsoleAppearance({
+  query: window.matchMedia(consoleDarkSchemeQuery),
+  root: document.documentElement,
+  themeColorDocument: document,
+});
+
+/** @type {import("./account-views").ConsoleAccountViews} */
+const accountViews = {};
+
 if (account) {
-  await startConsoleAccount({ home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, showPath: (path) => {
-    if (window.location.pathname !== path) window.history.pushState(null, "", path);
-  } });
+  // The Console server drew the first view of the visit from its path and cookies (`@vite-hub/console`, src/page.ts).
+  const boot = document.querySelector("[data-vitehub-boot]")?.getAttribute("data-vitehub-boot") ?? undefined;
+  // The code of that view loads together with the account, and the gate renders it in its first frame.
+  const view = (name, load) => load().then(module => { accountViews[name] = module.default; }, () => undefined);
+  const views = boot === "shell"
+    ? [
+        view("shell", () => import("../components/console-account-shell.vue")),
+        ...(/^\/team\/?$/.test(window.location.pathname) ? [view("team", () => import("../components/console-account-team.vue"))] : []),
+        ...(/^\/settings\/?$/.test(window.location.pathname) ? [view("settings", () => import("../components/console-account-settings.vue"))] : []),
+      ]
+    : boot === "sign-in" || boot === "invite"
+      ? [view("signIn", () => import("../components/console-account-sign-in.vue")), import("./account").then(module => module.loadConsoleSignInMethods(), () => undefined)]
+      : [];
+  await Promise.all([
+    startConsoleAccount({ boot, home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, showPath: (path) => {
+      if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    } }),
+    ...views,
+  ]);
+  const projects = useConsoleProjects();
+  // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
+  // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
+  if (projects.gate.value.kind === "opening") {
+    await Promise.race([openConsoleProject().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 2_500))]);
+  }
+  // The next visit to the home path draws the frame that this one shows: an open app, or the team sidebar.
+  watch(() => projects.gate.value.kind, (kind) => {
+    const view = kind === "ready" ? "app" : ["home", "empty", "setup", "problem"].includes(kind) ? "shell" : undefined;
+    if (view) document.cookie = `vitehub-console-view=${view}; Path=/; Max-Age=31536000; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
+  }, { immediate: true });
   // The app of a `?app=<id>` link is open now, so the address goes back to the home path before the router reads it.
   if (new URLSearchParams(window.location.search).has("app")) window.history.replaceState(null, "", consoleBase);
   // Back and Forward between the account pages, such as from `/team` to `/start`, load that page. In an open project,
@@ -400,13 +439,6 @@ function addContributedRoutes(navigation) {
 }
 subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
 
-// Apply the stored appearance before the first render so the page does not flash the other scheme.
-const appearance = startConsoleAppearance({
-  query: window.matchMedia(consoleDarkSchemeQuery),
-  root: document.documentElement,
-  themeColorDocument: document,
-});
-
 router.beforeEach(async (to) => {
   // The first page waits until the project opens, so its requests carry the token and go to the linked project.
   await consoleProjectReady();
@@ -438,6 +470,7 @@ addViteHubIcons();
 deferLucideIcons();
 createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
+  .provide(consoleAccountViewsKey, accountViews)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
   .use(createViteHubUI({ icons: vitehubTheme.icons }))

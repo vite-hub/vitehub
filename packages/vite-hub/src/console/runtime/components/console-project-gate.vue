@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, shallowRef } from "vue";
+import { computed, defineAsyncComponent, inject, onMounted, ref, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleProjectProblem } from "../client/project-link";
+import { consoleAccountViewsKey } from "../client/account-views";
 import { consoleTokenRefused } from "../client/project-link";
 import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
@@ -13,10 +14,12 @@ import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
 import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
-// Only an `account` Console shows these, so they load with the Better Auth client.
+// Only an `account` Console shows these, so they load with the Better Auth client. The page loads the view of its first
+// paint before it mounts.
+const views = inject(consoleAccountViewsKey, {});
 const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
-const ConsoleAccountShell = defineAsyncComponent(() => import("./console-account-shell.vue"));
-const ConsoleAccountSignIn = defineAsyncComponent(() => import("./console-account-sign-in.vue"));
+const ConsoleAccountShell = views.shell ?? defineAsyncComponent(() => import("./console-account-shell.vue"));
+const ConsoleAccountSignIn = views.signIn ?? defineAsyncComponent(() => import("./console-account-sign-in.vue"));
 
 // The page reads the feature catalog, so it loads only on /new.
 const ConsoleNewProject = defineAsyncComponent(() => import("./console-new-project.vue"));
@@ -33,7 +36,8 @@ const tokenError = shallowRef<ConsoleProjectProblem>();
 
 const current = computed(() => projects.current.value);
 // A signed-in person of an `account` Console sees the sidebar of the team on every page before a project opens.
-const accountShell = computed(() => projects.mode === "account" && Boolean(projects.account.value) && ["home", "empty", "setup", "problem"].includes(gate.value.kind));
+// A project that is still opening stays in the sidebar when the page started there.
+const accountShell = computed(() => projects.mode === "account" && Boolean(projects.account.value) && (["home", "empty", "setup", "problem"].includes(gate.value.kind) || (gate.value.kind === "opening" && projects.openingView === "shell")));
 const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
 const others = computed(() => projects.projects.value.filter(project => project.id !== current.value?.id));
 const switchItems = computed<DropdownMenuItem[][]>(() => [
@@ -65,8 +69,9 @@ async function retry(): Promise<void> {
   busy.value = false;
 }
 
+// The page of an `account` Console opens its project before it renders, so a slow project is already opening.
 onMounted(() => {
-  if (gate.value.kind === "opening") void openConsoleProject();
+  if (gate.value.kind === "opening" && projects.mode !== "account") void openConsoleProject();
 });
 </script>
 
