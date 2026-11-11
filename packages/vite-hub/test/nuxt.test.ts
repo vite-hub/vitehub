@@ -950,7 +950,7 @@ describe("ViteHub Nuxt integration", () => {
         // Compile the direct import without loading the generated catalog or running any Vite plugin.
         await build({ stdin: { contents: transformed ?? source, loader: "ts", resolveDir: dirname(file) }, outfile: artifact, format: "esm" })
         const loaded = import(/* @vite-ignore */ pathToFileURL(artifact).href)
-        if (name === "review") await expect(loaded).rejects.toMatchObject({ code: "AGENT_R1036" })
+        if (name === "review") await expect(loaded).rejects.toMatchObject({ code: "AGENT_R1037" })
         else expect((await loaded).default).toBeDefined()
       }
     }

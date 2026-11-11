@@ -1534,7 +1534,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
     },
-    AGENT_R1036: {
+    AGENT_R1037: {
       why: ({ name }: { name: string }) => `[vitehub] Agent "${name}" owns a Workspace, but the defineAgent() options that its file exports have no workspace key. A Capability, Channel, preset, parent, or configure callback added the Workspace. Add workspace: {} to its defineAgent() options.`,
       fix: "Add workspace: {} to the defineAgent() options in the Agent file. ViteHub reads the Workspace of a folder Agent only from this key, without running the module.",
     },

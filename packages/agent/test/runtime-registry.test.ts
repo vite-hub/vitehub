@@ -264,7 +264,7 @@ export async function inspect() {
       } }],
     })
     const result = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', 'const mod = await import(process.argv[1]); console.log(JSON.stringify(await mod.inspect()))', pathToFileURL(artifact).href])
-    expect(JSON.parse(result.stdout)).toEqual({ review: 'AGENT_R1036', docs: true, plain: false })
+    expect(JSON.parse(result.stdout)).toEqual({ review: 'AGENT_R1037', docs: true, plain: false })
   } finally { await rm(artifact, { force: true }) }
 }, 30_000)
 

@@ -269,7 +269,7 @@ export function rememberDeclaredAgentWorkspace(agent: object, options: unknown):
  */
 export function withDeclaredAgentWorkspace<Agent>(agent: Agent, name: string): Agent {
   if (workspaceAgentOwnsWorkspaceDefinition(agent) && Reflect.get(Object(agent), declaredAgentWorkspace) !== true) {
-    throw agentDiagnostics.AGENT_R1036({ name })
+    throw agentDiagnostics.AGENT_R1037({ name })
   }
   return agent
 }
