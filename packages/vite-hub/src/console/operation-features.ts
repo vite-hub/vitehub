@@ -8,6 +8,7 @@ export function transformConsoleOperationFeatures(code: string, sections: readon
   const transformed = code
     .replaceAll("import.meta.viteHubConsoleOperationSections", JSON.stringify(sections))
     .replaceAll("import.meta.viteHubConsoleAgents", String(sections.includes("agents")))
+    .replaceAll("import.meta.viteHubConsoleAuth", String(sections.includes("auth")))
     .replaceAll("import.meta.viteHubConsoleDatabase", String(sections.includes("databases")))
   return transformed === code ? undefined : transformed
 }
