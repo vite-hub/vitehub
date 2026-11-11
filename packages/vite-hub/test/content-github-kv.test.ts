@@ -51,7 +51,7 @@ describe("github() Sources turn KV on", () => {
     const root = await project(githubContent)
     const { config, names } = await pluginNames(root)
     expect(names.filter(name => name === "@vite-hub/kv/vite")).toHaveLength(1)
-    expect(await contentPrelude(config.plugins, root)).toContain("__vitehubRegisterContentKV(__vitehubContentKV)")
+    expect(await contentPrelude(config.plugins, root)).toContain("__vitehubRegisterContentKV(__vitehubContentKV, ")
   }, 60_000)
 
   it("keeps KV off with kv: false, so Content reads the branch", async () => {

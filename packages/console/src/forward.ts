@@ -8,9 +8,9 @@ import { signConsoleRequest } from "@vite-hub/internal/console-signature"
 
 import type { ConsoleCaller, ConsoleSigningKey } from "@vite-hub/internal/console-signature"
 
-/** The data routes of a project: the operation RPC, the Console API routes, and the page tools session. */
-const forwardedPath = /^\/_vitehub\/(?:rpc$|api\/.|page\/session$)/
-const forwardedMethods = new Set(["GET", "HEAD", "POST", "PUT", "DELETE"])
+/** The one Console route of a project: `POST /_vitehub/rpc`. */
+const forwardedPath = /^\/_vitehub\/rpc$/
+const forwardedMethods = new Set(["POST"])
 /** Cookies, `Origin`, and `Authorization` of the Console page never reach the project. */
 const requestHeaders = ["accept", "content-type", "if-none-match", "x-vitehub-console"]
 /** Set-Cookie never reaches the Console page. Fetch decodes the body, so the encoding and length headers stay out. */
@@ -37,7 +37,7 @@ function problem(status: number, code: string, message: string): Response {
 
 /**
  * Send one Console call to a project. `path` is the app path after the project prefix, with its query, such as
- * `/_vitehub/rpc`. Only the data routes go through. The project's answer comes back with its status and body,
+ * `/_vitehub/rpc`. Only that route goes through. The project's answer comes back with its status and body,
  * and without cookies. The Console contains project content so it cannot execute on the Console origin.
  */
 export async function forwardProjectRequest(request: Request, target: ForwardTarget, path: string, send: typeof fetch = fetch): Promise<Response> {

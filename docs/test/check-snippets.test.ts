@@ -539,6 +539,33 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
+  it("types related rows from the Database Definition of a page", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/database-relations-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-relations-page.md", pageRoot })
+    const snippets = [
+      snippet("src/database.ts", `import { defineDatabase } from '@vite-hub/database'
+import { defineRelations } from 'drizzle-orm'
+import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'
+const users = sqliteTable('users', { id: integer('id').primaryKey() })
+const posts = sqliteTable('posts', { id: integer('id').primaryKey(), authorId: integer('author_id').notNull() })
+export default defineDatabase({ schema: { users, posts }, relations: defineRelations({ users, posts }, r => ({
+  users: { posts: r.many.posts() },
+  posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },
+})) })`),
+      ...["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap((module, index) => [
+        snippet(`valid-${index}.ts`, `import { useDatabase } from '${module}'
+export const rows: Promise<Array<{ id: number, posts: Array<{ id: number }> }>> = useDatabase('default').db.query.users.findMany({ with: { posts: true } })`),
+        snippet(`wrong-relation-${index}.ts`, `import { useDatabase } from '${module}'
+useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
+      ]),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["wrong-relation-0.ts", [2353]],
+      ["wrong-relation-1.ts", [2353]],
+    ])
+  }, 60_000)
+
   it.each(["mts", "cts"])("does not register src/database.%s as a default Database", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/unsupported-default-database")
     const label = `src/database.${extension}`

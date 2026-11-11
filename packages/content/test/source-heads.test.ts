@@ -4,6 +4,9 @@ import { join } from "node:path"
 import { memory, readArtifact } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqlQuery from "comark-content/plugins/sql-query"
+import markdown from "comark-content/plugins/markdown"
+import schemaValidation from "comark-content/plugins/schema-validation"
+import headings from "comark/plugins/headings"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
@@ -11,6 +14,7 @@ import { github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
+import { CommitMemory, parserHash } from "../src/commit-cache.ts"
 import { contentSource, defineContent, generateContentTypes, registerContentKV } from "../src/index.ts"
 import { hubContent } from "../src/vite.ts"
 
@@ -61,6 +65,11 @@ function server(options: Parameters<typeof defineContent>[0] = {}) {
 
 async function title(content: ReturnType<typeof server>, path: string) {
   return (await content.get(path))?.data.title
+}
+
+/** The GitHub archives that the fake served. */
+function downloads() {
+  return fake.requests.filter(request => /\/tarball\/|\/tar\.gz\//.test(request.path)).length
 }
 
 /** The warnings with a diagnostic code. */
@@ -420,21 +429,25 @@ describe("content.sources", () => {
   })
 
   it("retries a selected head when its serving refresh failed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
     fake.commit("main", { "guide.md": page("Guide") })
     const content = server()
     expect(await title(content, "/guide")).toBe("Guide")
+    // Another server instance validates the new commit and moves the head.
     const second = fake.commit("main", { "guide.md": page("Guide v2") })
-    let downloads = 0
+    await server().sources.advance("docs")
+    // This server instance cannot read the commit from KV, and its archive download fails until `failing` is false.
+    registerContentKV({ get: key => key.startsWith("content:head:") ? kv.get(key) : Promise.resolve([undefined, undefined]), set: (key, value) => kv.set(key, value) })
     let failing = true
     vi.stubGlobal("fetch", vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-      if (String(input).includes(`/tarball/${second}`) && ++downloads > 1 && failing) throw new TypeError("fetch failed")
+      if (String(input).includes(`/tarball/${second}`) && failing) throw new TypeError("fetch failed")
       return fake.fetch(input, init)
     }))
-    await expect(content.sources.advance("docs")).rejects.toThrow("fetch failed")
+    vi.advanceTimersByTime(5_500)
+    await expect(title(content, "/guide")).rejects.toThrow("fetch failed")
     failing = false
-    expect(await content.sources.head("docs")).toMatchObject({ sha: second })
     expect(await title(content, "/guide")).toBe("Guide v2")
-    expect(await content.sources.advance("docs")).toMatchObject({ sha: second })
+    expect(await content.sources.head("docs")).toMatchObject({ sha: second })
   })
 
   it("retries a valid rejected SHA after a temporary retrieval failure and restart", async () => {
@@ -459,6 +472,189 @@ describe("content.sources", () => {
   })
 })
 
+describe("commit cache", () => {
+  it("downloads each commit once, and a server with a warm KV downloads nothing", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide"), "intro.md": page("Intro") })
+    const content = server()
+
+    // Validation and serving share the download.
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect(await title(content, "/intro")).toBe("Intro")
+    expect(downloads()).toBe(1)
+    const head = await content.sources.head("docs")
+    expect(head.cache).toEqual({ key: expect.stringMatching(new RegExp(`^content:[0-9a-f]{16}:${first}:docs$`)), hits: { memory: expect.any(Number), kv: 0 }, misses: 1 })
+    const [, stored] = await kv.get(head.cache.key!)
+    expect(stored).toMatchObject({ name: "docs", data: expect.any(String) })
+
+    const other = server()
+    expect(await title(other, "/guide")).toBe("Guide")
+    expect((await other.list()).length).toBe(2)
+    expect(downloads()).toBe(1)
+    expect((await other.sources.head("docs")).cache).toMatchObject({ key: head.cache.key, hits: { kv: 1 }, misses: 0 })
+
+    // A new head is a new key: one more download, shared by advance() and the reload.
+    fake.commit("main", { "guide.md": page("Guide v2") })
+    await content.sources.advance("docs")
+    expect(await title(content, "/guide")).toBe("Guide v2")
+    expect(downloads()).toBe(2)
+  })
+
+  it("keeps documents that a server changes out of the cached commit", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide")
+    fake.commit("main", { "guide.md": page("Guide v2"), "new.md": page("New") })
+    await content.sources.advance("docs")
+    expect(await title(content, "/new")).toBe("New")
+
+    // A rollback reads the first commit from memory: no download, and no document of the second commit.
+    await content.sources.pin(first, "docs")
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect(await title(content, "/new")).toBeUndefined()
+    expect((await content.list()).map(item => item.path)).toEqual(["/guide"])
+    expect(downloads()).toBe(2)
+  })
+
+  it("stores no rejected commit", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide")
+    const bad = fake.commit("main", { "broken.md": broken })
+    await content.sources.advance("docs")
+    const key = (await content.sources.head("docs")).cache.key!.replace(/:[0-9a-f]{40}:/, `:${bad}:`)
+    const [, stored] = await kv.get(key)
+    expect(stored).toBeNull()
+    expect(downloads()).toBe(2)
+  })
+
+  it("uses another key when the parser config changes", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide")
+    const { key } = (await content.sources.head("docs")).cache
+
+    const other = server({ markdown: { autoClose: false } })
+    expect(await title(other, "/guide")).toBe("Guide")
+    const changed = (await other.sources.head("docs")).cache
+    expect(changed.key).not.toBe(key)
+    expect(changed.key?.split(":")[2]).toBe(key?.split(":")[2])
+    expect(changed).toMatchObject({ hits: { kv: 0 }, misses: 1 })
+    expect(downloads()).toBe(2)
+
+    // A plugin counts by its source text, so a changed plugin gives another hash.
+    const plugin = (version: number) => ({ name: "plugin", setup: version === 1 ? () => "one" : () => "two" })
+    expect(await parserHash({ plugins: [plugin(1)] })).not.toBe(await parserHash({ plugins: [plugin(2)] }))
+    expect(await parserHash({ plugins: [plugin(1)] })).toBe(await parserHash({ plugins: [plugin(1)] }))
+  })
+
+  it("uses another key for each build, because plugin options in closures do not change the parser hash", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "build-1")
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide")
+    const { key } = (await content.sources.head("docs")).cache
+    registerContentKV(kv, "build-2")
+    const next = server()
+    expect(await title(next, "/guide")).toBe("Guide")
+    expect((await next.sources.head("docs")).cache).toMatchObject({ hits: { kv: 0 }, misses: 1 })
+    expect((await next.sources.head("docs")).cache.key).not.toBe(key)
+  })
+
+  it("keeps the Source prefix and schema in the cached commit", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const docs = () => contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs" })
+    const content = defineContent({ sources: { docs: docs() }, logger: false })
+    cleanup.push(() => content.dispose())
+    expect((await content.get("/docs/guide"))?.data.title).toBe("Guide")
+    const cold = defineContent({ sources: { docs: docs() }, logger: false })
+    cleanup.push(() => cold.dispose())
+    expect((await cold.get("/docs/guide"))?.data.title).toBe("Guide")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
+  it.each(["markdown", "content"] as const)("reparses cached files with changed %s plugin closures in the same build", async (kind) => {
+    fake.commit("main", { "guide.md": "# Guide\n\nDescription\n" })
+    registerContentKV(kv, "same-build")
+    const configured = (remove: boolean) => server(kind === "markdown"
+      ? { markdown: { plugins: [headings({ remove })] } }
+      : { plugins: [markdown({ comark: { plugins: [headings({ remove })] } })] })
+    const tags = async (content: ReturnType<typeof configured>) => (await content.get("/guide"))?.nodes?.map(node => Array.isArray(node) ? node[0] : null)
+    const warm = configured(false)
+    expect(await tags(warm)).toEqual(expect.arrayContaining(["h1", "p"]))
+    const key = (await warm.sources.head("docs")).cache.key
+
+    const cold = configured(true)
+    const removed = await tags(cold)
+    expect(removed).not.toContain("h1")
+    expect(removed).not.toContain("p")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ key, hits: { kv: 1 }, misses: 0 })
+    expect(downloads()).toBe(1)
+  })
+
+  it("isolates different Source prefixes in the same build", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "same-build")
+    const configured = (prefix: string) => server({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix }) } })
+    const docs = configured("/docs")
+    expect(await title(docs, "/docs/guide")).toBe("Guide")
+    const key = (await docs.sources.head("docs")).cache.key
+
+    const help = configured("/help")
+    expect((await help.list()).map(item => item.path)).toEqual(["/help/guide"])
+    expect(await title(help, "/help/guide")).toBe("Guide")
+    expect((await help.sources.head("docs")).cache.key).not.toBe(key)
+    const cold = configured("/help")
+    expect(await title(cold, "/help/guide")).toBe("Guide")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
+  it("isolates Source schemas and rejects a commit cached under a permissive schema", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "same-build")
+    const configured = (type: "string" | "number") => server({
+      sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs", schema: { type: "object", properties: { title: { type } } } }) },
+      plugins: [schemaValidation()],
+    })
+    const strict = configured("string")
+    expect(await title(strict, "/docs/guide")).toBe("Guide")
+    const key = (await strict.sources.head("docs")).cache.key
+    const bad = fake.commit("main", { "guide.md": page("123") })
+    const permissive = configured("number")
+    await permissive.sources.advance("docs")
+    const badKey = (await permissive.sources.head("docs")).cache.key
+    // Return the shared head to the valid commit, while retaining the numeric commit artifact in KV.
+    await strict.sources.pin(first, "docs")
+    expect(await strict.sources.unpin("docs")).toMatchObject({ sha: first, rejected: { sha: bad, reason: expect.stringContaining("guide.md") } })
+    expect(badKey).not.toBe(key!.replace(first, bad))
+    expect(await title(strict, "/docs/guide")).toBe("Guide")
+  })
+
+  it("holds a bounded number of commits in memory", async () => {
+    const shas = [fake.commit("main", { "guide.md": page("Guide 0") })]
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide 0")
+    for (let index = 1; index < 6; index++) {
+      shas.push(fake.commit("main", { "guide.md": page(`Guide ${index}`) }))
+      await content.sources.advance("docs")
+    }
+    expect(downloads()).toBe(6)
+
+    // The first commit left memory, so the rollback reads it from KV, not from GitHub.
+    const before = (await content.sources.head("docs")).cache.hits.kv
+    await content.sources.pin(shas[0]!, "docs")
+    expect(await title(content, "/guide")).toBe("Guide 0")
+    expect((await content.sources.head("docs")).cache.hits.kv).toBe(before + 1)
+    expect(downloads()).toBe(6)
+
+    const memory = new CommitMemory<number>(2)
+    for (let index = 0; index < 10; index++) memory.set(String(index), index)
+    expect(memory.size).toBe(2)
+    expect(memory.get("8")).toBe(8)
+    memory.set("10", 10)
+    expect(memory.get("9")).toBeUndefined()
+  })
+})
+
 describe("hubContent() and KV", () => {
   async function transform(plugins: string[], command: "build" | "serve" = "serve") {
     const root = await mkdtemp(join(tmpdir(), "vitehub-content-head-vite-"))
@@ -476,7 +672,7 @@ describe("hubContent() and KV", () => {
   it("gives server/content.ts the app's KV store when the app enables KV", async () => {
     const result = await transform(["@vite-hub/kv/vite"])
     expect(result?.code).toContain(`import { kv as __vitehubContentKV } from "@vite-hub/kv"`)
-    expect(result?.code).toContain("__vitehubRegisterContentKV(__vitehubContentKV)")
+    expect(result?.code).toContain("__vitehubRegisterContentKV(__vitehubContentKV, ")
   })
 
   it("imports no KV when the app does not enable it", async () => {

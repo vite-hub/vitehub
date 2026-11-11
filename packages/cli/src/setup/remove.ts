@@ -136,9 +136,7 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
 /** Features required by selected options. Unknown options can select any supported prerequisite. */
 function optionPrerequisites(id: FeatureId, value: JsonValue | undefined, unknown: boolean): FeatureId[] {
   const options = isRecord(value) ? value : undefined
-  if (id === "console" && (unknown || value === true || options?.auth === "app")) return ["auth"]
   if (id === "cache" && (unknown || options?.driver === "kv")) return ["kv"]
-  if (id === "connections" && (unknown || options?.management)) return ["console"]
   if (id === "observability") return [...(unknown || options?.posthog ? ["env" as const] : []), ...(unknown || options?.papercuts ? ["agent" as const, "console" as const] : [])]
   const invocations = options?.invocations
   if (id === "agent" && (unknown || invocations === "database" || (isRecord(invocations) && invocations.store === "database"))) return ["database"]

@@ -117,7 +117,7 @@ afterEach(async () => {
 
 describe("Console media library", () => {
   it("serves Content media operations while navigation shows only Setup", async () => {
-    installConsoleSections("/app", ["setup", "content", "blob"], false, ["setup"])
+    installConsoleSections("/app", ["setup", "content", "blob"], ["setup"])
     const navigation = await respond(new Request("http://localhost/_vitehub/rpc", {
       body: operationRpcBody("sections.list", {}),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
@@ -161,7 +161,7 @@ describe("Console media library", () => {
       import { maximumConsoleMediaUploadBytes, uploadConsoleMedia } from "./src/console/runtime/server/media.ts"
       import { installConsoleSections } from "./src/console/runtime/server/sections.ts"
 
-      const base = process.argv[2]
+      const base = process.argv.at(-1)
       const storage = createBlobStorage(createDriver({ base, driver: "fs" }), "default", { images: false })
       setBlobRuntimeConfig({ images: false, store: { base, driver: "fs" } })
       installConsoleSections(base, ["content", "blob"])
