@@ -19,6 +19,7 @@ import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
 import { keepRealtimeSocketAlive } from "./keepalive.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 /** Reads a room document as Markdown and fields with the editor codec, such as the `previous` document of a reset. */
 export { readRealtimeYDoc } from "./document.ts"
@@ -67,10 +68,6 @@ export interface UseRealtimeTiptapOptions {
 }
 
 const workspaceChangeFlushIntervalMs = 11
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function isString(value: unknown): value is string {
   return typeof value === "string"

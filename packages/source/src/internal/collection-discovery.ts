@@ -1,12 +1,11 @@
 import { readFile, readdir } from "node:fs/promises"
 import { basename, extname, join, relative, resolve } from "node:path"
 
-import { argumentExpression, findCalls, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
-import { findExportNames } from "mlly"
+import { argumentExpression, exportNames, findCalls, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { CallExpression, Expression, ScannedModule } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, Node, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 export interface CollectionDiscoveryOptions {
   projectRoot: string
@@ -35,6 +34,18 @@ function declarationInitializers(module: ScannedModule, name: string, exportedOn
 
 const viteHubSourceSpecifier = /^(?:@vite-hub\/source|vite-hub\/source)(?:\/|$)/
 
+/** Checks binding targets, including nested destructuring, without treating property keys or defaults as bindings. */
+function bindsCollectionFactory(binding: Node): boolean {
+  switch (binding.type) {
+    case "Identifier": return binding.name === "defineCollection"
+    case "ObjectPattern": return binding.properties.some(property => bindsCollectionFactory(property.type === "RestElement" ? property.argument : property.value))
+    case "ArrayPattern": return binding.elements.some(element => element !== null && bindsCollectionFactory(element))
+    case "AssignmentPattern": return bindsCollectionFactory(binding.left)
+    case "RestElement": return bindsCollectionFactory(binding.argument)
+    default: return false
+  }
+}
+
 /**
  * True when `defineCollection` in this module is ViteHub's factory: imported from a ViteHub Source entry, or not
  * declared in the module at all (an auto-import). A local function or an import from elsewhere with that name can
@@ -49,7 +60,7 @@ function callsViteHubFactory(module: ScannedModule): boolean {
     }
     const declaration = statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration" ? statement.declaration : statement
     if ((declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") && declaration.id?.name === "defineCollection") return false
-    if (declaration?.type === "VariableDeclaration" && declaration.declarations.some(declarator => declarator.id.type === "Identifier" && declarator.id.name === "defineCollection")) return false
+    if (declaration?.type === "VariableDeclaration" && declaration.declarations.some(declarator => bindsCollectionFactory(declarator.id))) return false
   }
   return true
 }
@@ -117,7 +128,7 @@ function collectionRouteDisabled(definition: CollectionDefinitionCall | undefine
 
 /** Whether the module exports `exportName`, and whether that Collection gets a generated route. */
 export function inspectCollectionSource(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
-  const exported = findExportNames(source).includes(exportName)
+  const exported = exportNames(source, `${file}.ts`).includes(exportName)
   return { exported, routeEnabled: exported && !collectionRouteDisabled(findCollectionDefinitionCall(source, exportName, file)) }
 }
 
@@ -154,7 +165,7 @@ export async function discoverCollections(options: CollectionDiscoveryOptions): 
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
+      if (!exportNames(source, `${file}.ts`).includes(exportName)) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       const definition = findCollectionDefinitionCall(source, exportName, file)

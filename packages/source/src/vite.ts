@@ -9,9 +9,9 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { findExportNames } from "mlly"
 
 import type { Plugin, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
@@ -366,7 +366,7 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
   if (candidates.length > 1) throw sourceErrorDiagnostics.SOURCE_B0007({ message: "[vitehub] Content is defined in more than one server directory." })
   const file = candidates[0]
   if (!file) return
-  if (!findExportNames(await readFile(file, "utf8")).includes("content")) {
+  if (!exportNames(await readFile(file, "utf8"), file).includes("content")) {
     throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".` })
   }
   return file

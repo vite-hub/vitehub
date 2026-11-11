@@ -60,7 +60,32 @@ The success value is an `AgentRunResult`:
 
 In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
-```ts [server/api/support.post.ts] fragment
+The route reads the signed-in user with a helper of the app:
+
+```ts [server/utils/auth.ts]
+import { createError } from 'h3'
+import { auth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireAuthenticatedUser(event: H3Event) {
+  const session = await auth.api.getSession({ headers: event.req.headers })
+  if (!session) throw createError({ status: 401 })
+  return session.user
+}
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
+```ts [server/api/support.post.ts]
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'

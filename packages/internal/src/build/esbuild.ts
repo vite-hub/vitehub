@@ -25,6 +25,8 @@ interface BundleEsmEntryOptions {
   plugins?: Plugin[]
   preserveSymlinks?: boolean
   rootDir?: string
+  /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
+  resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
   workingDir?: string
 }
@@ -90,7 +92,7 @@ interface ResolvedBareAliasPaths {
   publicSpecifier?: string
 }
 
-function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string, resolveEntryPackageAliases = true): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
   const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
@@ -152,7 +154,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             ? canonicalSpecifier.startsWith(canonicalAlias)
             : canonicalSpecifier === canonicalAlias)
         }
-        if (!match && isAbsolute(args.path)) {
+        if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) {
           // Start every alias resolution at once. Awaiting them one by one costs one esbuild round trip per alias.
           const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
           for (const alias of aliases) {
@@ -490,6 +492,7 @@ export async function bundleEsmEntry(
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
     options.workingDir ?? options.rootDir ?? process.cwd(),
+    options.resolveEntryPackageAliases,
   )
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())

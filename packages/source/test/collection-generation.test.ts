@@ -1,10 +1,10 @@
-import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { prepareSourceGeneration } from "../src/vite.ts"
+import { inspectCollectionModule, prepareSourceGeneration } from "../src/vite.ts"
 
 async function generatedRoutes(files: Record<string, string>) {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
@@ -15,7 +15,11 @@ async function generatedRoutes(files: Record<string, string>) {
     }
     const handlers = await prepareSourceGeneration({ projectRoot })
     const contentRoute = await access(join(projectRoot, ".vitehub/content/route.mjs")).then(() => true, () => false)
-    return { contentRoute, routes: handlers.flatMap(handler => handler.route ?? []) }
+    const collectionTypes = await readFile(join(projectRoot, ".vitehub/types/source/collections.d.ts"), "utf8").catch((error: unknown) => {
+      if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return ""
+      throw error
+    })
+    return { collectionTypes, contentRoute, routes: handlers.flatMap(handler => handler.route ?? []) }
   }
   finally {
     await rm(projectRoot, { recursive: true, force: true })
@@ -93,6 +97,32 @@ it.each([
   "export let articles = defineCollection(load, { route: false })",
 ])("writes the route when route: false is not a literal in the exported call: %s", async (source) => {
   expect((await generatedRoutes({ "server/collections/articles.ts": source })).routes).toEqual(["/api/articles"])
+})
+
+it.each([
+  "const { defineCollection } = helpers",
+  "const { make: defineCollection } = { make: helpers.defineCollection }",
+  "const { nested: { defineCollection } } = { nested: helpers }",
+  "const [defineCollection] = [helpers.defineCollection]",
+  "const { defineCollection = helpers.defineCollection } = {}",
+  "const [defineCollection = helpers.defineCollection] = []",
+  "const [...[defineCollection]] = [helpers.defineCollection]",
+])("keeps a destructured helper's route and registry entry: %s", async (binding) => {
+  const source = `
+    import { defineCollection as baseCollection } from '@vite-hub/source'
+    const load = async () => ({ items: [{ id: 1 }], nextCursor: null })
+    const helpers = {
+      defineCollection(load, options) {
+        return baseCollection(load, { ...options, route: undefined })
+      },
+    }
+    ${binding}
+    export const articles = defineCollection(load, { pagination: 'provider', route: false })
+  `
+  const generated = await generatedRoutes({ "server/collections/articles.mjs": source })
+  expect(generated.routes).toEqual(["/api/articles"])
+  expect(generated.collectionTypes).toContain('"articles": typeof import(')
+  expect(inspectCollectionModule("articles.mjs", source, "articles")).toEqual({ exported: true, routeEnabled: true })
 })
 
 // The call shape of joyandmaxi `server/content.ts`.
