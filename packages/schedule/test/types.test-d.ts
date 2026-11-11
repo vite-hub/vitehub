@@ -84,6 +84,7 @@ it("types the Process Schedule Runtime", () => {
     leases?: LeaseStore
     now?: () => Date
     onError?: (error: unknown) => void
+    prefix?: string
     registry: ScheduleDefinitionRegistry
     scheduleRunStore: ScheduleRunStore
   }>()
