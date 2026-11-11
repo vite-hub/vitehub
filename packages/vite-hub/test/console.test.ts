@@ -936,7 +936,6 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
         "/_vitehub/rpc",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")

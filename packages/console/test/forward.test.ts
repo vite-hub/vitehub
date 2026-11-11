@@ -1,9 +1,14 @@
+import { consoleBodySha256, createConsoleKeyPair, readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 import { describe, expect, it, vi } from "vitest"
 
 import { forwardProjectRequest, maxForwardBodyBytes } from "../src/forward.ts"
 import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
 
-const target = { token: "project-token", url: "https://app.example.com/portal" }
+import type { ConsoleCaller } from "@vite-hub/internal/console-signature"
+
+const pair = await createConsoleKeyPair()
+const caller: ConsoleCaller = { team: { id: "team-1", role: "owner" }, user: { email: "ada@example.com", id: "user-1", name: "Ada" }, via: "console" }
+const target = { caller, key: { name: "CONSOLE_3F9A12BC", privateKey: pair.privateKey }, url: "https://app.example.com/portal" }
 
 function upstream(response: Response = Response.json({ ok: true })) {
   return vi.fn<typeof fetch>(async () => response)
@@ -14,16 +19,29 @@ function call(init: RequestInit & { headers?: Record<string, string> } = {}): Re
 }
 
 describe("forwardProjectRequest", () => {
-  it("sends the call to the project with its token, and no cookie, Origin, or Authorization of the page", async () => {
+  it("signs the call for the person, and sends no cookie, Origin, or Authorization of the page", async () => {
     const send = upstream()
+    const body = operationRpcBody("project.get", {})
     const response = await forwardProjectRequest(call({
+      body,
       headers: { "authorization": "Bearer page", "content-type": "application/json", "cookie": "session=1", "origin": "https://console.example.com", "x-vitehub-console": "1" },
     }), target, "/_vitehub/rpc?x=1", send)
     expect(response.status).toBe(200)
     const [url, init] = send.mock.calls[0]!
     expect(String(url)).toBe("https://app.example.com/portal/_vitehub/rpc?x=1")
     const headers = new Headers(init?.headers)
-    expect(headers.get("authorization")).toBe("Bearer project-token")
+    // The app verifies the signature with the public key of the link, over the exact bytes that it receives.
+    const keys = readConsolePublicKeys({ VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC: pair.publicKey })
+    if (!(keys instanceof Map)) throw new Error(keys.message)
+    const sent = new Uint8Array(await new Response(init?.body).arrayBuffer())
+    await expect(verifyConsoleSignature({ headers, keys, method: "POST", origin: "https://app.example.com", url: String(url) })).resolves.toEqual({
+      bodySha256: await consoleBodySha256(sent),
+      caller,
+      key: "CONSOLE_3F9A12BC",
+      ok: true,
+    })
+    expect(new TextDecoder().decode(sent)).toBe(body)
+    expect(headers.has("authorization")).toBe(false)
     expect(headers.get("x-vitehub-console")).toBe("1")
     expect(headers.get("content-type")).toBe("application/json")
     expect(headers.has("cookie")).toBe(false)
@@ -75,16 +93,16 @@ describe("forwardProjectRequest", () => {
   })
 
   it("keeps the project's status and body, and drops its cookies", async () => {
-    const send = upstream(new Response("{\"code\":\"CONSOLE_TOKEN_INVALID\"}", {
-      headers: { "content-type": "application/json", "set-cookie": "a=1", "www-authenticate": "Bearer realm=\"vitehub-console\"" },
+    const send = upstream(new Response("{\"code\":\"CONSOLE_KEY_UNKNOWN\"}", {
+      headers: { "content-type": "application/json", "set-cookie": "a=1", "www-authenticate": "VitehubSignature realm=\"vitehub-console\"" },
       status: 401,
     }))
     const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)
     expect(response.status).toBe(401)
     expect(response.headers.get("content-type")).toBe("application/json")
     expect(response.headers.has("set-cookie")).toBe(false)
-    expect(response.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
-    await expect(response.json()).resolves.toEqual({ code: "CONSOLE_TOKEN_INVALID" })
+    expect(response.headers.get("www-authenticate")).toBe("VitehubSignature realm=\"vitehub-console\"")
+    await expect(response.json()).resolves.toEqual({ code: "CONSOLE_KEY_UNKNOWN" })
   })
 
   it.each([
@@ -122,7 +140,7 @@ describe("forwardProjectRequest", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(body)
   })
 
-  it("stops at a redirect, so the token does not follow it", async () => {
+  it("stops at a redirect, so the signed request does not follow it", async () => {
     const send = upstream(new Response(null, { headers: { location: "http://169.254.169.254/" }, status: 302 }))
     const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)
     expect(response.status).toBe(502)

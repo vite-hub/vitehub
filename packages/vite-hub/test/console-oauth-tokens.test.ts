@@ -18,7 +18,6 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import authManageRoute from "../src/console/runtime/server/auth-manage.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import scheduleRunRoute from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -398,23 +397,6 @@ describe("OAuth Console tokens", () => {
     database.prepare('UPDATE "consoleClient" SET "inactive" = 0 WHERE "publicId" = ?').run(clientId)
     database.prepare('UPDATE "loginSession" SET "expiresOn" = 0 WHERE "id" = ?').run(v.parse(v.string(), claims(access_token).sid))
     expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(401)
-  })
-
-  it("runs a Schedule with a write token from a listed origin, and refuses a read-only token", async () => {
-    const run = (token: string) => scheduleRunRoute.fetch(new Request(`${app}/_vitehub/schedules/run`, {
-      body: JSON.stringify({ name: "nightly" }),
-      headers: { "authorization": `Bearer ${token}`, "content-type": "application/json", "origin": local },
-      method: "POST",
-    }))
-    const { access_token: write } = await consoleTokens()
-    const listed = await run(write)
-    // The access, scope, and origin checks passed: the route now looks for the Schedule.
-    expect(listed.status, await listed.clone().text()).toBe(404)
-    expect(listed.headers.get("access-control-allow-origin")).toBe(local)
-    const { access_token: read } = await consoleTokens({ cookie: (await signUp("grace@example.com")).cookie, scope: "vitehub:read" })
-    const refused = await run(read)
-    expect(refused.status).toBe(403)
-    expect(refused.headers.get("www-authenticate")).toContain("error=\"insufficient_scope\"")
   })
 
   it("refuses a client document on an origin that console.origins does not list, before it fetches the document", async () => {

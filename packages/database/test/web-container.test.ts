@@ -31,7 +31,7 @@ it("opens a local file with SQLite WASM in a WebContainer and logs it once", asy
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   const path = join(dir, "data", "sqlite.db")
   const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
-  const db = createDefinitionRuntime({ connection: { url: `file:${path}` }, drizzle: {}, name: "default", schema })
+  const db = createDefinitionRuntime({ connection: { url: `file:${path}` }, name: "default", schema })
 
   await db.run(sql`CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)`)
   await db.insert(schema.notes).values({ title: "first" })

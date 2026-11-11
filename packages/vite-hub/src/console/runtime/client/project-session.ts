@@ -332,8 +332,8 @@ async function probeProject(target: Pick<ConsoleProjectTarget, "base" | "origin"
 function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget, signedIn = false): ConsoleProjectGate | undefined {
   if (probe.kind === "ready") return undefined
   const projects = useState()
-  // The project has no token hash yet, or another one: the person sets the variable of this link.
-  if (projects.mode === "account" && (probe.kind === "token" || (probe.kind === "failed" && probe.code === "CONSOLE_TOKEN_NOT_CONFIGURED"))) {
+  // The project has no public key for this link yet, or another one: the person sets the variable of this link.
+  if (projects.mode === "account" && (probe.kind === "signed" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED"))) {
     const linked = projects.account.value?.projects.find(project => project.url === target.url)
     if (linked) return { kind: "setup", project: linked }
   }
@@ -518,7 +518,7 @@ export async function checkConsoleProjects(): Promise<void> {
   projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
   await Promise.all(pending.map(async (project) => {
     const probe = await probeProject(targetOf(projects, project), project).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
-    const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "token" || probe.kind === "oauth" || probe.kind === "sign-in" ? "sign-in" : "unreachable"
+    const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "token" || probe.kind === "signed" || probe.kind === "oauth" || probe.kind === "sign-in" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
   }))
 }
