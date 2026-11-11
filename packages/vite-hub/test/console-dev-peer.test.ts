@@ -12,6 +12,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -22,7 +23,7 @@ const greet = defineOperation({
   section: "fixture",
 })
 
-const rpcPath = "/_vitehub/rpc/__call"
+const rpcPath = "/_vitehub/rpc"
 const remote = "192.168.0.38"
 // What a remote client sends to look local: the dev server's own Host, and the proxy headers of a local peer.
 const forgedLocal = { "host": "localhost:3000", "x-forwarded-for": "127.0.0.1", "x-forwarded-host": "localhost:3000", "x-real-ip": "127.0.0.1" }
@@ -37,7 +38,7 @@ async function throughFront(remoteAddress: string | undefined, headers: Record<s
 /** The Console RPC in the worker. Behind the front process's Unix-socket proxy, the worker sees no peer address. */
 function rpc(headers: Record<string, string>, remoteAddress?: string, path = rpcPath) {
   return handleConsoleRpcRequest(new Request(`http://localhost:3000${path}`, {
-    body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
+    body: operationRpcBody("fixture.greet", { name: "Ada" }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }), { remoteAddress })

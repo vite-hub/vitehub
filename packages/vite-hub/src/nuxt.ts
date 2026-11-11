@@ -31,7 +31,7 @@ import { mergeConfig } from "vite"
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
 import { viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
-import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
+import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
@@ -41,7 +41,7 @@ import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plug
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
-import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
+import { insertConsoleSection, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor, type ConsoleAuthConfig } from "./console/auth-build.ts"
@@ -361,13 +361,20 @@ function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Pl
 }
 
 function asReplayResolvedConfig(config: UserConfig): ResolvedConfig {
+  // Vite normally converts alias records before configResolved. The separate Nitro build skips that step.
+  if (config.resolve?.alias && !Array.isArray(config.resolve.alias)) {
+    config.resolve.alias = Object.entries(config.resolve.alias).map(([find, replacement]) => ({ find, replacement }))
+  }
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
   return config as unknown as ResolvedConfig
 }
 
 async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig): Promise<void> {
-  for (const plugin of plugins) {
-    if (!nitroConfigResolvedNames.has(plugin.name)) continue
+  // Nuxt can reuse its Vite build cache and only build Nitro. Resolve the Database owner first so consumers such as
+  // KV can read its Definitions, layers, and contributions without waiting for Vite's configResolved or buildStart.
+  const databaseOwners = plugins.filter(plugin => plugin.name === "@vite-hub/database/vite")
+  const consumers = plugins.filter(plugin => nitroConfigResolvedNames.has(plugin.name))
+  for (const plugin of [...databaseOwners, ...consumers]) {
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
     // SAFETY: Rollup supplies an opaque plugin context; the replayed hook does not read it.
@@ -1005,6 +1012,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     queue: effectiveQueue,
     sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
   })
+  if (nuxt.options.dev) consoleSections.splice(0, consoleSections.length, ...insertConsoleSection(consoleSections, "setup"))
   const runtimeCapabilityImports = {
     blob: consoleBlobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
@@ -1399,6 +1407,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
       const entrySections = await discoverConsoleEntrySections({ discoveryRoot: viteRoot, projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
       consoleSections.splice(0, consoleSections.length, ...new Set([...resolvedSections, ...entrySections]))
+      if (nuxt.options.dev) consoleSections.splice(0, consoleSections.length, ...insertConsoleSection(consoleSections, "setup"))
       consoleBlobStores.splice(
         0,
         consoleBlobStores.length,
@@ -1493,6 +1502,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const kv = resolvedKVFromPlugin(retainedKVPlugin, effectiveKV)
     if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
+    if (!hasRedisStore(kv)) alias[redisDriverSpecifier] ??= disabledRedisDriver
     if (effectiveKV) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])

@@ -1,3 +1,5 @@
+import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+
 import { consoleRpcHeader } from "../rpc"
 import { consoleErrorFields } from "./request"
 
@@ -36,11 +38,10 @@ export type ConsoleProjectProbe =
   | { kind: "protocol", protocol?: number, vitehub?: string }
   | { kind: "unreachable" }
   | { kind: "missing" }
-  | { kind: "failed", status: number, message?: string, fix?: string }
+  | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
 
 /** The `WWW-Authenticate` challenge of a Console data route that needs a token. */
 const consoleRealm = /\brealm="vitehub-console"/i
-const consoleProjectGetPath = "/_vitehub/rpc/__call"
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => String(entry) === entry) : []
 
@@ -75,27 +76,32 @@ export async function probeConsoleProject(
   options: { fetch?: typeof fetch, signal?: AbortSignal } = {},
 ): Promise<ConsoleProjectProbe> {
   const request = options.fetch ?? globalThis.fetch
-  let response: Response
+  let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
   try {
-    response = await request(`${target.origin}${target.base}${consoleProjectGetPath}`, {
-      body: JSON.stringify({ operation: "project.get", input: {} }),
-      cache: "no-store",
-      credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        [consoleRpcHeader]: "1",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-      method: "POST",
-      signal: options.signal,
+    outcome = await callOperationRpc("project.get", {}, async (body) => {
+      const response = await request(`${target.origin}${target.base}${operationRpcPath}`, {
+        body,
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          [consoleRpcHeader]: "1",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        method: "POST",
+        signal: options.signal,
+      })
+      return { body: await response.json().catch(() => undefined), response }
     })
   }
   catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error
     return { kind: "unreachable" }
   }
-  const body: unknown = await response.json().catch(() => undefined)
-  const fields = consoleErrorFields(body)
+  const { response } = outcome.answer
+  if (outcome.ok) return parseProjectInfo(outcome.value)
+  // Host middleware, such as the token check, answers with the diagnostic body and no birpc reply.
+  const fields = consoleErrorFields(outcome.error ?? outcome.answer.body)
   if (response.status === 401) {
     // A cross-origin page cannot read `WWW-Authenticate` unless the app exposes it, so the body code also counts.
     const challenge = response.headers.get("www-authenticate") ?? ""
@@ -104,12 +110,10 @@ export async function probeConsoleProject(
     if (fields.code === "CONSOLE_TOKEN_INVALID" || (consoleRealm.test(challenge) && !fields.code)) return { kind: "token", rejected: Boolean(token) }
     return { kind: "sign-in" }
   }
-  const record = body instanceof Object ? body : undefined
-  if (response.ok && record && Reflect.get(record, "ok") === true) return parseProjectInfo(Reflect.get(record, "value"))
   // A vite-hub release without `project.get` has the RPC endpoint but not the operation.
   if (response.status === 404 && fields.message === "Console operation not found.") return { kind: "protocol" }
-  if (response.status === 404 || !record) return { kind: "missing" }
-  return { kind: "failed", status: response.status, ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
+  if (response.status === 404 || !(outcome.answer.body instanceof Object)) return { kind: "missing" }
+  return { kind: "failed", status: response.status, ...(fields.code ? { code: fields.code } : {}), ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
 }
 
 /** What the Console says when a project refuses a token. The server keeps only a hash, so it cannot show the token. */

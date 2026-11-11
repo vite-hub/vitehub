@@ -62,7 +62,7 @@ function sourceFile(handler: string): string {
 
 /** One request for a registered route: the concrete path for a `**` route, and its method. */
 function remoteRequest(entry: Registration, remoteAddress?: string): ConsoleRequestEvent {
-  const path = entry.route!.replace("/_vitehub/rpc/**", "/_vitehub/rpc/__call").replace("/**", "/agents")
+  const path = entry.route!.replace("/**", "/agents")
   const method = [entry.method ?? "post"].flat()[0]!.toUpperCase()
   return consoleEvent({
     url: `http://localhost:3000${path}`,
@@ -103,7 +103,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["auth-manage.ts", "channel-replay.ts", "env-manage.ts", "mcp.ts", "rpc.ts", "schedule-run.ts"])
+    expect([...files].sort()).toEqual(["auth-manage.ts", "env-manage.ts", "mcp.ts", "rpc.ts", "schedule-run.ts"])
     const guarded = routes.filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.

@@ -14,7 +14,6 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
 import consoleAuthManageHandler from "../src/console/runtime/server/auth-manage.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
-import consoleChannelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
 import consoleEnvManageHandler from "../src/console/runtime/server/env-manage.ts"
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
@@ -24,6 +23,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import consoleScheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
 
@@ -157,8 +157,8 @@ function install(): void {
 }
 
 function rpc(operation: string, headers: Record<string, string>, input: unknown = {}): Promise<Response> {
-  return consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
-    body: JSON.stringify({ input, operation }),
+  return consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc`, {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", ...headers },
     method: "POST",
   }))
@@ -228,9 +228,8 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     install()
     installConsoleSections("/tmp/console-hosted-oauth", ["fixture", "env", "auth", "agents", "schedules"])
     for (const [handler, path, body] of [
-      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "ban", userId: "someone" }],
+      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "impersonate", userId: "someone" }],
       [consoleEnvManageHandler, "/_vitehub/env/manage", {}],
-      [consoleChannelReplayHandler, "/_vitehub/channels/replay", {}],
       [consoleScheduleRunHandler, "/_vitehub/schedules/run", {}],
     ] as const) {
       const response = await handler.fetch(new Request(`${app}${path}`, {
@@ -248,13 +247,14 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
   it("checks upload scopes before loading the optional media library", async () => {
     install()
     for (const [token, status] of [[tokens.readOnly, 403], [tokens.console, 404]] as const) {
-      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=content`, {
-        headers: { authorization: `Bearer ${token}`, origin: hosted, [consoleRpcHeader]: "1" },
+      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc`, {
+        body: operationRpcBody("media.upload", { data: "eA==", filename: "a.txt", section: "content" }),
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin: hosted, [consoleRpcHeader]: "1" },
         method: "POST",
       }))
       expect(response.status, await response.clone().text()).toBe(status)
       expect(response.headers.get("access-control-allow-origin")).toBe(hosted)
-      await expect(response.json()).resolves.toMatchObject(status === 403
+      await expect(operationRpcResponseResult(response)).resolves.toMatchObject(status === 403
         ? { code: "CONSOLE_ACCESS_DENIED" }
         : { message: "The media library needs Blob. Enable Blob in the ViteHub config." })
     }
@@ -265,7 +265,7 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     for (const token of [tokens.console, tokens.readOnly]) {
       const read = await rpc("env.get", { authorization: `Bearer ${token}`, origin: hosted })
       expect(read.status, await read.clone().text()).toBe(200)
-      await expect(read.json()).resolves.toMatchObject({ ok: true, value: { entries: [] } })
+      await expect(operationRpcResponseResult(read)).resolves.toMatchObject({ ok: true, value: { entries: [] } })
     }
     const read = await consoleMcpHandler.fetch(new Request(mcpResource, {
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { name: "env_get", arguments: {} } }),
@@ -290,17 +290,17 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     const response = await rpc("project.get", { authorization: `Bearer ${tokens.console}`, origin: hosted })
     expect(response.status, await response.clone().text()).toBe(200)
     expect(response.headers.get("access-control-allow-origin")).toBe(hosted)
-    await expect(response.json()).resolves.toMatchObject({ ok: true })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true })
     const greeting = await rpc("fixture.greet", { authorization: `Bearer ${tokens.console}`, origin: hosted }, { name: "Ada" })
     expect(greeting.status, await greeting.clone().text()).toBe(200)
-    await expect(greeting.json()).resolves.toMatchObject({ ok: true, value: { greeting: "Hello Ada", user: "ada@example.com" } })
+    await expect(operationRpcResponseResult(greeting)).resolves.toMatchObject({ ok: true, value: { greeting: "Hello Ada", user: "ada@example.com" } })
     const write = await rpc("fixture.rename", { authorization: `Bearer ${tokens.console}`, origin: hosted })
     expect(write.status, await write.clone().text()).toBe(200)
   })
 
   it("asks a listed origin without a token or a session to sign in for the Console resource", async () => {
     install()
-    const request = new Request(`${app}/_vitehub/rpc/__call`, { headers: { origin: hosted }, method: "POST" })
+    const request = new Request(`${app}/_vitehub/rpc`, { headers: { origin: hosted }, method: "POST" })
     const response = await resolveConsoleAppAuthIdentity(request, requestEvent(request), false)
     if (!(response instanceof Response)) throw new Error("Expected a challenge.")
     expect(response.status).toBe(401)
@@ -313,9 +313,9 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
 
   it("resolves the token user at the app Auth middleware before the route checks origins", async () => {
     install()
-    const listed = new Request(`${app}/_vitehub/rpc/__call`, { headers: { authorization: `Bearer ${tokens.console}`, origin: hosted }, method: "POST" })
+    const listed = new Request(`${app}/_vitehub/rpc`, { headers: { authorization: `Bearer ${tokens.console}`, origin: hosted }, method: "POST" })
     await expect(resolveConsoleAppAuthIdentity(listed, requestEvent(listed), false)).resolves.toMatchObject({ email: "ada@example.com" })
-    const unlisted = new Request(`${app}/_vitehub/rpc/__call`, { headers: { authorization: `Bearer ${tokens.console}`, origin: "https://evil.example.com" }, method: "POST" })
+    const unlisted = new Request(`${app}/_vitehub/rpc`, { headers: { authorization: `Bearer ${tokens.console}`, origin: "https://evil.example.com" }, method: "POST" })
     await expect(resolveConsoleAppAuthIdentity(unlisted, requestEvent(unlisted), false)).resolves.toMatchObject({ email: "ada@example.com" })
   })
 
@@ -323,7 +323,7 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     install()
     const response = await rpc("project.get", { authorization: `Bearer ${tokens.console}`, origin: "https://evil.example.com" })
     expect(response.status, await response.clone().text()).toBe(403)
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
     expect(response.headers.has("access-control-allow-origin")).toBe(false)
   })
 
@@ -331,7 +331,7 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     install()
     const response = await rpc("project.get", { authorization: `Bearer ${tokens.console}`, [consoleRpcHeader]: "1" })
     expect(response.status, await response.clone().text()).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ ok: true })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true })
   })
 
   it("rejects an MCP token on the RPC, and a Console token on MCP", async () => {
@@ -364,6 +364,6 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     const write = await rpc("fixture.rename", { authorization: `Bearer ${tokens.readOnly}`, origin: hosted })
     expect(write.status, await write.clone().text()).toBe(403)
     expect(write.headers.get("access-control-allow-origin")).toBe(hosted)
-    await expect(write.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED" })
+    await expect(operationRpcResponseResult(write)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED" })
   })
 })

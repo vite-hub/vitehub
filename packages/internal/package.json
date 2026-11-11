@@ -83,6 +83,11 @@
       "import": "./dist/dev-peer.js",
       "default": "./dist/dev-peer.js"
     },
+    "./dev-token": {
+      "types": "./dist/dev-token.d.ts",
+      "import": "./dist/dev-token.js",
+      "default": "./dist/dev-token.js"
+    },
     "./hosting": {
       "types": "./dist/hosting.d.ts",
       "import": "./dist/hosting.js",
@@ -102,6 +107,11 @@
       "types": "./dist/operation-registry.d.ts",
       "import": "./dist/operation-registry.js",
       "default": "./dist/operation-registry.js"
+    },
+    "./operation-rpc": {
+      "types": "./dist/operation-rpc.d.ts",
+      "import": "./dist/operation-rpc.js",
+      "default": "./dist/operation-rpc.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
@@ -386,6 +396,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",

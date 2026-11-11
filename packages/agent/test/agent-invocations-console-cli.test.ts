@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { runAgentInvocationsCli } from "../src/cli.ts"
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 function stream() {
   let value = ""
@@ -29,12 +30,12 @@ interface ConsoleCall {
 function deployedConsole(reply: (call: ConsoleCall) => unknown) {
   const calls: ConsoleCall[] = []
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    const envelope: unknown = JSON.parse(String(init?.body))
-    if (!isRuntimeRecord(envelope) || !isRuntimeRecord(envelope.input) || typeof envelope.operation !== "string") throw new Error("Invalid Console envelope")
+    const envelope = operationRpcRequest(init?.body)
+    if (!isRuntimeRecord(envelope.input)) throw new Error("Invalid Console call")
     const call = { headers: new Headers(init?.headers), input: envelope.input, method: envelope.operation, url }
     calls.push(call)
     const value = reply(call)
-    return value instanceof Response ? value : Response.json({ ok: true, value })
+    return value instanceof Response ? value : operationRpcResponse(init?.body, { ok: true, value })
   })
   // SAFETY: The mock implements the fetch call shape that the CLI uses.
   return { calls, fetch: fetch as unknown as typeof globalThis.fetch }
@@ -55,7 +56,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "ainv_1 cancel requested\n" })
     expect(host.calls).toHaveLength(1)
     const [call] = host.calls
-    expect(call!.url).toBe("https://agent.example.com/_vitehub/rpc/__call")
+    expect(call!.url).toBe("https://agent.example.com/_vitehub/rpc")
     expect(call!.method).toBe("invocations.cancel")
     expect(call!.input).toEqual({ id: "ainv_1" })
     expect(call!.headers.get("x-vitehub-console")).toBe("1")
@@ -63,10 +64,10 @@ describe("vitehub agent invocations with a deployed Console", () => {
   })
 
   it.each([
-    ["https://agent.example.com/_vitehub", "https://agent.example.com/_vitehub/rpc/__call"],
-    ["https://agent.example.com/_vitehub/agents/support", "https://agent.example.com/_vitehub/rpc/__call"],
-    ["https://example.com/app/", "https://example.com/app/_vitehub/rpc/__call"],
-    ["http://localhost:3000/_vitehub", "http://localhost:3000/_vitehub/rpc/__call"],
+    ["https://agent.example.com/_vitehub", "https://agent.example.com/_vitehub/rpc"],
+    ["https://agent.example.com/_vitehub/agents/support", "https://agent.example.com/_vitehub/rpc"],
+    ["https://example.com/app/", "https://example.com/app/_vitehub/rpc"],
+    ["http://localhost:3000/_vitehub", "http://localhost:3000/_vitehub/rpc"],
   ])("resolves the Console RPC endpoint from %s", async (url, endpoint) => {
     const host = deployedConsole(() => ({ invocations: [] }))
     expect((await run(["list", "--url", url], host.fetch)).exitCode).toBe(0)

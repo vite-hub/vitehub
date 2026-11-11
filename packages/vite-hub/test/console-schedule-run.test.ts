@@ -27,6 +27,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import { consoleAccess } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const schedules = async () => listConsoleDefinitions({ section: "schedules" }, await consoleAccess())
 
@@ -64,12 +65,12 @@ function installSchedules(handler: (context: { scheduledAt: Date }) => unknown =
 }
 
 async function call(operation: string, input: Record<string, unknown>): Promise<unknown> {
-  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
-  return response.json()
+  return operationRpcResponseResult(response)
 }
 
 function runRequest(body: unknown, headers: Record<string, string> = {}) {
@@ -182,7 +183,7 @@ describe("Console Schedule runs", () => {
     installSchedules()
     // The Schedule package writes these cells for each Schedule Definition record.
     const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
-      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
+      cells: { manual: "Enabled", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))

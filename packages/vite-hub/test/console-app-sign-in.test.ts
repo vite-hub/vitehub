@@ -212,7 +212,7 @@ describe("Console reuses app Auth sign-in", () => {
     expect(retry.pathname).toBe(`${mount}/_vitehub/sign-in`)
     expect(retry.searchParams.get("redirect")).toBe(`${mount}/_vitehub/content?file=home.md`)
     expect(await (await visit(`${retry.pathname.slice(mount.length)}${retry.search}`)).text()).toContain("Sign-in failed. Try again.")
-    const data = await visit("/_vitehub/rpc/__call", { method: "POST", headers: { accept: "application/json" } })
+    const data = await visit("/_vitehub/rpc", { method: "POST", headers: { accept: "application/json" } })
     expect(data.status).toBe(401)
     expect(data.headers.get("location")).toBeNull()
   })

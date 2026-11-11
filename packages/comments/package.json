@@ -117,6 +117,7 @@
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "confbox": "^0.3.1",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs"
