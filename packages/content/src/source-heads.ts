@@ -636,7 +636,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   function assertActive(): void {
-    if (disposed) throw new Error("[vitehub] Content source views have been disposed.")
+    if (disposed) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content source views have been disposed." })
   }
 
   /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
