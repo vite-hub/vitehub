@@ -69,6 +69,8 @@ const themes = { light: githubLight, dark: githubDark }
  */
 function docsBlocks(options: PresetOptions = {}) {
   const merged = defu(options, { typeset: false, chips: false, diagrams: false, badge: { download: false } }) as PresetOptions
+  // Keep the plugin's authored-SVG rejection when remote drawing is off, without changing explicit opt-ins.
+  if (merged.diagrams === false) merged.diagrams = { draw: false }
   const vue = new Map(comarkUi(merged).plugins.map(plugin => [plugin.name, plugin]))
   return comarkUiHtml(merged).plugins.map(plugin => vue.get(plugin.name) ?? plugin)
 }
