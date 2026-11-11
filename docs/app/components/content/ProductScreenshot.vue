@@ -25,7 +25,7 @@ defineProps<{
   margin: 0;
   overflow: hidden;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-muted);
 }
 

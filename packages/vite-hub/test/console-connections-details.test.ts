@@ -10,7 +10,7 @@ vi.mock("../src/console/runtime/client/connections-management", async importOrig
   ...await importOriginal<typeof import("../src/console/runtime/client/connections-management")>(),
   requestConnectionsManagement: mocks.request,
 }))
-vi.mock("../src/console/runtime/components/console-connections-activity.vue", () => ({ default: { render: () => null } }))
+vi.mock("../src/console/runtime/components/console-credential-activity.vue", () => ({ default: { render: () => null } }))
 vi.mock("../src/console/runtime/components/console-connections-approvals.vue", async () => {
   const { h } = await import("vue")
   return { default: { render: () => h("div", { "data-approvals": "" }) } }
@@ -87,6 +87,22 @@ async function render(props: Record<string, unknown>, inspected: ConnectionInspe
 }
 
 describe("Console Connection details", () => {
+  it("renders the Connection's docs as Markdown before the connect button", async () => {
+    const docs = "Run `t3 connect status` first.\n\n1. Choose **full access**."
+    const root = await render({ connection: connection({}) }, connection({ docs }))
+    const section = root.querySelector("section[aria-labelledby='connection-docs']")
+    expect(section?.querySelector("h3")?.textContent).toBe("Setup")
+    expect(section?.querySelector("code")?.textContent).toBe("t3 connect status")
+    expect(section?.querySelector("ol strong")?.textContent).toBe("full access")
+    const connect = root.querySelector("[data-button='Connect']")!
+    expect(section!.compareDocumentPosition(connect as never) & 4).toBe(4)
+  })
+
+  it("shows no setup section without docs", async () => {
+    const root = await render({ connection: connection({}) }, connection({}))
+    expect(root.querySelector("section[aria-labelledby='connection-docs']")).toBeNull()
+  })
+
   it("shows ChatGPT plan details and a CLI command instead of a website sign-in", async () => {
     const plan = connection({
       credential: "chatgpt", name: "chatgpt", provider: "chatgpt", status: "connected",

@@ -36,6 +36,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./runtime/redis-driver": {
       "types": "./dist/runtime/redis-driver.d.ts",
       "import": "./dist/runtime/redis-driver.js",
@@ -71,6 +76,7 @@
     "destr": "^2.0.5",
     "ioredis": "catalog:storage",
     "nostics": "catalog:runtime",
+    "proper-lockfile": "catalog:",
     "unstorage": "catalog:storage",
     "valibot": "catalog:runtime"
   },
@@ -78,6 +84,7 @@
     "@types/node": "catalog:tooling",
     "@libsql/client": "catalog:database",
     "@vite-hub/database": "workspace:*",
+    "@types/proper-lockfile": "catalog:",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "postgres": "catalog:database",

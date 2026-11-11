@@ -52,8 +52,9 @@ export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClie
   }
 }
 
-/** Expired keys mean nothing, so a store deletes them at most once per this interval. */
+/** Once cleanup catches up, wait this long before checking for newly expired keys. */
 const sweepIntervalMs = 60_000
+const sweepBatchSize = 1000
 
 function ttlMilliseconds(ttl: number): number {
   if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_INVALID_TTL()
@@ -83,6 +84,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   const namespace = options.namespace
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0
+  let sweeping = false
   let sweepWarned = false
 
   async function ready(): Promise<KVSqlClient> {
@@ -127,23 +129,28 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   const live = `(expires_at is null or expires_at > {now})`
 
   /**
-   * Deletes up to 1000 expired rows of this namespace at most once a minute, outside the write path. Reads already
-   * skip expired rows. A failed sweep, for example on a lock timeout, does not fail the write that runs it. It warns once and runs again a minute
-   * later.
+   * Deletes expired rows of this namespace in background batches. A full batch lets the next write sweep again;
+   * otherwise cleanup waits a minute. Reads already skip expired rows. A failed sweep, for example on a lock
+   * timeout, does not fail the write that runs it. It warns once and runs again a minute later.
    */
   async function sweep(): Promise<void> {
-    if (Date.now() - sweptAt < sweepIntervalMs) return
+    if (sweeping || Date.now() - sweptAt < sweepIntervalMs) return
+    sweeping = true
     sweptAt = Date.now()
     try {
       const { dialect } = await ready()
       const lock = dialect === "postgresql" ? " for update skip locked" : ""
-      await query(`delete from ${table} where (namespace, "key") in (
-        select namespace, "key" from ${table} where namespace = ? and expires_at <= {now} limit 1000${lock}
-      )`, [namespace])
+      const rows = await query(`delete from ${table} where (namespace, "key") in (
+        select namespace, "key" from ${table} where namespace = ? and expires_at <= {now} limit ${sweepBatchSize}${lock}
+      ) returning 1`, [namespace])
+      if (rows.length === sweepBatchSize) sweptAt = 0
     }
     catch (error) {
       if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
       sweepWarned = true
+    }
+    finally {
+      sweeping = false
     }
   }
 

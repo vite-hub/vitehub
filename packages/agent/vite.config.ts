@@ -6,7 +6,6 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
 // (`agentRuntimeModule()` in `./vite`). They are not public exports.
 const privateEntryExports = new Set([
-  "./eve",
   "./internal/workspace/internal/runtime/hosted",
   "./internal/workspace/internal/runtime/hosted-vercel-blob",
   "./internal/workspace/runtime",
@@ -58,7 +57,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/ai-sdk.ts",
       "src/capabilities.ts",
       "src/channels.ts",
       "src/index.ts",
@@ -66,16 +64,12 @@ export default defineConfig({
       "src/internal/workspace/internal/runtime/hosted-vercel-blob.ts",
       "src/internal/workspace/runtime.ts",
       "src/env-identity.ts",
-      "src/messages.ts",
       "src/mcp.ts",
-      "src/mcp/stdio.ts",
-      "src/output.ts",
       "src/process-host.ts",
       "src/provider-agent.ts",
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",
-      "src/eve.ts",
       "src/observability.ts",
       "src/observability/host.ts",
       "src/observability/posthog.ts",
@@ -84,6 +78,8 @@ export default defineConfig({
       "src/invocations/d1.ts",
       "src/invocations/database.ts",
       "src/invocations/default.ts",
+      "src/invocations/default-core.ts",
+      "src/invocations/default-libsql.ts",
       "src/invocations/drizzle.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",

@@ -29,7 +29,11 @@ function linguiConfig() {
 }
 
 async function cli(...args: string[]): Promise<{ code: number, stdout: string, stderr: string }> {
-  const [namespace] = createI18nCliContributor(linguiConfig).namespaces!
+  return await cliWith(undefined, ...args)
+}
+
+async function cliWith(workspace: string | undefined, ...args: string[]): Promise<{ code: number, stdout: string, stderr: string }> {
+  const [namespace] = createI18nCliContributor(linguiConfig, () => workspace).namespaces!
   const feature = namespace!.features.find(entry => entry.name === args[0])!
   let stdout = ""
   let stderr = ""
@@ -110,7 +114,7 @@ describe("a Vue app with messages in templates and scripts", () => {
     await writeFile(join(root, "es.po"), po)
 
     const imported = await cli("import", "es", "es.po", "--by", "ana", "--json")
-    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 4, unchanged: 0, refused: [] })
+    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 4, unchanged: 0, fuzzy: 0, refused: [] })
     const record = JSON.parse(await readFile(join(root, "locales", recordPath("es", messageSegment("Search agents").hash)), "utf8")) as Record<string, unknown>
     expect(record).toMatchObject({ source: "Search agents", text: "Buscar agentes", origin: "human", review: "edited", by: "ana" })
     expect(JSON.parse((await cli("import", "es", "es.po", "--json")).stdout)).toMatchObject({ saved: 0, unchanged: 4 })
@@ -129,6 +133,7 @@ describe("a Vue app with messages in templates and scripts", () => {
       locale: "es",
       saved: 0,
       unchanged: 3,
+      fuzzy: 0,
       refused: [{ message: "Hello <0>{0}</0>, read the <1>docs</1>.", problem: "{0} is missing" }],
     })
   })
@@ -180,5 +185,58 @@ describe("a Vue app with messages in templates and scripts", () => {
     const manifest = JSON.parse(await readFile(join(root, ".vitehub/i18n/manifest.json"), "utf8")) as I18nManifest
     expect(manifest.environments.client![messageId("Changes saved")]).toEqual({ message: "Changes saved", hash: messageSegment("Changes saved").hash, origins: [expect.stringMatching(/^src\/Notice\.vue:\d+$/)] })
     expect(Object.keys(manifest.environments.client!)).toHaveLength(7)
+  })
+
+  it("says how locales/ relates to the translations Workspace", async () => {
+    expect((await cli("status")).stdout).not.toContain("Workspace")
+    expect((await cliWith("translations", "status")).stdout).toContain("Translations saved in Workspace \"translations\" reach locales/ only through a pull: `vitehub pull translations --dir locales --ref published --url <origin>`.")
+
+    await writeFile(join(root, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { translations: { dir: "locales", files: {}, head: "r1", ref: "published" } } }))
+    try {
+      const status = await cliWith("translations", "status")
+      expect(status.stdout).toContain("locales/ is a checkout of Workspace \"translations\" (published). Run `vitehub pull` for translations saved since then.")
+      expect(JSON.parse((await cliWith("translations", "status", "--json")).stdout)).toBeInstanceOf(Array)
+
+      await writeFile(join(root, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { translations: { dir: "locales", files: {}, head: "r1", ref: "draft", remote: "https://example.com" } } }))
+      const draft = (await cliWith("translations", "status")).stdout
+      expect(draft).toContain("Warning: locales/ is a checkout of Workspace \"translations\" on ref \"draft\", not \"published\".")
+      expect(draft).toContain("To switch, remove \"translations\" from vitehub.lock, then run `vitehub pull translations --dir locales --ref published --url https://example.com`.")
+      expect(draft).not.toContain("Run `vitehub pull` for translations saved since then.")
+    }
+    finally {
+      await rm(join(root, "vitehub.lock"))
+    }
+  })
+
+  it("offers the old translation of a changed message as a fuzzy draft", async () => {
+    const app = join(root, "src/App.vue")
+    await writeFile(app, (await readFile(app, "utf8")).replace("t`Search agents`", "t`Search all agents`"))
+    const status = await inspectI18n(linguiConfig())
+    expect(status.locales[1]).toMatchObject({ translated: 3, missing: 4, changed: 1, unused: 1 })
+    expect((await cli("status")).stdout).toContain("4 missing (1 changed), 1 unused")
+
+    await cli("export", "es", "--output", "changed.po")
+    const po = await readFile(join(root, "changed.po"), "utf8")
+    expect(po).toContain(`#. Previous source: Search agents\n#: src/App.vue:`)
+    expect(po).toMatch(/#, fuzzy\nmsgid "Search all agents"\nmsgstr "Buscar agentes"/)
+    expect(JSON.parse((await cli("import", "es", "changed.po", "--json")).stdout)).toEqual({ locale: "es", saved: 0, unchanged: 3, fuzzy: 1, refused: [] })
+
+    await writeFile(join(root, "changed.po"), po.replace(/#, fuzzy\n(msgid "Search all agents")\nmsgstr "Buscar agentes"/, `$1\nmsgstr "Buscar todos los agentes"`))
+    expect(JSON.parse((await cli("import", "es", "changed.po", "--json")).stdout)).toMatchObject({ saved: 1, fuzzy: 0 })
+    expect((await inspectI18n(linguiConfig())).locales[1]).toMatchObject({ translated: 4, changed: 0, unused: 1 })
+  })
+
+  it.each(["rejected", "invalid"])("offers a fuzzy draft when the current record is %s", async (state) => {
+    await writeRecord(join(root, "locales"), "es", createRecord({
+      segment: messageSegment("Search all agents"),
+      text: state === "invalid" ? "Buscar {name}" : "Buscar todos los agentes",
+      origin: "human",
+      ...(state === "rejected" ? { review: "rejected", rejectedBy: { by: "ana", at: "2026-11-07T10:00:00.000Z" } } : {}),
+    }))
+    expect((await inspectI18n(linguiConfig())).locales[1]).toMatchObject({ translated: 3, missing: 4, changed: 1, unused: 1 })
+    expect((await cli("status")).stdout).toContain("4 missing (1 changed), 1 unused")
+    const exported = await cli("export", "es")
+    expect(exported.stdout).toContain("#. Previous source: Search agents")
+    expect(exported.stdout).toMatch(/#, fuzzy\nmsgid "Search all agents"\nmsgstr "Buscar agentes"/)
   })
 })

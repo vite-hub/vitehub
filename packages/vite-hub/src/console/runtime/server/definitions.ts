@@ -1,6 +1,4 @@
-import { resolve } from "node:path"
-
-import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
+import { consoleSchedulesKey, consoleState } from "../../internal.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
 import { parseConsoleDocumentSetup, parseConsoleRecordActivity, parseConsoleRecordLink } from "../definitions.ts"
@@ -83,11 +81,11 @@ export function installConsoleDefinitions(
     readers: Object.fromEntries(Object.entries(readers).filter(([section]) => isConsoleSectionId(section))),
     sections: sections.filter(section => isConsoleSectionId(section.id)).map(copySection),
   }
-  return installConsoleDefinitionScope(resolve(projectRoot), installed)
+  return consoleState().definitions = installed
 }
 
 export function getConsoleDefinitions(): ConsoleSectionCatalog {
-  const catalog = resolveConsoleDefinitions()
+  const catalog = consoleState().definitions
   if (!catalog) {
     throw viteHubErrorDiagnostics.VITE_HUB_C0002({ message: "[vitehub] Definition inspection has not been installed for this runtime." })
   }
@@ -96,14 +94,17 @@ export function getConsoleDefinitions(): ConsoleSectionCatalog {
 
 /** Returns the installed descriptors of contributed sections, or an empty list when no catalog is installed. */
 export function getConsoleContributedSections(): readonly ConsoleContributedSection[] {
-  return resolveConsoleDefinitions()?.sections ?? []
+  return consoleState().definitions?.sections ?? []
 }
+
+// SAFETY: installConsoleSchedules is the only writer of this slot of the global object.
+const schedulesScope = globalThis as typeof globalThis & { [consoleSchedulesKey]?: ScheduleDefinitionRegistry }
 
 /** Installs the Static Schedule Definitions that the Console may run. */
 export function installConsoleSchedules(projectRoot: string, registry: ScheduleDefinitionRegistry): ScheduleDefinitionRegistry {
-  return installConsoleSchedulesScope(resolve(projectRoot), { ...registry })
+  return schedulesScope[consoleSchedulesKey] = { ...registry }
 }
 
 export function getConsoleSchedules(): ScheduleDefinitionRegistry {
-  return resolveConsoleSchedules() ?? {}
+  return schedulesScope[consoleSchedulesKey] ?? {}
 }

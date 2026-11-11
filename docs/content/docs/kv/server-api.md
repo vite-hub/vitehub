@@ -10,12 +10,12 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `kv` from `@vite-hub/kv` | Read and write the default store or a named store. |
-| `disposeKVStores` from `@vite-hub/kv` | Close all cached stores in a shutdown hook. |
+| `kv` from `vite-hub/kv` | Read and write the default store or a named store. |
+| `disposeKVStores` from `vite-hub/kv` | Close all cached stores in a shutdown hook. |
 | `hubKv` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve the KV config by hand. |
 
-`@vite-hub/kv` also exports all driver, store, module, and storage types.
+`vite-hub/kv` also exports all driver, store, module, and storage types.
 
 ## Use it at runtime
 
@@ -23,7 +23,7 @@ Import `kv` in server code to save and read values.
 
 ```ts [server/api/settings.put.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
   const [error] = await kv.set('settings', await readBody(event))
@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get('settings')
@@ -46,7 +46,7 @@ export default defineEventHandler(async () => {
 When your config has more than one store, select one by name.
 
 ```ts [server/tenant-preferences.ts]
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 const preferences = kv.store('tenant-preferences')
 
@@ -62,7 +62,7 @@ Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 const flags = kv.store('default', { mode: 'read' })
 
@@ -179,7 +179,7 @@ After the app stops taking new work, call `disposeKVStores()` in your shutdown h
 In Nitro, register the hook in a server plugin:
 
 ```ts [server/plugins/kv-cleanup.ts] fragment
-import { disposeKVStores } from '@vite-hub/kv'
+import { disposeKVStores } from 'vite-hub/kv'
 
 export default defineNitroPlugin((nitroApp) => {
   nitroApp.hooks.hook('close', disposeKVStores)
