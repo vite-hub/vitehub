@@ -66,7 +66,7 @@ describe("hubComments", () => {
   })
 
   it("does nothing without server/comments.ts", async () => {
-    const root = await project({ "server/content.ts": "export const content = {}" })
+    const root = await project({ "server/content.ts": "export default {}" })
     const plugin = hubComments()
     expect(await configure(plugin, root)).toBeUndefined()
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
@@ -94,7 +94,7 @@ describe("hubComments", () => {
   })
 
   it("serves the API, installs the runtime, and serves the overlay with the page tools routes", async () => {
-    const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export default {}" })
     const nitro = await configure(hubComments({ auth: true }), root)
     expect(nitro?.handlers).toEqual([
       { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true },
@@ -110,7 +110,7 @@ describe("hubComments", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession,")
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
-    expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
+    expect(handler).toContain("content: contentModule.default ? { runtime: contentModule.default, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession")
   })

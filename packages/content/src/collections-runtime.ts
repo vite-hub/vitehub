@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto"
 
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 import { lineageDigest, readDerivedFrom } from "@vite-hub/workspace/lineage"
 
@@ -782,7 +781,7 @@ function writeMetadata(metadata: Record<string, unknown> | undefined, content: R
 /** The text of a write, or undefined when it has no content or its bytes are not UTF-8. */
 function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   if (content === undefined) return
-  if (hasRuntimeType(content, "string")) return content
+  if (typeof content === "string") return content
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(content)
   }
@@ -874,7 +873,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
    * `schedules` ref holds files that are not documents, so schedules open every file.
    */
   async function openRevision(revision: WorkspaceRevision | string, scope: "documents" | "all" = "documents"): Promise<OpenedRevision> {
-    const id = hasRuntimeType(revision, "string") ? revision : revision.id
+    const id = typeof revision === "string" ? revision : revision.id
     return await memoize(revisions, scope === "all" ? `all:${id}` : id, async () => {
       const view = await (await history()).open(id)
       const files = new Map<string, string>()
@@ -1892,7 +1891,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function status(id: string, options?: ContentStatusOptions): Promise<ContentDocumentStatus | null>
     function status(options?: ContentStatusOptions): Promise<ContentDocumentStatus[]>
     async function status(first?: string | ContentStatusOptions, second?: ContentStatusOptions): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
-      const id = hasRuntimeType(first, "string") ? first : undefined
+      const id = typeof first === "string" ? first : undefined
       const statusOptions: unknown = id === undefined ? first : second
       const locale = localeOf(statusOptions !== null && Object(statusOptions) === statusOptions ? Reflect.get(Object(statusOptions), "locale") : undefined)
       if (id !== undefined) pathFor(id, locale)

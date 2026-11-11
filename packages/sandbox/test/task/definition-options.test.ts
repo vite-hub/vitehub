@@ -27,7 +27,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
       `export default defineSandboxTask({`,
       `  env: { MODE: "test" },`,
       `  timeout: 30_000,`,
-      `  async run() { return null },`,
+      `  async handler() { return null },`,
       `})`,
     ].join("\n"))
 
@@ -44,7 +44,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
       `export default defineSandboxTask({`,
       `  env: { "__proto__": "sandbox-value" },`,
-      `  run: async () => null,`,
+      `  handler: async () => null,`,
       `})`,
     ].join("\n"))
 
@@ -58,7 +58,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
       `export default defineSandboxTask({`,
       `  "__proto__": { enabled: true },`,
-      `  run: async () => null,`,
+      `  handler: async () => null,`,
       `})`,
     ].join("\n"))
 
@@ -70,7 +70,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
   it("separates the compiler project policy from runtime options", async () => {
     const file = await writeDefinition([
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ project: false, run: async () => null, timeout: 1000 })`,
+      `export default defineSandboxTask({ project: false, handler: async () => null, timeout: 1000 })`,
     ].join("\n"))
 
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({
@@ -82,7 +82,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
   it("reads project policy through an aliased factory import", async () => {
     const file = await writeDefinition([
       `import { defineSandboxTask as sandbox } from "@vite-hub/sandbox/task"`,
-      `export default sandbox({ project: false, run: async () => null })`,
+      `export default sandbox({ project: false, handler: async () => null })`,
     ].join("\n"))
 
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({ project: false })
@@ -91,23 +91,23 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
   it("reads project policy through a namespace factory import", async () => {
     const file = await writeDefinition([
       `import * as sandbox from "@vite-hub/sandbox/task"`,
-      `export default sandbox.defineSandboxTask({ project: true, run: async () => null })`,
+      `export default sandbox.defineSandboxTask({ project: true, handler: async () => null })`,
     ].join("\n"))
 
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({ project: true })
   })
 
-  it("supports a property-assigned run handler", async () => {
+  it("supports a property-assigned handler", async () => {
     const file = await writeDefinition([
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => null, timeout: 1000 })`,
+      `export default defineSandboxTask({ handler: async () => null, timeout: 1000 })`,
     ].join("\n"))
 
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({ options: { timeout: 1000 } })
   })
 
-  it("supports a shorthand run handler", async () => {
-    const file = await writeDefinition(`const run = async () => null\nexport default defineSandboxTask({ run, timeout: 1000 })`)
+  it("supports a shorthand handler", async () => {
+    const file = await writeDefinition(`const handler = async () => null\nexport default defineSandboxTask({ handler, timeout: 1000 })`)
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({ options: { timeout: 1000 } })
   })
 
@@ -120,28 +120,33 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
     await expect(extractSandboxTaskDefinitionMetadata(file)).rejects.toThrow("one direct object literal")
   })
 
-  it("requires a run handler", async () => {
+  it("requires a handler", async () => {
     const file = await writeDefinition(`export default defineSandboxTask({ timeout: 1000 })`)
-    await expect(extractSandboxTaskDefinitionMetadata(file)).rejects.toThrow("requires a `run` handler")
+    await expect(extractSandboxTaskDefinitionMetadata(file)).rejects.toThrow("requires a `handler`")
+  })
+
+  it("names `handler` when the build reads a `run` option", async () => {
+    const file = await writeDefinition(`export default defineSandboxTask({\n  run: async () => null,\n})`)
+    await expect(extractSandboxTaskDefinitionMetadata(file)).rejects.toThrow(expect.objectContaining({ code: "SANDBOX_TASK_C0014", message: expect.stringMatching(/:2: `defineSandboxTask\(\{ run \}\)` was renamed/) }))
   })
 
   it("rejects computed options", async () => {
     const file = await writeDefinition(
-      `export default defineSandboxTask({ run: async () => null, timeout: 1000 * 2 })`,
+      `export default defineSandboxTask({ handler: async () => null, timeout: 1000 * 2 })`,
     )
     await expect(extractSandboxTaskDefinitionMetadata(file)).rejects.toThrow("static JSON-serializable values")
   })
 
   it("requires a static boolean project policy", async () => {
     const file = await writeDefinition(
-      `export default defineSandboxTask({ project: "auto", run: async () => null })`,
+      `export default defineSandboxTask({ project: "auto", handler: async () => null })`,
     )
     await expect(extractSandboxTaskDefinitionMetadata(file)).rejects.toThrow("project must be a boolean")
   })
 
   it("reads project policy through an exported immutable Definition binding", async () => {
     const file = await writeDefinition([
-      `const definition = defineSandboxTask({ project: false, run: async () => null, timeout: 1000 })`,
+      `const definition = defineSandboxTask({ project: false, handler: async () => null, timeout: 1000 })`,
       `export default definition`,
     ].join("\n"))
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({
@@ -152,7 +157,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
 
   it("reads project policy through a named default export", async () => {
     const file = await writeDefinition([
-      `const definition = defineSandboxTask({ project: true, run: async () => null, timeout: 1000 })`,
+      `const definition = defineSandboxTask({ project: true, handler: async () => null, timeout: 1000 })`,
       `export { definition as default }`,
     ].join("\n"))
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({
@@ -163,7 +168,7 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
 
   it("reads project policy through a parenthesized Definition export", async () => {
     const file = await writeDefinition(
-      `export default (defineSandboxTask({ project: true, run: async () => null }))`,
+      `export default (defineSandboxTask({ project: true, handler: async () => null }))`,
     )
     await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({ project: true })
   })

@@ -22,7 +22,6 @@ import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
-import { createConsoleCliNamespace } from "../src/console/cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
 import { consoleOperations } from "../src/console/runtime/server/operations.ts";
 import { taskOperations } from "../src/task/operations.ts";
@@ -82,7 +81,6 @@ describe("CLI documentation contract", () => {
       blobPlugin,
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
-      { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },
       { vitehub: { cli: createContentCliContributor() } },
       // `hubCms()` contributes this only for an app with server/content.ts.
       { vitehub: { cli: createCmsCliContributor() } },

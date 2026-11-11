@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
-import { parse } from "yaml"
+import { parseAllDocuments } from "yaml"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 
@@ -47,7 +47,7 @@ function installedVersions(lockfile: Lockfile, importer: string): Map<string, Se
 
 describe("AI SDK packages", () => {
   it("installs one version of each AI SDK package with @vite-hub/agent", async () => {
-    const lockfile: Lockfile = parse(await readFile(resolve(repoRoot, "pnpm-lock.yaml"), "utf8"))
+    const lockfile: Lockfile = parseAllDocuments(await readFile(resolve(repoRoot, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS()
     const versions = installedVersions(lockfile, "packages/agent")
     expect(versions.has("ai")).toBe(true)
     // Two versions of one package are two copies in every Agent server bundle. Import AI SDK internals that `ai`

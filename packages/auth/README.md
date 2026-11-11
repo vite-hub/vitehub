@@ -206,6 +206,40 @@ Annotate the input type when the host does not infer it, for example inside `def
 `withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
 `withAnonymousAuthorization(authorize, handler, definition?)` also runs the callback for a signed-out caller, with `session` and `user` set to `null`. `false` returns `401` for that caller and `403` for a signed-in one. Blob serve routes use it with `serve.anonymous: true`.
 
+To check inside a handler, call `requireAuth(event)` or `requireAuthorization(event, authorize)`. Each returns the frozen `authorization` or throws an H3 `HTTPError`, so the rest of the handler runs only after the check passes. The errors match the guards above: `requireAuth()` throws `401` or the `access.signIn` redirect, and `requireAuthorization()` throws `401`, `403`, or an HTTP error from the callback's `Response`.
+
+The inline guards use H3's JSON error format. They keep the response status and headers, except `content-length`, which changes with the body. JSON object fields stay at the top level, and other JSON values become `data`. JSON media types, such as `application/problem+json`, stay unchanged. Text becomes `message` with a JSON content type. Use `withAuthorization()` when the response body must stay unchanged.
+
+```ts fragment
+import { requireAuth, requireAuthorization } from "@vite-hub/auth/server";
+import { defineHandler } from "h3";
+
+export const me = defineHandler(async (event) => {
+  const { user } = await requireAuth(event);
+  return { id: user.id };
+});
+
+export const removePost = defineHandler(async (event) => {
+  await requireAuthorization(event, ({ user }) => user.role === "admin");
+  return deletePost(event);
+});
+```
+
+### Better Auth instance
+
+`useAuth(event)` returns the Better Auth instance of your Auth Definition for a request event or a Web `Request`. The Vite plugin writes the type of `server/auth.ts` to `.vitehub/types/auth.d.ts`, so the instance has the endpoints of your plugins without a cast:
+
+```ts fragment
+import { requireAuthorization, useAuth } from "@vite-hub/auth/server";
+import { defineHandler } from "h3";
+
+// server/auth.ts uses `admin()` from `better-auth/plugins`.
+export default defineHandler(async (event) => {
+  await requireAuthorization(event, ({ user }) => user.role === "admin");
+  return useAuth(event).api.listUsers({ query: { limit: 20 }, headers: event.req.headers });
+});
+```
+
 ## Session refresh
 
 Better Auth extends a stored session when the session passes `session.updateAge`. Use `session.onRefresh` to check the user again at that time, for example against a ban list.
@@ -233,23 +267,6 @@ export default defineAuth({
 The hook receives the `session` and `user` as stored before the refresh. To change user fields, update them in your own store: the current response still contains the user that Better Auth read before the refresh.
 
 `onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`, because Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
-On H3 2, you can guard a route with middleware instead. `requireAuth(definition?)` rejects like `withAuth()`, and `requireAuthorization(authorize, definition?)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`. The route handler reads the checked `request`, `session`, and `user` with `getAuthorization(event)`.
-
-```ts fragment
-import { getAuthorization, requireAuth, requireAuthorization } from "@vite-hub/auth/server";
-import { H3 } from "h3";
-
-const app = new H3()
-  .get("/me", event => ({ id: getAuthorization(event).user.id }), {
-    middleware: [requireAuth()],
-  })
-  .delete("/posts/:id", event => deletePost(event), {
-    middleware: [requireAuthorization(({ user }) => user.role === "admin")],
-  });
-```
-
-`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with Standard Context properties. Auth reads the request and the Cloudflare bindings from `event["~standard"]`.
-
 ## Vite Integration
 
 Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, and registers `/api/auth/**` with Nitro by default. Nitro serves the route in development too, so `/api/auth`, the Console, and server routes use one Auth instance and share its users and sessions.

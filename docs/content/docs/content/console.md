@@ -246,7 +246,7 @@ export default defineConsoleAuthorize(({ user }) => {
 ```
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: { posts },
   // Writers save drafts. Only editors publish.

@@ -181,8 +181,8 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticationSessionSnapshot | null | undefined> {
   if (!context.request) return undefined
 
-  const { getAuthForRequest } = await loadServer()
-  const auth = getAuthForRequest(context.request)
+  const { useAuth } = await loadServer()
+  const auth = useAuth(context.request)
   return await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {
