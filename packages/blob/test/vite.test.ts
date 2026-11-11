@@ -1255,7 +1255,10 @@ describe("hubBlob", () => {
               path: join(workspaceRoot, "packages/auth/src/server.ts"),
             }))
             build.onResolve({ filter: /^(?:better-auth|#vitehub\/auth\/definition)$/ }, (args) => {
-              if (args.path === "better-auth" && args.importer !== join(workspaceRoot, "packages/auth/src/server.ts")) return
+              if (args.path === "better-auth" && ![
+                join(workspaceRoot, "packages/auth/src/server.ts"),
+                join(workspaceRoot, "packages/auth/src/auth-instance.ts"),
+              ].includes(args.importer)) return
               return { namespace: "auth-provider-test", path: args.path }
             })
             build.onLoad({ filter: /^#vitehub\/auth\/definition$/, namespace: "auth-provider-test" }, () => ({

@@ -40,7 +40,7 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames } from "./discovery.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -89,6 +89,8 @@ interface AgentCliContributingPlugin {
   vitehub?: ViteHubInspectionPluginMetadata & {
     agent?: {
       transformWorkflowRegistry: (code: string, id: string) => string
+      /** Checks direct folder Agent imports in a server build that does not run Vite transforms. */
+      transformWorkspaceAgent: (code: string, id: string, options: { root: string, serverDirs?: string[] }) => Promise<string | undefined>
       /** The Agent files that a generated Workflow registry imports by path. */
       workflowModules: { index: string, runtimeWorkflow: string, serverInternal: string }
     }
@@ -1103,6 +1105,20 @@ function discoveredAgentIdentityDecorator(definition: DiscoveredAgentDefinition)
   }
 }
 
+// A folder Agent gets its Workspace only from its `workspace` key. Without the key, it fails when it loads if it owns one.
+function checksDeclaredWorkspace(definition: DiscoveredAgentDefinition): boolean {
+  return !definition.workspace && isFolderAgentDefinition(definition)
+}
+
+// Server transforms check direct imports. The generated catalog also checks hosts that load untransformed Agent files.
+function declaredWorkspaceDecorators(definition: DiscoveredAgentDefinition): DiscoveredAgentExportDecorator[] {
+  if (!checksDeclaredWorkspace(definition)) return []
+  return [{
+    decorate: value => `vitehubWithDeclaredAgentWorkspace(${value}, ${JSON.stringify(definition.name)})`,
+    imports: [`import { withDeclaredAgentWorkspace as vitehubWithDeclaredAgentWorkspace } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
+  }]
+}
+
 // Direct imports can create derived Agents before any generated registry loads the parent.
 function decorateDiscoveredAgentExport(
   code: string,
@@ -1251,6 +1267,7 @@ async function prepareRetainedAgentSources(
     await namedAgentChannelModules(code, parse, definition.handler, channels, resolveModule)
     const skills = readColocatedAgentSkills(definition.handler)
     let transformed = decorateDiscoveredAgentExport(code, parse, [
+      ...declaredWorkspaceDecorators(definition),
       ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
       discoveredAgentIdentityDecorator(definition),
     ]) ?? code
@@ -1641,6 +1658,7 @@ async function generateAgentDeploymentCatalog(
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl", "namedChannelHosts"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
+    ...(definitions.some(checksDeclaredWorkspace) ? ["withDeclaredAgentWorkspace"] : []),
   ].filter(Boolean).join(", ")
 
   return {
@@ -1687,6 +1705,10 @@ async function generateAgentDeploymentCatalog(
             "}",
             "",
           ]
+        : []),
+      // Check the exported Agent before the catalog decorates it or registers its Workspace.
+      ...definitions.flatMap((definition, index) => checksDeclaredWorkspace(definition)
+        ? [`withDeclaredAgentWorkspace(resolveAgentModule(agent${index}), ${JSON.stringify(definition.name)})`]
         : []),
       ...hostedWorkspaceRuntime.setup,
       ...(options.workspaceRegistry !== false
@@ -3016,6 +3038,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           if (definition) {
             const skills = readColocatedAgentSkills(definition.handler)
             transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
+              ...declaredWorkspaceDecorators(definition),
               ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
               discoveredAgentIdentityDecorator(definition),
             ]) ?? transformed
@@ -3049,6 +3072,16 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           index: agentRuntimeModule("index"),
           runtimeWorkflow: agentRuntimeModule("runtime/workflow"),
           serverInternal: agentRuntimeModule("server/internal"),
+        },
+        async transformWorkspaceAgent(code, id, { root, serverDirs }) {
+          const file = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+          const roots = serverDirs ?? [join(root, "server")]
+          if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file)
+            && !roots.some(directory => file.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))) return
+          const definition = discoverProjectAgentDefinitions(root, serverDirs)
+            .find(definition => definition.handler.replace(/\\/g, "/") === file)
+          if (!definition || !checksDeclaredWorkspace(definition)) return
+          return decorateDiscoveredAgentExport(code, await parseTypeScript(), declaredWorkspaceDecorators(definition))
         },
         transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
           ? transformGeneratedAgentWorkflowRegistry(
