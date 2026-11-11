@@ -7,6 +7,7 @@ import type { WorkspaceRetainedHistory, WorkspaceRevision } from "@vite-hub/work
 import type { ContentPublishedDocument, ContentPublishExpectation, ContentPublishResult } from "./collections-runtime.ts"
 
 import { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 export { contentScheduleOverdueMs, contentSchedulesRef }
 
@@ -156,10 +157,6 @@ export interface ContentSchedulesRuntime {
 
 function invalid(message: string): Error {
   return contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] ${message}` })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 /** Like isRecord(), without narrowing typed options. */

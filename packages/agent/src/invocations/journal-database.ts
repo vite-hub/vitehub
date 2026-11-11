@@ -4,11 +4,11 @@ import { drizzle as drizzleRemote } from "drizzle-orm/sqlite-proxy"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import type { AgentInvocationRecord, AgentInvocationSummary } from "../invocations.ts"
-import type { DefaultAgentInvocationsD1Database } from "./default.ts"
+import type { DefaultAgentInvocationsD1Database } from "./default-core.ts"
 import type { Client } from "@libsql/client"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
-import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
+import type { AnySQLiteColumn, BaseSQLiteDatabase, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type AgentInvocationColumn<Data, NotNull extends boolean, HasDefault extends boolean = false> = AnySQLiteColumn<{
@@ -68,17 +68,26 @@ const d1InvocationSchema: { invocations: typeof d1InvocationsTable } = {
 }
 
 /**
- * Drizzle over the default Agent Invocation journal. Check `driver` before destructuring to narrow the database
- * and schema. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill.
+ * Both journals are async SQLite databases with the same columns. Shared reads allow null `search` and `summary`
+ * while legacy libSQL rows await backfill. A union of the concrete clients has no callable `select()`.
  */
-export type AgentInvocationsDatabase = {
+type AgentInvocationsClient = BaseSQLiteDatabase<"async", unknown, typeof libsqlInvocationSchema>
+  & Pick<SqliteRemoteDatabase<typeof libsqlInvocationSchema>, "batch">
+
+/**
+ * Drizzle over the default Agent Invocation journal. Queries work before narrowing; checking `driver` restores
+ * concrete query results and APIs. Each schema keeps its insert constraints, including D1's required derived columns.
+ */
+export type AgentInvocationsDatabase = ({
   driver: "libsql"
-  db: LibSQLDatabase<typeof libsqlInvocationSchema>
+  db: LibSQLDatabase<typeof libsqlInvocationSchema> & { $client: Client }
   schema: typeof libsqlInvocationSchema
 } | {
   driver: "d1"
-  db: SqliteRemoteDatabase<typeof d1InvocationSchema>
+  db: SqliteRemoteDatabase<typeof libsqlInvocationSchema>
   schema: typeof d1InvocationSchema
+}) & {
+  db: AgentInvocationsClient
 }
 
 /**
@@ -91,6 +100,7 @@ export function createLibsqlInvocationsDatabase(client: Client): AgentInvocation
 
 /** Drizzle over the D1 journal. `database` returns the migrated binding of the current Worker request. */
 export function createD1InvocationsDatabase(database: () => Promise<DefaultAgentInvocationsD1Database>): AgentInvocationsDatabase {
+  // Drizzle's schema types relational reads; inserts use the driver's separate schema above.
   const db = drizzleRemote(async (query, parameters, method) => {
     const binding = await database()
     const statement = binding.prepare(query).bind(...parameters)
@@ -103,7 +113,7 @@ export function createD1InvocationsDatabase(database: () => Promise<DefaultAgent
       const rows = (result.results ?? []).map(row => Object.values(row))
       return { rows: queries[index]!.method === "get" ? rows[0]! : rows }
     })
-  }, { schema: d1InvocationSchema })
+  }, { schema: libsqlInvocationSchema })
   // D1 cannot keep Drizzle's separate BEGIN/query/COMMIT calls in one transaction.
   db.transaction = async () => {
     throw agentDiagnostics.AGENT_R1035({ message: "[vitehub] The D1 Agent Invocation journal does not support db.transaction(). Use db.batch() for atomic writes." })

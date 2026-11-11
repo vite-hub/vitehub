@@ -3,7 +3,7 @@ import type { AgentChannelDeliveryEffectContext, AgentChannelDeliveryEffects, Ag
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { forgeErrorStatus } from "@vite-hub/forge"
 import type { ForgeKind } from "@vite-hub/forge"
-import { hasRuntimeType, isRuntimeRecord as isRecord } from "./runtime-type.ts"
+import { isRuntimeRecord as isRecord } from "./runtime-type.ts"
 import { messageChannelReplyBody, setMessageChannelDeliveredReplyBody } from "./message-channel-delivery-body.ts"
 
 /** Keep the custom fetch callback shape of Channels: a plain headers record and an explicit method. */
@@ -88,7 +88,7 @@ async function githubFilePages(provider: ForgeProvider, target: ForgeTarget, lim
 }
 
 function shaOf(value: unknown): string | undefined {
-  return isRecord(value) && hasRuntimeType(value.sha, "string") && value.sha ? value.sha : undefined
+  return isRecord(value) && typeof value.sha === "string" && value.sha ? value.sha : undefined
 }
 
 /**
@@ -128,8 +128,8 @@ function commentRef(provider: ForgeProvider, target: ForgeTarget, id: number) {
 }
 
 function rawComment(provider: ForgeProvider, target: ForgeTarget, raw: unknown): Comment {
-  return { ref: commentRef(provider, target, isRecord(raw) && hasRuntimeType(raw.id, "number") ? raw.id : 0),
-    body: isRecord(raw) && hasRuntimeType(raw.body, "string") ? raw.body : "", raw }
+  return { ref: commentRef(provider, target, isRecord(raw) && typeof raw.id === "number" ? raw.id : 0),
+    body: isRecord(raw) && typeof raw.body === "string" ? raw.body : "", raw }
 }
 
 export function forgeActivityComments(provider: ForgeProvider, target: ForgeTarget, limit: number) {
@@ -196,19 +196,19 @@ export function forgeActivityComments(provider: ForgeProvider, target: ForgeTarg
 export async function forgeIdentity(provider: ForgeProvider, credential: { kind: "app", login: string } | { kind: "token" }): Promise<{ login: string }> {
   if (credential.kind === "app") return { login: credential.login }
   const { data } = await provider.request("GET", "/user")
-  if (provider.forge === "gitlab" && isRecord(data) && hasRuntimeType(data.username, "string") && data.username) return { login: data.username }
-  if (isRecord(data) && hasRuntimeType(data.login, "string") && data.login) return { login: data.login }
+  if (provider.forge === "gitlab" && isRecord(data) && typeof data.username === "string" && data.username) return { login: data.username }
+  if (isRecord(data) && typeof data.login === "string" && data.login) return { login: data.login }
   if (provider.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge Agent activity could not resolve the authenticated identity." })
   throw agentDiagnostics.AGENT_R0356({ message: "[vitehub] GitHub Agent activity could not resolve the authenticated identity." })
 }
 
-function maybeString(value: unknown): string | undefined { return hasRuntimeType(value, "string") && value ? value : undefined }
+function maybeString(value: unknown): string | undefined { return typeof value === "string" && value ? value : undefined }
 function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): string {
-  if (hasRuntimeType(context.effect.payload, "string")) return context.effect.payload
-  if (isRecord(context.effect.payload) && hasRuntimeType(context.effect.payload.content, "string")) return context.effect.payload.content
-  if (isRecord(context.effect.payload) && hasRuntimeType(context.effect.payload.emoji, "string")) return context.effect.payload.emoji
+  if (typeof context.effect.payload === "string") return context.effect.payload
+  if (isRecord(context.effect.payload) && typeof context.effect.payload.content === "string") return context.effect.payload.content
+  if (isRecord(context.effect.payload) && typeof context.effect.payload.emoji === "string") return context.effect.payload.emoji
   if (context.effect.intent === "completed") return "hooray"
   if (context.effect.intent === "failed") return "confused"
   return "eyes"
@@ -252,7 +252,7 @@ function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const payload = isRecord(context.effect.payload)
     ? context.effect.payload
-    : hasRuntimeType(context.effect.payload, "string")
+    : typeof context.effect.payload === "string"
       ? { state: context.effect.payload }
       : {}
   return {
@@ -305,7 +305,7 @@ export function forgeDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
         return
       }
       const result = await forgeChannelRequest(provider, "POST", path, { content })
-      if (key && isRecord(result) && hasRuntimeType(result.id, "number") && result.id) transientReactionStore(context.input)[key] = { id: result.id }
+      if (key && isRecord(result) && typeof result.id === "number" && result.id) transientReactionStore(context.input)[key] = { id: result.id }
     },
     async reply(context) {
       const target = options.target(context)

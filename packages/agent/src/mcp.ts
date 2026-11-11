@@ -1,7 +1,7 @@
 import { defineErrors, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import { connectionMcpServerConfig, mcpClientConfig, resolveMcpToolServer, withMcpInitializationCompatibility } from "./internal/mcp-tool-capability.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { MCPClientConfig as AiSdkMcpClientConfig } from "@ai-sdk/mcp"
@@ -101,7 +101,7 @@ function toolResultText(content: unknown): string | undefined {
   if (!Array.isArray(content) || !content.length) return
   const texts: string[] = []
   for (const part of content) {
-    if (!isRuntimeRecord(part) || part.type !== "text" || !hasRuntimeType(part.text, "string")) return
+    if (!isRuntimeRecord(part) || part.type !== "text" || typeof part.text !== "string") return
     texts.push(part.text)
   }
   return texts.join("\n")
@@ -133,10 +133,10 @@ async function callResolvedMcpTool(client: McpClient, name: string, args: Record
     })
     const execute = async () => {
       const requestOptions = { signal, timeout: options.timeout }
-      if ("callTool" in client && hasRuntimeType(client.callTool, "function")) {
+      if ("callTool" in client && typeof client.callTool === "function") {
         // Discovery prepares the SDK's HTTP parameter-header bindings.
         let found = false
-        if ("listTools" in client && hasRuntimeType(client.listTools, "function")) {
+        if ("listTools" in client && typeof client.listTools === "function") {
           let cursor: string | undefined
           do {
             const listing: unknown = await client.listTools({ options: requestOptions, params: cursor === undefined ? undefined : { cursor } })
@@ -145,7 +145,7 @@ async function callResolvedMcpTool(client: McpClient, name: string, args: Record
               throw new TypeError("[vitehub] MCP tools/list must return a tools array.")
             }
             found = listing.tools.some((tool: unknown) => isRuntimeRecord(tool) && tool.name === name)
-            cursor = hasRuntimeType(listing.nextCursor, "string") ? listing.nextCursor : undefined
+            cursor = typeof listing.nextCursor === "string" ? listing.nextCursor : undefined
           } while (!found && cursor !== undefined)
         }
         else {
@@ -159,7 +159,7 @@ async function callResolvedMcpTool(client: McpClient, name: string, args: Record
       }
       const tool = (await client.tools())[name]
       signal.throwIfAborted()
-      if (!isRuntimeRecord(tool) || !hasRuntimeType(tool.execute, "function")) {
+      if (!isRuntimeRecord(tool) || typeof tool.execute !== "function") {
         throw new ViteHubError("MCP_TOOL_NOT_FOUND", `[vitehub] MCP tool "${name}" is not available.`, { details: { tool: name } })
       }
       return await tool.execute(args, { abortSignal: signal, messages: [], toolCallId: crypto.randomUUID() })
@@ -173,7 +173,7 @@ async function callResolvedMcpTool(client: McpClient, name: string, args: Record
 }
 
 function isMcpServerConfig(value: McpClient | McpClientConfig | McpConnectionServerConfig): value is McpClientConfig | McpConnectionServerConfig {
-  return isRuntimeRecord(value) && !(hasRuntimeType(value.tools, "function") && hasRuntimeType(value.close, "function"))
+  return isRuntimeRecord(value) && !(typeof value.tools === "function" && typeof value.close === "function")
 }
 
 /** Resolve a server config that names a Connection as the `server` actor, like `mcp({ servers })` does for an Agent. */
@@ -196,7 +196,7 @@ async function callMcpToolServerConfig(connection: McpClient | McpClientConfig |
   if (Array.isArray(connection.tools) && !connection.tools.includes(name)) {
     throw new ViteHubError("MCP_TOOL_NOT_FOUND", `[vitehub] MCP tool "${name}" is not in the server's tools.`, { details: { tool: name } })
   }
-  if (hasRuntimeType(connection.connection, "string")) return await serverMcpConnection({ ...connection, connection: connection.connection })
+  if (typeof connection.connection === "string") return await serverMcpConnection({ ...connection, connection: connection.connection })
   // SAFETY: A config without a Connection must name its own transport, like an `mcp({ servers })` entry.
   return mcpClientConfig(connection as McpClientConfig)
 }
@@ -241,9 +241,9 @@ async function callMcpToolOnce(
   let client: McpClient | undefined
   let owned = false
   try {
-    const connection = await callMcpToolServerConfig(hasRuntimeType(server, "function") ? await server() : server, name)
+    const connection = await callMcpToolServerConfig(typeof server === "function" ? await server() : server, name)
     const resolved = await resolveMcpToolServer(
-      { connection: withMcpInitializationCompatibility(connection), owned: hasRuntimeType(server, "function") },
+      { connection: withMcpInitializationCompatibility(connection), owned: typeof server === "function" },
       invalidServerMessage,
       async (config) => {
         const { createMCPClient } = await import("@ai-sdk/mcp")
