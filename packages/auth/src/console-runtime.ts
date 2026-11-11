@@ -1124,7 +1124,7 @@ export function createAuthConsole(
 }
 
 /** A short device label. The full user agent is never returned to the browser. */
-export function authConsoleDevice(userAgent: string): string {
+function authConsoleDevice(userAgent: string): string {
   const browser = /Edg\//.test(userAgent)
     ? "Edge"
     : /Firefox\//.test(userAgent)

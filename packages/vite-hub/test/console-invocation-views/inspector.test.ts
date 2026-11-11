@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import { ToolList } from "@vite-hub/ui";
 import { AgentInvocationInspector } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
@@ -222,7 +222,7 @@ describe("Agent Invocation inspector", () => {
       expect(wrapper.text()).not.toContain(value.traceId);
       const copy = wrapper.get('button[aria-label="Copy Trace ID"]');
       await copy.trigger("click");
-      await Promise.resolve();
+      await flushPromises();
       expect(writeText).toHaveBeenCalledWith(value.traceId);
       expect(copy.attributes("aria-label")).toBe("Trace ID copied");
       expect(copy.find(".vh-invocation-inspector__copy-icon").exists()).toBe(true);
@@ -234,14 +234,14 @@ describe("Agent Invocation inspector", () => {
       clipboard(vi.fn(async () => { throw new Error("Clipboard denied"); }));
       const wrapper = inspect(invocation());
       await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
-      await Promise.resolve();
+      await flushPromises();
       expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
       expect(wrapper.get('button[aria-label="Copy Trace ID"]').find(".vh-invocation-inspector__copy-icon").exists()).toBe(true);
 
       const status = wrapper.get('[role="status"]');
       await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
       expect(status.text()).toBe("");
-      await Promise.resolve();
+      await flushPromises();
       expect(status.text()).toBe("Trace ID could not be copied");
     });
 
@@ -249,6 +249,7 @@ describe("Agent Invocation inspector", () => {
       clipboard(undefined);
       const wrapper = inspect(invocation());
       await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
+      await flushPromises();
       expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
     });
   });

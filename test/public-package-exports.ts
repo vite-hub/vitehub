@@ -57,6 +57,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
+  ["@vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["@vite-hub/ui/markdown-editor", {
     "@nuxt/ui": "both",
     "@tiptap/core": "both",
@@ -79,7 +80,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // The Console signs people in with Better Auth and keeps the Agent journal in libSQL.
   // `consoleMcpOAuth()` loads `@better-auth/cimd` when the Auth starts.
   ["vite-hub/console/auth", { "@better-auth/cimd": "runtime", "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
-  ["vite-hub/console/auth/inline", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
@@ -89,6 +89,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
   ["vite-hub/source/drizzle", { "drizzle-orm": "both" }],
+  ["vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/console/ui", {

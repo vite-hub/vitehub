@@ -392,6 +392,63 @@ The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, wit
 VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
 ```
 
+A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the hash in its environment:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub kv list --url http://localhost:3000
+```
+
+To use the commands and the Console at `/_vitehub` without a token during development, set `auth: false` for the dev server only. The build keeps `auth: 'token'`. A dev server without sign-in answers only requests from this machine.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  },
+  $development: {
+    vitehub: { console: { auth: false } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  }), nitro()],
+}))
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  })],
+}))
+```
+:::
+::
+
 A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
 
 ```ts [server/console-authorize.ts]
@@ -509,7 +566,7 @@ A same-origin call must come from the app origin. The route rejects opaque origi
 
 With `console: { auth: 'app' }` and [`consoleMcpOAuth()`](/docs/development/mcp#set-up-oauth) in the app Auth, the Console data routes accept OAuth bearer tokens from a client on an origin in `console.origins`. The app's Better Auth is the authorization server. The client uses no client secret. Install `@better-auth/cimd` at the version of `better-auth` that ViteHub uses. `consoleMcpOAuth()` loads it when the Auth starts. Without it, the server logs a warning, MCP sign-in keeps working, and no Console client can sign in.
 
-The hosted Console and the built-in project linker support this OAuth sign-in flow. See [Link a project that signs in with the app](#link-a-project-that-signs-in-with-the-app). A custom OAuth client must implement the flow below and host its own client metadata document.
+The hosted Console and the built-in project linker support this OAuth sign-in flow. See [Sign in from the hosted Console](#sign-in-from-the-hosted-console). A custom OAuth client must implement the flow below and host its own client metadata document.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -788,6 +845,8 @@ export default defineConsoleAuth({
 ViteHub sets the auth route to `/_vitehub/api/auth/**` and the cookie prefix to `vitehub_console`. It guards `/_vitehub/**`, but not the sign-in page and callback. Requests without a session get `401`. The server file must give a Better Auth database adapter on durable storage and a secret. ViteHub runs Better Auth migrations before the first protected request. Set `migrate: false` only when your own startup applies the schema. Use `console.auth.server` for a file in another place.
 
 On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a Cloudflare Access application. See [Cloudflare](/docs/frameworks-hosts/cloudflare).
+
+### Use another authentication library
 
 In development, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`. In production, use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. `authorize` still runs after authentication.
 

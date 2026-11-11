@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { renderDatabaseRuntimeModule } from "../../database/src/internal/runtime-module.ts"
-import { createAgentDatabase, defaultDatabaseNotConfiguredError } from "../../database/src/runtime/agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError } from "../../database/src/runtime/agent.ts"
 import { createUseDatabase } from "../../database/src/runtime/use-database.ts"
 import { selectCommentsDatabase } from "../src/runtime/database.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
@@ -57,8 +57,8 @@ it("installs Comments on the sole named Database in a generated runtime registry
     useDatabaseImport: "@vite-hub/database/runtime/use-database",
   })
   const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn databases"
-  const databases = new Function("main", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
-    main, createAgentDatabase, defaultDatabaseNotConfiguredError, createUseDatabase,
+  const databases = new Function("main", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+    main, createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError, createUseDatabase,
   ) as CommentsDatabaseRegistry
 
   expect(selectCommentsDatabase(databases) === main).toBe(true)

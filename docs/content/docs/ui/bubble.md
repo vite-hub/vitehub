@@ -166,7 +166,7 @@ For interactive reactions, use buttons. Give icon-only buttons an `aria-label`.
 
 ```vue
 <BubbleReactions>
-  <UButton color="neutral" variant="ghost" size="xs" square icon="i-ph-thumbs-up-light" aria-label="Thumbs up" />
+  <UButton color="neutral" variant="ghost" size="xs" square icon="i-lucide-thumbs-up" aria-label="Thumbs up" />
 </BubbleReactions>
 ```
 

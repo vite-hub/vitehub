@@ -32,7 +32,6 @@ import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
-import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -83,7 +82,6 @@ describe("Console Auth package exports", () => {
     expect(typeof defineConsoleAuth).toBe("function");
     expect(typeof createConsoleAppAuthAccess).toBe("function");
     expect(typeof createConsoleAppAuthPages).toBe("function");
-    expect(typeof createInlineConsoleAuth).toBe("function");
   });
 });
 
@@ -111,7 +109,14 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
   "@vite-hub/ui/playground",
+  "@vite-hub/ui/playground-container",
+  "@vite-hub/ui/playground-render",
   "@vite-hub/ui/primitive-rail",
+  // The design system: surfaces import the theme and its shared parts from @vite-hub/ui directly.
+  "@vite-hub/ui/theme",
+  "@vite-hub/ui/theme.css",
+  "@vite-hub/ui/copy-button",
+  "@vite-hub/ui/status",
   "@vite-hub/ui/browser-support-notice",
   "@vite-hub/ui/connect-panel",
   "@vite-hub/ui/workspace",
@@ -140,6 +145,10 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/state",
   "@vite-hub/comments/runtime/connect",
   "@vite-hub/comments/runtime/connect/node",
+  // Generated code imports these through `vite-hub` forwarders by path. The forwarders are not package exports.
+  "@vite-hub/comments/realtime",
+  "@vite-hub/comments/runtime/auth",
+  "@vite-hub/connections/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/request-stats",
@@ -278,7 +287,9 @@ describe("framework package contract", () => {
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
-    expect(sourceForwarders).toEqual([...exportedForwarders, "src/internal/agent-invocations-libsql.ts", "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
+    // Generated code imports these forwarders by path, so an app reaches the owner without installing it.
+    const generatedForwarders = ["src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts", "src/internal/agent-invocations-libsql.ts"];
+    expect(sourceForwarders).toEqual([...exportedForwarders, ...generatedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -288,20 +299,9 @@ describe("framework package contract", () => {
       ".",
       "./console",
       "./console/auth",
-      "./console/auth/cloudflare-access",
-      "./console/auth/inline",
-      "./console/blob",
-      "./console/database",
-      "./console/definitions",
-      "./console/documents",
-      "./console/env",
       "./console/mcp-client",
-      "./console/operations",
-      "./console/sections",
       "./console/server",
-      "./console/setup",
       "./console/ui",
-      "./deployment",
       "./doctor",
       "./logs",
       "./logs/host",
@@ -404,17 +404,17 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.js`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.d.ts`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/format.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/format.d.ts`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.d.ts`)).toBe(true);
     expect(manifest.exports).not.toHaveProperty("./console/runtime/console-route");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/sections");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
-    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/format");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/appearance");
     expect(consolePage).toContain("AgentInvocationList");
-    expect(consolePage).toContain('aria-label="Filter sessions"');
+    expect(consolePage).toMatch(/aria-label="[^"]*'Filter sessions'"/);
     expect(consolePage).toContain("selectedCapabilityId");
     expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
     expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
@@ -528,7 +528,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
-    expect(sessionInspector).toMatch(/<button\s+v-if="props.workspaceBase"/);
+    expect(sessionInspector).toMatch(/<UButton\s+v-if="props.workspaceBase"/);
     expect(sessionInspector).toMatch(
       /const invocationId = props\.invocation\.id;[\s\S]*?if \(!workspace\.value\) await loadWorkspace\(\);[\s\S]*?if \(props\.invocation\.id !== invocationId\) return;/,
     );
@@ -541,10 +541,10 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
-    expect(sessionInspector).toContain('<TabsList data-slot="list">');
+    expect(sessionInspector).toContain('<TabsList class="session-inspector__tablist">');
     expect(sessionInspector).toContain('import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";');
     expect(sessionInspector).toMatch(
-      /<TabsTrigger[\s\S]*?<\/TabsTrigger>[\s\S]*?class="session-inspector__tab-close"/,
+      /<TabsTrigger[\s\S]*?<\/TabsTrigger>[\s\S]*?<UButton[\s\S]*?:aria-label="`Close \$\{item\.label\}`"/,
     );
     expect(sessionInspector).not.toContain('<template #leading="{ item }">');
     expect(sessionInspector).not.toContain("scrollIntoView");
@@ -556,7 +556,7 @@ describe("framework package contract", () => {
       /\.session-inspector__tabs \{[\s\S]*?flex: 0 1 auto;[\s\S]*?max-width: calc\(100% - 2rem\);[\s\S]*?width: max-content;/,
     );
     expect(consoleSessionCss).toMatch(
-      /\.session-inspector__tabs \[data-slot="list"\] \{[^}]*?display: flex;[^}]*?min-width: 0;[^}]*?width: max-content;/,
+      /\.session-inspector__tablist \{[^}]*?display: flex;[^}]*?min-width: 0;[^}]*?width: max-content;/,
     );
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
@@ -595,7 +595,7 @@ describe("framework package contract", () => {
     expect(sessionCodePreview).toContain('class="line"');
     expect(sessionCodePreview).toContain("plainLines");
     expect(consoleSessionCss).toMatch(
-      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.6875rem;/,
+      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.75rem;/,
     );
     expect(consoleSessionCss).toMatch(
       /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
