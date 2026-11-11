@@ -5,6 +5,7 @@ import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
+import { end, parseProgram, start } from "@vite-hub/internal/ast";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
@@ -79,6 +80,7 @@ const runtimeEntries = [
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
+  "src/console/runtime/client/ticket.ts",
   "src/console/runtime/client/blob-media.ts",
   "src/console/runtime/client/documents.ts",
   "src/console/runtime/client/format.ts",
@@ -127,7 +129,8 @@ const runtimeEntries = [
   "src/console/runtime/server/invocation-workspace.get.ts",
   "src/console/runtime/server/invocations.get.ts",
   "src/console/runtime/server/env.get.ts",
-  "src/console/runtime/server/auth-manage.ts",
+  "src/console/runtime/server/auth.ts",
+  "src/console/runtime/server/tickets.ts",
   "src/console/runtime/server/logs.get.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -141,6 +144,7 @@ const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
 const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const agentDeclarationRoot = `${resolve(import.meta.dirname, "../agent/dist").replaceAll("\\", "/")}/`;
 
 export default defineConfig({
   pack: [
@@ -489,6 +493,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
+          delete exports["./console/runtime/client/ticket"];
           delete exports["./console/runtime/client/blob-media"];
           delete exports["./console/runtime/client/documents"];
           delete exports["./console/runtime/client/editor"];
@@ -536,7 +541,8 @@ export default defineConfig({
           delete exports["./console/runtime/server/invocation-workspace.get"];
           delete exports["./console/runtime/server/invocations.get"];
           delete exports["./console/runtime/server/env.get"];
-          delete exports["./console/runtime/server/auth-manage"];
+          delete exports["./console/runtime/server/auth"];
+          delete exports["./console/runtime/server/tickets"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp-client-operations"];
@@ -576,6 +582,21 @@ export default defineConfig({
       treeshake: { moduleSideEffects: false },
       dts: { tsconfig: "tsconfig.declarations.json", emitDtsOnly: true },
       plugins: [{
+        name: "vite-hub-agent-configuration-declarations",
+        transform: {
+          order: "pre",
+          handler(code, id) {
+            if (!id.replaceAll("\\", "/").startsWith(agentDeclarationRoot) || !id.endsWith(".d.ts")) return;
+            // Agent runtime augmentations retain optional model and Workspace tool types.
+            // The framework root only inlines configuration types from this owner.
+            const augmentations = parseProgram(code).program.body.filter(node => node.type === "TSModuleDeclaration" && node.kind !== "namespace");
+            if (!augmentations.length) return;
+            let result = code;
+            for (const node of augmentations.reverse()) result = result.slice(0, start(node)) + result.slice(end(node));
+            return result;
+          },
+        },
+      }, {
         name: "vite-hub-env-config-declarations",
         generateBundle(_options, bundle) {
           const chunk = bundle["index.d.ts"];

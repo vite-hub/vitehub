@@ -60,6 +60,7 @@
     "@types/node": "catalog:tooling",
     "@types/semver": "^7.8.0",
     "@vite-hub/internal": "workspace:*",
+    "nuxt": "catalog:nuxt",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",

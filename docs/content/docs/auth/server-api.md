@@ -172,4 +172,4 @@ Generated access middleware loads `createAuthAccessHandler(routes, definition?)`
 
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` to a signed-out browser instead of redirecting to provider sign-in. Use it when the host shows its own sign-in page and starts provider sign-in on a click. By default, it keeps the `access.signIn` redirect.
 
-The [Console](/docs/development/console#protect-the-console-route) endpoint does not use these access routes. It takes only signed requests.
+The [Console](/docs/development/console#protect-the-console-route) endpoint does not use these access routes. It takes only signed requests and one-time links.
