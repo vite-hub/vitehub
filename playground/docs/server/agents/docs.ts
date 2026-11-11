@@ -1,4 +1,4 @@
-import { docsAssistant } from "@vite-hub/docs/assistant"
+import { docsAssistant } from "vite-hub/docs/assistant"
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({

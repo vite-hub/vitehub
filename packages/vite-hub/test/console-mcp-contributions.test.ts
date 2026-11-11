@@ -14,9 +14,9 @@ import handler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import { requestEvent } from "./console-event.ts"
 import type { NitroEventHandler } from "nitro/types"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const calls: Array<{ input: Record<string, unknown>, user: unknown }> = []
@@ -41,8 +41,7 @@ async function rpc(message: unknown, init: { headers?: Record<string, string>, m
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...init.headers },
     ...(init.method === "GET" ? {} : { body: JSON.stringify(message) }),
   })
-  // SAFETY: the route reads the request and the method of the H3 event.
-  const response = await handler(requestEvent(request) as unknown as H3Event)
+  const response = await handler.fetch(request)
   const body: Record<string, any> = response.status === 202 ? {} : Object(await response.json())
   return { status: response.status, body }
 }
@@ -104,7 +103,7 @@ describe("MCP owner contributions", () => {
     const route = `/.well-known/${name}`
     const application = { route, handler: "/app/metadata.js", method: "get" }
     const config: { handlers: typeof application[]; plugins?: string[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
-    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
+    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", verify: verifyConsoleJwt, auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
     for (const base of ["/", "/portal/"]) {
       addConsoleRpcHandler(config, "/runtime", base, [], true)
       expect(config.handlers).toContainEqual(application)

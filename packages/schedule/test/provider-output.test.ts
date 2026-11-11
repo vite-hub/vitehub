@@ -12,8 +12,10 @@ import * as esbuild from "@vite-hub/internal/build/esbuild"
 import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
-import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 
 vi.mock("node:fs", async importOriginal => ({ ...await importOriginal<typeof import("node:fs")>() }))
 vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>() }))
@@ -71,7 +73,7 @@ describe("schedule provider output", () => {
       const handler = await import(pathToFileURL(file).href)
       const result = await handler.default(new Request("https://request.example"))
       expect(result.status).toBe(204)
-      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? `${origin}${base}_vitehub/agents/worker/invocations/invocation` : undefined)
+      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? hostedConsoleLink(`${origin}${base.replace(/\/$/, "")}`, "/agents/worker/invocations/invocation") : undefined)
     }
     Reflect.deleteProperty(globalThis, "scheduleUrl")
   })
@@ -451,7 +453,7 @@ describe("schedule provider output", () => {
             workflowTransformWorkingDir = build.initialOptions.absWorkingDir
           },
         }],
-        importBase: "test-workflow",
+        runtimeModules: { state, vercelVite: vercelRuntime },
         native: true,
         registryFile: workflowRegistry,
       },
@@ -483,7 +485,7 @@ describe("schedule provider output", () => {
       rootDir,
       workflow: {
         bundleAlias: {},
-        importBase: "test-workflow",
+        runtimeModules: { state, vercelVite: vercelRuntime },
         native: false,
         registryFile: workflowRegistry,
       },
@@ -587,7 +589,7 @@ describe("schedule provider output", () => {
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = (await readFile(denoCron, "utf8")).replace(
       JSON.stringify("@vite-hub/schedule/runtime/static"),
-      JSON.stringify(pathToFileURL(resolveScheduleRuntimeEntry()).href),
+      JSON.stringify(pathToFileURL(fileURLToPath(new URL("../dist/runtime/static.js", import.meta.url))).href),
     )
     const registrations: Record<string, string> = {}
     vi.stubGlobal("Deno", { cron: (name: string, cron: string) => { registrations[name] = cron } })
@@ -1027,13 +1029,6 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
-  it("resolves the static schedule runtime from its declared package export", () => {
-    expect(resolveScheduleRuntimeEntry((specifier) => {
-      expect(specifier).toBe("@vite-hub/schedule/runtime/static")
-      return "file:///repo/node_modules/@vite-hub/schedule/dist/runtime/static.js"
-    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/runtime/static.js")
-  })
-
   it("resolves the private schedule definition from the declared package root", () => {
     expect(resolveScheduleDefinitionEntry((specifier) => {
       expect(specifier).toBe("@vite-hub/schedule/package.json")
@@ -1119,7 +1114,7 @@ describe("schedule provider output", () => {
     const generate = async (cron?: Record<string, string>) => await generateProviderOutputs({ clientOutDir: "dist/client", cron, rootDir })
     const vercelCrons = async () => JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons
 
-    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'America/New_York' })")
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'America/New_York', handler: () => 'ok' })")
     await generate()
     expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 12,13 * * *" }])
 

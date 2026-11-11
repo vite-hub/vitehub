@@ -8,20 +8,23 @@ navigation.group: Start
 icon: i-lucide-rocket
 ---
 
-Render a short chat with one question and one reply. You will add the UI package to a Nuxt app with `vite-hub/nuxt` and pass an AI SDK message array to `Chat`. This first page uses local messages so you can check the UI before connecting an Agent.
+ViteHub UI is a set of Vue components for AI apps, such as a chat view and a prompt box. The components show the data that you give them. Your app still loads and saves the messages.
 
-You need Node.js 22.22 or newer, pnpm, and a Nuxt application. Run the commands from its root. For Vue with Vite, follow [Installation](/docs/ui/installation) first. The UI package renders your app's state; your app still owns fetching, routes, and message storage.
+In this tutorial, you show a short chat with one question and one reply. The messages are written in your code, so you can check the view before you connect an Agent.
+
+> [!NOTE] Before you start
+> You need Node.js 22.22 or newer, pnpm, and a Nuxt 5 app. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Run the commands from the root of the app. You need no account and no API key. For Vue with Vite, follow [Installation](/docs/ui/installation) first.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install the UI package, ViteHub, and their Nuxt peers. Add the modules to your existing Nuxt config, keeping the modules your app already uses.
+Install the UI package, ViteHub, and the packages that they need:
 
-```bash [commands/install]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+```bash pm [commands/install]
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
-Register Nuxt UI and ViteHub in `nuxt.config.ts`:
+Add the modules to `nuxt.config.ts`. Keep the other modules of your app.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -38,15 +41,13 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` auto-imports the public UI components and gives them their Nuxt runtime. You do not need a Vue plugin registration in Nuxt.
+`vite-hub/nuxt` imports the components for you. You do not need to register a Vue plugin.
 ::
 
 ::tutorial-step{title="Render one message"}
 ## Render one message
 
 Create `app.vue` with one user message and one assistant reply:
-
-Each message has an id, a role, and text parts. The roles tell `Chat` which message is the user's question and which is the reply. No request is sent by this example.
 
 ```vue [app.vue]
 <script setup lang="ts">
@@ -76,28 +77,32 @@ const messages: UIMessage[] = [
 </template>
 ```
 
-`Chat` renders the AI SDK `UIMessage[]` and keeps scrolling inside its
-container. The component does not fetch data or choose an Agent route.
+- Each message has an `id`, a `role`, and `parts`. Here each message has one text part.
+- `role` tells `Chat` which message is the question (`user`) and which is the reply (`assistant`).
+- `UIMessage` is the message type of the [AI SDK](https://ai-sdk.dev). `Chat` shows a list of them.
+- `class="h-[32rem]"` gives the chat a fixed height. The messages scroll inside it.
+
+This example sends no request. `Chat` does not load data or call an Agent.
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start Nuxt and open the page:
+Start Nuxt:
 
 ```bash [commands/dev]
 pnpm nuxt dev
 ```
 
-Open the local URL printed by Nuxt. The page should show the release question followed by the reply. Change either text in `messages` and save the file to check that the view updates. Add more messages to check scrolling inside the fixed-height chat.
+Open the URL that Nuxt prints. The page shows the release question, then the reply. Change a text in `messages` and save the file. The view updates. Add more messages to see them scroll inside the chat.
 
-You now have a working message view. To send messages, your app also needs a chat endpoint. Once that endpoint is ready, install the Vue AI SDK integration:
+To send messages, your app needs a chat endpoint, an API route that answers. When your endpoint is ready, install the AI SDK for Vue:
 
-```bash [commands/install-ai-sdk]
+```bash pm [commands/install-ai-sdk]
 pnpm add @ai-sdk/vue
 ```
 
-```ts [src/composables/use-chat.ts]
+```ts [composables/use-chat.ts]
 import { useChat } from "@ai-sdk/vue";
 
 export function useAppChat() {
@@ -105,7 +110,27 @@ export function useAppChat() {
 }
 ```
 
-Configure `useChat()` for your endpoint, call `useAppChat()` in the component's `<script setup>`, and pass its returned values to [`Chat`](/docs/ui/chat). Place
-[`PromptInput`](/docs/ui/prompt-input) in its `composer` slot. The [Chat
-App block](/docs/ui/blocks/chat-app) shows session switching and attachments.
+Then:
+
+1. Configure `useChat()` for your endpoint.
+2. Call `useAppChat()` in `<script setup>` of your component. Nuxt imports the files in `composables/` for you.
+3. Pass the values that it returns to [`Chat`](/docs/ui/chat), such as `const { messages, status } = useAppChat()`.
+4. Put [`PromptInput`](/docs/ui/prompt-input) in the `composer` slot of `Chat`, so users can type.
+
+::
+
+## Next steps
+
+::card-group
+:::card{title="Chat" icon="i-lucide-messages-square" to="/docs/ui/chat"}
+See every prop and slot of the `Chat` component.
+:::
+
+:::card{title="Prompt input" icon="i-lucide-text-cursor-input" to="/docs/ui/prompt-input"}
+Add the box where users type their message.
+:::
+
+:::card{title="Chat App block" icon="i-lucide-layout-panel-left" to="/docs/ui/blocks/chat-app"}
+Build a full chat app with sessions and attachments.
+:::
 ::

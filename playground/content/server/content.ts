@@ -1,10 +1,11 @@
-import { defineContent, documents, image, optional, seo, singleton } from "vite-hub/content"
+import { defineContent, image, optional, seo } from "vite-hub/content"
+import { documents, singleton } from "vite-hub/content/collections"
 import { cmsContentAuthorize } from "vite-hub/cms/access"
 import { z } from "zod"
 
 const link = z.object({ label: z.string().min(1), to: z.string().min(1), icon: z.string().optional() })
 
-export const content = defineContent({
+export default defineContent({
   workspace: "site",
   collections: {
     // One document for the whole site. The fields are this site's choice; ViteHub has no fixed settings schema.

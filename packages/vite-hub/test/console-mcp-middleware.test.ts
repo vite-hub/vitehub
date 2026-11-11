@@ -20,6 +20,9 @@ import type { ConsoleOAuthConfig } from "../src/console/runtime/server/bearer.ts
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import consoleMcpDiscoveryHandler from "../src/console/runtime/server/mcp-discovery.ts"
 import { requestEvent } from "./console-event.ts"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
+
+import type { H3Event } from "h3"
 
 const require = createRequire(import.meta.url)
 const fixtureKey = Symbol.for("test.console.mcp.middleware")
@@ -31,7 +34,7 @@ afterEach(() => {
   installConsoleAccess({ mode: "open" })
 })
 
-it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s'", async (mount) => {
+it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' as Nitro 3 serves it", async (mount) => {
   const root = await mkdtemp(resolve(import.meta.dirname, ".mcp-middleware-"))
   const database = new DatabaseSync(":memory:")
   const origin = "https://app.example.com"
@@ -86,9 +89,10 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s'", a
       authorize: () => sectionAllowed,
       check: guard.checkConsoleAccess,
       mode: "auth",
-      oauth: { auth: guard.createConsoleAuth, authorize: guard.authorizeConsoleBearer, path, resource },
+      oauth: { auth: guard.createConsoleAuth, authorize: guard.authorizeConsoleBearer, path, resource, verify: verifyConsoleJwt },
     })
-    const handler = async (event: object) => await guard.default(event) ?? Reflect.apply(consoleMcpHandler, undefined, [event])
+    // As in Nitro 3: the H3 middleware gets the event, and the Fetchable MCP route gets its Request.
+    const handler = async (event: H3Event) => await guard.default(event) ?? consoleMcpHandler.fetch(event.req)
     const send = (request: Request) => defineHandler(handler).fetch(request)
     const request = (token?: string, pathname = path) => new Request(`${origin}${pathname}`, {
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }),
@@ -161,11 +165,18 @@ it.each([
   await writeFile(authorizeFile, 'export default globalThis[Symbol.for("test.console.mcp.section-policy")]')
   const generated = resolve(root, "plugin.ts")
   const modulePath = resolve(root, "plugin.mjs")
-  await writeConsoleNitroPlugin(generated, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, {
-    authorize: authorizeFile,
-    check: { appRoutes: routes.map((route, index) => ({ ...route, index })) },
-    mode: "auth",
-    oauth: { path, resource },
+  await writeConsoleNitroPlugin({
+    file: generated,
+    projectRoot: root,
+    sections: [],
+    catalog: { agents: [], content: {} },
+    blobStores: [],
+    access: {
+      authorize: authorizeFile,
+      check: { appRoutes: routes.map((route, index) => ({ ...route, index })) },
+      mode: "auth",
+      oauth: { path, resource },
+    },
   })
   await build({
     bundle: true, entryPoints: [generated], format: "esm", outfile: modulePath, packages: "external", platform: "node",
@@ -174,11 +185,12 @@ it.each([
       setup(plugin) {
         plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
         plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
+        plugin.onResolve({ filter: /^@vite-hub\/auth\/runtime\/console$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
         plugin.onResolve({ filter: /^@vite-hub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/server"), external: true }))
         plugin.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
           import * as auth from "@vite-hub/auth/server";
           const definition = globalThis[Symbol.for("test.console.mcp.middleware")];
-          export const getAuthForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
+          export const authForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
           export const requireAuthAccessRoutes = (event, indexes, _, required, options) => auth.requireAuthAccessRoutes(event, indexes, definition, required, options);
           export const withAuthorization = (authorize, handler) => auth.withAuthorization(authorize, handler, definition);
           export const setAuthAccessIdentityResolver = auth.setAuthAccessIdentityResolver;
@@ -193,7 +205,7 @@ it.each([
     handlers: [{ handler: "app-auth", middleware: true, route: "/**" }],
   }
   addConsoleRpcHandler(config, "/runtime", `${mount}/`, [], true)
-  const handler = async (event: object) => {
+  const handler = async (event: H3Event) => {
     // Nitro runs global middleware before routed middleware, regardless of their registration order.
     for (const registration of config.handlers.filter(candidate => candidate.middleware && (candidate.route === undefined || candidate.route === "/**") && !candidate.method)) {
       const response = registration.handler === "app-auth"
@@ -201,7 +213,7 @@ it.each([
         : await Reflect.apply(consoleMcpDiscoveryHandler, undefined, [event])
       if (response) return response
     }
-    return Reflect.apply(consoleMcpHandler, undefined, [event])
+    return consoleMcpHandler.fetch(event.req)
   }
   const send = (request: Request) => defineHandler(handler).fetch(request)
   for (const pathname of [

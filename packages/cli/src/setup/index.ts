@@ -16,5 +16,7 @@ export { linkSetupProject, readSetupConsoleLink, readSetupLink, readSetupLinkSta
 export type { SetupConsoleLink, SetupLinkFile, SetupLink, SetupLinkAccount, SetupLinkHost, SetupLinkOptions, SetupLinkResult, SetupLinkState, SetupLinkStatus, SetupLinkSummary } from "./link.ts"
 export { readSetupProject } from "./project.ts"
 export type { SetupFramework, SetupPackageManager, SetupProject } from "./project.ts"
+export { planSetupRemove, readRemoveArgs, removeCommand } from "./remove.ts"
+export type { SetupReference, SetupRemoveArgs, SetupRemovePlan } from "./remove.ts"
 export { setupStatus } from "./status.ts"
 export type { SetupFeatureStatus, SetupStatus } from "./status.ts"

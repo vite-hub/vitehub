@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
@@ -10,7 +10,7 @@ import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
 
-import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 function getActiveWorkflowConfig(): ResolvedWorkflowOptions {
@@ -39,7 +39,7 @@ function normalizeWorkflowRunIdValue(value: WorkflowRunIdValue): unknown {
   if (value === undefined) {
     return null
   }
-  if (value === null || !hasRuntimeType(value, "object")) {
+  if (value === null || typeof value !== "object") {
     return value
   }
   if (Array.isArray(value)) {
@@ -109,12 +109,12 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   let handler: WorkflowHandler<TPayload, TResult> | undefined
   let createOptions: WorkflowCreateOptions<TPayload, TResult> | undefined
 
-  if (hasRuntimeType(nameOrOptions, "object") && nameOrOptions !== null) {
+  if (typeof nameOrOptions === "object" && nameOrOptions !== null) {
     createOptions = nameOrOptions
-    if (!createOptions.name || !hasRuntimeType(createOptions.name, "string")) {
+    if (!createOptions.name || typeof createOptions.name !== "string") {
       throw workflowErrorDiagnostics.WORKFLOW_R0009({ message: "`createWorkflow()` requires a workflow name." })
     }
-    if (!hasRuntimeType(createOptions.handler, "function")) {
+    if (typeof createOptions.handler !== "function") {
       throw workflowErrorDiagnostics.WORKFLOW_R0010({ message: "`createWorkflow()` requires a workflow handler." })
     }
     name = createOptions.name
@@ -122,19 +122,19 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   }
   else {
     name = nameOrOptions
-    if (!name || !hasRuntimeType(name, "string")) {
+    if (!name || typeof name !== "string") {
       throw workflowErrorDiagnostics.WORKFLOW_R0011({ message: "`createWorkflow()` requires a workflow name." })
     }
-    handler = hasRuntimeType(handlerOrOptions, "function")
+    handler = typeof handlerOrOptions === "function"
       ? handlerOrOptions
-      : hasRuntimeType(handlerOrOptions, "object") && handlerOrOptions !== null
+      : typeof handlerOrOptions === "object" && handlerOrOptions !== null
         ? handlerOrOptions.handler
         : undefined
-    createOptions = hasRuntimeType(handlerOrOptions, "function") ? options : handlerOrOptions
-    if (handler !== undefined && !hasRuntimeType(handler, "function")) {
+    createOptions = typeof handlerOrOptions === "function" ? options : handlerOrOptions
+    if (handler !== undefined && typeof handler !== "function") {
       throw workflowErrorDiagnostics.WORKFLOW_R0012({ message: "`createWorkflow()` requires a workflow handler." })
     }
-    if (handler === undefined && handlerOrOptions !== undefined && (!hasRuntimeType(handlerOrOptions, "object") || handlerOrOptions === null)) {
+    if (handler === undefined && handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
       throw workflowErrorDiagnostics.WORKFLOW_R0013({ message: "`createWorkflow()` options must be an object." })
     }
   }
@@ -150,24 +150,33 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   return {
     cancel: (id: string) => cancelWorkflow(name, id),
     name,
-    defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
+    defer: (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflowStart(
       name,
-      payload,
-      await resolveWorkflowStartOptions(name, payload, createOptions, options),
+      async () => await startWorkflowRun<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options), true),
     ),
     getRun: (id: string) => getWorkflowRun(name, id),
-    async run(payload?: TPayload, options: WorkflowStartOptions = {}) {
-      const run = await runWorkflow<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options))
+    async start(payload?: TPayload, options: WorkflowStartOptions = {}) {
+      const run = await startWorkflow<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options))
       // SAFETY: Typed createWorkflow overloads require a handler; handler-free handles expose unknown results.
       return run as WorkflowRun<TPayload, TResult>
     },
   }
 }
 
-export async function runWorkflow<TPayload = unknown>(
+/** Starts one durable run of a Workflow Definition and returns its id and status. */
+export async function startWorkflow<TPayload = unknown>(
   name: string,
   payload?: TPayload,
-  options: WorkflowDeferOptions = {},
+  options: WorkflowStartOptions = {},
+): Promise<WorkflowRun<TPayload, unknown>> {
+  return await startWorkflowRun(name, payload, options)
+}
+
+async function startWorkflowRun<TPayload>(
+  name: string,
+  payload: TPayload | undefined,
+  options: WorkflowStartOptions,
+  deferred = false,
 ): Promise<WorkflowRun<TPayload, unknown>> {
   const config = getActiveWorkflowConfig()
 
@@ -180,7 +189,7 @@ export async function runWorkflow<TPayload = unknown>(
     })
   }
   const test = getViteHubTestMode()
-  if (test) return recordWorkflowTestRun(test, config.provider, { deferred: options.deferred === true, id, name, payload })
+  if (test) return recordWorkflowTestRun(test, config.provider, { deferred, id, name, payload })
   return await getWorkflowRuntimeAdapter(config).run<TPayload, unknown>({
     // SAFETY: The named Workflow definition receives the caller-provided payload and its result remains unknown.
     definition: definition as WorkflowDefinition<TPayload, unknown>,
@@ -222,9 +231,10 @@ export async function cancelWorkflow(name: string, id: string): Promise<Workflow
   })
 }
 
-export async function resumeWorkflowSignal<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult> {
-  if (!token || !hasRuntimeType(token, "string")) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflowSignal()` requires an opaque signal token." })
+/** Resumes a run that waits for a signal. `token` is the opaque token that the provider gave the waiting step. */
+export async function resumeWorkflow<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult> {
+  if (!token || typeof token !== "string") {
+    throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflow()` requires an opaque signal token." })
   }
   const config = getActiveWorkflowConfig()
   // Test backends start no handlers, so there is no suspended signal to resume.
@@ -234,11 +244,25 @@ export async function resumeWorkflowSignal<TPayload = unknown>(token: string, pa
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)
 }
 
+function deferWorkflowStart(name: string, start: () => Promise<unknown>): void {
+  const request = getWorkflowRuntimeEvent()
+  const promise = runWithWorkflowRuntimeEvent(request, start).then(() => undefined, (error: unknown) => {
+    console.error(`[vitehub] Deferred Workflow start failed for "${name}"`, error)
+  })
+  const waitUntil = resolveWaitUntil(request)
+  if (typeof waitUntil === "function") {
+    waitUntil(promise)
+  }
+}
+
+/**
+ * Starts a run after the response, through `waitUntil`. It returns nothing: a failure goes to the log.
+ * Call `startWorkflow()` when the caller needs the run ID or the start error.
+ */
 export function deferWorkflow<TPayload = unknown>(
   name: string,
   payload?: TPayload,
   options: WorkflowStartOptions = {},
-): Promise<WorkflowRun<TPayload>> {
-  const request = getWorkflowRuntimeEvent()
-  return runWithWorkflowRuntimeEvent(request, () => runWorkflow<TPayload>(name, payload, { ...options, deferred: true }))
+): void {
+  deferWorkflowStart(name, () => startWorkflowRun<TPayload>(name, payload, options, true))
 }
