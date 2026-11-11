@@ -72,6 +72,46 @@ async function cli(cwd: string, args: string[], fetch?: typeof globalThis.fetch)
 }
 
 describe("content.sources.advance() with the check", { timeout: 30_000 }, () => {
+  it.each(["Body\n", "See [setup](/docs/setup#installation).\n"])("isolates an unavailable target Source when checking %j", async (body) => {
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started", body) })
+    const generated = [{ key: "docs/setup.md", content: page("Project setup", "## Installation\n") }]
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource({ items: async () => generated }, { url: "/:id" }),
+      unavailable: contentSource({ items: async () => { throw new Error("Reader unavailable") } }, { url: "/blog/:id" }),
+    } })
+
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    expect(await content.list("docs")).toHaveLength(1)
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    const next = fake.commit("main", { "docs/guide.md": page("Updated guide", body) })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: next, rejected: null })
+    expect(await content.sources.pin(first, "docs")).toMatchObject({ sha: first, rejected: null })
+    // A Source explicitly selected for checking must still report its retrieval failure.
+    await expect(content.check({ source: "unavailable" })).rejects.toThrow("Reader unavailable")
+    await expect(content.check()).rejects.toThrow("Reader unavailable")
+
+    generated.splice(0)
+    if (body.includes("[setup]")) expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1 })
+  })
+
+  it("keeps head changes and selected checks usable when an unrelated GitHub Source is rate limited", async () => {
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started") })
+    fake.commit("blog", { "post.md": page("Blog introduction") })
+    fake.respond(request => request.path.endsWith("/commits/blog") ? new Response("rate limited", { status: 429 }) : undefined)
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      blog: contentSource(github({ repo: "acme/docs", ref: "blog", auth: false }), { url: "/blog/:id" }),
+    } })
+
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    const next = fake.commit("main", { "docs/guide.md": page("Updated guide") })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: next, rejected: null })
+    expect(await content.sources.pin(first, "docs")).toMatchObject({ sha: first, rejected: null })
+    await expect(content.check({ source: "blog" })).rejects.toMatchObject({ code: "CONTENT_R0069" })
+  })
+
   it("resolves links and headings across Sources for checks, initial heads, advances, and pins", async () => {
     const generated = [{ key: "docs/setup.md", path: "docs/setup.md", content: page("Project setup", "## Installation\n") }]
     const first = fake.commit("main", { "docs/guide.md": page("Getting started", "See [setup](/docs/setup#installation).\n") })

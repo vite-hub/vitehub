@@ -507,8 +507,15 @@ export function defineContent<
   const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, {
     privateBranches: presetDefaults.privateBranches ?? [],
     check,
-    targets: async source => await Promise.all(Object.keys(inputs).filter(name => name !== source).map(async name => (await loadCheckInput(name, undefined, true)).input)),
+    targets: source => loadCheckTargets([source]),
   }, reuseParsed)
+
+  async function loadCheckTargets(checked: readonly string[]): Promise<ContentCheckInput[]> {
+    // Other Sources add link targets, but their availability must not reject an unrelated commit.
+    // Missing linked pages still produce findings; explicitly checked Sources must load successfully.
+    const loaded = await Promise.allSettled(Object.keys(inputs).filter(name => !checked.includes(name)).map(async name => (await loadCheckInput(name, undefined, true)).input))
+    return loaded.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+  }
 
   async function loadCheckInput(name: string, sha?: string, published = false): Promise<{ sha: string | null, input: ContentCheckInput }> {
     if (heads.github(name)) return await heads.inspect(name, sha, published)
@@ -878,12 +885,13 @@ export function defineContent<
       const sources: ContentCheckResult["sources"] = []
       const findings: ContentCheckFinding[] = []
       // Checked Sources use their candidate commits; the rest contribute their published link targets.
-      const loaded = new Map(await Promise.all(Object.keys(inputs).map(async name => [name, await loadCheckInput(name, names.includes(name) ? sha : undefined, !names.includes(name))] as const)))
+      const loaded = new Map(await Promise.all(names.map(async name => [name, await loadCheckInput(name, sha)] as const)))
+      const targets = await loadCheckTargets(names)
       for (const name of names) {
         const inspected = loaded.get(name)!
         const checked = checkContentDocuments({
           ...inspected.input,
-          targets: [...loaded].filter(([source]) => source !== name).map(([, value]) => value.input),
+          targets: [...targets, ...[...loaded].filter(([source]) => source !== name).map(([, value]) => value.input)],
         })
         sources.push({ source: name, sha: inspected.sha, pages: checked.pages })
         findings.push(...checked.findings)
