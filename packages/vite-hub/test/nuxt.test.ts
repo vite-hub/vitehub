@@ -542,7 +542,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("references the declarations that replayed Vite plugins write after one Nuxt prepare", async () => {
-    await rm("/tmp/vitehub-nuxt/.vitehub", { force: true, recursive: true })
+    await rm(`${tmp}/vitehub-nuxt/.vitehub`, { force: true, recursive: true })
     mocks.vitehub.mockReturnValue([
       hubBlob({ stores: { default: { driver: "fs" }, media: { driver: "fs" } } }),
       viteHubTypesPlugin(),
@@ -552,9 +552,9 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
     await runNitroConfigHook(nitroOptions(nuxt))
 
-    const aggregate = "/tmp/vitehub-nuxt/.vitehub/types.d.ts"
+    const aggregate = `${tmp}/vitehub-nuxt/.vitehub/types.d.ts`
     await expect(readFile(aggregate, "utf8")).resolves.toContain('/// <reference path="./types/blob.d.ts" />')
-    const entry = "/tmp/vitehub-nuxt/blob-store-names.mts"
+    const entry = `${tmp}/vitehub-nuxt/blob-store-names.mts`
     await writeFile(entry, [
       "import { blob } from \"@vite-hub/blob\"",
       "blob.store(\"media\")",
