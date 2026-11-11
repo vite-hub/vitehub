@@ -11,10 +11,10 @@ import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
 import { authSqliteSchema } from "../src/auth/schema.ts"
 import { createAuthForRequest } from "../src/auth/server.ts"
-import { consoleMcpOAuth } from "../src/console/auth.ts"
+import { mcpOAuth } from "../src/auth/mcp.ts"
 
 const app = "https://app.example.com"
-const resource = `${app}/_vitehub/mcp`
+const resource = `${app}/mcp`
 const state = vi.hoisted(() => ({ databases: {} as Record<string, { db: unknown, schema: Record<string, unknown> }> }))
 vi.mock("@vite-hub/database/drizzle", () => ({ databases: state.databases }))
 
@@ -64,11 +64,11 @@ describe("authDatabase()", () => {
     expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/user.additionalFields/)
   })
 
-  it("runs Better Auth, admin(), and Console MCP OAuth on the contributed tables", async () => {
+  it("runs Better Auth, admin(), and MCP OAuth on the contributed tables", async () => {
     const definition = defineAuth({
       database: authDatabase(),
       emailAndPassword: { enabled: true },
-      plugins: [admin(), ...consoleMcpOAuth({ resource })],
+      plugins: [admin(), ...mcpOAuth({ resource, loginPage: "/oauth" })],
     })
     const auth = createAuthForRequest(definition, new Request(app))
     const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {

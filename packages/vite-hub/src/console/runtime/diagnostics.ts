@@ -1,7 +1,6 @@
 import { defineDiagnostics, type Diagnostic } from "nostics"
 
 const consoleGuide = "https://vitehub.dev/docs/development/console"
-const mcpGuide = "https://vitehub.dev/docs/development/mcp"
 
 /** What the Console offers as the next step for a failure. */
 export type ConsoleDiagnosticAction = "docs" | "reload" | "retry" | "sign-in"
@@ -10,26 +9,18 @@ export type ConsoleDiagnosticAction = "docs" | "reload" | "retry" | "sign-in"
 export type ConsoleDiagnosticCode =
   | "CONSOLE_ACCESS_DENIED"
   | "CONSOLE_ACCESS_NOT_CONFIGURED"
-  | "CONSOLE_AUTH_NOT_CONFIGURED"
   | "CONSOLE_CONFLICT"
-  | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
-  | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
-  | "CONSOLE_IMPERSONATING"
   | "CONSOLE_KEY_MALFORMED"
   | "CONSOLE_KEY_NOT_CONFIGURED"
   | "CONSOLE_KEY_UNKNOWN"
   | "CONSOLE_LOOPBACK_ONLY"
-  | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
   | "CONSOLE_MCP_KEY_INVALID"
   | "CONSOLE_MCP_KV_REQUIRED"
-  | "CONSOLE_MCP_ORIGIN_REQUIRED"
-  | "CONSOLE_MCP_OAUTH_INCOMPLETE"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
-  | "CONSOLE_ORIGIN_NOT_ALLOWED"
   | "CONSOLE_ORIGIN_REJECTED"
   | "CONSOLE_REQUEST_FAILED"
   | "CONSOLE_REQUEST_INVALID"
@@ -83,21 +74,9 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#how-each-mode-checks-a-request`,
       "docs",
     ),
-    CONSOLE_IMPERSONATING: code(
-      "This browser uses an impersonation session. The Console does not run as an impersonated user.",
-      "Stop impersonating to get your own session back, then open the Console again.",
-      `${consoleGuide}#impersonate-users`,
-      "docs",
-    ),
-    CONSOLE_MANAGER_REQUIRED: code(
-      "The Console accepted this request, but the session has no user id. Management actions record the user who made them.",
-      "Sign out and sign in again. If this continues, make sure the Auth Definition that protects the Console returns a session user with an id.",
-      "https://vitehub.dev/docs/connections/server-api#management-routes",
-      "docs",
-    ),
     CONSOLE_DEVELOPMENT_ONLY: code(
-      "console: true is development-only. It works only on the development server.",
-      "For production, set console: { auth: \"app\" } or console: { auth: { ... }, authorize }.",
+      "The Console endpoint without Console options runs only on the development server.",
+      "For production, set console: true, and set the VITEHUB_CONSOLE_KEY_<NAME> line that the ViteHub Console shows when you link the app.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
@@ -107,22 +86,10 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
-    CONSOLE_AUTH_NOT_CONFIGURED: code(
-      "Console Auth is not configured.",
-      "Add a ViteHub Auth Definition, or set the Cloudflare Access team domain and audience.",
-      `${consoleGuide}#protect-the-console-route`,
-      "docs",
-    ),
     CONSOLE_ORIGIN_REJECTED: code(
       "The request did not come from the Console origin.",
       "Open the Console from its own URL. A proxy must forward the public Host and Origin headers.",
       `${consoleGuide}#protect-the-console-route`,
-      "docs",
-    ),
-    CONSOLE_ORIGIN_NOT_ALLOWED: code(
-      "The Console on this origin may not call this app.",
-      "Add the origin to console.origins, and send an OAuth access token of the app Auth as Authorization: Bearer. Then build and deploy again. Browsers cannot sign requests for console: { auth: \"token\" }: use the ViteHub Console, which signs on its server.",
-      `${consoleGuide}#call-the-console-from-another-origin`,
       "docs",
     ),
     CONSOLE_SIGNATURE_MISSING: code(
@@ -162,7 +129,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "docs",
     ),
     CONSOLE_KEY_NOT_CONFIGURED: code(
-      "`console: { auth: \"token\" }` needs a `VITEHUB_CONSOLE_KEY_<NAME>` variable in the server environment.",
+      "`console: true` needs a `VITEHUB_CONSOLE_KEY_<NAME>` variable in the server environment.",
       "Link the app in the ViteHub Console and set the line that it shows, or run `vitehub secret console-key` and set its public key line. On Cloudflare, run `wrangler secret put VITEHUB_CONSOLE_KEY_<NAME>`. Then restart or deploy the server.",
       `${consoleGuide}#sign-console-requests`,
       "docs",
@@ -174,33 +141,9 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "docs",
     ),
     CONSOLE_LOOPBACK_ONLY: code(
-      "The development Console without sign-in accepts only requests from this machine.",
-      "Open the Console from localhost, or set console.auth to \"app\" or a Console Auth config so the Console checks who calls it.",
+      "The development Console without signed calls accepts only requests from this machine.",
+      "Call it from this machine, such as with `vitehub` commands, or remove console.auth so the app takes calls that the ViteHub Console and the CLI sign.",
       `${consoleGuide}#protect-the-console-route`,
-      "docs",
-    ),
-    CONSOLE_MCP_ORIGIN_REQUIRED: code(
-      "OAuth sign-in for MCP is off: the server has no configured public origin.",
-      "Set `vitehub({ publicUrl })` or `console.mcp.resource` to the public URL of the app, such as `https://app.example.com/_vitehub/mcp`, then build and deploy again.",
-      `${mcpGuide}#set-up-oauth`,
-      "docs",
-    ),
-    CONSOLE_MCP_OAUTH_INCOMPLETE: code(
-      "The Auth that signs the Console in cannot issue MCP access tokens.",
-      "Add `jwt()` and `oauthProvider({ resources: [\"<origin>/_vitehub/mcp\"], clientRegistrationDefaultResources: [\"<origin>/_vitehub/mcp\"], scopes: [..., \"vitehub:read\", \"vitehub:write\"] })` to that Auth. Without `resources`, Better Auth issues opaque tokens that the Console cannot check. The registration defaults link MCP clients to the resource.",
-      `${mcpGuide}#set-up-oauth`,
-      "docs",
-    ),
-    CONSOLE_ENV_MANAGEMENT_UNAVAILABLE: code(
-      "Env management is not available for this variable.",
-      "Give the Env declaration a management bridge, then reload the Console.",
-      "https://vitehub.dev/docs/env/bridge",
-      "docs",
-    ),
-    CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE: code(
-      "The Connections management route is not mounted.",
-      "Set connections: { management: true } for production, then build and deploy again.",
-      `${consoleGuide}#manage-connections`,
       "docs",
     ),
     CONSOLE_MCP_UNREACHABLE: code(
@@ -278,12 +221,6 @@ const consoleDiagnosticCodes = new Set<string>(Object.keys(consoleDiagnostics))
 
 export function isConsoleDiagnosticCode(value: unknown): value is ConsoleDiagnosticCode {
   return typeof value === "string" && consoleDiagnosticCodes.has(value)
-}
-
-/** Whether a Console rejection is `CONSOLE_IMPERSONATING`. The body is read from a clone. */
-export async function isConsoleImpersonationRejection(response: Response): Promise<boolean> {
-  const body: unknown = await response.clone().json().catch(() => undefined)
-  return body !== null && typeof body === "object" && Reflect.get(body, "code") === "CONSOLE_IMPERSONATING"
 }
 
 /** The Console code for an HTTP status when the failure site has no more specific code. */

@@ -1,13 +1,12 @@
 import { allowedConsoleSections, consoleAccessWrites, type ConsoleAccess } from "./access.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { getConsoleAuth, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
 import type { ConsoleContributedSection } from "../definitions.ts"
 
 /** The sections that this access may use. The client hides the others. Each operation still checks its own section. */
 export function listConsoleSections(access: ConsoleAccess): {
-  auth?: true | "cloudflare-access"
   contributions?: readonly ConsoleContributedSection[]
   /** The registered operations that run app code (`console.invoke`) and that this request may run. The pages hide the others. */
   operations?: readonly string[]
@@ -21,12 +20,9 @@ export function listConsoleSections(access: ConsoleAccess): {
   const projectName = getConsoleProjectName()
   const sections = allowedConsoleSections(access, getConsoleSections())
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
-  const result: { auth?: true | "cloudflare-access", contributions?: readonly ConsoleContributedSection[], operations?: readonly string[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
+  const result: { contributions?: readonly ConsoleContributedSection[], operations?: readonly string[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
   const readOnly = sections.filter(section => !consoleAccessWrites(access, section))
   if (readOnly.length) result.readOnly = readOnly
-  const auth = getConsoleAuth()
-  if (auth) result.auth = auth
-  else if (access.mode === "auth") result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   const operations = consoleOperationRegistry().list()

@@ -11,7 +11,7 @@ import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli, serverBuild } from "./support/content-cms.ts"
 
 import type { CommentThread } from "@vite-hub/comments/client"
-import { generatedModules } from "../src/internal/generated-modules.ts"
+import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
@@ -27,28 +27,17 @@ describe("Comments in a built Nitro 3 app", () => {
         "export default defineComments({ authorize: () => true })",
         "",
       ].join("\n"),
-      // A production build refuses `console.auth: false`. The test plugin below replaces the app Auth policy per request.
+      // The overlay API reads the app Auth session. The Console calls are signed instead.
       "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
       "server/console-authorize.ts": "export default () => true\n",
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
-      // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
-      "server/plugins/test-user.ts": [
-        "import { definePlugin } from 'nitro'",
-        `import { installConsoleAccess } from ${JSON.stringify(generatedModules.consoleSections)}`,
-        "export default definePlugin(app => {",
-        "  app.hooks.hook('request', event => {",
-        "    installConsoleAccess(event.req.headers.get('x-test-user') === 'ana'",
-        "      ? { mode: 'auth', check: async () => undefined, user: async () => ({ id: 'ana', name: 'Ana' }) }",
-        "      : { mode: 'open' })",
-        "  })",
-        "})",
-      ].join("\n"),
     })
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // Production output must never invent a local identity, even with NODE_ENV=development.
-    const app = () => vitehub({ auth: true, console: { auth: "app", authorize: "./server/console-authorize.ts" }, preset: "node" })
+    const app = () => vitehub({ auth: true, console: { authorize: "./server/console-authorize.ts" }, preset: "node" })
+    const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
@@ -70,7 +59,7 @@ describe("Comments in a built Nitro 3 app", () => {
     } as never)
     await builder.buildApp()
 
-    const server = await startBuiltServer(root, { NODE_ENV: "development" })
+    const server = await startBuiltServer(root, { ...ci.env, NODE_ENV: "development" })
     try {
       const unsigned = await server.fetch("/_vitehub/rpc", {
         body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }),
@@ -78,13 +67,11 @@ describe("Comments in a built Nitro 3 app", () => {
         method: "POST",
       })
       expect(unsigned.status).toBe(401)
-      expect(await operationRpcResponseResult(unsigned)).toMatchObject({ code: "COMMENTS_R0012" })
+      expect(await unsigned.json()).toMatchObject({ code: "CONSOLE_SIGNATURE_MISSING" })
+      // The Console signs each call for the person who uses it.
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const response = await server.fetch("/_vitehub/rpc", {
-          body: operationRpcBody(operation, input),
-          headers: { "content-type": "application/json", "x-test-user": "ana", [consoleRpcHeader]: "1" },
-          method: "POST",
-        })
+        const signed = await signedRpcRequest({ caller: { user: { id: "ana", name: "Ana" }, via: "console" }, input, key: ci.key, operation, url: `http://127.0.0.1:${server.port}/_vitehub/rpc` })
+        const response = await server.fetch("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
         return body.value
