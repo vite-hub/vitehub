@@ -1,6 +1,6 @@
 ---
 title: Run your first Sandbox
-description: Install the Sandbox package, open a trusted-host Sandbox session, run one command, and inspect the result.
+description: Install the Sandbox package, open a session on your own host, run one command, and check the result.
 layout: tutorial
 navigation.title: Sandbox tutorial
 navigation.order: 76
@@ -9,22 +9,25 @@ icon: i-lucide-rocket
 navigation.kind: Tutorial
 ---
 
-Open a Sandbox on your own Node host, write a text file, and run Node to read it. The response will contain `Sandbox is ready`. A Sandbox prepares an execution session with a private Home, declared environment, and boot checks.
+In this tutorial you open a Sandbox on your own Node host, write a file, and run Node to read it back. A Sandbox is a session for running commands, with a private Home, a set environment, and boot checks.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite server application. Run the commands from its root. A trusted-host Sandbox shares the host's filesystem and process authority. Use [Sandbox](/docs/sandbox) when untrusted code needs provider-managed isolation.
+You need Node.js 22.22 or newer, pnpm, and a Vite server app. Run the commands from its root.
+
+> [!WARNING]
+> A trusted-host Sandbox shares your host's files and process rights. For untrusted code, use [Sandbox](/docs/sandbox) with provider isolation.
 
 ::tutorial-step{title="Install the Sandbox package"}
 ## Install the Sandbox package
 
-Install Sandbox and Nitro in your Vite app. Add Nitro to its existing Vite config so it serves the route below.
+Install Sandbox and Nitro:
 
 ```bash [commands/install]
 pnpm add @vite-hub/sandbox nitro h3
 ```
 
-The package includes the `resolveSandbox()` helper and the portable Sandbox session
-contracts. It does not install a provider SDK for you. Register Nitro so the
-`server/api` route is served by the same Vite development server:
+The package gives you `resolveSandbox()` and the portable session types. It does
+not install a provider SDK. Add Nitro to your Vite config so the Vite dev server
+also serves `server/api` routes:
 
 ```ts [vite.config.ts]
 import { nitro } from 'nitro/vite'
@@ -39,10 +42,8 @@ export default defineConfig({
 ::tutorial-step{title="Open a session"}
 ## Open a session
 
-Create a route that opens a trusted-host Sandbox, writes one file, and runs Node.js
-against it:
-
-`requires: ['node']` checks that Node is available before the session opens. The route writes through the session's file API, executes Node, then returns its output. Keep the `finally` block so a failed command also closes the session.
+Create a route that opens a Sandbox, writes one file, and runs Node to read it.
+`requires: ['node']` checks that Node exists before the session opens.
 
 ```ts [server/api/sandbox-check.get.ts]
 import { defineEventHandler } from "h3";
@@ -78,20 +79,20 @@ export default defineEventHandler(async () => {
 });
 ```
 
-`close()` runs in `finally` so the session releases its processes and temporary
-state when the command fails as well as when it succeeds.
+Keep `close()` in `finally`. The session then frees its processes and temporary
+state also when the command fails.
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start the server and call the route:
+Start the server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
+In another terminal, call the route:
 
 ```bash [commands/request]
 curl http://localhost:5173/api/sandbox-check
@@ -107,6 +108,6 @@ The response contains:
 ```
 
 Read [Sandboxes](/docs/agents/sandboxes) for checkouts, private Home files, durable
-state, toolchain provisioning, and remote runtimes. A Sandbox owns execution. A
-[Workspace](/docs/agents/workspace-context) owns Agent-visible files.
+state, toolchains, and remote runtimes. A Sandbox runs commands. A
+[Workspace](/docs/agents/workspace-context) holds the files an Agent sees.
 ::

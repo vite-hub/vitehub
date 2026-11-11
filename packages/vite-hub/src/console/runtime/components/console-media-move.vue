@@ -107,15 +107,15 @@ defineExpose({
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-[440px]' }">
+  <UModal v-model:open="open" :title="title">
     <template #body>
       <form id="vitehub-media-move" class="grid gap-3" @submit.prevent="confirm">
-        <UFormField v-if="props.name !== undefined" label="Name" :ui="{ label: 'text-xs' }">
-          <UInput v-model="name" class="w-full" :ui="{ base: 'font-mono text-[13px]' }" autocomplete="off" autofocus />
+        <UFormField v-if="props.name !== undefined" label="Name">
+          <UInput v-model="name" class="w-full font-mono" autocomplete="off" autofocus />
         </UFormField>
         <div class="grid gap-1">
           <span class="text-xs text-muted">Folder</span>
-          <div class="max-h-72 overflow-y-auto rounded-md border border-default p-1" role="tree" aria-label="Destination folder">
+          <div class="max-h-72 overflow-y-auto rounded-lg border border-default p-1" role="tree" aria-label="Destination folder">
             <div
               v-for="node in nodes"
               :key="node.path || '/'"
@@ -129,9 +129,9 @@ defineExpose({
             >
               <UButton
                 v-if="node.path"
-                variant="link"
+                variant="ghost"
                 size="xs"
-                class="p-0.5 text-dimmed"
+                class="text-dimmed"
                 :icon="loading.has(node.path) ? 'i-lucide-loader-circle' : expanded.has(node.path) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
                 :aria-label="expanded.has(node.path) ? `Collapse ${consoleFolderName(node.path)}` : `Expand ${consoleFolderName(node.path)}`"
                 @click.stop="toggle(node.path)"

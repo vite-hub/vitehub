@@ -17,8 +17,8 @@ vi.mock("../../agent/src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
 }));
 
-vi.mock("../../agent/src/server/github-repair.ts", async importOriginal => ({
-  ...await importOriginal<typeof import("../../agent/src/server/github-repair.ts")>(),
+vi.mock("../src/github/repair.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/github/repair.ts")>(),
   prepareGitHubRepairBase: vi.fn(async () => {}),
 }));
 const sandboxDefinitions = vi.hoisted(() => vi.fn());
@@ -46,17 +46,19 @@ import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
 import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
-import { getAgentLayerOptions } from "../../agent/src/agent-layers.ts";
+import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
 import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
-import * as githubRuns from "../../agent/src/server/github-pull-requests.ts";
-import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../../agent/src/server/github-repair.ts";
-import * as githubInstalls from "../../agent/src/server/github-install.ts";
+import * as githubRuns from "../src/github/pull-requests.ts";
+import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
+import * as githubInstalls from "../src/github/install.ts";
 import { agentInvocationId } from "@vite-hub/agent";
-import type { GitHubHost } from "@vite-hub/agent/server/github";
+import type { GitHubHost } from "../src/github/index.ts";
 import { RateLimitedError } from "@vite-hub/forge";
-import { githubError, githubForge, type GitHubTestRequest } from "../../agent/test/fixtures/github-forge.ts";
+import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`;
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -1839,12 +1841,12 @@ describe("Babysitter preset runtime", () => {
   it("parks a malformed lockfile without retrying unchanged installation inputs", async () => {
     const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
-    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: {}\n");
+    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: [\n");
     try {
       await f.reconcile("babysitter.install.failed");
       const waiting = await f.runtime.inbox.get("acme/app", 12);
       expect(waiting?.status).toBe("waiting");
-      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("Source contains multiple documents") });
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("Flow sequence") });
       expect(waiting?.wait?.retryAt).toBeUndefined();
       expect(f.passes).toHaveLength(0);
       const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 600_000);
@@ -1914,7 +1916,7 @@ describe("Babysitter preset runtime", () => {
 
   it("preserves the Babysitter mention allowlist through Agent layer configuration", () => {
     const agent = defineAgent({ extends: babysitter, options: { mentionAllowlist: [" Stefina ", "other-user"] } });
-    expect(getAgentLayerOptions(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
+    expect(agentSettings(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
     expect(agent.options.mentionAllowlist).toEqual([" Stefina ", "other-user"]);
   });
 
@@ -2135,7 +2137,7 @@ describe("Babysitter preset runtime", () => {
 
   it("selects the Claude Code driver", () => {
     const agent = defineAgent({ extends: babysitter, options: { driver: "claude-code" } });
-    expect(getAgentLayerOptions(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
+    expect(agentSettings(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
     expect(agent.options.driver).toBe("claude-code");
   });
 
@@ -2155,7 +2157,7 @@ describe("Babysitter preset runtime", () => {
       const run = await createRun.mock.results[0]!.value;
       expect(run.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`),
       }]);
     } finally {
       await f.runtime.inbox.close();

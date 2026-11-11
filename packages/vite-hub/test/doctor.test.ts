@@ -121,7 +121,7 @@ describe("vitehub/no-server-imports-in-client", () => {
         "<script setup lang=\"ts\">",
         'import { kv } from "vite-hub/kv"',
         'import { runAgent } from "vite-hub/agent"',
-        'import { runQueue } from "@vite-hub/queue"',
+        'import { sendQueue } from "@vite-hub/queue"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
         "</script>",
       ].join("\n"),
@@ -330,7 +330,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
       "server/api/send.post.ts": [
         'import { blob } from "vite-hub/blob"',
         'import { email } from "vite-hub/email/server"',
-        'import { runQueue, getQueue } from "vite-hub/queue"',
+        'import { sendQueue, useQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
         'import { runAgent } from "vite-hub/agent"',
@@ -338,9 +338,9 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "export async function send() {",
         '  const record = await blob.media.put("a.png", body)',
         '  const sent = await email.send({ to: "a@b.c" })',
-        '  if (await runQueue("welcome", {})) return',
+        '  if (await sendQueue("welcome", {})) return',
         '  const delivery = await useChannel("alerts").send("hi", {})',
-        '  const queue = await getQueue("welcome")',
+        '  const queue = await useQueue("welcome")',
         "  const receipt = await queue.send({})",
         '  const tool = await callMcpTool({ connection: "crm" }, "search", {})',
         '  const answer = await runAgent(support, { prompt: "hi" })',
@@ -359,7 +359,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         '  if ((await kv.get("a")) === null) return',
         '  for (const key of await kv.keys()) console.log(key)',
         '  console.log(`${await kv.get("b")}`)',
-        '  return blob.serve(event, "a.txt")',
+        '  return blob.get("a.txt")',
         "})",
       ].join("\n"),
     })).toEqual(Array(4).fill("VHUB0003"))
@@ -399,12 +399,12 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         'import { kv } from "vite-hub/kv"',
         'import { blob } from "vite-hub/blob"',
         'import { email } from "vite-hub/email/server"',
-        'import { runQueue, getQueue } from "vite-hub/queue"',
+        'import { sendQueue, useQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
         'import { cancelChannelTask, enqueueChannelTask } from "vite-hub/agent/server"',
         "export async function dispatch() {",
-        '  await runQueue("sync", { id: 1 })',
+        '  await sendQueue("sync", { id: 1 })',
         '  await kv.set("state", { id: 1 })',
         '  await email.send({ to: "a@b.c" })',
         '  await blob.put("a.txt", "a")',
@@ -416,23 +416,23 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         "}",
       ].join("\n"),
       // Doctor keeps one diagnostic per message in a file, so each other `send()` goes in its own file.
-      "server/utils/welcome.ts": 'import { getQueue } from "vite-hub/queue"\nexport async function welcome() {\n  const queue = await getQueue("welcome")\n  await queue.send({})\n}\n',
+      "server/utils/welcome.ts": 'import { useQueue } from "vite-hub/queue"\nexport async function welcome() {\n  const queue = await useQueue("welcome")\n  await queue.send({})\n}\n',
       "server/utils/alert.ts": 'import { useChannel } from "vite-hub/channels/server"\nexport async function alert() {\n  await useChannel("alerts").send("hi", { connector: "log" })\n}\n',
     })).toEqual(Array(11).fill("VHUB0003"))
   })
 
   it("names the operation and the way to ignore a failure on purpose", async () => {
     const result = await runRuleFixture({
-      files: { "server/utils/dispatch.ts": 'import { runQueue } from "vite-hub/queue"\nexport async function dispatchSync(id) {\n  await runQueue("sync", { id })\n}\n' },
+      files: { "server/utils/dispatch.ts": 'import { sendQueue } from "vite-hub/queue"\nexport async function dispatchSync(id) {\n  await sendQueue("sync", { id })\n}\n' },
       framework: "vite",
       rule: destructureResultTuples,
     })
     expect(result.diagnostics).toEqual([expect.objectContaining({
       code: "VHUB0003",
       diagnostic: expect.objectContaining({
-        fix: "Read the error: `const [error] = await runQueue(...)`, then `if (error) throw error`. To ignore a failure on purpose, write `void await runQueue(...)`.",
+        fix: "Read the error: `const [error] = await sendQueue(...)`, then `if (error) throw error`. To ignore a failure on purpose, write `void await sendQueue(...)`.",
       }),
-      message: "`runQueue()` returns an `[error, value]` tuple and does not throw on failures. This statement drops the tuple, so a failure is silent.",
+      message: "`sendQueue()` returns an `[error, value]` tuple and does not throw on failures. This statement drops the tuple, so a failure is silent.",
     })])
   })
 
@@ -441,9 +441,9 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
   it("reports the dropped Results of Finance and formula-100", async () => {
     expect(await codes(destructureResultTuples, {
       "server/dispatch/queue.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         "export async function dispatchSync(connectionId: string, trigger: SyncTrigger) {",
-        '  await runQueue("sync", { connectionId, trigger })',
+        '  await sendQueue("sync", { connectionId, trigger })',
         "}",
       ].join("\n"),
       "server/utils/connections.ts": [
@@ -463,11 +463,11 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         "}",
       ].join("\n"),
       "server/queues/daily-lessons.ts": [
-        "import { defineQueue, runQueue } from 'vite-hub/queue'",
+        "import { defineQueue, sendQueue } from 'vite-hub/queue'",
         "async function enqueueNext(subscriber: Subscriber) {",
         "  if (!subscriber.next_lesson_day || !subscriber.next_send_at)",
         "    return",
-        "  await runQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
+        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
         "}",
       ].join("\n"),
     }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
@@ -642,7 +642,7 @@ describe("ViteHub Doctor Extension", () => {
       extensions: [vitehubDoctorExtension],
       dependencies: { "vite-hub": "*" },
       files: {
-        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
+        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
         "server/api/a.ts": "import { kv } from \"vite-hub/_internal/kv\"\nexport default async () => (await kv.get(\"a\")).value\n",
       },
     })

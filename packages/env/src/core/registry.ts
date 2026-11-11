@@ -1,11 +1,13 @@
 import * as v from "valibot"
+import { isRecord } from "@vite-hub/internal/object"
 
-import type { EnvValueSchema } from "../types.ts"
+import type { EnvSchemaModuleReference, EnvValueSchema } from "../types.ts"
 
 export interface RuntimeEnvEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: { canonical?: string | false, kind: "env", label: string, name: string, names?: string[], skipEmpty?: boolean }
 }
@@ -14,6 +16,7 @@ export interface RuntimeProviderEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: { key: string, kind: "provider", label: "provider", provider: string }
 }
@@ -23,7 +26,6 @@ export interface RuntimeLiteralEntry {
   value: unknown
 }
 
-const recordSchema = v.object({})
 const envEntrySchema = v.object({
   required: v.boolean(),
   secret: v.boolean(),
@@ -35,9 +37,7 @@ const providerEntrySchema = v.object({
   source: v.object({ key: v.string(), kind: v.literal("provider"), provider: v.string() }),
 })
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return v.is(recordSchema, value) && !Array.isArray(value)
-}
+export { isRecord }
 
 export function isRuntimeLiteralEntry(value: unknown): value is RuntimeLiteralEntry {
   return isRecord(value) && value.kind === "literal"

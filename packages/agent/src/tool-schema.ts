@@ -1,6 +1,6 @@
 import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
 
-import { isCallableMember, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { copyToolWithOverrides } from "./tool-runtime.ts"
 
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -52,7 +52,7 @@ export function agentToolJsonSchema(schema: AgentToolSchema | undefined, directi
   if (!Object.hasOwn(standard, "jsonSchema") || !standard.jsonSchema) return
   // SAFETY: Runtime feature detection checks the Standard JSON Schema method before calling it.
   const jsonSchema = standard.jsonSchema[direction]
-  return isCallableMember(jsonSchema) ? jsonSchema({ target: "draft-07" }) : undefined
+  return typeof jsonSchema === "function" ? jsonSchema({ target: "draft-07" }) : undefined
 }
 
 export function withAgentToolJsonSchemas<TTools extends AgentToolSet>(tools: TTools): TTools {

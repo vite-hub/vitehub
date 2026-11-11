@@ -21,15 +21,9 @@ it("accepts Web Requests from another realm", async () => {
     body: "hello",
   })`, { Request }) as Request
   const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
-  const response = await handler({ req: request } as never) as Response
+  const response = await handler.fetch(request)
   expect(response.status).toBe(200)
   await expect(response.text()).resolves.toBe("hello")
-})
-
-it("rejects spoofed Web Requests", async () => {
-  const request = { get [Symbol.toStringTag]() { return "Request" } }
-  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
-  await expect(handler({ req: request } as never)).rejects.toMatchObject({ code: "CONTENT_R0005" })
 })
 
 function deferred() {

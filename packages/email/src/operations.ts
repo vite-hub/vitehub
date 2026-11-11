@@ -19,7 +19,7 @@ function defineEmailOperation<Input, Output>(definition: Omit<OperationDefinitio
 }
 
 const outboxList = defineEmailOperation<Record<string, never>, EmailOutboxList>({
-  cli: { command: "outbox-list" },
+  cli: { command: "outbox list" },
   description: "List the messages that the development outbox captured, newest first.",
   input: v.object({}),
   kind: "read",
@@ -28,7 +28,7 @@ const outboxList = defineEmailOperation<Record<string, never>, EmailOutboxList>(
 })
 
 const outboxShow = defineEmailOperation<{ id: string }, { message: EmailOutboxMessage }>({
-  cli: { command: "outbox-show", positional: ["id"] },
+  cli: { command: "outbox show", positional: ["id"] },
   description: "Show one captured message with its bodies, headers, and attachment details.",
   input: v.object({ id: v.pipe(v.string(), v.minLength(1)) }),
   kind: "read",
@@ -37,7 +37,7 @@ const outboxShow = defineEmailOperation<{ id: string }, { message: EmailOutboxMe
 })
 
 const outboxClear = defineEmailOperation<Record<string, never>, { cleared: number }>({
-  cli: { command: "outbox-clear" },
+  cli: { command: "outbox clear" },
   description: "Remove every message from the development outbox.",
   input: v.object({}),
   kind: "destructive",

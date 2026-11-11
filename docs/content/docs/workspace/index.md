@@ -2,14 +2,14 @@
 title: Workspace
 layout: landing
 navigation.title: Overview
-description: Give your server and your AI agents one folder of files to read and write, with rules for each path and a record of every change.
+description: One folder of files for your server and AI agents, with rules for each path and a record of every change.
 seo.title: AI agent workspace with path rules and diffs
 navigation.order: 1
 icon: i-lucide-folder-git-2
 ---
 
 ::product-hero{tagline="A folder of files your server can read and write, with rules for each path and a record of every change." hosts="Node, Docker, Cloudflare, Vercel"}
-  :::product-files
+  :::code-tree
   ```ts [server/workspaces/docs.ts]
   import { defineWorkspace, glob } from 'vite-hub/workspace'
 
@@ -76,27 +76,27 @@ icon: i-lucide-folder-git-2
 
 ::product-features
   :::product-feature-item{title="One file defines it" icon="i-lucide-file-code-2" to="/docs/workspace/configure#workspace-definition-options"}
-  Add a file to `server/workspaces`. Its name is the Workspace name.
+  Add a file to `server/workspaces`. The file name is the Workspace name.
   :::
 
   :::product-feature-item{title="Start from files you have" icon="i-lucide-folder-input" to="/docs/workspace/configure#source-binding-options"}
-  Show files from your project or a GitHub repository. The originals do not change.
+  Show files from your project or GitHub. The originals stay unchanged.
   :::
 
   :::product-feature-item{title="Read and write from a route" icon="i-lucide-code-2" to="/docs/workspace/server-api#runtime-facade"}
-  `useWorkspace()` gives each route `readFile()`, `writeFile()`, and `glob()`.
+  Use `readFile()`, `writeFile()`, and `glob()` from `useWorkspace()`.
   :::
 
   :::product-feature-item{title="Decide who can write where" icon="i-lucide-lock" to="/docs/workspace/configure#workspace-definition-options"}
-  Rules make a path read-only or limit the file types it accepts.
+  Make a path read-only or limit its file types.
   :::
 
   :::product-feature-item{title="See every change" icon="i-lucide-history" to="/docs/workspace/server-api#retained-folder-history"}
-  `diff()` lists what changed. A snapshot saves a version you can read later.
+  `diff()` lists changes. A snapshot saves a version to read later.
   :::
 
   :::product-feature-item{title="Same code in development and production" icon="i-lucide-server" to="/docs/workspace/hosts"}
-  Files stay on your disk while you develop. Your routes do not change when you deploy.
+  Files stay on disk in development. Routes do not change when you deploy.
   :::
 ::
 
