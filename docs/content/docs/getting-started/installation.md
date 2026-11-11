@@ -242,6 +242,7 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 | OAuth sign-in for a Console on another origin, with `consoleMcpOAuth()` | `@vite-hub/auth better-auth @better-auth/oauth-provider @better-auth/cimd` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
 | `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |

@@ -442,6 +442,11 @@
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
     },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
+    },
     "./forms": {
       "types": "./dist/forms.d.ts",
       "import": "./dist/forms.js",
@@ -1053,6 +1058,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
@@ -1140,6 +1146,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
@@ -1270,6 +1277,9 @@
       "optional": true
     },
     "@vite-hub/email": {
+      "optional": true
+    },
+    "@vite-hub/forge": {
       "optional": true
     },
     "@vite-hub/forms": {

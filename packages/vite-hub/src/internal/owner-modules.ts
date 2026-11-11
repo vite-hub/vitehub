@@ -184,6 +184,7 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "console/ui": "console ui",
   "decisions": "decisions",
   "email": "email",
+  "forge": "forge",
   "forms": "forms",
   "gateways": "gateways",
   "kv": "kv",
