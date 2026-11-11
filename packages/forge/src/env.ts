@@ -49,7 +49,6 @@ export const forgeEnv: ForgeEnv = {
  */
 export function readForgeEnv(field: ForgeEnvField, env: Record<string, unknown> | ((name: string) => unknown) = globalThis.process?.env ?? {}): string | undefined {
   for (const name of field.names) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Env readers can be functions created in another realm.
     const value: unknown = typeof env === "function" ? env(name) : env[name]
     if (!isString(value)) continue
     const trimmed = value.trim()
@@ -58,6 +57,5 @@ export function readForgeEnv(field: ForgeEnvField, env: Record<string, unknown> 
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Env and binding values cross an untrusted host boundary as unknown values.
   return typeof value === "string"
 }

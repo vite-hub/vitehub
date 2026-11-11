@@ -7,7 +7,6 @@ import { promisify } from "node:util";
 import type { SandboxResolvedToolchain, SandboxToolchain, SandboxToolchainInput } from "../index.ts";
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts";
 import { acquireFileLock } from "./file-lock.ts";
-import { isRuntimeNumber, isRuntimeString } from "./runtime-type.ts";
 import { normalizeToolchain, provisionToolchain, toolchainProjectFiles, verifyToolchain, type ToolchainCommandResult } from "./toolchain.ts";
 
 export interface HostToolchainOptions {
@@ -76,10 +75,10 @@ export async function provisionHostToolchain(
       options.abortSignal?.throwIfAborted();
       // execFile rejects a non-zero exit with its numeric code and captured output.
       const code = error instanceof Error && "code" in error ? error.code : undefined;
-      if (!isRuntimeNumber(code)) throw error;
+      if (typeof code !== "number") throw error;
       const output = (name: "stderr" | "stdout") => {
         const value = error instanceof Error && name in error ? Reflect.get(error, name) : undefined;
-        return isRuntimeString(value) ? value : "";
+        return typeof value === "string" ? value : "";
       };
       return { exitCode: code, stderr: output("stderr"), stdout: output("stdout") };
     }
