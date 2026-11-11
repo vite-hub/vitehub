@@ -324,6 +324,8 @@ describe("Netlify Blobs driver", () => {
   })
 
   it("supports explicit credentials and retries without process", async () => {
+    // Let queued Vitest RPC callbacks finish before removing process.
+    await new Promise<void>(resolve => process.nextTick(resolve))
     vi.useFakeTimers()
     vi.stubGlobal("process", undefined)
     vi.stubGlobal("fetch", vi.fn()
@@ -337,6 +339,7 @@ describe("Netlify Blobs driver", () => {
       expect(fetch).toHaveBeenCalledTimes(2)
     }
     finally {
+      vi.unstubAllGlobals()
       vi.useRealTimers()
     }
   })
