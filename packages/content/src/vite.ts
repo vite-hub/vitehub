@@ -54,7 +54,7 @@ export async function buildContentSnapshotModules(options: {
   // A module id inside the project, so `importBase` resolves from the app as the generated Content routes do.
   const entry = join(options.projectRoot, ".vitehub/content/snapshots.build.mjs")
   const code = [
-    `import { content } from ${JSON.stringify(pathToFileURL(options.file).href)}`,
+    `import content from ${JSON.stringify(pathToFileURL(options.file).href)}`,
     `import { buildContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}`,
     // The parse runs while the module loads: the runner closes when runnerImport() returns.
     "export default await buildContentSnapshots(content)",
@@ -296,7 +296,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
 }
 
 /**
- * Console section for Content. It edits the document collections of the `content` export of `server/content.ts`.
+ * Console section for Content. It edits the document collections of the default export of `server/content.ts`.
  * Every action checks `content.can()` with the signed-in Console user. The Console shows the section only when
  * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
  */
@@ -355,7 +355,7 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
   await mkdir(options.directory, { recursive: true })
   await Promise.all([
     writeFile(definition, [
-      `import { content } from ${JSON.stringify(pathToFileURL(file).href)}`,
+      `import content from ${JSON.stringify(pathToFileURL(file).href)}`,
       `import { contentRealtime } from ${JSON.stringify(options.contentImport)}`,
       ...(options.console
         ? [

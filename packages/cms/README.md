@@ -15,7 +15,7 @@ import { documents } from "vite-hub/content/collections"
 import cms from "vite-hub/cms"
 import * as v from "valibot"
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts: documents({ path: "posts/**/*.md", fields: { title: v.string() } }) },
 })

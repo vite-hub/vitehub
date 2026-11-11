@@ -159,7 +159,7 @@ A task is a [Nitro task](https://nitro.build/docs/tasks) in `server/tasks/`. Use
 This seed task adds a row to the `notes` table of the default Database:
 
 ```ts
-// server/databases/config.ts
+// server/databases/default.ts
 import { defineDatabase } from "vite-hub/database";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
