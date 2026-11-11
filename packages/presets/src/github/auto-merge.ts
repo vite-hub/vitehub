@@ -24,6 +24,13 @@ interface GitHubMentionState {
 const actor = v.nullable(v.object({ login: v.string(), __typename: v.string() }))
 const reviewSchema = v.object({ author: actor, state: v.string() })
 const pageSchema = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.string()) })
+const threadOutcomeCommentsSchema = v.object({
+  viewer: v.object({ login: v.string() }),
+  node: v.object({ comments: v.object({
+    nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string() })) })),
+    pageInfo: pageSchema,
+  }) }),
+})
 const snapshotSchema = v.object({
   id: v.string(),
   number: v.number(),
@@ -292,13 +299,7 @@ export function createGitHubPullRequestOperations(
     let after: string | null = null
     const cursors = new Set<string>()
     do {
-      const data = v.parse(v.object({
-        viewer: v.object({ login: v.string() }),
-        node: v.object({ comments: v.object({
-          nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string() })) })),
-          pageInfo: pageSchema,
-        }) }),
-      }), await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
+      const data: v.InferOutput<typeof threadOutcomeCommentsSchema> = v.parse(threadOutcomeCommentsSchema, await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
       if (data.node.comments.nodes.some(comment => comment.author?.login === data.viewer.login && comment.body === body)) return true
       if (!data.node.comments.pageInfo.hasNextPage) return false
       after = data.node.comments.pageInfo.endCursor
