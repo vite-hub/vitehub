@@ -12,7 +12,6 @@ import {
   type SlotsType,
   type VNode,
 } from "vue";
-import { hasRuntimeType } from "../internal/runtime-type.ts";
 import { PrimitiveIcon, type PrimitiveIconName } from "./primitive-icon.ts";
 
 /** Props of every rail slot. `expanded` is true while the rail shows its labels, for example to turn off tooltips. */
@@ -182,7 +181,7 @@ export const PrimitiveRailItem = defineComponent({
     const instance = getCurrentInstance();
     const revealIfCurrent = () => {
       const element: unknown = instance?.proxy?.$el;
-      if (props.current && hasRuntimeType(globalThis.Element, "function") && element instanceof Element) revealInRail(element);
+      if (props.current && typeof globalThis.Element === "function" && element instanceof Element) revealInRail(element);
     };
     onMounted(revealIfCurrent);
     watch(() => props.current, revealIfCurrent, { flush: "post" });
@@ -197,7 +196,7 @@ export const PrimitiveRailItem = defineComponent({
         "aria-label": props.label,
         class: "vh-primitive-rail__item",
       };
-      return hasRuntimeType(props.as, "string")
+      return typeof props.as === "string"
         ? h(props.as, { ...attributes, type: props.as === "button" ? "button" : undefined }, content())
         : h(props.as, attributes, { default: content });
     };

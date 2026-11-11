@@ -8,6 +8,7 @@ import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { Result } from "@vite-hub/runtime"
 
@@ -16,7 +17,7 @@ import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
   constructor(message: string) {
-    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message }, UnknownBlobStoreError)
+    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message, fix: blobErrorDiagnostics.BLOB_R0027({ message }).fix }, UnknownBlobStoreError)
     this.name = "UnknownBlobStoreError"
   }
 }
@@ -139,13 +140,26 @@ async function withServedBlobUrl(name: string, object: BlobObject): Promise<Blob
   return url ? { ...object, url } : object
 }
 
-function resolveStorage(name = "default"): Promise<BlobStorage> {
+function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, name: string) {
+  if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
+  const stores = config.stores || { default: config.store }
+  const store = Object.hasOwn(stores, name) ? stores[name] : undefined
+  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
+}
+
+async function resolveStorage(name = "default"): Promise<BlobStorage> {
+  // In app tests, each store is a fresh fs folder that the next reset deletes.
+  const test = getViteHubTestMode()
+  if (test) {
+    const config = resolveBlobStorageConfig(await getBlobRuntimeConfig(), name)
+    return test.backend(`blob:${name}`, async () => {
+      const store = { base: await test.directory(`blob-${name}`), driver: "fs" } as const
+      return await createConfiguredBlobStorage({ ...config, store, stores: { default: store, [name]: store } }, name)
+    })
+  }
   return resolveNamedBlobRuntimeStorage(name, async (config) => {
-    if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
-    const stores = config.stores || { default: config.store }
-    const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-    if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
-    return await createConfiguredBlobStorage({ ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }, name)
+    return await createConfiguredBlobStorage(resolveBlobStorageConfig(config, name), name)
   })
 }
 
@@ -215,9 +229,10 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("sign", name)
       return error ? [error, undefined] : storage.sign(pathname, options)
     },
-    async serve(event, pathname, options) {
+    async serve(request, pathname, options) {
       const [error, storage] = await resolveStorageResult("serve", name)
-      return error ? [error, undefined] : storage.serve(event, pathname, options)
+      if (error) throw error
+      return storage.serve(request, pathname, options)
     },
     store: selectRuntimeBlobStore,
   }
@@ -233,4 +248,4 @@ function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions)
   return mode === "read" ? readonlyBlobStorage(storage) : storage
 }
 
-export const blob: BlobStorage = createRuntimeBlobStorage()
+export const blob: BlobStorage = /* @__PURE__ */ createRuntimeBlobStorage()

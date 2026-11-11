@@ -15,6 +15,7 @@ import type { ScheduleRunContext } from "../src/index.ts"
 it("infers schedule handler result types", () => {
   const schedule = defineSchedule({ cron: "0 9 * * *", handler: async context => context.id })
 
+  expectTypeOf(schedule.cron).toEqualTypeOf<string>()
   expectTypeOf(schedule.handler).parameters.toEqualTypeOf<[ScheduleRunContext]>()
   expectTypeOf(schedule.handler).returns.toEqualTypeOf<string | Promise<string>>()
 })
@@ -30,11 +31,17 @@ it("types the defineSchedule helper signature", () => {
     },
   })
 
-  const positional = defineSchedule("0 9 * * *", async context => context.id, { manual: true })
-  expectTypeOf(positional.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
+  const manual = defineSchedule({ cron: "0 9 * * *", manual: true, handler: async context => context.id })
+  expectTypeOf(manual.cron).toEqualTypeOf<string>()
+  expectTypeOf(manual.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
 
-  // @ts-expect-error cron is required.
-  defineSchedule({ handler: async () => {} })
+  // @ts-expect-error the positional form was removed.
+  defineSchedule("0 9 * * *", () => {})
+
+  // Without cron, only startSchedule() runs the Definition. The handler reads what startSchedule() stored.
+  defineSchedule({ handler: async (context) => {
+    expectTypeOf(context.payload).toEqualTypeOf<unknown>()
+  } })
 
   // @ts-expect-error handler is required.
   defineSchedule({ cron: "0 9 * * *" })
@@ -49,7 +56,7 @@ it("types the defineSchedule helper signature", () => {
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, allowRuntimeSchedules: true })
 
   expectTypeOf(defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Copenhagen" }).timeZone).toEqualTypeOf<string | undefined>()
-  defineSchedule("0 9 * * *", () => {}, { timeZone: "Europe/Copenhagen" })
+  defineSchedule({ cron: "0 9 * * *", timeZone: "Europe/Copenhagen", handler: () => {} })
 
   // @ts-expect-error timeZone must be a string when provided.
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: 1 })
@@ -79,6 +86,7 @@ it("types the Process Schedule Runtime", () => {
     onError?: (error: unknown) => void
     registry: ScheduleDefinitionRegistry
     scheduleRunStore: ScheduleRunStore
+    timings?: Readonly<Record<string, { cron: string, timeZone?: string }>>
   }>()
   expectTypeOf(installProcessScheduleRuntime).parameter(0).toEqualTypeOf<ProcessScheduleRuntimeOptions>()
   expectTypeOf(installProcessScheduleRuntime).returns.toEqualTypeOf<Promise<ScheduleRuntimeController>>()

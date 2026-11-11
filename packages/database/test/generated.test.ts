@@ -29,7 +29,7 @@ async function createProject() {
 }
 
 async function writeDefinition(rootDir: string, options: string) {
-  await writeFile(join(rootDir, "server/databases/config.ts"), [
+  await writeFile(join(rootDir, "server/databases/default.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     "const users = sqliteTable('users', { id: integer().primaryKey(), displayName: text() })",

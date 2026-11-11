@@ -1,20 +1,17 @@
 ---
 title: Transcribe
-description: Convert audio input parts into transcript text before an Agent runs, with streaming and asynchronous remote transcription.
+description: Turn audio in user messages into text before your Agent runs. Stream live audio or send long files to a remote service.
 navigation.title: Transcribe
 navigation.order: 250
 navigation.group: Capabilities
 icon: i-lucide-audio-lines
 ---
 
-`transcribe()` converts audio parts in the input messages into transcript text before the Agent Driver receives the input.
-It adds no model-facing tool. It runs an AI SDK transcription model, or your own `execute()` function, during the input phase.
-It can also write transcript and source-audio artifacts into a writable [Workspace](/docs/workspace).
+`transcribe()` turns audio in user messages into text before the Agent runs, using an AI SDK transcription model or your `execute()` function. The Agent Driver gets the text instead of the audio. It adds no model tool. It can also save the transcript and audio as artifacts in a writable [Workspace](/docs/workspace), the Agent's files.
 
 ## Configure transcription
 
-Provide either an AI SDK transcription model configuration or an `execute()` function.
-The example keeps artifacts off, so it does not require a writable Workspace.
+Give a model or an `execute()` function. This example keeps artifacts off, so it needs no writable Workspace.
 
 ```ts [server/agents/voice.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -30,45 +27,21 @@ export default defineAgent({
 })
 ```
 
-### OpenRouter
-
-Use `openRouterTranscriptionModel()` to keep OpenRouter authentication, audio encoding, request shape, and provider errors behind the AI SDK transcription model interface.
-
-```ts [server/agents/voice.ts]
-import { defineAgent } from 'vite-hub/agent'
-import {
-  openRouterTranscriptionModel,
-  transcribe,
-} from 'vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: { model },
-  capabilities: [
-    transcribe({
-      model: openRouterTranscriptionModel({
-        apiKey: () => env.OPENROUTER_API_KEY,
-        model: 'openai/gpt-4o-transcribe',
-      }),
-    }),
-  ],
-})
-```
-
-The adapter uses OpenRouter's base64 JSON request with `response_format: 'json'`. This avoids provider-specific multipart handling in Agent Definitions and does not request `verbose_json`, which OpenRouter only supports for some upstream providers.
-
-AI SDK `providerOptions.openrouter` values for `language`, `temperature`, and `provider` routing are forwarded to OpenRouter. Unsupported OpenRouter transcription options fail explicitly instead of being silently ignored.
-
 ## How transcription works
 
-`transcribe()` runs before model execution.
-It enforces the configured maximum audio size, resolves audio data from direct data, `fetchData`, or URL, and replaces the consumed audio parts with transcript text in the user message.
+Before the model runs, for each audio part it:
 
-It records one `TranscriptionResult` per audio part in the invocation context and exposes the results as a finish extension.
-Pass a function instead of an options object to resolve the options at invocation time.
+1. checks the maximum size
+2. gets the audio from direct data, `fetchData`, or a URL
+3. replaces the audio part with the transcript text in the user message
 
-When `artifacts` is set, it writes the transcript and the source audio to the Agent's writable Workspace. Both artifacts are on by default. Set `artifacts.transcript: false` or `artifacts.audio: false` to turn one off.
-Use `artifacts.directory` to keep the transcript and source audio together.
-The generated paths share a sanitized timestamp and message stem.
+It records one `TranscriptionResult` per part in the Invocation (one Agent run) context, and as a finish extension that finish hooks read. Pass a function instead of options to choose options per run.
+
+With `artifacts`, it writes the transcript and audio to the writable Workspace:
+
+- Both are on by default. `artifacts.transcript: false` or `artifacts.audio: false` turns one off.
+- `artifacts.directory` keeps them together.
+- Generated paths share a cleaned timestamp and message stem.
 
 ```ts fragment
 transcribe({
@@ -82,7 +55,7 @@ transcribe({
 
 ## Streaming transcription
 
-Use `streamTranscription()` for live raw audio. It wraps AI SDK streaming transcription and exposes `textStream`, an append-only text stream that can be passed directly to `event.reply()`.
+`streamTranscription()` shows text while raw audio arrives. It wraps AI SDK streaming transcription and gives an append-only `textStream` you can pass to `event.reply()`.
 
 ```ts
 import type { AgentFinishHookEvent } from 'vite-hub/agent'
@@ -105,14 +78,19 @@ export async function liveTranscriptReply(
 }
 ```
 
-Return the reply intent without awaiting `transcription.text`; consuming the reply drives the provider stream and resolves the final text promise. Chat-backed Channels use native streaming when the adapter supports it and Chat SDK's post-and-edit fallback otherwise. Other message Channels use their native stream method when available and fall back to one final reply.
+Do not await `transcription.text` first: reading the reply drives the stream that resolves it.
 
-`streamTranscription()` emits provider `transcript-delta` events as reply chunks. Providers that only emit partial and final snapshots produce one final reply, which avoids duplicating corrected partial text.
+- Chat-backed Channels stream natively when the adapter supports it, else use Chat SDK's post-and-edit fallback.
+- Other message Channels use their native stream method, else send one final reply.
+
+Provider `transcript-delta` events become chunks. Providers that send only partial and final snapshots give one final reply, so corrected text does not repeat.
 
 ## Asynchronous remote transcription
 
-Use `createTranscription()` to submit a private remote object from a durable workflow and resume after the provider completes it.
-The client returns the provider operation ID used for acknowledgement and idempotency, then normalizes an authenticated completion payload into a provider-neutral transcript or failure.
+`createTranscription()` handles long files that a provider transcribes in the background. A durable workflow submits a private remote file and continues when the provider finishes.
+
+- `submit()` returns the provider operation ID, to acknowledge the callback and avoid duplicate work. It never downloads the file into your app.
+- `receive()` turns an authenticated completion payload into a transcript or failure, with the same shape for every provider.
 
 ```ts fragment
 import {
@@ -142,65 +120,64 @@ if (completion.status === 'failed') {
 }
 ```
 
-`submit()` never downloads the remote object into the application process.
-Use a signed HTTPS URL for private Blob objects, with an expiry long enough for the provider to fetch it.
+For private Blob objects, use a signed HTTPS URL that outlives the provider's fetch.
 
-The caller still owns callback authentication before `receive()`, durable operation state, duplicate-delivery handling, timeouts, and workflow resumption.
-Compose those concerns with the [Workflows primitive](/docs/workflows). Correlation metadata is untrusted until it matches the stored workflow attempt.
-Provider callback payloads and SDK types do not cross the transcription client interface.
-Failed completions contain a `ViteHubError` with a fixed `TRANSCRIPTION_*` code and message. Raw provider diagnostics stay behind the in-memory `cause` and are omitted when the completion is serialized.
+Build the rest with the [Workflows primitive](/docs/workflows): authenticate the callback before `receive()`, store operation state durably, handle repeated callbacks and timeouts, and continue the workflow.
+
+> [!WARNING]
+> Do not trust correlation metadata until it matches the stored workflow attempt.
+
+Provider payloads and SDK types stay inside the client. A failed completion has a `ViteHubError` with a fixed `TRANSCRIPTION_*` code and message. Raw provider diagnostics stay in the in-memory `cause` and are left out when serialized.
 
 ## Requirements
 
-Basic transcription requires `model` or `execute`. The `model` path also requires the `ai` package.
-Artifact persistence requires an explicit writable Workspace (`workspace: { mode: 'write' }`).
-
-Streaming transcription requires an AI SDK streaming transcription model, a `ReadableStream<Uint8Array | string>` of raw audio, and its input audio format.
-
-Asynchronous remote transcription requires a `TranscriptionDriver`.
-The built-in ElevenLabs Scribe driver requires an API key and an explicitly configured speech-to-text webhook ID.
+- Basic: `model` (with the `ai` package) or `execute`.
+- Artifacts: an explicit writable Workspace, `workspace: { mode: 'write' }`.
+- Streaming: an AI SDK streaming transcription model, a `ReadableStream<Uint8Array | string>` of raw audio, and the input format.
+- Asynchronous: a `TranscriptionDriver`. The built-in ElevenLabs Scribe driver needs an explicit API key and speech-to-text webhook ID.
 
 ## Security and approval
 
-`transcribe()` adds no model-facing tool, so the Agent cannot call it and there is no approval step.
-The Capability sends audio from the input messages to the configured transcription provider.
-When an audio part has only a URL, the server downloads that URL. Accept audio URLs only from trusted sources.
-Audio data must stay within `maxBytes` for the built-in executor. A custom `execute` function receives the audio before ViteHub can resolve or measure it, so it must enforce its own limit for direct data, `fetchData()` results, and downloads.
-Artifact paths must stay inside the Workspace and cannot target the reserved `.git` or `.vitehub` paths.
+`transcribe()` adds no tool, so there is no approval step. It sends input audio to the configured provider.
+
+> [!WARNING]
+> The server downloads audio parts that have only a URL. Accept audio URLs only from trusted sources.
+
+- The built-in executor enforces `maxBytes`.
+- A custom `execute` gets audio before ViteHub fetches or measures it, so it must limit direct data, `fetchData()` results, and downloads itself.
+- Artifact paths must stay inside the Workspace and cannot use reserved `.git` or `.vitehub` paths.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives text-enriched messages after transcription. |
-| Provider-backed | Receives text-enriched Agent Run Input before provider execution. |
-| Custom-run-backed | Receives text-enriched Agent Run Input and can read transcription results from context. |
+| Model-backed | Gets messages with the text. |
+| Provider-backed | Gets Agent Run Input with the text. |
+| Custom-run-backed | Gets Agent Run Input with the text, and results from context. |
 
-Asynchronous transcription is independent of the Agent Driver because the caller composes its submitted operation and completion result into a durable Workflow.
+Asynchronous transcription is Driver-independent: your code puts the operation and result in a durable Workflow.
 
 ## Verify transcription
 
-Run an invocation with one audio part and inspect the final message text.
-Confirm that the transcript appears before the Agent Driver runs.
-
-Inspect the finish extension for the transcription results.
-When artifacts are enabled, inspect the Workspace for the transcript and audio files.
+1. Run with one audio part and check that the transcript is in the message before the Driver runs.
+2. Check the finish extension for results.
+3. With artifacts on, find the transcript and audio files in the Workspace.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model` | AI SDK transcription model | required unless `execute` is set | Model used by AI SDK transcription. Other AI SDK `transcribe()` options, such as `providerOptions`, are forwarded. |
-| `execute` | `({ audio }) => string \| result` | none | Custom transcription function. Mutually exclusive with `model`. |
+| `model` | AI SDK transcription model | required unless `execute` is set | Transcription model. Other AI SDK `transcribe()` options, such as `providerOptions`, are forwarded. |
+| `execute` | `({ audio }) => string \| result` | none | Custom function. Not with `model`. |
 | `maxBytes` | `number` | `26214400` | Maximum accepted audio bytes. |
-| `artifacts` | `object` | none | Persists artifacts to the Workspace. Requires a writable Workspace. |
-| `artifacts.directory` | `string \| function` | generated | Directory for generated transcript and audio artifacts. |
-| `artifacts.transcript` | `false \| object` | on when `artifacts` is set | Persist transcript artifacts. Set `false` to turn off. |
-| `artifacts.transcript.format` | `"text" \| "markdown"` | `"text"` | Default transcript artifact body and generated extension. |
+| `artifacts` | `object` | none | Save artifacts. Needs a writable Workspace. |
+| `artifacts.directory` | `string \| function` | generated | Artifact directory. |
+| `artifacts.transcript` | `false \| object` | on when `artifacts` is set | Save the transcript. |
+| `artifacts.transcript.format` | `"text" \| "markdown"` | `"text"` | Default body and extension. |
 | `artifacts.transcript.path` | `string \| function` | generated | Transcript artifact path. |
 | `artifacts.transcript.mediaType` | `string \| function` | inferred | Transcript artifact media type. |
-| `artifacts.transcript.template` | `function` | default text | Custom transcript artifact body. |
-| `artifacts.audio` | `boolean \| object` | on when `artifacts` is set | Persist source audio artifacts. Set `false` to turn off. |
+| `artifacts.transcript.template` | `function` | default text | Custom body. |
+| `artifacts.audio` | `boolean \| object` | on when `artifacts` is set | Save the source audio. |
 | `artifacts.audio.path` | `string \| function` | generated | Audio artifact path. |
 | `artifacts.audio.mediaType` | `string \| function` | audio media type | Audio artifact media type. |
 
@@ -209,25 +186,23 @@ When artifacts are enabled, inspect the Workspace for the transcript and audio f
 | Interface | Result | Description |
 | --- | --- | --- |
 | `createTranscription({ driver })` | `TranscriptionClient` | Creates a provider-neutral asynchronous client. |
-| `client.submit({ source, metadata, abortSignal })` | `submitted` operation | Submits a remote HTTP(S) source and returns the provider operation ID. |
-| `client.receive(payload)` | `completed \| failed` completion | Normalizes an already-authenticated provider completion payload. |
-| `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps remote Scribe v2 submission and callback payloads without exposing provider types. |
+| `client.submit({ source, metadata, abortSignal })` | `submitted` operation | Submits a remote HTTP(S) source; returns the operation ID. |
+| `client.receive(payload)` | `completed \| failed` completion | Normalizes an authenticated completion payload. |
+| `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps Scribe v2 submission and callback payloads, hiding provider types. |
 
-`openRouterTranscriptionModel({ apiKey, model })` returns an AI SDK transcription model for synchronous `transcribe({ model })` usage.
-
-Without `artifacts.directory`, transcripts use `transcripts/<date>/<stem>.txt` and audio is placed beside the transcript. If transcripts are disabled, audio uses `audio/<date>/<stem>.<extension>`.
+Without `artifacts.directory`, transcripts go to `transcripts/<date>/<stem>.txt` with the audio beside them. With transcripts off, audio goes to `audio/<date>/<stem>.<extension>`.
 
 ### Public helpers
 
-Import these helpers from `@vite-hub/agent/capabilities` when custom hooks or executors need the same normalized data as the Capability.
+Import these from `vite-hub/agent/capabilities` when hooks or executors need the same data.
 
 | Helper | Return value | Behavior |
 | --- | --- | --- |
-| `audioBytes(audio, { maxBytes? })` | `Promise<Uint8Array>` | Resolves direct data, `fetchData`, or an audio URL and enforces a `26214400` byte default limit. |
-| `getTranscriptionResults(context)` | `TranscriptionResult[]` | Reads the current invocation's results from an invocation context store or an object containing one. Returns an empty array when none exist. |
-| `streamTranscription(options)` | `Promise<StreamingTranscription>` | Starts AI SDK streaming transcription and exposes `textStream` for streamed replies, `text` for the final transcript, and the underlying `result` metadata. |
+| `audioBytes(audio, { maxBytes? })` | `Promise<Uint8Array>` | Resolves direct data, `fetchData`, or a URL, with a `26214400` byte default limit. |
+| `getTranscriptionResults(context)` | `TranscriptionResult[]` | The run's results from a context store or an object holding one, or an empty array. |
+| `streamTranscription(options)` | `Promise<StreamingTranscription>` | Starts streaming transcription. Exposes `textStream`, the final `text`, and the underlying `result` metadata. |
 
-Each `TranscriptionResult` contains `createdAt`, `date`, `messageId`, `stem`, and `transcript`, plus `audioPath` or `transcriptPath` when those artifacts were written.
+Each `TranscriptionResult` has `createdAt`, `date`, `messageId`, `stem`, and `transcript`, plus `audioPath` or `transcriptPath` when written.
 
 ## Related pages
 

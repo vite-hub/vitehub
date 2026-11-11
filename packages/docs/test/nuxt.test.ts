@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -11,6 +11,7 @@ const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
 const handlers: Array<{ route: string, method?: string }> = []
 let templateDir = "/build"
+const updateTemplates = vi.hoisted(() => vi.fn<(options: { filter: (template: { filename: string }) => boolean }) => Promise<void>>())
 const logger = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() }))
 vi.mock("@nuxt/kit", () => ({
   defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
@@ -18,6 +19,10 @@ vi.mock("@nuxt/kit", () => ({
   addTemplate: (template: { filename: string, getContents: () => string }) => {
     templates.set(template.filename, template.getContents)
     return { dst: join(templateDir, template.filename) }
+  },
+  addTypeTemplate: (template: { filename: string, getContents: () => string }) => {
+    templates.set(template.filename, template.getContents)
+    return { dst: `/build/${template.filename}` }
   },
   addServerHandler: (handler: { route: string, method?: string }) => handlers.push(handler),
   addComponent: vi.fn(),
@@ -27,6 +32,7 @@ vi.mock("@nuxt/kit", () => ({
   addRouteMiddleware: vi.fn(),
   extendPages: vi.fn(),
   useLogger: () => logger,
+  updateTemplates,
 }))
 const watchContent = vi.hoisted(() => vi.fn((_dir: string, _options: { recursive: boolean }, _listener: (event: string, file: string | null) => void) => ({ close: vi.fn() })))
 vi.mock("node:fs", async (importOriginal) => ({
@@ -60,23 +66,24 @@ afterEach(async () => {
   for (const hook of hooks.get("close") ?? []) await hook()
   vi.useRealTimers()
   watchContent.mockClear()
+  updateTemplates.mockReset()
   hooks.clear()
   templates.clear()
   handlers.length = 0
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, app: { srcDir?: string } = {}) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ config: Record<string, unknown> }> = []) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   templateDir = buildDir
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
-    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", extensions: [".js", ".ts", ".vue"], dev, build: { transpile: [] }, appConfig: {},
-    _layers: app.srcDir ? [{ config: { srcDir: app.srcDir } }] : [],
+    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, extensions: [".js", ".ts", ".vue"], _layers: layers,
+    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } } },
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
-    imports: { dirs: [] }, docs,
+    imports: { dirs: [] }, watch: [] as string[], docs,
   }
   const nuxt = {
     options,
@@ -141,7 +148,7 @@ describe("docs in an existing app", () => {
 
   it("keeps the app's head, layouts, and home page when the app has its own app.vue", async () => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" }, true)
-    const options = await setupDocs({ dir: app.dir }, "/", false, { srcDir: app.srcDir }) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
+    const options = await setupDocs({ dir: app.dir }, "/", false, [{ config: { srcDir: app.srcDir } }]) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
     expect(options.app.head).toEqual({})
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
     const layouts: Record<string, { file: string }> = {}
@@ -247,6 +254,34 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).toThrow(/no page or file/)
   })
 
+  it("writes the comark-ui stylesheet again after a build empties the build directory", async () => {
+    const options = await setupDocs({})
+    const stylesDir = join(options.buildDir, "docs/styles")
+    const [file] = readdirSync(stylesDir)
+    expect(file).toMatch(/^comark-[0-9a-f]{10}\.css$/)
+    rmSync(join(options.buildDir, "docs"), { recursive: true, force: true })
+    for (const hook of hooks.get("build:before") ?? []) await hook()
+    expect(readdirSync(stylesDir)).toEqual([file])
+  })
+
+  it("prefetches a link when the reader points at it or focuses it, not when it scrolls into view", async () => {
+    const options = await setupDocs({})
+    expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
+  })
+
+  it("keeps the app's own choice of when links prefetch", async () => {
+    const prefetchOn = { visibility: true }
+    const options = await setupDocs({}, "/", false, [{ config: { srcDir: "/app", experimental: { defaults: { nuxtLink: { prefetchOn } } } } }])
+    expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual(prefetchOn)
+  })
+
+  it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
+    const options = await setupDocs({})
+    const [file] = readdirSync(join(options.buildDir, "docs/styles"))
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
+    expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
+  })
+
   it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
     const options = await setupDocs({ mcp: false })
     const publicDir = join(options.buildDir, "public")
@@ -344,6 +379,8 @@ describe("docs Nuxt setup", () => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
+    expect(templates.get("docs/manifest.d.ts")?.()).toContain("declare const manifest: DocsManifest\n")
+    expect(templates.get("types/vite-hub-docs.d.ts")?.()).toContain("interface PublicRuntimeConfig { docs: DocsPublicConfig }")
     expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })
@@ -444,15 +481,65 @@ describe("docs Nuxt setup", () => {
 
   it("gives the page route and search the app's parser module", async () => {
     const options = await setupDocs({ parser: "./docs.parser.ts" })
-    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\n`)
+    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\nexport const githubRepo = null\n`)
     const nitro: { alias?: Record<string, string> } = {}
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
     expect(nitro.alias?.["#docs/parser"]).toBe(join(options.buildDir, "docs/parser.mjs"))
   })
 
+  it("loads each Vue file of the examples folder in the page and gives its source to the parser", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-"))
+    writeFileSync(join(dir, "ButtonExample.vue"), "<template><UButton /></template>\n")
+    writeFileSync(join(dir, "notes.md"), "Not an example.\n")
+    const options = await setupDocs({ examples: dir })
+    expect(options.watch).not.toContain(dir)
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    expect(templates.get("docs/examples.mjs")?.()).toBe(`export default {\n  "ButtonExample": () => import(${JSON.stringify(join(dir, "ButtonExample.vue"))}),\n}\n`)
+    expect(templates.get("docs/example-sources.mjs")?.()).toBe(`export default {"ButtonExample":"<template><UButton /></template>\\n"}\n`)
+    expect(nitro.alias?.["#docs/example-sources"]).toBe(join(options.buildDir, "docs/example-sources.mjs"))
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it.each(["absolute", "relative"])("watches external examples and refreshes both maps on %s events", async (pathKind) => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-watch-"))
+    roots.push(dir)
+    const file = join(dir, "ButtonExample.vue")
+    const options = await setupDocs({ examples: dir }, "/", true)
+    expect(options.watch).toContain(dir)
+
+    const generated = new Map<string, string>()
+    updateTemplates.mockImplementation(async ({ filter }) => {
+      for (const [filename, contents] of templates) {
+        if (filter({ filename })) generated.set(filename, contents())
+      }
+    })
+    const notify = async (event: string) => {
+      const path = pathKind === "absolute" ? file : relative(options.srcDir, file)
+      for (const hook of hooks.get("builder:watch") ?? []) await hook(event as never, path as never)
+    }
+
+    for (const [event, source] of [["add", "<template>First</template>"], ["change", "<template>Edited</template>"]] as const) {
+      writeFileSync(file, source)
+      await notify(event)
+      expect(generated.get("docs/examples.mjs")).toContain(JSON.stringify(file))
+      expect(generated.get("docs/example-sources.mjs")).toBe(`export default ${JSON.stringify({ ButtonExample: source })}\n`)
+    }
+    rmSync(file)
+    await notify("unlink")
+    expect(generated.get("docs/examples.mjs")).toBe("export default {\n\n}\n")
+    expect(generated.get("docs/example-sources.mjs")).toBe("export default {}\n")
+  })
+
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
-    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\n")
+    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\nexport const githubRepo = null\n")
+  })
+
+  it("gives the parser the site's repository, where issue references link", async () => {
+    await setupDocs({ github: { repo: "vite-hub/vitehub" } })
+    expect(templates.get("docs/parser.mjs")?.()).toContain(`export const githubRepo = "vite-hub/vitehub"`)
   })
 
   it("writes relative Markdown links against the rendered page below the app base", async () => {
@@ -467,11 +554,16 @@ describe("docs Nuxt setup", () => {
     expect(raw.endsWith("\n\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
   })
 
+  it("shows a colored logo as it is, with its dark version", async () => {
+    const options = await setupDocs({ site: { logo: { light: "/logo.svg", dark: "/logo-dark.svg" } } }, "/portal/")
+    expect(options.runtimeConfig.public.docs.site.logo).toEqual({ src: "/portal/logo.svg", dark: "/portal/logo-dark.svg", mask: false })
+  })
+
   it("keeps manifest and Nitro resources app-relative and advertises public URLs below the app base", async () => {
     const options = await setupDocs({ site: { url: "https://docs.example.com", logo: "/logo.svg" } }, "/portal/")
     expect(options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs",
-      site: { url: "https://docs.example.com", logo: "/portal/logo.svg" },
+      site: { url: "https://docs.example.com", logo: { src: "/portal/logo.svg", dark: null, mask: true } },
       mcp: { url: "https://docs.example.com/portal/mcp" },
     })
     expect(options.agentDiscovery.siteUrl).toBe("https://docs.example.com")

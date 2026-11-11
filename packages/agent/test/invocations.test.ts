@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
 import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -2329,6 +2329,41 @@ describe("Agent Invocations", () => {
           errors: [{ message: "first", name: "Error" }],
           message: "outer",
           name: "AggregateError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("keeps the children of a foreign AggregateError subclass with its own name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-aggregate-subclass",
+      observations: [],
+      status: "running",
+      traceId: "foreign-aggregate-subclass-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('new (class ValidationError extends AggregateError { name = "ValidationError" })([new Error("field invalid")], "validation failed")')
+
+    await store.update("foreign-aggregate-subclass", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-aggregate-subclass"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          errors: [{ message: "field invalid", name: "Error" }],
+          message: "validation failed",
+          name: "ValidationError",
         },
       },
       visibility: "public",
@@ -5202,6 +5237,46 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("slow-running-write")).resolves.toMatchObject({ status: "completed" })
   })
 
+  it("opens the store once, outside storeTimeoutMs, and retries a failed open", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let attempts = 0
+    const open = vi.fn(async () => {
+      attempts++
+      // A lazy journal loads its driver and creates tables on first use, which can take longer than one operation.
+      await new Promise(resolve => setTimeout(resolve, 100))
+      if (attempts === 1) throw new Error("first open failed")
+    })
+    const invocations = defineAgentInvocations({ store: { ...memory, open }, storeTimeoutMs: 20 })
+
+    await expect(invocations.list()).rejects.toThrow("first open failed")
+    await expect(Promise.all([invocations.list(), invocations.getByRunId("missing")])).resolves.toMatchObject([{ invocations: [] }, undefined])
+    await expect(runAgentWithContext(defineAgent({ driver: { run: () => "done" }, invocations, runtime: false }), runtime("after-open"), {})).resolves.toBe("done")
+    await expect(invocations.getByRunId("after-open")).resolves.toMatchObject({ status: "completed" })
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  it("shares an unfinished open after its wait times out", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveOpen!: () => void
+      const pending = new Promise<void>(resolve => { resolveOpen = resolve })
+      const open = vi.fn(() => pending)
+      const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
+      const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
+      await vi.advanceTimersByTimeAsync(10_000)
+      await stalled
+      const next = invocations.list()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(open).toHaveBeenCalledOnce()
+      resolveOpen()
+      await expect(next).resolves.toMatchObject({ invocations: [] })
+      expect(open).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each([0, 1.5, 60_001])("rejects storeTimeoutMs %s", (storeTimeoutMs) => {
     expect(() => defineAgentInvocations({ store: createMemoryAgentInvocationStore(), storeTimeoutMs }))
       .toThrow("storeTimeoutMs must be an integer between 1 and 60000")
@@ -6342,7 +6417,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("search_version < ?")) {
@@ -6442,7 +6517,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("WHERE summary IS NULL") && sql.includes("ORDER BY sequence DESC")) {
@@ -6534,7 +6609,7 @@ describe("Agent Invocations", () => {
             const isSummaryBackfill = statements.some((statement) => {
               return isRuntimeRecord(statement)
                 && "sql" in statement
-                && hasRuntimeType(statement.sql, "string")
+                && typeof statement.sql === "string"
                 && statement.sql.includes("SET summary = json_remove")
             })
             if (isSummaryBackfill && summaryBackfillAttempts++ === 0) {
@@ -6680,8 +6755,8 @@ describe("Agent Invocations", () => {
             return async (...args: Parameters<Client["batch"]>) => {
               const statements = args[0]
               const firstStatement = statements[0]
-              if (hasRuntimeType(firstStatement, "object")
-                && "sql" in firstStatement && hasRuntimeType(firstStatement.sql, "string")
+              if (typeof firstStatement === "object"
+                && "sql" in firstStatement && typeof firstStatement.sql === "string"
                 && firstStatement.sql.includes("SET search")) {
                 pageSizes.push(statements.length)
                 if (--failPage === 0) throw new Error("migration interrupted")
@@ -6690,7 +6765,7 @@ describe("Agent Invocations", () => {
             }
           }
           const value = Reflect.get(target, property)
-          return hasRuntimeType(value, "function") ? value.bind(target) : value
+          return typeof value === "function" ? value.bind(target) : value
         },
       })
       const store = createLibsqlAgentInvocationStore({ client: flakyClient })
@@ -6800,7 +6875,7 @@ describe("Agent Invocations", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return hasRuntimeType(value, "function") ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     const invocations = defineAgentInvocations({

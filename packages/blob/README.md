@@ -12,7 +12,7 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob h3
+pnpm add @vite-hub/blob h3 valibot
 pnpm add -D vite
 ```
 
@@ -23,10 +23,11 @@ Add the SDK required by the driver you configure.
 ```ts
 // server/api/files.post.ts
 import { blob } from "@vite-hub/blob"
-import { defineEventHandler, readBody } from "h3"
+import { defineEventHandler, readValidatedBody } from "h3"
+import * as v from "valibot"
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, body => v.parse(v.object({ path: v.string(), text: v.string() }), body))
 
   const [writeError] = await blob.put(body.path, body.text, { contentType: "text/plain" })
   if (writeError) throw writeError
@@ -44,11 +45,10 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     base: ".vitehub/data/blob",
-  },
-  plugins: [hubBlob(), nitro()],
+  }), nitro()],
 })
 ```
 
@@ -85,8 +85,7 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: { remote: true },
-  plugins: [hubBlob(), nitro()],
+  plugins: [hubBlob({ remote: true }), nitro()],
 })
 ```
 
@@ -98,17 +97,19 @@ Objects from the served store receive an absolute URL when `serve.publicBaseUrl`
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`: the browser keeps its copy and revalidates on each use, so the check still runs and an unchanged object answers `304` with no body. `no-store` downloads the full object on every visit.
 
-Application routes can call `blob.serve(event, pathname, { cacheControl, transform: { key, run } })` after their own authorization or database lookup. Direct calls accept Nuxt 5 and Nitro 3 events with Standard Context, and the `Request` of a Fetchable route. `serve()` writes the status and headers to `["~standard"].res`, so a Fetchable route moves them to its `Response` and deletes them from `res.headers`, which Nitro would add a second time. The generated serving route is a Fetchable, `{ fetch(request) }`. When Nitro mounts it, it uses the raw catch-all pathname from the Request context, also behind a `baseURL`. Direct calls read the URL after `serve.route` at the URL root. `run` receives the original `Blob` and returns a response `Blob`. ViteHub stores the derived result in a reserved namespace in the same store, using the store's configured access, leaves the original unchanged, and invalidates the cache when the source or transform key changes. Source changes replace each cached variant on its next request; `blob.del(originalPath)` clears all its variants. Version the key when the transformation changes and include output variants such as size or format. The method handles conditional GET and HEAD requests and returns `null` for a `304` response. Without a `transform`, it also answers one `Range: bytes=` request with `206` and `Content-Range`, or `416` when the range starts past the end, so media can seek. See [the server API](https://vitehub.dev/docs/blob/server-api#serve-a-transformed-object) for cache lifetimes, an example, and failure behavior.
-The serve route is public by default. Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`.
+Application routes can call `blob.serve(request, pathname, { cacheControl, transform: { key, run } })` after their own authorization or database lookup. Pass the `Request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. `serve()` returns a `Response` with the final status and headers, so the route returns it as it is: `200`, `206` or `416` for a range, `304`, `400` with `{ error }` for an unsafe pathname such as `dir/..%2Fpackage.json`, and `404` for a missing object or a reserved path (`_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/` on every driver). A storage failure throws its `ViteHubError`. The generated serving route is a Fetchable, `{ fetch(request) }`, that returns that `Response`. When Nitro mounts it, it uses the raw catch-all pathname from the Request context, also behind a `baseURL`. Direct calls read the URL after `serve.route` at the URL root. `run` receives the original `Blob` and returns a response `Blob`. ViteHub stores the derived result in a reserved namespace in the same store, using the store's configured access, leaves the original unchanged, and invalidates the cache when the source or transform key changes. Source changes replace each cached variant on its next request; `blob.del(originalPath)` clears all its variants. Version the key when the transformation changes and include output variants such as size or format. The method handles conditional GET and HEAD requests. Without a `transform`, it also answers one `Range: bytes=` request with `206` and `Content-Range`, or `416` when the range starts past the end, so media can seek. See [the server API](https://vitehub.dev/docs/blob/server-api#serve-a-transformed-object) for cache lifetimes, an example, and failure behavior.
+The serve route is public by default. Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`. A `Cache-Control` that middleware set before the route does not replace it.
 For files shared by public link, add `serve.anonymous: true`. Then signed-out requests also run the `authorize` export (type `BlobServeAnonymousAuthorize`), with `session` and `user` set to `null`, and `false` returns `401` for them. This needs an explicit option because a callback written for `authorize: true` can expect a user.
 
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
 ```ts
-import { detectContentType } from "@vite-hub/blob/content-type"
+import { detectContentType } from "@vite-hub/blob"
 
-const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
-if (detected !== file.type) throw new Error("File content does not match its declared type")
+export async function assertContentType(file: File) {
+  const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
+  if (detected !== file.type) throw new Error("File content does not match its declared type")
+}
 ```
 
 ```ts
@@ -117,7 +118,7 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     serve: {
       route: "/assets",
@@ -126,8 +127,7 @@ export default defineConfig({
         "X-Content-Type-Options": "nosniff",
       },
     },
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -188,17 +188,22 @@ The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Z
 
 `blob.media` keeps a JSON record next to each object under `_vitehub/media/records/`: dimensions read from the file header, a SHA-256 hash, alt text, a caption, a focal point, a placeholder color, and named crops. Records work on every driver, including drivers without custom metadata.
 
-This excerpt uses an uploaded `file` from your app.
+Pass the uploaded `file` from your app to this helper.
 
-```ts fragment
+```ts
 import { blob, responsiveImage } from "@vite-hub/blob"
 
-const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
-const [updateError] = await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
-const [moveError] = await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+export async function storeCover(file: Blob) {
+  const [error] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
+  if (error) throw error
+  const [updateError] = await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+  if (updateError) throw updateError
+  const [moveError, record] = await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+  if (moveError) throw moveError
 
-const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
-// image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
+  return responsiveImage(record, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
+  // img: { src, srcset, sizes, width, height, alt, style }, sources: <picture> sources
+}
 ```
 
 The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `transformer: "photon"` uses `@cf-wasm/photon` (optional peer), a WebAssembly image library that runs on Workers and Node without a binding. `@vite-hub/blob/media` exports the browser-safe helpers.
@@ -210,25 +215,30 @@ The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Size
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
 
 ```ts
-const [downloadError, download] = await blob.sign("private/audio.mp3", {
-  method: "GET",
-  expiresIn: 60 * 60,
-})
-if (downloadError) throw downloadError
+import { blob } from "@vite-hub/blob"
 
-const [uploadError, upload] = await blob.sign("private/audio.mp3", {
-  method: "PUT",
-  expiresIn: 15 * 60,
-  contentType: "audio/mpeg",
-  createOnly: true,
-})
-if (uploadError) throw uploadError
+export async function shareAudio(file: Blob) {
+  const [downloadError, download] = await blob.sign("private/audio.mp3", {
+    method: "GET",
+    expiresIn: 60 * 60,
+  })
+  if (downloadError) throw downloadError
 
-await fetch(upload.url, {
-  method: upload.method,
-  headers: upload.headers,
-  body: file,
-})
+  const [uploadError, upload] = await blob.sign("private/audio.mp3", {
+    method: "PUT",
+    expiresIn: 15 * 60,
+    contentType: "audio/mpeg",
+    createOnly: true,
+  })
+  if (uploadError) throw uploadError
+
+  await fetch(upload.url, {
+    method: upload.method,
+    headers: upload.headers,
+    body: file,
+  })
+  return download.url
+}
 ```
 
 Blob operations return a `Result` from `@vite-hub/runtime`: `[error, undefined]` or `[undefined, value]`. Missing objects return `[undefined, null]` from `get()` and `head()`, including when a serving route is configured. Provider and storage failures return an error with a stable `BLOB_*` code, `why`, `fix`, `docs`, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
@@ -257,14 +267,13 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "s3",
     bucket: "app-assets",
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION,
     publicBaseUrl: "https://assets.example.com",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -284,10 +293,9 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "minio",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -319,6 +327,6 @@ blob: {
 
 `hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `del <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
 
-Each command runs a `blob.*` operation of the app through the Console RPC (`@vite-hub/blob/operations`), on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
+Each command runs a `blob.*` operation of the app through the Console RPC, on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

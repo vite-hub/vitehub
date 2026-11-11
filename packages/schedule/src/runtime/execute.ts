@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
@@ -15,7 +16,7 @@ interface ExecuteScheduleOptions {
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
-  source?: "direct" | "manual" | "static"
+  source?: "direct" | "manual" | "started" | "static"
   scheduledAt?: Date
   target: string
   waitUntil?: (promise: PromiseLike<unknown>) => void
@@ -30,7 +31,7 @@ interface ExecuteStaticScheduleOptions {
 }
 
 export interface RunScheduleOptions {
-  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
+  /** Loads the definition from this registry instead of the registry that the build installs. */
   registry?: ScheduleDefinitionRegistry
   /**
    * The time the handler receives as `scheduledAt`, as if the cron fired then. A string is an ISO 8601 date-time with a
@@ -220,14 +221,9 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   })
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
     && Object.hasOwn(value, "cron")
 }
@@ -236,7 +232,6 @@ async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefi
   let loaded: unknown
   if (registry) {
     const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
     loaded = typeof entry === "function" ? await entry() : undefined
   }
   else {

@@ -7,16 +7,13 @@ navigation.order: 261
 icon: i-lucide-scroll-text
 ---
 
-The ViteHub skill is a small set of Markdown instructions for a coding agent.
-It gives the agent one repeatable process for ViteHub work.
-The agent orients in the project, loads only the references that match the task, checks the installed package contract, builds the file set, and proves each requested behavior.
+The ViteHub skill is a small set of Markdown instructions that gives a coding agent one repeatable process. The agent reads the project, loads only the references the task needs, checks the installed package contract, writes the files, and proves each requested behavior.
 
-`vitehub.dev` publishes the skill at [`/.well-known/skills/vitehub/SKILL.md`](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md). The [skills CLI](https://github.com/vercel-labs/skills) reads the [skill index](https://vitehub.dev/.well-known/skills/index.json) and installs the skill from the site URL.
+The skill lives at [`/.well-known/skills/vitehub/SKILL.md`](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md). The [skills CLI](https://github.com/vercel-labs/skills) reads the [skill index](https://vitehub.dev/.well-known/skills/index.json) and installs it from the site URL.
 
 ## Install for your agent
 
-Run the command from the project root.
-`--skill vitehub` selects the ViteHub skill, because the index also lists other skills. `--agent` selects the coding agent.
+Run the command from the project root. The index lists other skills too, so `--skill vitehub` picks this one. `--agent` picks the coding agent.
 
 ::tabs
   :::tabs-item{label="Claude Code" icon="i-simple-icons-claude"}
@@ -60,26 +57,25 @@ Run the command from the project root.
   :::
 ::
 
-To install for several agents at once, list them after `--agent`, for example `--agent claude-code cursor codex`.
-Add `--global` to install the skill for every project of the current user instead of one project.
-Run `npx skills list` to see the installed project skills.
+- To install for several agents, list them after `--agent`, for example `--agent claude-code cursor codex`.
+- Add `--global` to install for all your projects instead of one.
+- Run `npx skills list` to see installed project skills.
 
 ### Install from your app
 
-An app with the [Console](/docs/development/console) also publishes the ViteHub skill, at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the version that the app uses. Pass the Console URL of the dev server or the deployed app:
+An app with the [Console](/docs/development/console) endpoint also serves the skill at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the app's version. Pass the `/_vitehub` URL of the dev server or the deployed app:
 
 ```bash [Terminal]
 npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code
 ```
 
-The skill files are static and need no Console sign-in, also in production. They contain only the public ViteHub skill, not data of the app.
+The skill files are static and need no Console sign-in, even in production. They hold only the public skill, no app data.
 
-To publish the skills of your own app at its origin, for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/development/skills).
+To serve your own app's skills for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/development/skills).
 
 ## Ask for an outcome
 
-The skill activates from normal ViteHub requests.
-State the result you want and include any host or runtime constraint.
+Normal ViteHub requests start the skill. State the result you want and any host or runtime constraint.
 
 | Task | Example prompt |
 | --- | --- |
@@ -87,29 +83,24 @@ State the result you want and include any host or runtime constraint.
 | Agent | `Create a provider-backed review Agent with repository context and invoke it locally.` |
 | Host boundary | `Build this ViteHub application for Cloudflare and inspect its Provider Output.` |
 
-The skill selects one primary product lane, reads only the matching references and the smallest live docs pages, and checks the installed exports and types.
-It reports the proof for each requested behavior.
-When the documentation and the installed version differ, the installed contract controls the implementation and the agent reports the difference.
+The skill picks one main product area, reads only matching references and the smallest live docs pages, and checks installed exports and types. It reports proof for each requested behavior. When the docs and the installed version differ, the installed package wins and the agent reports the difference.
 
-The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Sandboxes and hosts, proof and recovery, and public project patterns.
+The bundled references teach how parts fit together, not the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Sandboxes and hosts, proof and recovery, and public project patterns.
 
 ## Add live docs lookups
 
-The skill links to raw documentation pages, so the agent needs network access to read them.
-To let the agent also search the documentation through tools, [connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server).
-When the coding tool cannot install skills, start from [`llms.txt`](https://vitehub.dev/llms.txt) and give the agent one [raw Markdown page](/docs/getting-started/ai-resources/markdown-pages).
+The skill links to raw docs pages, so the agent needs network access. To let it search the docs through tools, [connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server). If your tool cannot install skills, start from [`llms.txt`](https://vitehub.dev/llms.txt) and give the agent one [raw Markdown page](/docs/getting-started/ai-resources/markdown-pages).
 
 ## Keep instruction sources distinct
 
-ViteHub uses several instruction sources for different actors.
-Keep them separate, so that repository guidance does not leak into runtime Agent behavior.
+Each instruction source serves a different reader. Keep them separate so repository rules do not leak into runtime Agent behavior.
 
 | Source | Audience | Purpose |
 | --- | --- | --- |
-| Public ViteHub skill | Coding agents that build a ViteHub application | Routes project patterns through live docs, installed contracts, explicit authority, and runtime proof. |
-| Repository `AGENTS.md` | Coding agents that contribute to a repository | Defines local development rules and project boundaries. |
-| [Agent Driver Instructions](/docs/agents/instructions) | Agents that run inside an application | Defines model-facing runtime behavior. |
-| Agent-local `skills/` | Provider-backed Agent Invocations | Installs Skills that a folder Agent Definition owns. |
-| [`skills()` Capability](/docs/agents/capabilities/skills) | ViteHub Agent Invocations | Makes Workspace-backed or external Source Skills available to the Agent. |
+| Public ViteHub skill | Coding agents that build a ViteHub app | Guides work through live docs, installed contracts, explicit authority, and runtime proof. |
+| Repository `AGENTS.md` | Coding agents that contribute to a repository | Sets local development rules and project boundaries. |
+| [Agent Driver Instructions](/docs/agents/instructions) | Agents that run inside an app | Sets runtime behavior for the model. |
+| Agent-local `skills/` | Provider-backed Agent runs | Installs Skills that a folder Agent Definition owns. |
+| [`skills()` Capability](/docs/agents/capabilities/skills) | ViteHub Agent runs | Gives the Agent Skills from its Workspace or an external Source. |
 
-Agent-local Skills require a folder Definition. Put them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. A model Driver reads them from the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A Provider Driver gets them in its working directory at the same path, or in the Sandbox Home. ViteHub does not store them in the Workspace for a Provider Driver. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree. Move it to `server/agents/review/agent.ts` when it needs colocated Skills.
+Agent-local Skills need a folder Definition. Put them beside `server/agents/<name>/agent.ts` at `server/agents/<name>/skills/<skill>/SKILL.md`. A model Driver reads them from the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A Provider Driver gets them at the same path in its working directory, or in the Sandbox Home; ViteHub does not store them in the Workspace for it. A flat Definition such as `server/agents/review.ts` cannot own Skills. Move it to `server/agents/review/agent.ts` first.

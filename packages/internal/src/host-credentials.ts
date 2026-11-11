@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
+import { isRecord } from "./object.ts"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
 export type CredentialSource = "env" | "host-cli"
@@ -22,7 +23,7 @@ export interface HostCliRunResult {
 }
 
 /** Runs a host CLI with an argument array and no shell, and returns its stdout. */
-export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv }) => Promise<HostCliRunResult>
+export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, signal?: AbortSignal }) => Promise<HostCliRunResult>
 
 export interface HostCredentialsContext {
   /** Directory whose activated Wrangler profile is used. Defaults to the process cwd. */
@@ -169,16 +170,13 @@ export const runHostCli: HostCliRun = (command, args, options) => new Promise((r
     shell: process.platform === "win32" && command !== process.execPath,
     stdio: ["ignore", "pipe", "ignore"],
     timeout: HOST_CLI_TIMEOUT_MS,
+    ...(options.signal ? { signal: options.signal } : {}),
   })
   const chunks: Buffer[] = []
   child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk))
   child.on("error", reject)
   child.on("close", exitCode => resolve({ exitCode, stdout: Buffer.concat(chunks).toString("utf8") }))
 })
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function trimmed(value: string | undefined): string | undefined {
   const result = value?.trim()

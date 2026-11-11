@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
-import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -13,10 +13,13 @@ import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
 import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
+// The page reads the feature catalog, so it loads only on /new.
+const ConsoleNewProject = defineAsyncComponent(() => import("./console-new-project.vue"));
+
 /**
  * What the Console shows before it opens a project: the empty state of a hosted Console, the Console token form, the
- * OAuth sign-in of an `auth: "app"` project and its callback, the `/link` page of a one-time link, or why the project
- * did not open. While the project answers, it draws the same shapes as the server page.
+ * OAuth sign-in and its callback, the `/link` page of a one-time link, the `/new` page, or why the project did
+ * not open. While the project answers, it draws the same shapes as the server page.
  */
 const projects = useConsoleProjects();
 const gate = projects.gate;
@@ -29,7 +32,8 @@ const others = computed(() => projects.projects.value.filter(project => project.
 const switchItems = computed<DropdownMenuItem[][]>(() => [
   others.value.map(project => ({ label: consoleProjectName(project), description: consoleProjectHost(project), onSelect: () => switchConsoleProject(project.id) })),
   [
-    { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
+    { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+    { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
     ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Forget this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
   ],
 ].filter(group => group.length));
@@ -60,7 +64,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="gate.kind === 'opening' || gate.kind === 'callback'" class="vitehub-console-boot">
+  <ConsoleNewProject v-if="gate.kind === 'new'" />
+
+  <div v-else-if="gate.kind === 'opening' || gate.kind === 'callback'" class="vitehub-console-boot">
     <div class="vh-primitive-rail">
       <div class="vh-primitive-rail__surface">
         <div class="vh-primitive-rail__header">
@@ -83,10 +89,13 @@ onMounted(() => {
 
       <template v-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
-          <h1 class="vitehub-project-gate__title">Link your first project</h1>
-          <p class="vitehub-project-gate__text">This Console opens ViteHub apps that list it in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>. The project list and tokens stay in this browser.</p>
+          <h1 class="vitehub-project-gate__title">Add your first project</h1>
+          <p class="vitehub-project-gate__text"><ConsoleCodeText text="Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in `console.origins`. The project list and tokens stay in this browser." /></p>
         </div>
-        <UButton icon="i-lucide-plus" label="Link project" class="justify-self-start" @click="projects.linkOpen.value = true" />
+        <div class="flex flex-wrap gap-2">
+          <UButton icon="i-lucide-plus" label="New project" @click="openConsoleNewProject" />
+          <UButton variant="outline" icon="i-lucide-link" label="Link project" @click="projects.linkOpen.value = true" />
+        </div>
       </template>
 
       <template v-else-if="gate.kind === 'token'">
@@ -94,7 +103,7 @@ onMounted(() => {
           <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
             <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
-            <template v-else>{{ host }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+            <ConsoleCodeText v-else :text="`${host} uses \`auth: &quot;token&quot;\`.`" />
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
@@ -133,7 +142,7 @@ onMounted(() => {
       <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty' && gate.kind !== 'link'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
-          <UButton color="neutral" variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
+          <UButton variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
         </UDropdownMenu>
       </div>
     </div>
@@ -189,10 +198,6 @@ onMounted(() => {
   gap: 0.375rem;
   line-height: 1rem;
   text-wrap: pretty;
-}
-
-.vitehub-project-gate :is(button, a[href]):focus-visible {
-  outline-offset: 2px;
 }
 
 @media (pointer: coarse) {

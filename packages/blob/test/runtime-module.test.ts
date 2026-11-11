@@ -15,7 +15,7 @@ import { normalizeBlobOptions } from "../src/config.ts"
 import { createBundledVercelBlobDriver, createDriver as createInternalVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { renderBlobRuntimeModule } from "../src/internal/nitro-runtime.ts"
 
-import type { BlobModuleOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
+import type { BlobOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -102,7 +102,7 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
-function resolveVercelBlob(blob: BlobModuleOptions): ResolvedBlobModuleOptions {
+function resolveVercelBlob(blob: BlobOptions): ResolvedBlobModuleOptions {
   const resolved = normalizeBlobOptions(blob, { hosting: "vercel" })
   if (!resolved) throw new Error("Blob config must resolve to a store.")
   return resolved

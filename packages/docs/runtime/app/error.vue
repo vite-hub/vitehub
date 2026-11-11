@@ -20,7 +20,7 @@ const description = computed(() => isNotFound.value
 
 const start = manifest.sections.find(section => section.id === config.start?.section)
 // Each link opens a real page. Without `content/docs/index.md` the docs base itself is a 404, so "Docs" opens the first section.
-const docsHome = docsHomePath(manifest)
+const docsHome = docsHomePath(manifest, config.start)
 const sections = [
   ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
   ...start ? [{ label: start.title, to: docsSectionHome(start) }] : [],
@@ -57,7 +57,6 @@ useSeoMeta({
           class="mt-8"
           icon="i-lucide-search"
           label="Search the docs"
-          color="neutral"
           variant="outline"
           @click="openSearch = true"
         />

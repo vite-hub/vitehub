@@ -8,7 +8,6 @@ import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
@@ -144,7 +143,7 @@ export async function invalidateSourceSnapshot(store: WorkspaceStore, workspace:
   if (snapshot) await writeSourceSnapshotMetadata(store, workspace, { ...snapshot, status: "updating" })
 }
 
-export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership: boolean | "workspace" = false, activeSources: ResolvedWorkspaceSource[] = []) {
+export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership: boolean | "workspace" = false, activeSources: ResolvedWorkspaceSource[] = [], path?: string) {
   const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
   if (meta?.status !== "ready" || meta.configHash !== configHash) return false
@@ -152,7 +151,8 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
     // Refresh may intentionally remove an empty mount and relinquish its ownership.
     if (Object.keys(meta.items || {}).length === 0 && meta.ownsMount !== false && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
     // Normal reads preserve external edits, but cannot reuse files owned by another Workspace.
-    for (const path of Object.keys(meta.items || {})) {
+    const paths = path === undefined ? Object.keys(meta.items || {}) : Object.hasOwn(meta.items || {}, path) ? [path] : []
+    for (const path of paths) {
       const file = await store.readFile(path)
       if (!file) return false
       const inlineOwner = file.metadata?.workspaceSourceOwner
@@ -163,18 +163,19 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
     }
     return true
   }
-  return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta, activeSources)
+  return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta, activeSources, path)
 }
 
-async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata, activeSources: ResolvedWorkspaceSource[] = []) {
+async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata, activeSources: ResolvedWorkspaceSource[] = [], path?: string) {
   if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
   // A local Store's stat() computes a content digest for every file. A cache
   // hit only needs the stored metadata in the common case, so list the mount
   // once and keep the digest fallback for providers that omit metadata.
-  const listed = source.mountPath
+  const listed = path === undefined && source.mountPath
     ? new Map((await store.list(source.mountPath, { recursive: true })).map(entry => [entry.path, entry]))
     : undefined
-  for (const path of Object.keys(meta.items || {})) {
+  const paths = path === undefined ? Object.keys(meta.items || {}) : Object.hasOwn(meta.items || {}, path) ? [path] : []
+  for (const path of paths) {
     const stat = listed?.get(path) ?? await store.stat(path)
     if (await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) continue
     // Startup snapshots share the most recent write at overlapping paths.
@@ -784,8 +785,8 @@ async function writeStartupIndex(store: WorkspaceStore, key: string, value: stri
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
-  if (!hasRuntimeType(value, "object") || value === null) return false
-  // SAFETY: hasRuntimeType establishes an object record before private metadata fields are read.
+  if (typeof value !== "object" || value === null) return false
+  // SAFETY: The typeof check establishes an object record before private metadata fields are read.
   const source = value as Record<string, unknown>
   return readStringMeta(source, "key") !== undefined && readStringMeta(source, "mountPath") !== undefined
 }

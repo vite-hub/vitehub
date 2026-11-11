@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { envActivitySchema, requestEnvManagement } from "../src/console/runtime/client/env-management.ts"
-import { consoleProject, projectConsoleUrl, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
+import { consoleProject, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { browserProjectStorage, consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
 import type { ConsoleBrowserStorage } from "../src/console/runtime/client/projects.ts"
@@ -40,6 +40,7 @@ describe("project URLs", () => {
     ["https://app.example.com/_vitehub-app", "https://app.example.com", "/_vitehub-app"],
     ["https://app.example.com/portal/_vitehub-assets/", "https://app.example.com", "/portal/_vitehub-assets"],
     ["https://app.example.com/_vitehub-app/_vitehub/kv", "https://app.example.com", "/_vitehub-app"],
+    ["https://app.example.com/portal/_vitehub-tools/_vitehub/kv", "https://app.example.com", "/portal/_vitehub-tools"],
   ])("reads %s as origin and base", (input, origin, base) => {
     expect(normalizeProjectUrl(input)).toEqual({ target: { origin, base, url: `${origin}${base}` } })
   })
@@ -458,11 +459,9 @@ describe("remote project links", () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
-  it("links features that need the app origin to the app's own Console", () => {
+  it("tells when the Console shows a project on another origin", () => {
     expect(isRemoteProject()).toBe(false)
-    expect(projectConsoleUrl("/kv")).toBe("/_vitehub/kv")
     setConsoleProject({ origin: "https://app.example.com", base: "/portal" })
     expect(isRemoteProject()).toBe(true)
-    expect(projectConsoleUrl("/auth/users")).toBe("https://app.example.com/portal/_vitehub/auth/users")
   })
 })

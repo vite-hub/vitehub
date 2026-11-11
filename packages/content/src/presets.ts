@@ -89,7 +89,6 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
   if (!isPresetOptionsRecord(defaults)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return an options object from configure().` })
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A preset policy is a callback and may come from another realm.
   if (defaults.authorize !== undefined && typeof defaults.authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return authorize as a function from configure().` })
   }

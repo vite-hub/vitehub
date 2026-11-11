@@ -60,7 +60,7 @@ function leave(): void {
     <ConsoleProjectProblemAlert v-if="problem" :problem="problem" />
     <div class="flex gap-2">
       <UButton :loading="busy" :label="busy ? 'Linking…' : 'Link project'" @click="confirm" />
-      <UButton color="neutral" variant="ghost" label="Cancel" :disabled="busy" @click="leave" />
+      <UButton variant="outline" label="Cancel" :disabled="busy" @click="leave" />
     </div>
   </template>
 
