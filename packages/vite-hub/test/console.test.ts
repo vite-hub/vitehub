@@ -1098,7 +1098,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
       // App Auth access routes leave the signed Console RPC to its own check.
-      expect(generated).toContain('vitehubExcludeAuthAccessPath("/_vitehub/rpc")')
+      expect(generated).toContain('vitehubExcludeAuthAccessRoute("POST", "/_vitehub/rpc")')
       expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
     } finally {
       await rm(root, { force: true, recursive: true })

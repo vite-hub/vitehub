@@ -1,6 +1,6 @@
 // Generated startup code imports this module. Keep it free of Better Auth imports: `@vite-hub/auth/server` loads
 // Better Auth, and startup code imports it only when a request needs an Auth instance.
-import { resolveAuthMountPath } from "../application-path.ts"
+import { resolveAuthMountPath, resolveAuthRoutePath } from "../application-path.ts"
 import { unwrapAuthRequest } from "../request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 
@@ -25,14 +25,14 @@ export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccess
 }
 
 /**
- * Leave one exact path below the application base path out of the Auth access routes, such as `/_vitehub/rpc` for
- * `/docs/_vitehub/rpc` in an app served below `/docs`. Only a ViteHub primitive whose route checks its own access calls
- * it: the Console RPC accepts signed requests that carry no app session.
+ * Leave one exact Nitro route and method out of the Auth access routes, such as `POST /_vitehub/rpc`. `route` is the
+ * route as the handler registers it, below Nitro's `baseURL`. Only a ViteHub primitive whose handler checks its own access
+ * calls it: the Console RPC accepts signed requests that carry no app session. Other methods and paths keep the rules.
  */
-export function excludeAuthAccessPath(path: string): void {
+export function excludeAuthAccessRoute(method: string, route: string): void {
   const state = getAuthRuntimeState()
-  state.accessExcludedPaths ??= new Set()
-  state.accessExcludedPaths.add(path)
+  state.accessExcludedRoutes ??= new Set()
+  state.accessExcludedRoutes.add(`${method.toUpperCase()} ${route}`)
 }
 
 export interface AuthAccessRouteMatch {
@@ -58,9 +58,12 @@ export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccess
   return (input) => {
     const request = unwrapAuthRequest(input)
     const pathname = new URL(request.url).pathname
-    const excluded = getAuthRuntimeState().accessExcludedPaths
-    if (excluded && [...excluded].some(path => resolveAuthMountPath(path) === pathname)) return []
     const method = request.method.toUpperCase()
+    const excluded = getAuthRuntimeState().accessExcludedRoutes
+    if (excluded && [...excluded].some((entry) => {
+      const [excludedMethod, route] = entry.split(" ", 2)
+      return excludedMethod === method && resolveAuthRoutePath(route!) === pathname
+    })) return []
     return rules
       .filter(rule =>
         (!rule.method || rule.method === method)
