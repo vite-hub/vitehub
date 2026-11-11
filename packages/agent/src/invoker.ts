@@ -5,7 +5,6 @@ import type {
   AgentInvocationContextStore,
   AgentInvoker,
   AgentInvokerOptions,
-  AgentInvokerProfile,
   AgentInvokerResolveContext,
   AgentRunInput,
   AgentRunMetadata,
@@ -15,7 +14,6 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { copyAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 
 export const agentInvokerContextKey = "invoker"
-const agentActorContextKey = "actor"
 const resolvedAgentInvokerInputKey = Symbol.for("vitehub.resolvedAgentInvokerInput")
 const resolverDerivedAgentInvokers = new WeakSet<AgentInvocationContextStore>()
 
@@ -31,7 +29,6 @@ export interface AgentInvokerInputReplayProvenance {
 const resolvedAgentInvokerReplayProvenanceKey = Symbol("resolved Agent Invoker replay provenance")
 const trustedReplayProvenance = new WeakSet<object>()
 interface TrustedInvokerReplayProvenance extends AgentInvokerInputReplayProvenance {
-  actor: unknown
   invoker: unknown
 }
 
@@ -47,7 +44,7 @@ function storedInvokerReplayProvenance(input: AgentRunInput): TrustedInvokerRepl
   const value = portableReplayProvenance.get(context) ?? context[resolvedAgentInvokerReplayProvenanceKey]
   if (!isRecord(value) || !trustedReplayProvenance.has(value)
     || typeof value.hasContext !== "boolean" || typeof value.hasInvoker !== "boolean") return
-  return { hasContext: value.hasContext, hasInvoker: value.hasInvoker, actor: value.actor, invoker: value.invoker }
+  return { hasContext: value.hasContext, hasInvoker: value.hasInvoker, invoker: value.invoker }
 }
 
 export function agentInvokerInputReplayProvenance(input: AgentRunInput): AgentInvokerInputReplayProvenance {
@@ -57,17 +54,17 @@ export function agentInvokerInputReplayProvenance(input: AgentRunInput): AgentIn
     hasInvoker: resolveInputAgentInvoker(input.context) !== undefined,
   }
   const callerContext = { ...input.context }
-  for (const key of [agentActorContextKey, agentInvokerContextKey, resolvedAgentInvokerInputKey, resolvedAgentInvokerReplayProvenanceKey]) Reflect.deleteProperty(callerContext, key)
+  for (const key of [agentInvokerContextKey, resolvedAgentInvokerInputKey, resolvedAgentInvokerReplayProvenanceKey]) Reflect.deleteProperty(callerContext, key)
   return {
     hasContext: stored.hasContext || hasUnreplayableAgentInputContext(callerContext),
-    hasInvoker: stored.hasInvoker || input.context?.[agentActorContextKey] !== stored.actor || input.context?.[agentInvokerContextKey] !== stored.invoker,
+    hasInvoker: stored.hasInvoker || input.context?.[agentInvokerContextKey] !== stored.invoker,
   }
 }
 
 export function defineAgentInvoker<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  const TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  const TProfile extends AgentInvoker = AgentInvoker,
 >(
   options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile>,
 ): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> {
@@ -152,7 +149,7 @@ export function agentInvokerLabel(invoker: AgentInvoker): string | undefined {
 }
 
 export function normalizeAgentInvokerProfiles<
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
 >(
   profiles: readonly TProfile[] | undefined,
 ): TProfile[] {
@@ -176,7 +173,7 @@ export function normalizeAgentInvokerProfiles<
 export function normalizeAgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
 >(
   options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined,
 ): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined {
@@ -205,17 +202,14 @@ export function createFallbackAgentInvoker(run?: AgentRunMetadata): AgentInvoker
 
 export function resolveInputAgentInvoker(inputContext: unknown): AgentInvoker | undefined {
   const context = contextRecord(inputContext)
-  const value = context[agentInvokerContextKey] ?? context[agentActorContextKey]
-  return value === undefined
-    ? undefined
-    : normalizeAgentInvoker(value, context[agentInvokerContextKey] === undefined ? "input.context.actor" : "input.context.invoker")
+  const value = context[agentInvokerContextKey]
+  return value === undefined ? undefined : normalizeAgentInvoker(value, "input.context.invoker")
 }
 
 export function ensureAgentInvokerContext(
   context: AgentInvocationContextStore,
   invoker: AgentInvoker,
 ): void {
-  context.set(agentActorContextKey, invoker, { overwrite: true })
   context.set(agentInvokerContextKey, invoker, { overwrite: true })
 }
 
@@ -223,13 +217,12 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   invoker: AgentInvoker,
 ): AgentRunInput<CALL_OPTIONS> {
-  const replayProvenance = Object.freeze({ ...agentInvokerInputReplayProvenance(input), actor: invoker, invoker })
+  const replayProvenance = Object.freeze({ ...agentInvokerInputReplayProvenance(input), invoker })
   trustedReplayProvenance.add(replayProvenance)
   const resolvedInput = {
     ...input,
     context: {
       ...input.context,
-      [agentActorContextKey]: invoker,
       [agentInvokerContextKey]: invoker,
       [resolvedAgentInvokerInputKey]: true,
       [resolvedAgentInvokerReplayProvenanceKey]: replayProvenance,
@@ -256,7 +249,7 @@ export function withoutResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunIn
 export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
   if (!hasResolvedAgentInvokerInput(input)) return input
   const context = contextRecord(input.context)
-  const invoker = normalizeAgentInvoker(context[agentInvokerContextKey] ?? context[agentActorContextKey])
+  const invoker = normalizeAgentInvoker(context[agentInvokerContextKey])
   const serializedMeta: unknown = invoker.meta === undefined
     ? undefined
     : JSON.parse(JSON.stringify(invoker.meta, (_key, value) => {
@@ -265,13 +258,12 @@ export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunI
   const portableMeta = isRecord(serializedMeta) ? serializedMeta : undefined
   const portableInvoker: AgentInvoker = { ...invoker }
   if (portableMeta) portableInvoker.meta = portableMeta
-  const replayProvenance = Object.freeze({ ...agentInvokerInputReplayProvenance(input), actor: portableInvoker, invoker: portableInvoker })
+  const replayProvenance = Object.freeze({ ...agentInvokerInputReplayProvenance(input), invoker: portableInvoker })
   trustedReplayProvenance.add(replayProvenance)
   const portableInput = {
     ...input,
     context: {
       ...Object.fromEntries(Object.entries(context)),
-      [agentActorContextKey]: portableInvoker,
       [agentInvokerContextKey]: portableInvoker,
     },
   }
@@ -287,7 +279,6 @@ export function restoreResolvedAgentInvokerInput<CALL_OPTIONS>(
   // Older serialized preparations have no caller provenance and remain unavailable for replay.
   const replayProvenance = Object.freeze({
     ...(provenance ?? storedInvokerReplayProvenance(input) ?? { hasContext: true, hasInvoker: true }),
-    actor: input.context?.[agentActorContextKey],
     invoker: input.context?.[agentInvokerContextKey],
   })
   trustedReplayProvenance.add(replayProvenance)
@@ -305,7 +296,7 @@ function selectedProfileId(inputContext: unknown): string | undefined {
 }
 
 function selectAgentInvokerProfile<
-  TProfile extends AgentInvokerProfile,
+  TProfile extends AgentInvoker,
 >(
   profiles: readonly TProfile[],
   inputContext: unknown,
@@ -325,7 +316,7 @@ function selectAgentInvokerProfile<
 export async function resolveAgentInvoker<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
 >(
   options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined,
   callbackContext: AgentCallbackContext<TRuntimeConfig>,

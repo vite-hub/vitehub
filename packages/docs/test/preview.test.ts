@@ -57,7 +57,7 @@ const componentScript = transpileModule(compileScript(parse(componentSource).des
   compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext },
 }).outputText
 
-async function navigate(path: string, layout = "docs", isHydrating = false) {
+async function navigate(path: string, layout = "docs", isHydrating = false, ownsApp = true) {
   const manifest = await createDocsManifest({ dir: fixtures, base: "/docs" })
   const route = { path, meta: { layout } }
   const mounted = new H3().get("/portal/api/_docs/page/**", page)
@@ -74,6 +74,7 @@ async function navigate(path: string, layout = "docs", isHydrating = false) {
     require: (id: string) => {
       if (id === "vue") return vue
       if (id === "#docs/navigation") return navigation
+      if (id === "#docs/shell") return { ownsApp }
       throw new Error(`Unexpected component import: ${id}`)
     },
     useRoute: () => route,
@@ -89,7 +90,7 @@ async function navigate(path: string, layout = "docs", isHydrating = false) {
     setPageLayout,
   })
   const component = { ...exports.default, render: () => null }
-  return { useFetch, useDocsSeo, setPageLayout, ready, render: () => renderToString(vue.createSSRApp(component)) }
+  return { route, useFetch, useDocsSeo, setPageLayout, ready, render: () => renderToString(vue.createSSRApp(component)) }
 }
 
 const editedKv: DocsContentDocument = {
@@ -191,6 +192,37 @@ describe("page route with Content drafts", () => {
     expect(ready).toHaveLength(1)
     ready[0]!()
     expect(setPageLayout).toHaveBeenCalledWith("default")
+  })
+
+  describe.each([false, true])("page layouts with ownsApp: %s", (ownsApp) => {
+    describe.each([false, true])("during hydration: %s", (isHydrating) => {
+      it.each([
+        { path: "/about", article: true },
+        { path: "/", article: true },
+        { path: "/docs/kv", article: false },
+        { path: "/about", article: true, draft: "article" },
+        { path: "/docs/kv", article: true, draft: "home" },
+        { path: "/docs/kv/new-page", article: true, draft: "home" },
+      ])("keeps the shell for $path (draft: $draft)", async ({ path, article, draft }) => {
+        state.active = !!draft
+        if (draft) {
+          const id = path === "/docs/kv" ? editedKv.id : path.slice(1)
+          state.drafts.set(id, { id, url: path, data: { title: "Draft page", layout: draft }, body: "Draft content.\n" })
+        }
+        const expected = article ? ownsApp ? "default" : "docs-article" : "docs"
+        // Published pages hydrate the layout selected by middleware; previews may change it after rendering.
+        const initial = isHydrating && !draft ? expected : "docs"
+        const { route, setPageLayout, ready, render } = await navigate(path, initial, isHydrating, ownsApp)
+
+        await render()
+        if (isHydrating) {
+          expect(setPageLayout).not.toHaveBeenCalled()
+          expect(route.meta.layout).toBe(initial)
+        }
+        for (const callback of ready) callback()
+        expect(route.meta.layout).toBe(expected)
+      })
+    })
   })
 
   it("returns a fatal 404 after requesting a missing page during client navigation", async () => {
