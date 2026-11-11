@@ -476,7 +476,9 @@ function uploadedFile({ contentType, data, filename }: Pick<ConsoleMediaUploadIn
   if (data.length % 4 !== 0 || !base64Pattern.test(data)) throw failure(400, "MEDIA_INPUT", "The file data is not valid base64.")
   const size = data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0)
   if (size > maximumConsoleMediaUploadBytes) throw tooLarge()
-  const bytes = Uint8Array.from(atob(data), character => character.charCodeAt(0))
+  const binary = atob(data)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
   return new File([bytes], filename, contentType ? { type: contentType } : {})
 }
 

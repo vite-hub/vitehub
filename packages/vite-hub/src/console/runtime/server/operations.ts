@@ -20,6 +20,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 declare global {
   interface ImportMeta {
     viteHubConsoleAgents?: boolean
+    viteHubConsoleAuth?: boolean
     viteHubConsoleDatabase?: boolean
   }
 }
@@ -184,7 +185,7 @@ function authRead<Input>(
     kind: "read",
     mcp: false,
     name: authConsoleReadOperations[name],
-    run: async (value, context) => (await import("./auth-manage.ts")).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
     section: "auth",
   })
 }
@@ -205,7 +206,7 @@ function authAction<Input>(
     kind,
     mcp: false,
     name: authConsoleActionOperations[action],
-    run: async (value, context) => (await import("./auth-manage.ts")).runAuthConsoleAction(context, mutation(value)),
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleAction(context, mutation(value)),
     section: "auth",
   })
 }

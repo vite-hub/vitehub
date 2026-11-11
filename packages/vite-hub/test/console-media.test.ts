@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
+import { build } from "esbuild"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver } from "../../blob/src/drivers/fs.ts"
@@ -127,6 +130,52 @@ describe("Console media library", () => {
     // The same bytes return the stored file.
     await expect(upload({ file: file("again.txt", "one") })).resolves.toMatchObject({ body: { value: { duplicate: true, file: { pathname: "posts/cover-photo.txt" } } } })
   })
+
+  it("stores a 32 MiB upload with a 256 MiB heap", async () => {
+    const root = resolve(import.meta.dirname, "..")
+    const result = await build({
+      bundle: true,
+      format: "esm",
+      packages: "external",
+      platform: "node",
+      write: false,
+      stdin: { resolveDir: root, contents: `
+      import assert from "node:assert/strict"
+      import { setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
+      import { createDriver } from "../blob/src/drivers/fs.ts"
+      import { createBlobStorage } from "../blob/src/storage.ts"
+      import { consoleOperationAccess, installConsoleAccess } from "./src/console/runtime/server/access.ts"
+      import { installConsoleBlob } from "./src/console/runtime/server/blob.ts"
+      import { installConsoleDocuments } from "./src/console/runtime/server/documents.ts"
+      import { maximumConsoleMediaUploadBytes, uploadConsoleMedia } from "./src/console/runtime/server/media.ts"
+      import { installConsoleSections } from "./src/console/runtime/server/sections.ts"
+
+      const base = process.argv[1]
+      const storage = createBlobStorage(createDriver({ base, driver: "fs" }), "default", { images: false })
+      setBlobRuntimeConfig({ images: false, store: { base, driver: "fs" } })
+      installConsoleSections(base, ["content", "blob"])
+      installConsoleBlob(base, storage)
+      installConsoleDocuments(base, { content: { load: async () => ({}), actions: () => ({ mediaAccess: () => ({ manage: true, read: true, write: true }) }) } })
+      installConsoleAccess({ mode: "open" })
+      const access = await consoleOperationAccess({ access: { mode: "agent", sections: "all" }, surface: "agent" })
+      const data = Buffer.alloc(maximumConsoleMediaUploadBytes, 120).toString("base64")
+      const result = await uploadConsoleMedia({ data, filename: "valid.bin", contentType: "application/octet-stream", section: "content" }, access)
+      assert.equal(result.duplicate, false)
+      assert.equal(result.file.size, maximumConsoleMediaUploadBytes)
+      const [error, stored] = await storage.get(result.file.pathname)
+      assert.equal(error, undefined)
+      assert(stored)
+      const bytes = new Uint8Array(await stored.arrayBuffer())
+      assert.equal(bytes.length, maximumConsoleMediaUploadBytes)
+      assert(bytes.every(byte => byte === 120))
+      console.log("stored 32 MiB")
+      ` },
+    })
+    const execution = promisify(execFile)(process.execPath, ["--max-old-space-size=256", "--input-type=module", "-", directory], { cwd: root, timeout: 30_000 })
+    execution.child.stdin?.end(result.outputFiles[0]!.text)
+    const { stdout } = await execution
+    expect(stdout.trim()).toBe("stored 32 MiB")
+  }, 40_000)
 
   it("lists one folder level and hides folder markers and ViteHub folders", async () => {
     await storage.put("vitehub/workspace-history/abc", "history")
