@@ -176,6 +176,7 @@ describe("Auth Nuxt integration", () => {
     ["auth", "AuthCan", "auth-can"],
     ["my-auth", "MyAuthCan", "my-auth-can"],
     ["UI", "UICan", "ui-can"],
+    ["MonÉquipe", "MonÉquipeCan", "mon-équipe-can"],
   ])("registers <Can> under the prefix %j as %s", async (prefix, pascalName, kebabName) => {
     const own = { pascalName: "Can", filePath: "/app/components/Can.vue" }
     const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, { auth: { components: { prefix } } }, [own])

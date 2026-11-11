@@ -246,7 +246,8 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
  * componentNames("my-auth", "Can") // { kebabName: "my-auth-can", pascalName: "MyAuthCan" }
  */
 function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
-  const words = `${prefix} ${name}`.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z\d]+|\d+/g) ?? []
+  // Unicode letter classes, so a prefix such as `MonÉquipe` keeps its `É`, as Nuxt keeps it.
+  const words = `${prefix} ${name}`.match(/\p{Lu}+(?!\p{Ll})|\p{Lu}?[\p{Ll}\d]+|\d+/gu) ?? []
   return {
     kebabName: words.map(word => word.toLowerCase()).join("-"),
     pascalName: words.map(word => word[0]!.toUpperCase() + word.slice(1)).join(""),
