@@ -2,6 +2,8 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { lt, minVersion, validRange } from "semver"
+
 import { CodemodError } from "../types.ts"
 
 import type { FileEdit } from "../types.ts"
@@ -46,21 +48,11 @@ export interface PackageJsonChange {
   atLeast?: Readonly<Record<string, string>>
 }
 
-function parseVersion(value: string): number[] | undefined {
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(value)
-  return match ? match.slice(1).map(Number) : undefined
-}
-
 /** True when the lowest version that `range` allows is below `minimum`. */
 function below(range: string, minimum: string): boolean | undefined {
-  if (!/^[\^~]?\d+\.\d+\.\d+(?:[-+][\w.-]*)?$/.test(range.trim())) return undefined
-  const current = parseVersion(range)
-  const wanted = parseVersion(minimum)
-  if (!current || !wanted) return undefined
-  for (let index = 0; index < 3; index++) {
-    if (current[index] !== wanted[index]) return (current[index] ?? 0) < (wanted[index] ?? 0)
-  }
-  return false
+  if (!validRange(range)) return undefined
+  const current = minVersion(range)
+  return current ? lt(current, minimum) : undefined
 }
 
 /**

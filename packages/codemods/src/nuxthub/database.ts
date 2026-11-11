@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, posix } from "node:path"
 
-import { detectStyle, end, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
@@ -99,6 +99,11 @@ export async function moveSchema(cwd: string, dialect: Dialect): Promise<SchemaM
     try {
       const program = parseProgram(code, { typescript: !/\.m?js$/.test(file) })
       if (index === 0) style = detectStyle(code, program)
+      walk(program, (node) => {
+        if (node.type !== "ImportDeclaration" || !["drizzle-orm", "drizzle-orm/relations"].includes(node.source.value)) return
+        if (!node.specifiers.some(specifier => specifier.type === "ImportSpecifier" && keyName(specifier.imported) === "relations")) return
+        result.followUps.push({ file: target, line: line(node), message: `Drizzle 1.0 replaces relations() with defineRelations(schema, r => ({ ... })). Rewrite these relations, pass the result as relations to defineDatabase() in ${definitionFile}, and update db.query calls to Drizzle 1.0's relational query syntax.` })
+      })
       for (const source of relativeSources(program)) {
         const resolved = resolveIn(allFiles, file, source.value)
         if (!resolved) {

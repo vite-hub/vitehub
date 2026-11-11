@@ -2,12 +2,14 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { satisfies } from "semver"
 import { glob } from "tinyglobby"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { formatReport, runCodemod, runMigration } from "../src/index.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+const databasePackage = JSON.parse(await readFile(join(packageRoot, "../database/package.json"), "utf8"))
 const fixtures = join(packageRoot, "test/fixtures")
 const scratch = join(packageRoot, ".tmp/nuxthub-test")
 
@@ -44,6 +46,33 @@ describe.each([
 })
 
 describe("nuxthub", () => {
+  it.each([undefined, "^0.45.4", "^1.0.0-rc.4", "^1.0.0-rc.5", "^1.0.0"])("selects a supported Drizzle version from %s", async (version) => {
+    const directory = await app(`drizzle-${version ?? "missing"}`, {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", ...(version ? { "drizzle-orm": version, "drizzle-kit": version } : {}) } }),
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    const manifest = JSON.parse(run.result.edits.find(edit => edit.path === "package.json")?.after ?? "{}")
+    for (const name of ["drizzle-orm", "drizzle-kit"] as const) {
+      const selected = manifest.dependencies[name]
+      expect(satisfies(selected?.slice(1) ?? "", databasePackage.peerDependencies[name])).toBe(true)
+      if (version && satisfies(version.slice(1), databasePackage.peerDependencies[name])) expect(selected).toBe(version)
+    }
+  })
+
+  it("reports legacy Drizzle relations at the moved schema", async () => {
+    const directory = await app("relations", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
+      "server/db/schema.ts": "import { relations as relate } from 'drizzle-orm'\nexport const usersRelations = relate(users, ({ many }) => ({ posts: many(posts) }))\n",
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    expect(run.result.followUps).toContainEqual({
+      file: "server/databases/default/schema.ts",
+      line: 1,
+      message: "Drizzle 1.0 replaces relations() with defineRelations(schema, r => ({ ... })). Rewrite these relations, pass the result as relations to defineDatabase() in server/databases/default/index.ts, and update db.query calls to Drizzle 1.0's relational query syntax.",
+    })
+  })
+
   it("runs through the migration and deletes the moved schema", async () => {
     const directory = join(scratch, "wizard")
     await rm(directory, { recursive: true, force: true })
@@ -211,7 +240,7 @@ describe("nuxthub", () => {
     expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
     expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
     expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
-    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": "^0.1.0", "drizzle-orm": "^0.45.3", "vite-hub": "^0.1.0" } })
+    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": "^0.1.0", "drizzle-kit": "^1.0.0-rc.5", "drizzle-orm": "^1.0.0-rc.5", "vite-hub": "^0.1.0" } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",

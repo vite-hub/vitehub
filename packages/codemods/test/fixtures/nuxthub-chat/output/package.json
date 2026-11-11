@@ -30,7 +30,7 @@
     "@vueuse/core": "^14.4.0",
     "ai": "^7.0.159",
     "date-fns": "^4.4.0",
-    "drizzle-orm": "^0.45.4",
+    "drizzle-orm": "^1.0.0-rc.5",
     "motion-v": "^2.10.0",
     "nuxt": "^4.6.4",
     "nuxt-auth-utils": "^0.6.0",
@@ -44,7 +44,7 @@
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
     "@types/node": "^24.19.2",
-    "drizzle-kit": "^0.31.11",
+    "drizzle-kit": "^1.0.0-rc.5",
     "eslint": "^10.14.0",
     "eslint-plugin-better-tailwindcss": "^4.10.0",
     "typescript": "^6.0.3",

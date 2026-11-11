@@ -11,8 +11,8 @@ import { findWranglerFile, planWrangler, readCloudflareResourceOptions } from ".
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 import type { SchemaMove } from "./database.ts"
 
-/** The lowest drizzle-orm that `@vite-hub/database` accepts. An older copy installs twice and breaks the types. */
-const drizzleMinimum = "0.45.3"
+/** The lowest Drizzle ORM and Kit that `@vite-hub/database` accepts. */
+const drizzleMinimum = "1.0.0-rc.5"
 
 /** The command that runs a package binary, from the install command. */
 function runner(installCommand: string): string {
@@ -28,7 +28,7 @@ function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv:
     followUps.push(
       { message: "Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist." },
       { message: `Create the migration baseline with \`${run} vitehub database generate --name baseline\`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.` },
-      { message: "Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline .sql file, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep its file name and the meta/ files." },
+      { message: "Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline folder's migration.sql, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep the folder name and snapshot.json." },
       input.d1
         ? { message: `Run \`${run} nuxt build\`, then record the baseline on D1 with \`${run} wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json\`. Check first with \`migrations list\` that only the baseline is pending. For the local SQLite copy, run \`${run} vitehub database migrate\`.` }
         : { message: `Record the baseline with \`${run} vitehub database migrate\`. Run it a second time to check that it applies nothing.` },
@@ -60,7 +60,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const packageResult = await editPackageJson(cwd, packageJson.version, {
     remove: [moduleName],
     add: features.database ? ["vite-hub", "@vite-hub/database"] : ["vite-hub"],
-    atLeast: features.database ? { "drizzle-orm": drizzleMinimum } : undefined,
+    atLeast: features.database ? { "drizzle-orm": drizzleMinimum, "drizzle-kit": drizzleMinimum } : undefined,
   })
   const run = runner(packageResult.installCommand)
 

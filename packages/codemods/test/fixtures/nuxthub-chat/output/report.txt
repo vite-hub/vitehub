@@ -22,16 +22,17 @@ Files to change (19):
   server/routes/auth/github.get.ts
   shared/types/db.d.ts
 
-Manual follow-ups (9):
+Manual follow-ups (10):
   1. nuxt.config.ts:31 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
   2. pnpm-workspace.yaml:10 pnpm-workspace.yaml overrides h3 to 1.15.11 for every package. vite-hub/nuxt imports h3 2, so Nuxt cannot load it while every package gets h3 1 (ERR_PACKAGE_PATH_NOT_EXPORTED). Scope the override to the package that needs h3 1, for example `'nuxt-csurf>h3': 1.15.11`.
-  3. app/composables/useFileUpload.ts:30 ViteHub's useUpload() returns an array by default. Set { multiple: false } when this code expects one uploaded object.
-  4. server/api/chats/[id].delete.ts:32 blob.del().catch() no longer runs on failure, because the promise resolves to an [error, value] tuple. Check the error in the tuple instead.
-  5. Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist.
-  6. Create the migration baseline with `pnpm vitehub database generate --name baseline`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
-  7. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline .sql file, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep its file name and the meta/ files.
-  8. Record the baseline with `pnpm vitehub database migrate`. Run it a second time to check that it applies nothing.
-  9. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
+  3. server/databases/default/schema.ts:2 Drizzle 1.0 replaces relations() with defineRelations(schema, r => ({ ... })). Rewrite these relations, pass the result as relations to defineDatabase() in server/databases/default/index.ts, and update db.query calls to Drizzle 1.0's relational query syntax.
+  4. app/composables/useFileUpload.ts:30 ViteHub's useUpload() returns an array by default. Set { multiple: false } when this code expects one uploaded object.
+  5. server/api/chats/[id].delete.ts:32 blob.del().catch() no longer runs on failure, because the promise resolves to an [error, value] tuple. Check the error in the tuple instead.
+  6. Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist.
+  7. Create the migration baseline with `pnpm vitehub database generate --name baseline`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
+  8. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline folder's migration.sql, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep the folder name and snapshot.json.
+  9. Record the baseline with `pnpm vitehub database migrate`. Run it a second time to check that it applies nothing.
+  10. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
 
 Notes:
   - vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.
