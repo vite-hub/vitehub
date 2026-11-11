@@ -2,6 +2,7 @@ import { createSource } from "@vite-hub/source"
 import type { Source, SourceRevision } from "@vite-hub/source"
 import type { ComarkContent, ContentOptions } from "comark-content"
 import { formatDiagnostic } from "nostics"
+import type { Diagnostic } from "nostics"
 
 import { contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -31,6 +32,19 @@ export interface ContentSourceHead {
   checkedAt: string | null
   /** The last GitHub push webhook delivery for this Source, or null when none arrived. */
   webhook: ContentSourceWebhookDelivery | null
+  /**
+   * Why the head does not follow the branch, with its fix: `CONTENT_R0020` (no token), `CONTENT_R0021` (no KV store),
+   * `CONTENT_R0035` (GitHub refused the last branch lookup of this server instance), or `CONTENT_R0019` (the newest
+   * commit failed validation). Null when the head follows the branch. `vitehub content head` prints it.
+   */
+  diagnostic: ContentSourceHeadDiagnostic | null
+}
+
+/** A diagnostic of a head, as `head()` returns it. `vitehub content head --json` prints the same fields. */
+export interface ContentSourceHeadDiagnostic {
+  code: "CONTENT_R0019" | "CONTENT_R0020" | "CONTENT_R0021" | "CONTENT_R0035"
+  message: string
+  fix: string
 }
 
 /** One GitHub push webhook delivery that matched a Source. */
@@ -89,6 +103,10 @@ interface HeadState {
   instance?: ComarkContent
   /** Whether the Source has a token and the app a KV store. Checked once per server instance. */
   live?: Promise<boolean>
+  /** `CONTENT_R0020` or `CONTENT_R0021` when the Source is not live. */
+  offline?: ContentSourceHeadDiagnostic
+  /** `CONTENT_R0035` when the last branch lookup of this server instance got no commit from GitHub. */
+  limited?: ContentSourceHeadDiagnostic
   /** The head read from KV, held in memory until `at + HOLD_MS`. */
   held?: { head: StoredHead | null, at: number }
   reading?: Promise<StoredHead | null>
@@ -135,6 +153,12 @@ const kvFailures = new WeakSet<object>()
 
 type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
 
+/** The fields of a diagnostic that `head()` returns. `warn` also logs it. */
+function diagnosticOf(code: ContentSourceHeadDiagnostic["code"], error: Diagnostic<unknown>, warn = false): ContentSourceHeadDiagnostic {
+  if (warn) console.warn(formatDiagnostic(error))
+  return { code, message: error.message, fix: error.fix ?? "" }
+}
+
 function isKVFailure(error: unknown): error is KVFailure {
   return error instanceof Error && kvFailures.has(error)
 }
@@ -165,10 +189,10 @@ interface ContentSourceHeadsRuntime {
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
 }
 
-const runtimes = new WeakMap<ContentSourceHeads, ContentSourceHeadsRuntime>()
+const runtimes = new WeakMap<object, ContentSourceHeadsRuntime>()
 
-/** The runtime behind `content.sources`, for the push webhook route. */
-export function contentSourceHeadsRuntime(api: ContentSourceHeads): ContentSourceHeadsRuntime | undefined {
+/** The runtime behind `content.sources`, for the push webhook route and the Content operations. */
+export function contentSourceHeadsRuntime(api: object): ContentSourceHeadsRuntime | undefined {
   return runtimes.get(api)
 }
 
@@ -188,9 +212,9 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
 
   async function isLive(state: HeadState): Promise<boolean> {
     state.live ??= state.definition.authenticated().then((authenticated) => {
-      if (!authenticated) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0020({ source: state.name })))
-      else if (!installedKV) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0021({ source: state.name })))
-      return authenticated && Boolean(installedKV)
+      if (!authenticated) state.offline = diagnosticOf("CONTENT_R0020", contentErrorDiagnostics.CONTENT_R0020({ source: state.name }), true)
+      else if (!installedKV) state.offline = diagnosticOf("CONTENT_R0021", contentErrorDiagnostics.CONTENT_R0021({ source: state.name }), true)
+      return !state.offline
     })
     return await state.live
   }
@@ -274,7 +298,13 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     // A fresh reader resolves the branch, not the head that the instance reads.
     const revision = await createSource(state.definition).revision()
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
-    if (!revision?.immutable || revision.id === before?.sha || revision.id === before?.rejected?.sha) return before
+    if (!revision?.immutable) {
+      // Log once until a lookup succeeds again.
+      state.limited ??= diagnosticOf("CONTENT_R0035", contentErrorDiagnostics.CONTENT_R0035({ source: state.name, head: before?.sha ?? null }), true)
+      return before
+    }
+    state.limited = undefined
+    if (revision.id === before?.sha || revision.id === before?.rejected?.sha) return before
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
@@ -366,7 +396,15 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       rejected: head?.rejected ?? null,
       checkedAt: head?.checkedAt ?? null,
       webhook: await lastDelivery(state),
+      diagnostic: diagnostic(state, head, live),
     }
+  }
+
+  function diagnostic(state: HeadState, head: StoredHead | null, live: boolean): ContentSourceHeadDiagnostic | null {
+    if (!live) return state.offline ?? null
+    if (state.limited) return state.limited
+    if (head?.rejected) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha }))
+    return null
   }
 
   const api: ContentSourceHeads = {

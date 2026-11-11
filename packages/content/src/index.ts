@@ -89,7 +89,7 @@ export type {
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { registerContentKV } from "./source-heads.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeads, ContentSourceWebhookDelivery } from "./source-heads.ts"
+export type { ContentKV, ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
