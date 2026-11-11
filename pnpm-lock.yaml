@@ -917,9 +917,6 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
-      '@vite-hub/decisions':
-        specifier: workspace:*
-        version: link:../decisions
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
@@ -3384,9 +3381,6 @@ importers:
 
   packages/vite-hub:
     dependencies:
-      '@cfworker/json-schema':
-        specifier: 4.1.1
-        version: 4.1.1
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1

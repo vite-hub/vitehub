@@ -1,7 +1,6 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
-import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
@@ -76,7 +75,7 @@ export function tryParseSandboxTaskOutput<TResult>(outputRaw: string) {
 
   try {
     const output: unknown = JSON.parse(outputRaw)
-    if (!hasRuntimeType(output, 'object') || output === null || Array.isArray(output) || !hasRuntimeType(Reflect.get(output, 'ok'), 'boolean'))
+    if (typeof output !== "object" || output === null || Array.isArray(output) || typeof Reflect.get(output, 'ok') !== "boolean")
       return null
     // SAFETY: The runtime checks above establish an object with a boolean `ok` field before this generic result cast.
     return output as {

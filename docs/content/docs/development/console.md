@@ -308,51 +308,6 @@ When you serve that folder:
 
 On Cloudflare, `packages/vite-hub/console.hosted.wrangler.jsonc` is the configuration of console.vitehub.dev: a Worker with static assets and no Worker script. Copy it into the same folder, because `assets.directory` is relative to the file. Change `name` and `routes`, build, and run `wrangler deploy --config <file>`.
 
-## Develop against a fixture
-
-Use `vitehub console dev` to get the same Agent Invocations (Agent runs) on every restart. It validates a versioned JSON fixture, then runs the command after `--` with an in-memory Console journal. It does not write the default Agent journal at `.vitehub/data/agent-invocations.sqlite`.
-
-```bash [Terminal]
-pnpm vitehub console dev \
-  --fixture test/fixtures/console.fixture.json \
-  -- pnpm dev
-```
-
-Fixture paths start at the Vite project root. List records oldest first, so the session list shows newest first. A version 1 fixture holds complete `AgentInvocationRecord` values. `cursor` is optional, because fixture mode sets it from the array order.
-
-```json [test/fixtures/console.fixture.json]
-{
-  "version": 1,
-  "invocations": [
-    {
-      "id": "fixture_support_reply",
-      "traceId": "fixture_trace_support",
-      "agentName": "support",
-      "status": "completed",
-      "createdAt": "2026-08-27T10:00:00.000Z",
-      "updatedAt": "2026-08-27T10:00:02.000Z",
-      "completedAt": "2026-08-27T10:00:02.000Z",
-      "observations": [
-        {
-          "name": "agent.message",
-          "type": "run",
-          "sequence": 1,
-          "timestamp": "2026-08-27T10:00:01.000Z",
-          "attributes": {
-            "message.role": "assistant",
-            "message.content": "Your fixture is ready."
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-The command exits with the child's exit status. A child stopped by a signal gives `128 + signal number`. Bad arguments, unreadable files, bad JSON, unsupported versions, duplicate invocation ids, and invalid records print a diagnostic to stderr and exit `1` before the development command starts. Fixture mode is for development only. A production build rejects the fixture environment before it writes server output.
-
-Fixtures often contain prompts and model output. Use fake or cleaned records before you commit them.
-
 ## Protect the Console route
 
 The Console endpoint is the RPC under `/_vitehub/rpc/**`, the MCP endpoint, and the data routes of some sections. The skill files under `/_vitehub/.well-known/skills/` need no sign-in. ViteHub sends `X-Robots-Tag: noindex, nofollow` on these routes. This does not block access, so choose an access policy with `console.auth`:

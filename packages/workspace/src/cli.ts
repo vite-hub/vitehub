@@ -19,7 +19,6 @@ import type { WorkspaceDevTokenOptions } from "./server.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 import { workspaceHooksNamespace } from "./hooks-cli.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 interface WorkspaceCliContext {
   cwd: string
@@ -264,7 +263,7 @@ async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: W
   if (!server) return
   const { discovery, url } = server
   const workspaces = Array.isArray(discovery.workspaces)
-    ? discovery.workspaces.flatMap(workspace => isPlainObject(workspace) && hasRuntimeType(workspace.name, "string") ? [workspace.name] : [])
+    ? discovery.workspaces.flatMap(workspace => isPlainObject(workspace) && typeof workspace.name === "string" ? [workspace.name] : [])
     : []
   if (!workspaces.includes(parsed.workspace)) {
     context.stderr.write(`Unknown Workspace Dev target: ${parsed.workspace}\n`)
