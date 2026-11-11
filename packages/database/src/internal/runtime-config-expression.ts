@@ -30,15 +30,15 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
 
 /**
  * Renders the `createPostgresDatabase()` call for a Postgres Definition in a generated runtime module.
- * `schemaExpression` is the merged schema, because Nuxt layers and contributed tables add tables that the evaluated
- * Definition does not hold. A development module renders `createDevPostgresDatabase()` instead, which can run the
- * Database on PGlite. It is awaited at the top level of the module.
+ * `schemaExpression` and `relationsExpression` are the merged schema and relations, because Nuxt layers and contributed
+ * tables add tables and relations that the evaluated Definition does not hold. A development module renders
+ * `createDevPostgresDatabase()` instead, which can run the Database on PGlite. It is awaited at the top level.
  */
-export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, dev = false) {
+export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, relationsExpression: string, dev = false) {
   const database = config.databases[name]!
   const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
   if (database.connection?.url !== undefined) defaults.url = database.connection.url
-  const definition = `{ ...${definitionVariable}, schema: ${schemaExpression} }`
+  const definition = `{ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }`
   if (!dev) return `createPostgresDatabase(${definition}, ${JSON.stringify(defaults)})`
   const pglite: PgliteOptions = { dataDir: resolve(config.rootDir, localPgliteDir(name)), migrationsDir: resolve(config.rootDir, database.migrationsDir) }
   return `await createDevPostgresDatabase(${definition}, ${JSON.stringify(defaults)}, ${JSON.stringify(pglite)})`

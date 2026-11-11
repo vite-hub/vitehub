@@ -5,13 +5,14 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { sql } from "drizzle-orm"
-import { pgTable, serial, text } from "drizzle-orm/pg-core"
+import { defineRelations, sql } from "drizzle-orm"
+import { integer, pgTable, serial, text } from "drizzle-orm/pg-core"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
+import { defineDatabase } from "../src/definition.ts"
 import { hubDb as hubDbNuxt } from "../src/nuxt.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
 import { postgresEnvNames } from "../src/runtime/postgres-env.ts"
@@ -143,7 +144,7 @@ describe("a Postgres Database without a server in development", () => {
     for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
     const root = await mkdtemp(join(import.meta.dirname, ".pglite-"))
     roots.push(root)
-    const db = await createDevPostgresDatabase({ connection, dialect: "postgresql", name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
+    const db = await createDevPostgresDatabase({ connection, dialect: "postgresql", name: "default", relations: defineRelations({ notes }), schema: { notes } }, { binding: "HYPERDRIVE" }, {
       dataDir: join(root, "pglite"),
       migrationsDir: join(root, "migrations"),
     })
@@ -156,7 +157,7 @@ describe("a Postgres Database without a server in development", () => {
     const root = await mkdtemp(join(import.meta.dirname, ".pglite-"))
     roots.push(root)
     vi.spyOn(console, "info").mockImplementation(() => {})
-    const db = await createDevPostgresDatabase({ connection: { url: "postgres://localhost:5432/app" }, dialect: "postgresql", driver: "pglite", name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
+    const db = await createDevPostgresDatabase({ connection: { url: "postgres://localhost:5432/app" }, dialect: "postgresql", driver: "pglite", name: "default", relations: defineRelations({ notes }), schema: { notes } }, { binding: "HYPERDRIVE" }, {
       dataDir: join(root, "pglite"),
       migrationsDir: join(root, "migrations"),
     })
@@ -169,7 +170,7 @@ describe("a Postgres Database without a server in development", () => {
     const root = await mkdtemp(join(import.meta.dirname, ".pglite-"))
     roots.push(root)
     vi.spyOn(console, "info").mockImplementation(() => {})
-    const db = await createDevPostgresDatabase({ dialect: "postgresql", name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
+    const db = await createDevPostgresDatabase({ dialect: "postgresql", name: "default", relations: defineRelations({ notes }), schema: { notes } }, { binding: "HYPERDRIVE" }, {
       dataDir: join(root, "pglite"),
       migrationsDir: join(root, "migrations"),
     })
@@ -196,7 +197,7 @@ describe("a Postgres Database without a server in development", () => {
     roots.push(root)
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const options = { dataDir: join(root, "pglite"), migrationsDir: join(root, "migrations") }
-    const definition = { dialect: "postgresql" as const, name: "default", schema: { notes } }
+    const definition = { dialect: "postgresql" as const, name: "default", relations: defineRelations({ notes }), schema: { notes } }
     // A Definition change gives a new module, and so a new database, in the same process.
     const before = await createDevPostgresDatabase(definition, { binding: "HYPERDRIVE" }, options)
     await before.execute(sql`create table notes (id serial primary key, title text not null)`)
@@ -207,6 +208,43 @@ describe("a Postgres Database without a server in development", () => {
     expect(Reflect.get(after, "$client")).toBe(Reflect.get(before, "$client"))
     expect(info).toHaveBeenCalledTimes(1)
     await Reflect.get(after, "$client").close()
+  }, 60_000)
+
+  it.each([false, true])("queries Definition relations on PGlite (app test mode: %s)", async (inMemory) => {
+    const root = await mkdtemp(join(import.meta.dirname, ".pglite-"))
+    roots.push(root)
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const authors = pgTable("authors", { id: serial("id").primaryKey(), name: text("name").notNull() })
+    const books = pgTable("books", { id: serial("id").primaryKey(), authorId: integer("author_id").notNull() })
+    const schema = { authors, books }
+    const definition = defineDatabase({
+      dialect: "postgresql",
+      relations: defineRelations(schema, r => ({ books: { author: r.one.authors({ from: r.books.authorId, to: r.authors.id }) } })),
+      schema,
+    })
+    const mode = inMemory ? enableViteHubTestMode({ root }) : undefined
+    const db = await createDevPostgresDatabase(definition, { binding: "HYPERDRIVE" }, {
+      dataDir: join(root, "pglite"),
+      migrationsDir: join(root, "migrations"),
+    })
+    try {
+      await db.execute(sql`create table authors (id serial primary key, name text not null)`)
+      await db.execute(sql`create table books (id serial primary key, author_id integer not null)`)
+      await db.insert(authors).values({ name: "Ada" })
+      await db.insert(books).values({ authorId: 1 })
+
+      expect(await db.query.books.findMany({ with: { author: true } })).toEqual([
+        { id: 1, authorId: 1, author: { id: 1, name: "Ada" } },
+      ])
+      expect(existsSync(join(root, "pglite"))).toBe(!inMemory)
+    }
+    finally {
+      if (mode) {
+        await mode.reset()
+        Reflect.deleteProperty(globalThis, Symbol.for("vitehub.test"))
+      }
+      else await Reflect.get(db, "$client").close()
+    }
   }, 60_000)
 
   it("names the fix when `vitehub database migrate` cannot load PGlite", async () => {
@@ -240,7 +278,7 @@ describe("a Postgres Database without a server in development", () => {
       roots.push(root)
       const options = { dataDir: join(root, "pglite"), migrationsDir: join(root, "migrations") }
       // The module still loads, so an app that does not query this Database keeps working.
-      const db = await createDatabase({ dialect: "postgresql", name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, options)
+      const db = await createDatabase({ dialect: "postgresql", name: "default", relations: defineRelations({ notes }), schema: { notes } }, { binding: "HYPERDRIVE" }, options)
 
       expect(() => db.select().from(notes)).toThrow(expect.objectContaining({
         code: "DATABASE_PGLITE_NOT_INSTALLED",
@@ -269,7 +307,7 @@ describe("a Postgres Database on PGlite in app tests", () => {
     const migrations = join(root, "server/databases/default/migrations")
     await mkdir(join(migrations, "20260101000000_notes"), { recursive: true })
     await writeFile(join(migrations, "20260101000000_notes/migration.sql"), "CREATE TABLE \"notes\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"title\" text NOT NULL\n);\n")
-    const db = await createDevPostgresDatabase({ dialect: "postgresql", name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
+    const db = await createDevPostgresDatabase({ dialect: "postgresql", name: "default", relations: defineRelations({ notes }), schema: { notes } }, { binding: "HYPERDRIVE" }, {
       dataDir: join(root, ".vitehub/data/database/pglite"),
       migrationsDir: migrations,
     })

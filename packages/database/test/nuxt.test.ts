@@ -311,7 +311,7 @@ describe("Database Nuxt integration", () => {
         },
       })
       const runtime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
+      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1131,8 +1131,9 @@ describe("Database Nuxt integration", () => {
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       // Development can run the Database on PGlite, so its module awaits PGlite when it has no server.
       expect(code).toMatch(/import \{ createDevPostgresDatabase \} from "file:.+\/runtime\/pglite\.js"/)
-      expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
+      expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1151,9 +1152,10 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "mergeDatabaseRelations", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
+        () => ({ marker: "relations" }),
         () => ({}),
         () => () => undefined,
         () => new Error("missing"),
@@ -1161,7 +1163,7 @@ describe("Database Nuxt integration", () => {
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
-      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, relations: { marker: "relations" }, schema: { marker: "schema" } })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1186,18 +1188,20 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
-      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
-        { name: "default", schema: { notes: "notes" } },
+      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "mergeDatabaseRelations", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+        { name: "default", relations: { marker: "own" }, schema: { notes: "notes" } },
         { historyRefs: "refs" },
         (input: unknown) => created.push(input),
+        (database: string, schema: unknown, parts: unknown[]) => ({ database, parts, schema }),
         () => ({}),
         () => () => undefined,
         () => new Error("missing"),
         createUseDatabase,
       ) as { useDatabase: (name: string) => { schema: unknown } }
 
+      const relations = { database: "default", parts: [{ marker: "own" }], schema: { historyRefs: "refs", notes: "notes" } }
       expect(runtime.useDatabase("default").schema).toEqual({ historyRefs: "refs", notes: "notes" })
-      expect(created).toEqual([{ name: "default", schema: { historyRefs: "refs", notes: "notes" } }])
+      expect(created).toEqual([{ name: "default", relations, schema: { historyRefs: "refs", notes: "notes" } }])
     }
     finally {
       await callHook(hooks, "close", {})
@@ -1656,7 +1660,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
 
       const module = await readFile(join(rootDir, ".vitehub/database/vercel-runtime.mjs"), "utf8")
-      const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), schema_0\)/.exec(module)?.[1]
+      const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), relations_0\)/.exec(module)?.[1]
       expect(expression).toBeDefined()
       const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ schema: {} }, resolveRuntimeCloudflareConfig)
       expect(resolveConfigValue(config.cloudflare.databaseId)).toBe("provisioned-id")

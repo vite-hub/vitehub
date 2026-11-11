@@ -2,7 +2,6 @@ import { existsSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import { defineRelations } from "drizzle-orm"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
@@ -11,6 +10,7 @@ import { createPostgresDatabase } from "./postgres.ts"
 import { keepOwnClient, trackPgliteClient } from "./request-stats.ts"
 
 import type { PGlite as PgliteClient } from "@electric-sql/pglite"
+import type { AnyRelations } from "drizzle-orm"
 import type { LocalPostgresDatabase, PostgresDatabaseDefaults } from "./postgres.ts"
 import type { DatabaseConfigValue, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "../types.ts"
 
@@ -35,11 +35,11 @@ const folderClients = (runtimeGlobal[folderClientsKey] ||= new Map<string, Pglit
  * no PG* variables. Returns `undefined` when it connects to a server, so an app with a server never loads PGlite. The
  * generated development module awaits it, because Drizzle needs the database before the first query.
  */
-export async function loadPglite<TSchema extends Record<string, unknown>>(
-  definition: PostgresDatabaseDefinition<TSchema>,
+export async function loadPglite<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+  definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   url: DatabaseConfigValue | undefined,
   options: PgliteOptions,
-): Promise<LocalPostgresDatabase<TSchema> | undefined> {
+): Promise<LocalPostgresDatabase<TSchema, TRelations> | undefined> {
   if (!runsOnPglite(definition.driver, resolveConfigValue(definition.connection?.url ?? url))) return
   const always = definition.driver === "pglite"
 
@@ -57,10 +57,10 @@ export async function loadPglite<TSchema extends Record<string, unknown>>(
   }
   const [{ PGlite }, { drizzle }, { migrate }] = modules
   // The same relations as the postgres.js client, so `db.query.<table>` works.
-  const relations = defineRelations(definition.schema)
+  const { relations } = definition
 
   // Drizzle's queries count in the request stats. `db.$client` stays the client that Drizzle got.
-  function open(client: PgliteClient): RuntimePostgresDatabase<TSchema> {
+  function open(client: PgliteClient): RuntimePostgresDatabase<TSchema, TRelations> {
     return keepOwnClient(drizzle({ client: trackPgliteClient(client), relations }), client)
   }
 
@@ -87,7 +87,7 @@ export async function loadPglite<TSchema extends Record<string, unknown>>(
     return { client, db }
   }
 
-  let folderDatabase: RuntimePostgresDatabase<TSchema> | undefined
+  let folderDatabase: RuntimePostgresDatabase<TSchema, TRelations> | undefined
   return {
     always,
     get() {
@@ -109,10 +109,10 @@ export async function loadPglite<TSchema extends Record<string, unknown>>(
 }
 
 /** Creates the Drizzle client of a Postgres Database in development, with PGlite when it has no server. */
-export async function createDevPostgresDatabase<TSchema extends Record<string, unknown>>(
-  definition: PostgresDatabaseDefinition<TSchema>,
+export async function createDevPostgresDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+  definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   defaults: PostgresDatabaseDefaults,
   options: PgliteOptions,
-): Promise<RuntimePostgresDatabase<TSchema>> {
+): Promise<RuntimePostgresDatabase<TSchema, TRelations>> {
   return createPostgresDatabase(definition, defaults, await loadPglite(definition, defaults.url, options))
 }
