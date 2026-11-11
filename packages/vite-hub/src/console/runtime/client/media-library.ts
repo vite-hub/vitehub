@@ -148,7 +148,6 @@ interface ConsoleUploadRequest {
   responseType: string
   send(body: string): void
   setRequestHeader(name: string, value: string): void
-  getResponseHeader(name: string): string | null
   readonly status: number
   abort(): void
   addEventListener(type: "abort" | "error" | "load", listener: () => void): void
@@ -168,15 +167,8 @@ async function fileBase64(file: Blob): Promise<string> {
  * as base64 in the JSON body of the Console RPC.
  */
 async function uploadRequest(input: Record<string, string>, options: ConsoleMediaUploadOptions): Promise<unknown> {
-  // The headers wait first, so an OAuth access token that is about to expire is refreshed before the upload starts.
-  const { url, headers, renew } = await projectRequest(operationRpcPath, { "content-type": "application/json", [consoleRpcHeader]: "1" })
-  const outcome = await callOperationRpc("media.upload", input, async (body) => {
-    const first = await sendUpload(url, headers, body, options)
-    if (first.status !== 401) return first
-    // A project can refuse an OAuth access token before it expires. One refresh of the same project may fix it.
-    const renewed = await renew(first.challenge)
-    return renewed ? await sendUpload(url, renewed, body, options) : first
-  })
+  const { url, headers } = projectRequest(operationRpcPath, { "content-type": "application/json", [consoleRpcHeader]: "1" })
+  const outcome = await callOperationRpc("media.upload", input, body => sendUpload(url, headers, body, options))
   if (outcome.ok) return outcome.value
   // Host middleware answers with the diagnostic body and no birpc reply.
   const failure = outcome.error ?? (outcome.answer.body instanceof Object && !Array.isArray(outcome.answer.body) ? outcome.answer.body : undefined)
@@ -189,7 +181,6 @@ async function uploadRequest(input: Record<string, string>, options: ConsoleMedi
 interface ConsoleUploadAnswer {
   status: number
   body: unknown
-  challenge: string | null
 }
 
 function sendUpload(url: string, headers: Record<string, string>, body: string, options: ConsoleMediaUploadOptions): Promise<ConsoleUploadAnswer> {
@@ -208,7 +199,7 @@ function sendUpload(url: string, headers: Record<string, string>, body: string, 
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total)
     })
     request.addEventListener("load", () => {
-      resolve({ body: request.response, challenge: request.getResponseHeader("www-authenticate"), status: request.status })
+      resolve({ body: request.response, status: request.status })
     })
     request.addEventListener("error", () => reject(new ConsoleRequestError(0, "The upload could not reach the server.")))
     request.addEventListener("abort", () => reject(new DOMException("The upload was cancelled.", "AbortError")))

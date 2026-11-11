@@ -3,7 +3,7 @@ import { createConsoleKeyPair, signConsoleRequest } from "@vite-hub/internal/con
 import { consoleRpcHeader } from "../../src/console/runtime/rpc.ts"
 import { operationRpcBody } from "../../../internal/test-utils/operation-rpc.ts"
 
-import type { ConsoleCaller, ConsoleSigningKey } from "@vite-hub/internal/console-signature"
+import type { ConsoleCaller, ConsoleCallerUser, ConsoleSigningKey } from "@vite-hub/internal/console-signature"
 
 /** A real Ed25519 key pair, named `name`, and the env line that an app keeps for it. */
 export async function consoleTestKey(name = "CI"): Promise<{ env: Record<string, string>, key: ConsoleSigningKey, publicKey: string }> {
@@ -30,4 +30,31 @@ export async function signedRpcRequest(options: {
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...signed, ...options.headers },
     method: "POST",
   })
+}
+
+/**
+ * Take only signed calls, as an app with `console: true` does: install `token` access with one test key in
+ * `process.env`. `sign()` signs a request as the Console for `user`, or as the CLI without one. `restore()` removes the key.
+ */
+export async function signedConsoleAccess(name = "CI"): Promise<{ key: ConsoleSigningKey, restore(): void, sign(request: Request, user?: ConsoleCallerUser): Promise<Request> }> {
+  const { installConsoleAccess } = await import("../../src/console/runtime/server/access.ts")
+  const { env, key } = await consoleTestKey(name)
+  const variable = Object.keys(env)[0]!
+  const previous = process.env[variable]
+  process.env[variable] = env[variable]
+  installConsoleAccess({ mode: "token" })
+  return {
+    key,
+    restore() {
+      if (previous === undefined) delete process.env[variable]
+      else process.env[variable] = previous
+    },
+    async sign(request, user) {
+      const body = await request.clone().text()
+      const caller: ConsoleCaller = user ? { via: "console", user } : { via: "cli" }
+      const headers = new Headers(request.headers)
+      for (const [header, value] of Object.entries(await signConsoleRequest({ body, caller, key, method: request.method, url: request.url }))) headers.set(header, value)
+      return new Request(request.url, { body, headers, method: request.method })
+    },
+  }
 }

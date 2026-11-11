@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import { consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { consoleRealtimeAccess, installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { loadConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -32,7 +32,7 @@ async function registeredConsoleRoutes(): Promise<Registration[]> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-loopback-"))
   try {
     await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "console-loopback" })}\n`)
-    const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections })
+    const plugin = consoleVitePlugin({ console: { auth: false }, sections })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a Console config hook.")
     const config: { nitro?: { handlers: Registration[] }, root: string } = { root }
@@ -97,7 +97,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["auth-manage.ts", "env-manage.ts", "mcp.ts", "rpc.ts"])
+    expect([...files].sort()).toEqual(["auth-manage.ts", "rpc.ts"])
     const guarded = routes
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
@@ -163,11 +163,5 @@ describe("Console access outside its routes", () => {
     expect(await access.authorize({ event: remote(), kind: "read" })).toBe(false)
     expect(await access.identify({ event: remote() })).toBeNull()
     expect(await access.user({ event: remote() })).toBeNull()
-  })
-
-  it("refuses a remote Connections manager", async () => {
-    const result = await consoleConnectionsActor(remote())
-    expect(result).toBeInstanceOf(Response)
-    await expect(codeOf(result as Response)).resolves.toBe("CONSOLE_LOOPBACK_ONLY")
   })
 })
