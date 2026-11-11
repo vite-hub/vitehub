@@ -413,9 +413,9 @@ The second line is the method, the third line is the path and query that the app
 
 When no key variable is set, every request gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`. When one of them is not a key, every request gets `500` with `CONSOLE_KEY_MALFORMED`, and the message names it. Signed requests reach only `POST /_vitehub/rpc`.
 
-The app origin is the origin of `vitehub({ publicUrl })` when it is set. Without it, it is the URL of the request as the host routed it. The server never reads `Host` or `X-Forwarded-*` headers for this, because any caller can set them. A Node.js server behind a proxy that ends TLS sees `http:`, so set `publicUrl` to its public URL. The origin stops a request signed for one app, such as a preview, from working on another app with the same key. Inside the 5 minutes, the same request can run again on the same app. TLS keeps others from reading it.
+The app origin is the origin of `vitehub({ publicUrl })` when it is set. Node.js adapters build the request URL from `Host`, which the caller controls, so signed requests on Node require `publicUrl`. Without a matching configured origin, they fail with `500 CONSOLE_SIGNATURE_ORIGIN`. Use the string form for one deployment origin; the function form permits its configured Agent origins. Other hosts can use the request URL as routed by the platform. Forwarding headers never supply the app origin. The origin stops a request signed for one app, such as a preview, from working on another app with the same key. Inside the 5 minutes, the same request can run again on the same app. TLS keeps others from reading it.
 
-A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the public key in its environment:
+A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. On Node, also set `publicUrl` to that origin in the development configuration. The dev server also needs the public key in its environment:
 
 ```bash [Terminal]
 VITEHUB_CONSOLE_PRIVATE_KEY_CI=<private key> vitehub kv list --url http://localhost:3000

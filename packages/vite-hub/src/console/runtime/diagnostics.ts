@@ -144,8 +144,8 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "retry",
     ),
     CONSOLE_SIGNATURE_ORIGIN: code(
-      "The request was signed for another origin than this app.",
-      "Link the app with the URL that serves it. A Node.js server behind a proxy that ends TLS must set `vitehub({ publicUrl })` to its public URL.",
+      "The request was signed for another origin, or the app has no trusted origin.",
+      "Link the app with the URL that serves it. A Node.js server must set `vitehub({ publicUrl })` to its public URL for signed requests.",
       `${consoleGuide}#sign-console-requests`,
       "docs",
     ),
