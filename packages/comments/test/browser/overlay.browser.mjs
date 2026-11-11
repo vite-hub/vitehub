@@ -406,7 +406,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
-      // The system's text menu opens just above the selection, so the bar leaves it 56px.
+      // The system's text menu opens just above the selection, so the bar leaves it 64px.
       assert.ok(start - (box.y + box.height) >= 63, `bar ends at ${box.y + box.height}, text starts at ${start}`)
       if (evidence) await touch.screenshot({ path: `${evidence}/touch-bar-near-bottom.png` })
       await button.tap()
