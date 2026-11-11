@@ -3,6 +3,7 @@ import html from "comark/plugins/html"
 import linkify from "comark/plugins/linkify"
 import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./host.ts"
@@ -24,6 +25,13 @@ interface GitHubMentionState {
 const actor = v.nullable(v.object({ login: v.string(), __typename: v.string() }))
 const reviewSchema = v.object({ author: actor, state: v.string() })
 const pageSchema = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.string()) })
+const threadOutcomeCommentsSchema = v.object({
+  viewer: v.object({ login: v.string() }),
+  node: v.object({ comments: v.object({
+    nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string() })) })),
+    pageInfo: pageSchema,
+  }) }),
+})
 const snapshotSchema = v.object({
   id: v.string(),
   number: v.number(),
@@ -113,6 +121,26 @@ export interface GitHubBaseCheckEvidence {
   truncated: { checkRuns: boolean, statuses: boolean, workflowRuns: boolean }
 }
 
+/** How a review thread was answered. "fixed" may omit the reason; every other outcome states it. */
+export const reviewThreadOutcomes = {
+  fixed: "Fixed",
+  disproved: "Disproved",
+  declined: "Declined",
+  "pre-existing": "Pre-existing",
+  duplicate: "Duplicate",
+} as const
+
+export type ReviewThreadOutcome = keyof typeof reviewThreadOutcomes
+
+export function isReviewThreadOutcome(value: string): value is ReviewThreadOutcome {
+  return Object.hasOwn(reviewThreadOutcomes, value)
+}
+
+export interface ReviewThreadAnswer {
+  outcome: ReviewThreadOutcome
+  reason?: string
+}
+
 export interface GitHubPullRequestOperations {
   requestAutoMerge(): Promise<GitHubAutoMergeResult>
   comment(body: string): Promise<void>
@@ -120,7 +148,8 @@ export interface GitHubPullRequestOperations {
   readCheckLogs(runId: number): Promise<{ text: string, truncated: boolean }>
   readBaseCheckEvidence(): Promise<GitHubBaseCheckEvidence>
   readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
-  resolveThread(id: string): Promise<void>
+  /** Posts the outcome and its reason as a thread reply, then resolves the thread. */
+  resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<string>
   refreshDependencies(): Promise<void>
@@ -254,7 +283,7 @@ export function createGitHubPullRequestOperations(
     return { provider, repo, pullRequest }
   }
 
-  async function graphQL(query: string, variables: Record<string, string | number> = {}): Promise<unknown> {
+  async function graphQL(query: string, variables: Record<string, string | number | null> = {}): Promise<unknown> {
     const { provider } = await forge()
     const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1]
     const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data
@@ -263,6 +292,22 @@ export function createGitHubPullRequestOperations(
       throw new Error(messages || "GitHub could not complete the pull request operation.")
     }
     return isRecord(response) && "data" in response ? response.data : response
+  }
+
+  async function hasThreadAnswer(id: string, body: string): Promise<boolean> {
+    // forges only reads the first 100 comments in a thread. Read every page so
+    // a retry after either remote write can find an answer from this credential.
+    let after: string | null = null
+    const cursors = new Set<string>()
+    do {
+      const data: v.InferOutput<typeof threadOutcomeCommentsSchema> = v.parse(threadOutcomeCommentsSchema, await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
+      if (data.node.comments.nodes.some(comment => comment.author?.login === data.viewer.login && comment.body === body)) return true
+      if (!data.node.comments.pageInfo.hasNextPage) return false
+      after = data.node.comments.pageInfo.endCursor
+      if (!after || cursors.has(after)) throw presetsErrorDiagnostics.PRESETS_REVIEW_CURSOR_INVALID()
+      cursors.add(after)
+    } while (after)
+    return false
   }
 
   async function snapshot() {
@@ -440,21 +485,37 @@ export function createGitHubPullRequestOperations(
       // Keep block Markdown at the start of the validated body on its own line.
       await provider.threads.createComment(pullRequest, `${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`, { signal })
     },
-    async resolveThread(id) {
+    async resolveThread(id, answer) {
       nonempty(id, "Review thread ID")
+      const outcome = answer?.outcome
+      if (outcome !== undefined && !isReviewThreadOutcome(outcome)) throw presetsErrorDiagnostics.PRESETS_REVIEW_OUTCOME_INVALID()
+      const reason = answer?.reason?.trim()
+      // A finding closed without a code change needs its reason on the thread: it is the record the
+      // author and the reviewer read, and the outcome marker is what review metrics count.
+      if (outcome !== undefined && outcome !== "fixed" && !reason) throw presetsErrorDiagnostics.PRESETS_REVIEW_REASON_REQUIRED({ outcome })
+      const body = outcome === undefined ? undefined : `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
+      if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw presetsErrorDiagnostics.PRESETS_REVIEW_MENTION_FORBIDDEN()
       await snapshot()
       const reader = await forge()
-      let resolved: boolean | undefined
-      for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
-        if (thread.id === id) { resolved = thread.resolved; break }
-      }
-      if (resolved === undefined) throw new Error("Review thread does not belong to this pull request.")
-      if (resolved) return
+      const found = await (async () => {
+        for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
+          if (thread.id === id) return thread
+        }
+      })()
+      if (!found) throw new Error("Review thread does not belong to this pull request.")
+      if (found.resolved && body === undefined) return
+      const answered = body === undefined || await hasThreadAnswer(id, body)
+      const first = found.comments[0]
+      if (!answered && !first) throw presetsErrorDiagnostics.PRESETS_REVIEW_COMMENT_MISSING()
+      if (found.resolved && answered) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
       const { provider: writer, pullRequest } = await forge()
-      await writer.threads.resolveReviewThread(pullRequest, id, { signal })
+      if (!answered && first && body !== undefined) {
+        await writer.threads.replyToReviewComment(pullRequest, first, body, { signal })
+      }
+      if (!found.resolved) await writer.threads.resolveReviewThread(pullRequest, id, { signal })
     },
     async updateMetadata(input) {
       if (input.title === undefined && input.body === undefined) throw new Error("Provide a pull request title or body.")

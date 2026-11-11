@@ -24,6 +24,21 @@ export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccess
   else state.accessIdentityResolvers.delete(path)
 }
 
+/**
+ * The Nitro route `meta` of a handler that checks its own access, such as the ViteHub Console route. The access routes
+ * leave a request to the handler that Nitro routed it to when that handler has this meta, whatever its path and method.
+ * The exception follows the dispatch, so an app route file on the same path keeps the access routes.
+ */
+export const authAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = Object.freeze({ vitehubAuthAccess: "handler" })
+
+/** Whether Nitro routed the request event to a handler with `authAccessHandlerMeta`. A plain Request has no route. */
+function routedToAccessHandler(input: AuthRequestInput): boolean {
+  if (!("context" in input) || !(input.context instanceof Object)) return false
+  const route: unknown = Reflect.get(input.context, "matchedRoute")
+  const meta: unknown = route instanceof Object ? Reflect.get(route, "meta") : undefined
+  return meta instanceof Object && Reflect.get(meta, "vitehubAuthAccess") === authAccessHandlerMeta.vitehubAuthAccess
+}
+
 export interface AuthAccessRouteMatch {
   index: number
   authorize: boolean
@@ -40,6 +55,7 @@ export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccess
   }))
 
   return (input) => {
+    if (routedToAccessHandler(input)) return []
     const request = unwrapAuthRequest(input)
     const pathname = new URL(request.url).pathname
     const method = request.method.toUpperCase()
