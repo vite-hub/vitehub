@@ -174,7 +174,9 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     },
   })
   const { migrate: _migrate, ...postgresOptions } = storeOptions
-  const postgres = createPostgresAgentInvocationStore({
+  // Created on the first Postgres operation, so a tablePrefix that only SQLite accepts does not fail a SQLite Database.
+  let postgres: Required<Omit<AgentInvocationStore, "open">> | undefined
+  const postgresStore = () => postgres ??= createPostgresAgentInvocationStore({
     ...postgresOptions,
     database: name,
     client() {
@@ -190,7 +192,7 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     },
   })
   // A runtime proxy resolves its driver per request, so each operation picks the store for the current client.
-  const store = (): Required<Omit<AgentInvocationStore, "open">> => postgresClient(runtime().$client) ? postgres : sqlite
+  const store = (): Required<Omit<AgentInvocationStore, "open">> => postgresClient(runtime().$client) ? postgresStore() : sqlite
   return {
     claim: async (...args) => await store().claim(...args),
     create: async input => await store().create(input),

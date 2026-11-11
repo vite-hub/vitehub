@@ -316,7 +316,7 @@ describe("vitehub({ agent: { invocations } })", () => {
 
   it("adds the Postgres journal tables to the migrations of a Postgres target Database only", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-postgres-"))
-    const definition = (body: string) => writeFile(join(root, "server/databases/config.ts"), `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ ${body}schema: {} })\n`)
+    const definition = (body: string) => writeFile(join(root, "server/databases/default.ts"), `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ ${body}schema: {} })\n`)
     try {
       await mkdir(join(root, "server/databases"), { recursive: true })
       await definition(`dialect: "postgresql", `)
@@ -341,7 +341,7 @@ describe("vitehub({ agent: { invocations } })", () => {
       await definition("")
       await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])
       // Without a Definition, another Postgres contribution makes the implicit `default` Database use Postgres.
-      await rm(join(root, "server/databases/config.ts"))
+      await rm(join(root, "server/databases/default.ts"))
       const postgresUse = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
       await expect(agentInvocationsDatabaseContributions({ ...context, plugins: [...plugins, postgresUse] }, undefined)).resolves.toEqual([expect.objectContaining({ database: "default", dialect: "postgresql" })])
       await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])

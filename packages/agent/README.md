@@ -518,7 +518,7 @@ A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an
 
 ## Postgres invocation storage
 
-`@vite-hub/agent/invocations/postgres` exports `postgresAgentInvocationTables({ tablePrefix? })`, the Drizzle tables of the journal on a Postgres Database, and `agentInvocationsPostgresSchema`, the same tables with the default `vitehub_agent_` prefix. `createDatabaseAgentInvocationStore()` uses these tables when the Database runs on postgres.js. The store does not create them; the Database migrations do. A missing table fails with `AGENT_R1038`. Claims expire by the database clock, and each update locks its record row in a transaction. See [Store invocations in a Postgres Database](../../docs/content/docs/agents/invocation-storage.md#store-invocations-in-a-postgres-database).
+`@vite-hub/agent/invocations/postgres` exports `postgresAgentInvocationTables({ tablePrefix? })`, the Drizzle tables of the journal on a Postgres Database, and `agentInvocationsPostgresSchema`, the same tables with the default `vitehub_agent_` prefix. A Postgres `tablePrefix` has at most 25 lowercase letters, digits, and underscores, and does not start with a digit; another prefix fails with `AGENT_R0910`. `createDatabaseAgentInvocationStore()` uses these tables when the Database runs on postgres.js. The store does not create them; the Database migrations do. A missing table fails with `AGENT_R1038`. Claims expire by the database clock, and each update locks its record row in a transaction. See [Store invocations in a Postgres Database](../../docs/content/docs/agents/invocation-storage.md#store-invocations-in-a-postgres-database).
 
 ## D1 invocation storage
 

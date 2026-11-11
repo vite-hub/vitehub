@@ -353,9 +353,9 @@ pnpm vitehub database migrate
 - Each update locks its record row in a transaction, so concurrent appends from several instances keep every observation.
 - `maxAge` and `maxRecords` delete only terminal records. Retention skips a record that another transaction writes and deletes it on a later prune.
 - `maxSize` is not supported, and `migrate` has no effect.
-- For another Database, or another `tablePrefix`, add the tables yourself with `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres`, and pass the same `tablePrefix` to `createDatabaseAgentInvocationStore()`:
+- For another Database, or another `tablePrefix`, add the tables yourself with `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres`, and pass the same `tablePrefix` to `createDatabaseAgentInvocationStore()`. On Postgres, the prefix has at most 25 lowercase letters, digits, and underscores, and does not start with a digit. Another prefix fails with `AGENT_R0910`:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { postgresAgentInvocationTables } from 'vite-hub/agent/invocations/postgres'
 

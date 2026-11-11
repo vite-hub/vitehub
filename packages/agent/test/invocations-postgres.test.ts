@@ -64,6 +64,31 @@ describe("Database Agent Invocation store on postgres.js", () => {
   })
 })
 
+describe("Postgres Agent Invocation tablePrefix", () => {
+  beforeEach(() => {
+    vi.resetModules()
+    useDatabase.mockReset()
+  })
+
+  it.each(["", "support_", "a".repeat(25)])("accepts the lowercase prefix %j and keeps every derived name within 63 bytes", async (tablePrefix) => {
+    const statements = (await journalMigration(tablePrefix)).join("\n")
+    const names = [...statements.matchAll(/"([^"]+)"/g)].map(match => match[1]!).filter(name => name.startsWith(`${tablePrefix}invocations`))
+    expect(names).toContain(`${tablePrefix}invocations_observations_invocation_fk`)
+    for (const name of names) expect(Buffer.byteLength(name)).toBeLessThanOrEqual(63)
+  })
+
+  it.each(["Support_", "a".repeat(26), "customer_support_agent_invocation_history_", "1st_", "support-"])("rejects the prefix %j for the schema and the store", (tablePrefix) => {
+    const error = expect.objectContaining({ code: "AGENT_R0910" })
+    expect(() => postgresAgentInvocationTables({ tablePrefix })).toThrow(error)
+    expect(() => createPostgresAgentInvocationStore({ client: () => { throw new Error("unused") }, tablePrefix })).toThrow(error)
+  })
+
+  it("keeps a SQLite prefix that Postgres rejects valid for a SQLite Database", async () => {
+    const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
+    expect(() => createDatabaseAgentInvocationStore({ tablePrefix: "Support_" })).not.toThrow()
+  })
+})
+
 describe.skipIf(!url)("Postgres Agent Invocation store", () => {
   // Two clients act as two server instances with their own connection pools. The first test wraps `first` in Drizzle,
   // which changes how it sends JSON parameters, and `second` stays a plain postgres.js client. Both use a schema of
@@ -122,6 +147,17 @@ describe.skipIf(!url)("Postgres Agent Invocation store", () => {
     })
     const [row] = await first.unsafe("SELECT to_regclass($1) IS NULL AS absent", [`${missing}invocations`])
     expect(row).toEqual({ absent: true })
+  })
+
+  it("migrates and uses the tables of a prefix with the maximum length", async () => {
+    const longest = `max_${sequence}_`.padEnd(25, "x")
+    for (const statement of await journalMigration(longest)) await first.unsafe(statement)
+    const journal = store(first, { tablePrefix: longest })
+
+    await journal.create(invocation("longest"))
+    await journal.update("longest", { appendObservation: appended(1), timestamp })
+    await expect(journal.list({})).resolves.toMatchObject({ invocations: [{ id: "longest" }] })
+    await expect(journal.get("longest")).resolves.toMatchObject({ observations: [{ name: "agent.tool.call" }] })
   })
 
   it("creates a record once and returns the stored record to a retried create", async () => {
