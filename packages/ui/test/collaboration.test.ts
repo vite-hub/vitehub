@@ -46,6 +46,26 @@ describe("AvatarStack", () => {
     expect(wrapper.get('[data-slot="avatar-stack-item"]').attributes("style")).toContain("--vh-avatar-color: #E11D48");
   });
 
+  it("dims the people who are away, after the ones who are here, and names them away", () => {
+    const wrapper = mount(() =>
+      h(AvatarStack, {
+        max: null,
+        people: [
+          { ...people[0]!, idle: true },
+          people[1]!,
+          { ...people[2]!, idle: true },
+          // Cleo is away in one tab and here in another: here.
+          people[2]!,
+        ],
+      }),
+    );
+
+    const items = wrapper.findAll('[data-slot="avatar-stack-item"]');
+    expect(items.map(item => item.attributes("title"))).toEqual(["Ben", "Cleo", "Ana Ruiz (away)"]);
+    expect(items.map(item => item.attributes("data-idle"))).toEqual([undefined, undefined, "true"]);
+    expect(wrapper.get('[data-slot="avatar-stack"]').attributes("aria-label")).toBe("3 people: Ben, Cleo, Ana Ruiz (away)");
+  });
+
   it("renders on the server", async () => {
     const html = await renderToString(createSSRApp({ render: () => h(AvatarStack, { people }) }));
     expect(html).toContain('data-slot="avatar-stack-count"');

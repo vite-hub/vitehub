@@ -10,6 +10,8 @@ import { consoleSecretProblem, consoleSecretVariable } from "../../src/token-box
 import type { AuthAuthorization } from "@vite-hub/auth"
 import type { ConsoleProjectStore } from "../../src/projects.ts"
 
+export { consoleCallerOf } from "../../src/caller.ts"
+
 const { member } = authSqliteSchema
 
 export function consoleProblem(status: number, code: string, message: string): Response {

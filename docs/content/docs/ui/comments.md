@@ -12,7 +12,8 @@ icon: i-lucide-message-circle
 The parts show state and call a transport. They do not store data or check access. The transport talks to the server:
 
 - `createMemoryTransport()` from `@vite-hub/comments/testing` is for tests and examples.
-- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started).
+- `createRestTransport()` from `@vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
+- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
 
 The built-in live-site overlay uses a different thread and anchor format.
 
@@ -24,7 +25,7 @@ The built-in live-site overlay uses a different thread and anchor format.
 Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add the client:
 
 ```bash
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
 `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:
@@ -225,7 +226,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
-Transports accept attachment keys by default, including `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
+Transports accept attachment keys by default, including `createRestTransport()` and `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
 
 ```vue
 <script setup lang="ts">
