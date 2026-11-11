@@ -126,9 +126,13 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next start.",
     },
+    DATABASE_MIGRATION_FAILED: {
+      why: ({ database, migration, problem }: { database: string, migration: string, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} The database rolled back every pending migration of this run.`,
+      fix: "Fix the SQL of the migration, or the data that it conflicts with, and apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
+    },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node preset and a `file:` connection URL, or remove `migrateOnStart` and run `vitehub database migrate` from the deployment instead.",
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node preset and a `file:` or Postgres connection URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment instead.",
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
