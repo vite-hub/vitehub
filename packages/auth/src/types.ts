@@ -253,6 +253,13 @@ export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends
 export interface AuthObjectOptions {
   /** Where the Nuxt page guard of `definePageMeta({ auth })` sends visitors. Vite apps without Nuxt ignore it. */
   redirects?: AuthRedirects
+  /**
+   * The names that the Nuxt module gives `<Can>`. A prefix keeps it apart from an app component of the same name.
+   * The module registers `<Can>` only when the app has `shared/abilities.ts`. Vite apps without Nuxt ignore it.
+   *
+   * @example { prefix: "Auth" } // <AuthCan>
+   */
+  components?: { prefix?: string }
 }
 
 export type AuthOptions = false | AuthObjectOptions

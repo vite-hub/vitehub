@@ -67,6 +67,8 @@ type NuxtComponent = {
 }
 
 const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
+/** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
+const abilityComponents = ["Can"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
@@ -150,11 +152,12 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 
   // The session bridge and page guard share the discovered Auth path and redirects.
   const authOptions = resolveAuthOptions()
+  const authConfig = authOptions === false ? undefined : resolveAuthConfig()
   const redirects = authOptions ? authOptions.redirects : undefined
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
   nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
-    basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
+    basePath: authConfig?.basePath ?? "/api/auth",
     redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
   }
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
@@ -164,26 +167,33 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  if (!componentsRegistered.has(nuxt) && nuxt.hook) {
+  // Without `shared/abilities.ts`, the app has no rules to check, so the name `<Can>` stays free for the app. In
+  // development, adding or removing the file restarts Nuxt (below), and this check runs again.
+  if (authConfig?.abilities && !componentsRegistered.has(nuxt) && nuxt.hook) {
     componentsRegistered.add(nuxt)
     const filePath = options.importsFrom || "@vite-hub/auth/vue"
-    // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
+    const prefix = (authOptions && authOptions.components?.prefix) || ""
+    // The same entries that `@nuxt/kit`'s addComponentExports() writes, without a dependency on `@nuxt/kit`.
     ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
-      if (components.some(component => component.pascalName === "Can")) return
-      components.push({
-        chunkName: "components/can",
-        export: "Can",
-        filePath,
-        global: false,
-        kebabName: "can",
-        meta: {},
-        mode: "all",
-        pascalName: "Can",
-        prefetch: false,
-        preload: false,
-        priority: 0,
-        shortPath: filePath,
-      })
+      for (const name of abilityComponents) {
+        const { kebabName, pascalName } = componentNames(prefix, name)
+        // An app component with the same name wins.
+        if (components.some(component => component.pascalName === pascalName)) continue
+        components.push({
+          chunkName: `components/${kebabName}`,
+          export: name,
+          filePath,
+          global: false,
+          kebabName,
+          meta: {},
+          mode: "all",
+          pascalName,
+          prefetch: false,
+          preload: false,
+          priority: 0,
+          shortPath: filePath,
+        })
+      }
     })
   }
 
@@ -226,5 +236,19 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   nuxt.options.nitro.plugins ??= []
   if (!nuxt.options.nitro.plugins.includes(runtimePlugin)) {
     nuxt.options.nitro.plugins.push(runtimePlugin)
+  }
+}
+
+/**
+ * The Nuxt names of a component export under a prefix, split into words as `@nuxt/kit` splits them.
+ *
+ * @example
+ * componentNames("my-auth", "Can") // { kebabName: "my-auth-can", pascalName: "MyAuthCan" }
+ */
+function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
+  const words = `${prefix} ${name}`.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z\d]+|\d+/g) ?? []
+  return {
+    kebabName: words.map(word => word.toLowerCase()).join("-"),
+    pascalName: words.map(word => word[0]!.toUpperCase() + word.slice(1)).join(""),
   }
 }

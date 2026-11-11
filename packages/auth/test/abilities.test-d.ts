@@ -4,7 +4,7 @@ import { defineAbilities, deny, type AbilityName, type AbilityRefusal } from "..
 import { can, requireAbility } from "../src/server.ts"
 import { useAbility, type CanProps } from "../src/vue.ts"
 
-import type { AuthAnonymousAuthorization, AuthAuthorization } from "../src/types.ts"
+import type { AuthAnonymousAuthorization, AuthAuthorization, AuthOptions } from "../src/types.ts"
 import type abilities from "./fixtures/abilities.ts"
 import type { Post } from "./fixtures/abilities.ts"
 
@@ -92,5 +92,12 @@ describe("ability types", () => {
     expectTypeOf(deny("x", { status: 429 }).status).toEqualTypeOf<400 | 401 | 402 | 403 | 404 | 405 | 409 | 410 | 422 | 423 | 429 | 451>()
     // @ts-expect-error A rule refuses with a 4xx status.
     deny("x", { status: 500 })
+  })
+
+  it("takes the Nuxt component prefix in the Auth options", () => {
+    expectTypeOf<{ components: { prefix: "Auth" } }>().toExtend<AuthOptions>()
+    // @ts-expect-error The prefix is a string.
+    const numeric: AuthOptions = { components: { prefix: 1 } }
+    void numeric
   })
 })
