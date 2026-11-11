@@ -14,7 +14,7 @@ Most applications install `vite-hub`, `@vite-hub/auth`, and `better-auth`, and e
 ## Install
 
 ```sh
-pnpm add @vite-hub/auth better-auth nitro
+pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5 nitro
 pnpm add -D vite
 ```
 

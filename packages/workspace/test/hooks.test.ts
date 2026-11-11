@@ -63,7 +63,7 @@ async function app() {
   cleanup.push(() => rm(root, { force: true, recursive: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(async () => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const store = createBlobDatabaseWorkspaceStore({ blob: createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") })), database, workspace: "content" })
