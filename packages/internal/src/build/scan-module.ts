@@ -47,6 +47,16 @@ export function scanModule(source: string, file = "module.ts"): ScannedModule {
   return { comments: result.comments, errors: result.errors, file, program: result.program, source }
 }
 
+/** Lists the names that a module exports. A default export reads as `default`. Type-only exports are left out. */
+export function exportNames(source: string, file = "module.ts"): string[] {
+  const { module } = parseSync(file, source, { lang: languageOf(file), sourceType: "module" })
+  return module.staticExports.flatMap(statement => statement.entries).flatMap((entry) => {
+    if (entry.isType) return []
+    if (entry.exportName.kind === "Default") return ["default"]
+    return entry.exportName.name === null ? [] : [entry.exportName.name]
+  })
+}
+
 function isNode(value: unknown): value is Node {
   return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
 }
@@ -126,7 +136,7 @@ export function findDefaultExportCall(module: ScannedModule, names: readonly str
   const name = call.callee.name
   const first = argumentExpression(call.arguments[0])
   if (first?.type === "ObjectExpression") return { call, name, options: first }
-  // The positional form has more than one argument, such as `defineSchedule(cron, handler, options)`.
+  // The positional form has more than one argument, such as `defineQueue(handler, options)`.
   if (options.positionalOptionsIndex === undefined || first === undefined || call.arguments.length < 2) return
   const positional = call.arguments[options.positionalOptionsIndex]
   if (positional === undefined) return { call, name }

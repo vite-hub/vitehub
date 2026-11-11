@@ -4,7 +4,7 @@ seo.title: Comments UI components for Vue
 description: "Figma-style comments for your own running app: pins, threads, a composer, a side list, and a side panel."
 navigation.order: 34
 navigation.group: Collaboration
-icon: i-ph-chat-circle-light
+icon: i-lucide-message-circle
 ---
 
 `CommentLayer` adds Figma-style comments to a page. Press `C`, click a spot, write, and press `Enter`. A numbered pin with your avatar stays there, and the team replies in its thread.
@@ -119,6 +119,7 @@ const comments = useComments({ client, subject: { kind: "page", id: "/pricing" }
 comments.pageThreads.value; // The threads of this page, after the filters.
 comments.toggle(); // Comment mode.
 comments.startDraft({ x: 120, y: 80 }); // Start a comment on a point.
+comments.startDraft(element, { area, files: [screenshot] }); // Start one on an area, with a file in its box.
 await comments.create({ body: "Looks good" }); // A comment on the whole page.
 comments.people.value; // The people that the state knows, for mention names.
 ```
@@ -241,7 +242,10 @@ async function upload(files: File[]): Promise<string[]> {
 `attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
 
 ```ts
-const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: files[key]?.name, type: files[key]?.type });
+// The files that `upload` stored, by key
+const uploads = new Map<string, File>();
+
+const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: uploads.get(key)?.name, type: uploads.get(key)?.type });
 ```
 
 ## Slots

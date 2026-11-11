@@ -6,6 +6,7 @@ import type { Plugin } from "vite"
 import { expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { transformConsoleOperationFeatures } from "../src/console/operation-features.ts"
 
 it.each([
   ["src/console/runtime/server/rpc.ts", false],
@@ -49,5 +50,42 @@ it.each([
     expect(imports, `${entry}: @libsql/client`).not.toContain("@libsql/client")
     expect(result.outputFiles[0]!.text).toContain('"agents.list"')
     expect(result.outputFiles[0]!.text).toContain('"databases.browse"')
+  }
+})
+
+it.each([
+  "src/console/runtime/server/blob.ts",
+  "src/console/runtime/server/rpc.ts",
+  "src/console/runtime/server/definitions.get.ts",
+  "dist/console/runtime/server/blob.js",
+  "dist/console/runtime/server/rpc.js",
+  "dist/console/runtime/server/definitions.get.js",
+])("bundles the document editor and media code of %s only when an owner contributes a document editor", async (entry) => {
+  for (const documents of [false, true]) {
+    const result = await build({
+      absWorkingDir: resolve(import.meta.dirname, ".."),
+      bundle: true,
+      entryPoints: [entry],
+      format: "esm",
+      metafile: true,
+      packages: "external",
+      platform: "node",
+      write: false,
+      plugins: [{
+        name: "console-operation-features",
+        setup(builder) {
+          builder.onLoad({ filter: /\.[jt]s$/ }, async ({ path }) => {
+            const code = await readFile(path, "utf8")
+            return { contents: transformConsoleOperationFeatures(code, [], documents) ?? code, loader: path.endsWith(".ts") ? "ts" : "js" }
+          })
+        },
+      }],
+    })
+    const inputs = Object.keys(result.metafile.inputs)
+    // The dist build names shared chunks after one of their modules, such as `media-<hash>.js`.
+    for (const module of entry.includes("definitions.get") ? ["documents"] : ["media", "documents"]) {
+      const bundled = inputs.some(input => new RegExp(`/(?:runtime/server/)?${module}(?:-[\\w-]+)?\\.[jt]s$`).test(input))
+      expect(bundled, `${entry}: ${module} (documents: ${documents})`).toBe(documents)
+    }
   }
 })

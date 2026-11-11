@@ -41,7 +41,7 @@ const runtimeMembers = ["can", "collection", "collections", "publish", "revision
 const sectionModulesKey = Symbol.for("vitehub.console.section-modules")
 
 /**
- * The `server/content.ts` module loaders that the Console installs, by section. Content operations read the `content`
+ * The `server/content.ts` module loaders that the Console installs, by section. Content operations read the default
  * export through it, so they run in a deployed app and in `vite dev` with the same file.
  */
 type SectionModules = Record<string, (() => Promise<Record<string, unknown>>) | undefined>
@@ -99,11 +99,11 @@ async function contentRuntime(): Promise<ContentOperationsRuntime> {
   const modules = Reflect.get(globalThis, sectionModulesKey) as SectionModules | undefined
   const load = modules?.content
   if (!load) {
-    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on.", { fix: "Create server/content.ts and export `content` from defineContent()." })
+    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on.", { fix: "Create server/content.ts with `export default defineContent({ ... })`." })
   }
-  const content = (await load()).content
+  const content = (await load()).default
   if (!isRuntime(content)) {
-    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "server/content.ts does not export a defineContent() runtime named `content`.", { fix: "Export the result of defineContent() as `content`." })
+    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "server/content.ts does not default-export a defineContent() runtime.", { fix: "Write `export default defineContent({ ... })`." })
   }
   return content
 }
@@ -584,7 +584,7 @@ function saveResult(document: { collection: string, digest: string, id: string, 
 }
 
 const remove = defineOperation({
-  cli: { command: "rm", positional: ["collection", "id"] },
+  cli: { command: "delete", positional: ["collection", "id"] },
   description: "Delete one document from the draft, pinned to the draft digest that you read. The next publish deletes it from the site. Fails while someone else holds the edit lease.",
   input: v.strictObject({
     collection: text,

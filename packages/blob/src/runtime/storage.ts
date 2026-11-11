@@ -17,7 +17,7 @@ import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
   constructor(message: string) {
-    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message }, UnknownBlobStoreError)
+    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message, fix: blobErrorDiagnostics.BLOB_R0027({ message }).fix }, UnknownBlobStoreError)
     this.name = "UnknownBlobStoreError"
   }
 }
@@ -229,9 +229,10 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("sign", name)
       return error ? [error, undefined] : storage.sign(pathname, options)
     },
-    async serve(event, pathname, options) {
+    async serve(request, pathname, options) {
       const [error, storage] = await resolveStorageResult("serve", name)
-      return error ? [error, undefined] : storage.serve(event, pathname, options)
+      if (error) throw error
+      return storage.serve(request, pathname, options)
     },
     store: selectRuntimeBlobStore,
   }
@@ -247,4 +248,4 @@ function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions)
   return mode === "read" ? readonlyBlobStorage(storage) : storage
 }
 
-export const blob: BlobStorage = createRuntimeBlobStorage()
+export const blob: BlobStorage = /* @__PURE__ */ createRuntimeBlobStorage()

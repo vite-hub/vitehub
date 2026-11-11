@@ -77,7 +77,7 @@ export default defineConfig({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `cron` | `Record<string, string>` | Each Schedule's own cron | Cron per schedule name for this build's host ([Run a Schedule on another cron on one host](#run-a-schedule-on-another-cron-on-one-host)). |
-| `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls the cron files written for the build's host: `auto`, `standalone`, `nitro`, or `false`. |
+| `providerOutput` | `ScheduleOptions['providerOutput']` | `auto` | Controls the cron files written for the build's host: `auto`, `standalone`, `nitro`, or `false`. |
 | `projectRoot` | `string` | ViteHub project root | Another root to find schedule files and write the registry. |
 | `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Installs the Nitro Process Runtime. Takes `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
 
@@ -160,7 +160,7 @@ The build fails with `SCHEDULE_B0008` when a name matches no schedule. It also f
 A Static Schedule Definition is a file whose cron the build reads, so it can write host cron entries.
 
 ```ts [server/schedules/daily-report.ts] fragment
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { featureIds, features } from "@vite-hub/internal/features";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { CopyButton } from "@vite-hub/ui";
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 
 import type { FeatureId } from "@vite-hub/internal/features";
 import type { NewProjectFeature, NewProjectStack } from "../client/new-project";
@@ -43,6 +44,8 @@ const modeItems = [
 ];
 const prompt = computed(() => ticket.value ? newProjectPrompt(stack.value, ticket.value, plan.value) : undefined);
 const output = computed(() => mode.value === "prompt" ? prompt.value : command.value);
+// A Node.js app has no deploy command that prints the link, so the page shows its shape.
+const nodeLinkURL = computed(() => ticket.value ? `https://console.vitehub.dev/link#p=${encodeURIComponent(ticket.value.pendingId)}&url=<app-origin>` : "");
 
 // The search filters the feature cards only. A feature that it hides stays in the stack.
 const query = ref("");
@@ -61,8 +64,6 @@ const submitted = ref(false);
 const dirBlurred = ref(false);
 const creating = ref(false);
 const createError = ref<string>();
-const copied = ref(false);
-let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
 const hostLabel = computed(() => newProjectHosts.find(host => host.id === stack.value.host)?.label);
 const hostItems = newProjectHosts.map((host) => {
@@ -185,22 +186,6 @@ async function create(): Promise<void> {
   if (plan.value.problems.length) await focusFirstProblem();
 }
 
-async function copy(): Promise<void> {
-  if (!output.value) return;
-  try {
-    await navigator.clipboard.writeText(output.value);
-    copied.value = true;
-    clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => (copied.value = false), 1500);
-  }
-  catch {
-    // The command stays on the page to select by hand.
-  }
-}
-
-onBeforeUnmount(() => clearTimeout(copiedTimer));
-watch(mode, () => (copied.value = false));
-
 function leave(): void {
   projects.navigate(projects.home);
 }
@@ -218,7 +203,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
         <ConsoleMark class="size-5" />
         ViteHub Console
       </span>
-      <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-arrow-left" :label="projects.projects.value.length ? 'Back to projects' : 'Back'" @click="leave" />
+      <UButton variant="ghost" icon="i-lucide-arrow-left" :label="projects.projects.value.length ? 'Back to projects' : 'Back'" @click="leave" />
     </header>
 
     <form class="vitehub-new-project__layout" novalidate @submit.prevent="create">
@@ -226,14 +211,14 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
         <div class="grid gap-1.5">
           <h1 ref="heading" class="vitehub-new-project__title" tabindex="-1">New project</h1>
           <p class="vitehub-new-project__text">
-            Pick a host and the features. The Console prints the <code class="vitehub-new-project__code">vite-hub init</code> command for this stack, or a prompt for your coding agent. The address holds the stack without private values, so you can share it.
+            <ConsoleCodeText text="Pick a host and the features. The Console prints the `vite-hub init` command for this stack, or a prompt for your coding agent. The address holds the stack without private values, so you can share it." />
           </p>
         </div>
 
         <section>
           <!-- UFormField links the field to its description only through the prop, so the prop stays next to the slot. -->
           <UFormField label="Folder name" name="dir" description="vite-hub init creates the app in this folder." :error="dirError">
-            <template #description><code class="vitehub-new-project__code">vite-hub init</code> creates the app in this folder.</template>
+            <template #description><ConsoleCodeText text="`vite-hub init` creates the app in this folder." /></template>
             <UInput
               id="new-project-dir"
               :model-value="stack.dir"
@@ -258,7 +243,6 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             :model-value="stack.host"
             :items="hostItems"
             variant="card"
-            size="sm"
             orientation="horizontal"
             aria-labelledby="new-project-host-heading"
             indicator="end"
@@ -305,7 +289,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             @keydown.esc="query && ($event.preventDefault(), query = '')"
           >
             <template v-if="query" #trailing>
-              <UButton color="neutral" variant="link" size="xs" icon="i-lucide-x" aria-label="Clear the search" @click="clearSearch" />
+              <UButton variant="ghost" size="xs" icon="i-lucide-x" aria-label="Clear the search" @click="clearSearch" />
             </template>
           </UInput>
           <span class="sr-only" aria-live="polite">{{ query.trim() ? `${shownFeatures.length} ${shownFeatures.length === 1 ? "feature" : "features"}` : "" }}</span>
@@ -313,12 +297,11 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             <li v-for="row in shownFeatures" :id="`new-project-feature-${row.id}`" :key="row.id" class="grid">
               <UCheckbox
                 variant="card"
-                size="sm"
                 indicator="end"
                 :model-value="row.state.kind !== 'off'"
                 :disabled="locked(row)"
                 :ui="{
-                  root: ['h-full items-start', row.support?.level === 'unsupported' && row.state.kind === 'off' ? 'opacity-60' : '', featureError(row.id) ? 'border-error has-data-[state=checked]:border-error not-has-disabled:has-focus-visible:border-error has-focus-visible:ring-error' : ''],
+                  root: ['h-full items-start', row.support?.level === 'unsupported' && row.state.kind === 'off' ? 'opacity-60' : '', featureError(row.id) ? 'border-error has-data-[state=checked]:border-error' : ''],
                   wrapper: 'grid gap-1',
                 }"
                 :aria-invalid="Boolean(featureError(row.id))"
@@ -341,16 +324,21 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
               </UCheckbox>
             </li>
           </ul>
-          <p v-if="!shownFeatures.length" class="vitehub-new-project__text">
-            No feature matches “{{ query.trim() }}”.
-            <button type="button" class="font-medium text-highlighted underline underline-offset-2" @click="clearSearch">Clear the search</button>
-          </p>
+          <UEmpty
+            v-if="!shownFeatures.length"
+            variant="naked"
+            size="sm"
+            icon="i-lucide-search"
+            :title="`No feature matches “${query.trim()}”`"
+            description="Search by name or by what the feature does."
+            :actions="[{ label: 'Clear the search', variant: 'outline', onClick: clearSearch }]"
+          />
         </section>
 
         <section v-if="plan.options.length" class="grid gap-4" aria-labelledby="new-project-options-heading">
           <div class="grid gap-1">
             <h2 id="new-project-options-heading" class="vitehub-new-project__heading">Options</h2>
-            <p class="vitehub-new-project__text">{{ hostLabel }} needs these options for the features that you picked.</p>
+            <p class="vitehub-new-project__text">Configure the features that you picked for {{ hostLabel }}.</p>
           </div>
           <div class="grid gap-5">
             <UFormField
@@ -360,7 +348,8 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
               :error="optionError(input.path)"
             >
               <template #label>
-                <code class="font-mono">{{ input.path }}</code>
+                <ConsoleCodeText code :text="input.path" />
+                <span v-if="input.optional" class="text-muted"> (optional)</span>
               </template>
               <template #description>
                 <span class="text-pretty">{{ features[input.feature].title }}: <ConsoleCodeText :text="input.detail" /></span>
@@ -401,19 +390,17 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
           </p>
         </div>
 
-        <UTabs v-model="mode" :items="modeItems" :content="false" size="xs" class="w-full" :ui="{ trigger: 'flex-1 justify-center' }" />
+        <UTabs v-model="mode" :items="modeItems" :content="false" class="w-full" />
 
         <div class="overflow-hidden rounded-lg border border-default">
           <div class="flex items-center justify-between gap-3 border-b border-default py-1.5 pr-1.5 pl-3">
             <span class="text-xs text-muted">{{ mode === "prompt" ? "Prompt" : "Terminal" }}</span>
-            <UButton
-              color="neutral"
-              variant="ghost"
+            <CopyButton
+              :value="output ?? ''"
+              label="Copy"
               size="xs"
-              :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-              :label="copied ? 'Copied' : 'Copy'"
+              :aria-label="mode === 'prompt' ? 'Copy the prompt' : 'Copy the command'"
               :disabled="!output"
-              @click="copy"
             />
           </div>
           <pre v-if="mode === 'prompt' && prompt" class="vitehub-new-project__command vitehub-new-project__prompt"><code>{{ prompt }}</code></pre>
@@ -424,14 +411,13 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
               <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
               {{ createError }}
             </p>
-            <UButton color="neutral" variant="outline" size="xs" label="Try again" @click="makeLink" />
+            <UButton variant="outline" size="xs" label="Try again" @click="makeLink" />
           </div>
           <p v-else class="p-3 text-sm text-muted">{{ plan.problems[0]?.message ?? "Making the link…" }}</p>
         </div>
-        <span class="sr-only" aria-live="polite">{{ copied ? `${mode === "prompt" ? "Prompt" : "Command"} copied` : "" }}</span>
         <p v-if="mode === 'command' && commandParts && ticket" class="vitehub-new-project__text break-words">
-          <template v-if="stack.host === 'node'">Run it, then deploy the Node.js app with <code class="font-mono">VITEHUB_CONSOLE_TOKEN_SHA256</code> set to <code class="font-mono">{{ ticket.verifier }}</code>. Open <code class="font-mono">https://console.vitehub.dev/link#p={{ encodeURIComponent(ticket.pendingId) }}&amp;url=&lt;app-origin&gt;</code> in this browser, with <code class="font-mono">&lt;app-origin&gt;</code> replaced by the URL-encoded origin of the deployed app.</template>
-          <template v-else>Run it, then open the app folder and run <code class="font-mono">pnpm vitehub deploy</code>. This sets up the Console key and prints a link. Open that link in this browser.</template>
+          <template v-if="stack.host === 'node'">Run it, then deploy the Node.js app with <ConsoleCodeText code text="VITEHUB_CONSOLE_TOKEN_SHA256" /> set to <ConsoleCodeText code :text="ticket.verifier" />. Open <ConsoleCodeText code :text="nodeLinkURL" /> in this browser, with <ConsoleCodeText code text="<app-origin>" /> replaced by the URL-encoded origin of the deployed app.</template>
+          <ConsoleCodeText v-else text="Run it, then open the app folder and run `pnpm vitehub deploy`. This sets up the Console key and prints a link. Open that link in this browser." />
         </p>
       </aside>
     </form>
@@ -444,10 +430,6 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
   height: 100dvh;
   overflow-y: auto;
   padding: 1rem max(1.5rem, calc((100% - 69rem) / 2)) 4rem;
-}
-
-.vitehub-new-project :is(button, a[href]):focus-visible {
-  outline-offset: 2px;
 }
 
 @media (pointer: coarse) {
@@ -482,14 +464,10 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
 
 .vitehub-new-project__aside {
   border: 1px solid var(--ui-border);
-  border-radius: 0.75rem;
+  border-radius: calc(var(--ui-radius) * 2);
   display: grid;
   gap: 1rem;
   padding: 1.25rem;
-}
-
-.vitehub-new-project__title:focus {
-  outline: none;
 }
 
 .vitehub-new-project__title {
@@ -519,7 +497,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
 /* One error style on the page: small red text that starts at the text column of its field or card. */
 .vitehub-new-project__error {
   align-items: flex-start;
-  color: var(--ui-error);
+  color: var(--vh-text-error);
   display: flex;
   font-size: 0.75rem;
   font-weight: 400;
@@ -535,12 +513,8 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
   width: 0.875rem;
 }
 
-.vitehub-new-project__code {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.9em;
-}
-
 .vitehub-new-project__command {
+  background: var(--ui-bg-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.75rem;
   line-height: 1.25rem;

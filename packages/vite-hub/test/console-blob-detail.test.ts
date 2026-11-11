@@ -19,5 +19,6 @@ it("shows the whole pathname and wraps it after each slash", async () => {
   const code = /<code[^>]*>([\s\S]*?)<\/code>/.exec(html)?.[1] ?? ""
   expect(code.replace(/<[^>]+>/g, "")).toBe(pathname)
   expect([...code.matchAll(/<span[^>]*>([^<]*)<\/span>/g)].map(match => match[1])).toEqual(["screenshots/", "console-empty-states/", "kv-dark.png"])
-  expect(html).not.toContain("truncate text-xs")
+  // The pathname wraps instead of being cut.
+  expect(/<code([^>]*)>/.exec(html)?.[1]).not.toContain("truncate")
 })

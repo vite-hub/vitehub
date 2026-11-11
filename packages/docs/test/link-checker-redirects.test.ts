@@ -35,7 +35,7 @@ async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["rout
       linkChecker: { report: { json: true, storage: join(root, "report") } },
       routeRules,
     }
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true, nitro: { static: true } }), ready: true })
     if (buildApp) await build(nuxt)
     const report = join(root, "report/link-checker-report.json")
     return existsSync(report) ? JSON.parse(await readFile(report, "utf8")) as LinkReport[] : []
