@@ -1,5 +1,4 @@
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
-import type { EnvBridgeRequestOptions } from "@vite-hub/env/bridge"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
@@ -31,11 +30,13 @@ type ConsoleInvocationsByRoot = {
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
-  manage?: (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response>
 }
 
+/** The Console reads each database with `db` and lists its tables from `schema`. */
+export type ConsoleDatabaseEntry = Pick<RuntimeDatabaseEntry<Record<string, unknown>>, "db" | "schema">
+
 export interface ConsoleDatabaseInspection {
-  databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+  databases: Record<string, ConsoleDatabaseEntry>
   names: readonly string[]
 }
 
@@ -64,9 +65,6 @@ type ConsoleInvocationIdentitiesByRoot = {
   values(): IterableIterator<string>
 }
 
-/** Independent Console Auth that serves the Console: a Better Auth session (`true`) or Cloudflare Access. */
-export type ConsoleAuthMode = true | "cloudflare-access"
-
 /**
  * What generated Console output installs: the sections, the project name, and the readers of each
  * section. One server bundle serves one project, so the Console keeps one state and does not key it by project root.
@@ -75,7 +73,6 @@ export type ConsoleAuthMode = true | "cloudflare-access"
  * Console modules, and all of them share the global object.
  */
 export interface ConsoleState {
-  auth?: ConsoleAuthMode | false
   blob?: ConsoleBlobInspection
   database?: ConsoleDatabaseInspection
   definitions?: ConsoleSectionCatalog

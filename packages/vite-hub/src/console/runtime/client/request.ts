@@ -58,7 +58,7 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+/** Whether the project refused a Console request with `401`, such as a signature that it does not accept. */
 export function isConsoleSignInRequired(error: unknown): boolean {
   return error instanceof ConsoleRequestError && error.status === 401
 }

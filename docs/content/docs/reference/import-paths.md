@@ -20,8 +20,8 @@ the same behavior.
 | --- | --- |
 | `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
-| `vite-hub/agent/vite` | Process Agent host, and generated health and Workspace routes, for Vite. |
-| `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
+| `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
+| `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval helpers. Install Evalite and the test runner yourself. |
@@ -32,10 +32,11 @@ the same behavior.
 | `vite-hub/logs/host` | Install and resolve a project's LogSource in the process-wide registry, without Evlog. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
-| `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
-| `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
-| `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): turns text into choices from options you declare. Re-exports `@vite-hub/decisions`. |
-| `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for your resolver. Re-exports `@vite-hub/decisions/vue`. Auto-imported in Nuxt. |
+| `vite-hub/agent/server` | Manual server integration. |
+| `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
+| `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
+| `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
+| `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
 | `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. Re-exports `@vite-hub/forms`. |
 | `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. Re-exports `@vite-hub/forms/client`. |
 | `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
@@ -50,15 +51,13 @@ the same behavior.
 | `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/presets/workspace` | Opt-in preset that cites where Workspace sources come from. |
-| `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and its schema statements. |
+| `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
+| `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
-| `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
-| `vite-hub/agent/runtime/process` | Adaptive per-process Agent capacity for self-hosted Node apps. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
-| `vite-hub/console/auth` | Define a Console-owned Auth Definition and its access policy. |
+| `vite-hub/console/auth` | `defineConsoleAuthorize()` for `console.authorize`, and its context types. |
 | `vite-hub/console/mcp-client` | Console MCP client operations. The generated Console plugin installs them when `console.mcpClient` is on. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
@@ -98,7 +97,7 @@ the same behavior.
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, and `vite-hub/comments/runtime` | Browser pin anchors, the Comments tables, and the API handler and Nitro plugin that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `vite-hub/page/pill.js` | The page pill of ViteHub's page tools as a classic browser script that declares `ViteHubPagePill`, for a page script of your own to paste in as text, for example with a Vite `?raw` import. It has no module exports. |
-| `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions and `createConnectionsHandler()` (the management and OAuth routes that the Console mounts), the Google preset with typed Gmail Operations, and runtime access. |
+| `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions and `createConnectionsHandler()` (the management and OAuth routes that `connections.management` mounts), the Google preset with typed Gmail Operations, and runtime access. |
 | `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |

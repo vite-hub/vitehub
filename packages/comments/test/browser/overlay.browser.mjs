@@ -385,5 +385,51 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
+  await t.test("on a touch screen the Comment bar goes above text that ends near the bottom edge, clear of the system menu", async () => {
+    const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
+    try {
+      await touch.goto(`http://127.0.0.1:${port}/`)
+      await touch.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      const end = await touch.evaluate(() => {
+        // Moves the paragraph down until its text ends at 700px, 20px above the bottom edge.
+        const second = document.querySelector("#second")
+        const range = document.createRange()
+        range.selectNodeContents(second)
+        second.style.marginTop = `${parseFloat(getComputedStyle(second).marginTop) + 700 - range.getBoundingClientRect().bottom}px`
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+        return range.getBoundingClientRect().bottom
+      })
+      assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
+      const button = touch.locator("vitehub-comments .selection-bar button")
+      await button.waitFor({ timeout: 5000 })
+      const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
+      assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
+      const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
+      // The system's text menu opens just above the selection, so the bar leaves it 64px.
+      assert.ok(start - (box.y + box.height) >= 63, `bar ends at ${box.y + box.height}, text starts at ${start}`)
+      // The stand-in pill has the type of the real one, so screenshots show the toolbar as people see it.
+      const cdp = await touch.context().newCDPSession(touch)
+      await cdp.send("DOM.getDocument", { depth: -1, pierce: true })
+      await cdp.send("CSS.enable")
+      const { result } = await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const tool = document.querySelector("vitehub-tool")
+        for (const root of [tool.shadowRoot, tool].filter(Boolean)) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent.trim() === "Comments") return node.parentElement
+        }
+      })()` })
+      const { nodeId } = await cdp.send("DOM.requestNode", { objectId: result.objectId })
+      const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId })
+      assert.ok(fonts.length > 0 && fonts.every(font => !/serif/i.test(font.familyName) || /sans/i.test(font.familyName)), `toolbar fonts ${fonts.map(font => font.familyName)}`)
+      if (evidence) await touch.screenshot({ path: `${evidence}/touch-bar-near-bottom.png` })
+      await button.tap()
+      await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
+    }
+    finally {
+      await touch.close()
+    }
+  })
+
   assert.deepEqual(errors, [])
 })

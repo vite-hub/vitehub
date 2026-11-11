@@ -20,7 +20,7 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
 
 ## Primitives that the presets use
 
-- `@vite-hub/agent/process-host`: `withAgentProcessHost()` attaches the Babysitter host.
+- `@vite-hub/agent/process`: `withAgentProcessHost()` attaches the Babysitter host.
   The `vitehub.agent` field of this package.json tells the Vite plugin which subpaths
   attach a process host or select a provider Driver.
 - `@vite-hub/agent/channels`: `channelEnv()` and `channelEnvValue()` read the Server Env of a
@@ -58,8 +58,7 @@ import { defineAgent } from "@vite-hub/agent"
 import { babysitter } from "@vite-hub/presets/babysitter"
 
 export default defineAgent({
-  preset: "babysitter",
-  presets: { babysitter },
+  extends: babysitter,
   options: {
     filter: { repository: { allow: ["acme/app"] } },
     lifecycle: {

@@ -102,24 +102,17 @@ export function resolveCacheStorage(cache: true | CacheOptions, preset: Deployme
 }
 
 /** Add the cache mounts to a Nitro config without replacing a `cache` mount that the application set. */
-export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage, nitroVersion: 2 | 3 = 3): Record<string, unknown> {
-  const key = nitroVersion === 2 ? "storage" : "kv"
-  const configured = nitro[key]
-  const storage = isPlainObject(configured) ? { ...configured } : {}
+export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage): Record<string, unknown> {
+  const storage = isPlainObject(nitro.kv) ? { ...nitro.kv } : {}
+  // Nitro 3 still reads the deprecated `storage` option, so keep a `cache` mount that the application set there.
   storage.cache ??= isPlainObject(nitro.storage) ? nitro.storage.cache : undefined
   storage.cache ??= cache.storage
-  const next: Record<string, unknown> = { ...nitro, [key]: storage }
-  if (nitroVersion === 2) {
-    const devStorage = isPlainObject(nitro.devStorage) ? { ...nitro.devStorage } : {}
-    devStorage.cache ??= cache.devStorage
-    next.devStorage = devStorage
-  } else {
-    for (const environment of ["$development", "$prerender"]) {
-      const config = isPlainObject(nitro[environment]) ? { ...nitro[environment] } : {}
-      const kv = isPlainObject(config.kv) ? { ...config.kv } : {}
-      kv.cache ??= cache.devStorage
-      next[environment] = { ...config, kv }
-    }
+  const next: Record<string, unknown> = { ...nitro, kv: storage }
+  for (const environment of ["$development", "$prerender"]) {
+    const config = isPlainObject(nitro[environment]) ? { ...nitro[environment] } : {}
+    const kv = isPlainObject(config.kv) ? { ...config.kv } : {}
+    kv.cache ??= cache.devStorage
+    next[environment] = { ...config, kv }
   }
   const namespace = cache.cloudflareNamespace
   if (!namespace || storage.cache !== cache.storage) return next

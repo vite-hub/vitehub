@@ -21,7 +21,7 @@ describe("Auth Console editing", () => {
   it.each(["string", "number", "boolean", "date", "string[]", "number[]"])("unsets an optional %s field", async (type) => {
     mocks.change.mockReset().mockResolvedValue({})
     const app = renderer.createApp({ ...Action, render: () => null }, {
-      base: "/manage", action: "editField", userId: "user", field: { key: "extra", type, required: false },
+      action: "editField", userId: "user", field: { key: "extra", type, required: false },
     })
     app.provide(ssrContextKey, {})
     const instance = app.mount({})
@@ -29,7 +29,7 @@ describe("Auth Console editing", () => {
     try {
       state.unset = true
       await state.submit()
-      expect(mocks.change).toHaveBeenCalledWith("/manage", { action: "editField", userId: "user", field: "extra", value: null })
+      expect(mocks.change).toHaveBeenCalledWith({ action: "editField", userId: "user", field: "extra", value: null })
     } finally { app.unmount() }
   })
 
@@ -40,7 +40,7 @@ describe("Auth Console editing", () => {
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
     await router.push("/")
-    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections", managementBase: "/manage" })
+    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections" })
     app.use(router)
     app.provide(ssrContextKey, {})
     const instance = app.mount({})
@@ -86,7 +86,7 @@ describe("Auth Console editing", () => {
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
     await router.push("/")
-    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections", managementBase: "/manage" })
+    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections" })
     app.use(router)
     app.provide(ssrContextKey, {})
     const instance = app.mount({})

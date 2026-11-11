@@ -7,7 +7,7 @@ import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { defineInternalTool, primitiveHandle, requirePrimitive } from "./internal.ts"
 
 import type {
-  AgentActor,
+  AgentInvoker,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentToolPolicyContext,
@@ -39,11 +39,11 @@ export interface ContentCapabilityOptions {
    */
   policy?: ContentCapabilityToolPolicy
   /**
-   * Map the Invocation's Actor to the `user` that `content.can()` receives. Default: the Auth user the Actor stands for
-   * (`actor.meta.authUserId`, set by `authenticated()`) when Auth is configured, otherwise `null`. `authorize` also
-   * receives the Actor as `actor` either way.
+   * Map the Invocation's Invoker to the `user` that `content.can()` receives. Default: the Auth user the Invoker stands for
+   * (`invoker.meta.authUserId`, set by `authenticated()`) when Auth is configured, otherwise `null`. Content's `authorize`
+   * also receives the Invoker as `actor` either way.
    */
-  user?: (actor: AgentActor) => MaybePromise<ContentCapabilityUser | null | undefined>
+  user?: (invoker: AgentInvoker) => MaybePromise<ContentCapabilityUser | null | undefined>
   /**
    * `override` lets `content_save_draft` write while a person holds the edit lease of the document. By default the save
    * returns `CONTENT_LEASE_HELD` with the holder, and the Agent waits or asks the person.
@@ -152,7 +152,7 @@ interface ContentScheduleRecord {
 
 /** The Content runtime exported from `server/content.ts`, as the `content` primitive. */
 interface ContentPrimitive {
-  can: (context: { action: ContentAction, actor?: AgentActor, collection: string, id?: string, user: ContentCapabilityUser | null }) => Promise<boolean>
+  can: (context: { action: ContentAction, actor?: AgentInvoker, collection: string, id?: string, user: ContentCapabilityUser | null }) => Promise<boolean>
   collections: () => ContentCollectionHandle[]
   publish: (options: { expect: ScheduledDocument[], metadata?: Record<string, unknown> }) => Promise<{
     documents: Array<{ change: string, collection: string, id: string }>
@@ -165,7 +165,7 @@ interface ContentPrimitive {
 
 /** The `auth` primitive from `@vite-hub/auth/agent`, present when Auth is configured. */
 interface AuthPrimitive {
-  user: (actor: AgentActor | undefined) => Promise<ContentCapabilityUser | null>
+  user: (invoker: AgentInvoker | undefined) => Promise<ContentCapabilityUser | null>
 }
 
 interface ListDocumentsInput {
@@ -432,7 +432,7 @@ function recoverable(error: unknown, operation: "get" | "publish" | "save" | "sc
 
 function denied(action: ContentAction, collection: string, id?: string): ViteHubError {
   const target = id === undefined ? collection : `${collection}/${id}`
-  return new ViteHubError("CAPABILITY_DENIED", `[vitehub] The Actor may not ${action} Content ${JSON.stringify(target)}.`, {
+  return new ViteHubError("CAPABILITY_DENIED", `[vitehub] The Invoker may not ${action} Content ${JSON.stringify(target)}.`, {
     details: { action, capability: "content", collection, ...(id === undefined ? {} : { id }) },
   })
 }
@@ -441,11 +441,11 @@ function isAuthPrimitive(value: unknown): value is AuthPrimitive {
   return isRuntimeRecord(value) && value.user instanceof Function
 }
 
-/** The Auth user behind the Actor, read through the `auth` primitive when Auth is configured. */
+/** The Auth user behind the Invoker, read through the `auth` primitive when Auth is configured. */
 async function authUser(context: AgentCapabilityContext): Promise<ContentCapabilityUser | null> {
   const auth = primitiveHandle(context, "auth")
-  if (!context.actor || !isAuthPrimitive(auth)) return null
-  const user = await auth.user(context.actor)
+  if (!context.invoker || !isAuthPrimitive(auth)) return null
+  const user = await auth.user(context.invoker)
   return isRuntimeRecord(user) ? user : null
 }
 
@@ -491,15 +491,15 @@ function contentTools(
   const names = scoped.map(collection => collection.name)
   const allSingletons = scoped.every(collection => collection.kind === "singleton")
 
-  // Resolve the Actor's Auth user once per Invocation.
+  // Resolve the Invoker's Auth user once per Invocation.
   let user: Promise<ContentCapabilityUser | null> | undefined
   const contentUser = () => user ??= (async () => {
-    const resolved = options.user ? await options.user(context.actor) : await authUser(context)
+    const resolved = options.user ? await options.user(context.invoker) : await authUser(context)
     return isRuntimeRecord(resolved) ? resolved : null
   })()
   const can = async (action: ContentAction, collection: string, id?: string) => await runtime.can({
     action,
-    ...(context.actor ? { actor: context.actor } : {}),
+    ...(context.invoker ? { actor: context.invoker } : {}),
     collection,
     ...(id === undefined ? {} : { id }),
     user: await contentUser(),
@@ -558,7 +558,7 @@ function contentTools(
     return expected
   }
   /**
-   * Who made a change: the Agent and its Actor, and as `author` the user that `authorize` checked, with the fields that
+   * Who made a change: the Agent and its Invoker, and as `author` the user that `authorize` checked, with the fields that
    * the Console records for its own saves. Without a user there is no `author`.
    */
   const authorMetadata = async () => {
@@ -570,7 +570,7 @@ function contentTools(
     return {
       agent: {
         ...(context.agentIdentity?.name ? { name: context.agentIdentity.name } : {}),
-        ...(context.actor?.id ? { actor: context.actor.id } : {}),
+        ...(context.invoker?.id ? { actor: context.invoker.id } : {}),
       },
       ...(Object.keys(author).length ? { author } : {}),
     }
@@ -1001,7 +1001,7 @@ function contentTools(
 
 /**
  * Tools to read, edit, publish, and schedule Content collections and singletons from `server/content.ts`. Every action
- * checks `content.can()` with the Invocation's Actor and the Auth user it stands for, so `defineContent({ authorize })`
+ * checks `content.can()` with the Invocation's Invoker and the Auth user it stands for, so `defineContent({ authorize })`
  * decides what the Agent may do, document by document. `content_publish` and `content_schedule` publish exactly the
  * draft digests in their input.
  */
