@@ -54,6 +54,13 @@ Use per-render Markdown APIs when plugin values must come from an individual
 request or invocation. Content parsing and cache refreshes use the plugin list
 configured on the content runtime.
 
+`sqlite()` from `@vite-hub/content/sqlite` is an in-memory database for index
+plugins such as `sqlite-full-text-search`. It uses Node SQLite on Node and
+SQLite WASM on Cloudflare Workers, where the `workerd` export condition selects
+it. When `server/content.ts` imports it, the generated
+`.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
+because a Worker compiles WebAssembly only then.
+
 Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.

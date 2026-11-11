@@ -26,7 +26,6 @@ export async function forgeBlob(provider: ForgeProvider, repo: RepoRef, sha: str
 
 function decodeBase64Blob(value: unknown): Buffer | undefined {
   if (!(value instanceof Object) || !("content" in value) || !("encoding" in value) || !("sha" in value)) return undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   if (typeof value.content !== "string" || value.encoding !== "base64" || typeof value.sha !== "string" || value.sha.length === 0) return undefined
   const content = value.content.replace(/\s+/g, "")
   if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) return undefined

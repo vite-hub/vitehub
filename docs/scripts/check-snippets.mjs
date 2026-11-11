@@ -7,6 +7,7 @@
 // mistake on purpose names the errors it must fail with: ```ts [server/auth.ts] fails=TS2769.
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
@@ -83,7 +84,7 @@ const options = {
   types: ["node", "vite/client"],
 }
 
-/** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue and `?raw` shims of a Vite app. */
+/** Untyped Env aliases for checks without generated declarations. */
 const ambientFiles = [join(packagesRoot, "env/dist/virtual-module.d.ts")]
 const nuxtModules = {
   "@nuxt/ui": "ui",
@@ -254,7 +255,7 @@ const registries = [
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
     // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` is the Auth Definition of the app.
-    definitions: label => /^server\/auth\.m?ts$/.test(label) ? ["definition"] : [],
+    definitions: label => /^server\/auth(?:\/index)?\.[cm]?ts$/.test(label) ? ["definition"] : [],
     render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
     type: "auth",
   },
@@ -306,27 +307,34 @@ async function registryDeclarations(pageSnippets) {
   return declarations
 }
 
-const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
+const configFile = /(?:^|\/)(?:vite|nuxt)\.config\.m?ts$/
+const envTypesFile = ".vitehub/types/env.d.ts"
 
-async function envPluginDeclarations(plugins, config) {
+/** The Vite plugins of a config, flattened as Vite flattens them. */
+async function vitePlugins(plugins) {
   const plugin = await plugins
-  if (Array.isArray(plugin)) {
-    const declarations = []
-    for (const child of plugin) declarations.push(...await envPluginDeclarations(child, config))
-    return declarations
+  if (!Array.isArray(plugin)) return plugin ? [plugin] : []
+  return (await Promise.all(plugin.map(vitePlugins))).flat()
+}
+
+function mergeEnv(target, declarations) {
+  for (const section of ["define", "public", "server"]) {
+    if (declarations?.[section]) target[section] = { ...target[section], ...declarations[section] }
   }
-  return plugin?.name === "@vite-hub/env/vite" ? [plugin.api.resolveDeclarations(config)] : []
 }
 
 /**
- * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
- * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
+ * The Env types that ViteHub writes to `.vitehub/types/env.d.ts` from the `env` options of the page's
+ * `vite.config.ts` and `nuxt.config.ts` blocks. Node runs each config from `packages/vite-hub`, so it imports what
+ * an app installs, and the Env plugin of `vitehub()` writes the types.
  */
 async function envDeclarations(pageSnippets) {
-  const configs = pageSnippets.filter(snippet => isAppFile(snippet) && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
+  const configs = pageSnippets.filter(snippet => isAppFile(snippet) && configFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
   if (!configs.length) return []
-  const env = { public: {}, server: {} }
+  const env = {}
+  const plugins = []
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
+  globalThis.defineNuxtConfig ??= config => config
   try {
     // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
     for (const fixture of pageSnippets[0].fixtures ?? []) {
@@ -342,23 +350,67 @@ async function envDeclarations(pageSnippets) {
       try {
         config = await (await import(pathToFileURL(file).href)).default
         if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
-        for (const declarations of [config?.env, ...await envPluginDeclarations(config?.plugins, config)]) {
-          Object.assign(env.public, declarations?.public)
-          Object.assign(env.server, declarations?.server)
-        }
       }
       catch {
         // Only excluded blocks may be skipped; a failed app config must not leave a partial Env contract.
         return []
+      }
+      mergeEnv(env, config.env)
+      const configPlugins = await vitePlugins(config.plugins)
+      // Nuxt configures the same plugin, including providers and runtime imports.
+      const nuxtEnv = [config.vitehub?.env, ...(config.modules ?? [])
+        .filter(module => Array.isArray(module) && module[0] === "vite-hub/nuxt")
+        .map(module => module[1]?.env)].filter(Boolean)
+      if (nuxtEnv.length) {
+        const { hubEnv } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
+        for (const options of nuxtEnv) configPlugins.push(hubEnv(options))
+      }
+      for (const plugin of configPlugins.filter(entry => entry?.name === "@vite-hub/env/vite")) {
+        plugins.push(plugin)
+        mergeEnv(env, plugin.api.resolveDeclarations(config))
       }
     }
   }
   finally {
     rmSync(directory, { force: true, recursive: true })
   }
-  const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
-  const pageRoot = pageSnippets[0].pageRoot
-  // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.
+  try {
+    return await envTypes(pageSnippets[0].pageRoot, env, plugins)
+  }
+  catch (error) {
+    throw new Error(`${pageSnippets[0].page}: the Env options of the page do not generate types.`, { cause: error })
+  }
+}
+
+/** The Env types of an app without Env options, for the pages that show none. */
+export function defaultEnvDeclarations() {
+  return envTypes(join(docsRoot, ".snippets"), {}, [])
+}
+
+async function envTypes(pageRoot, env, plugins) {
+  if (!plugins.length) {
+    const { vitehub } = await import(pathToFileURL(join(packagesRoot, "vite-hub/dist/index.js")).href)
+    plugins.push((await vitePlugins(vitehub({ preset: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
+  }
+  const root = mkdtempSync(join(tmpdir(), "vitehub-snippet-env-"))
+  let code
+  try {
+    // Each config is one app. Only a config that sets `providers` accepts the provider values of the page.
+    for (const [index, plugin] of plugins.toReversed().entries()) {
+      try {
+        await plugin.api.prepareTypes(env, root)
+        break
+      }
+      catch (error) {
+        if (index === plugins.length - 1) throw error
+      }
+    }
+    code = readFileSync(join(root, envTypesFile), "utf8")
+  }
+  finally {
+    rmSync(root, { force: true, recursive: true })
+  }
+  // With Env on, Auth types the `env` of `defineAuth()` as the Server Env, in `.vitehub/types/auth.d.ts`.
   const authEnv = [
     `import type { ServerEnv } from "#vitehub/env/server"`,
     "declare global {",
@@ -369,13 +421,10 @@ async function envDeclarations(pageSnippets) {
     "",
   ].join("\n")
   return [
-    { code: createEnvTypes(env, { projectRoot: pageRoot }), file: join(pageRoot, envTypesFile) },
+    { code, file: join(pageRoot, envTypesFile) },
     { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }
-
-/** The page's generated Env types replace the untyped `#vitehub/env` declarations of an app without Env options. */
-const envTypesFile = ".vitehub/types/env.d.ts"
 
 /**
  * The installed files that the programs read, parsed once. Each page with generated declarations gets its own
@@ -558,10 +607,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (declarations.length) separate.push({ declarations, pageSnippets })
     else shared.push(...pageSnippets)
   }
-  const sharedCheck = checkSnippets(shared)
+  // A page without Env options gets the Env types of an app without them.
+  const defaultEnv = await defaultEnvDeclarations()
+  const withEnv = declarations => declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`)) ? declarations : [...declarations, ...defaultEnv]
+  const sharedCheck = checkSnippets(shared, defaultEnv)
   const failures = [
     ...sharedCheck.failures,
-    ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
+    ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, withEnv(declarations), sharedCheck.program).failures),
   ]
   const { fresh, stale } = checkBaseline(failures, readBaseline())
   if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {
