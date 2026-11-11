@@ -1,4 +1,3 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { blobOperations } from "../../blob/src/operations.ts"
@@ -61,7 +60,6 @@ describe("storage MCP tools", () => {
   }
 
   it("serves one tool per KV and Blob operation, behind read grants", async () => {
-    registerViteHubMcpTools("comments", [])
     installConsoleSections("/storage-mcp", ["kv", "blob"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv:read"] }) })
     const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
@@ -75,7 +73,6 @@ describe("storage MCP tools", () => {
   })
 
   it("keeps the Blob list free of provider URLs and secrets", async () => {
-    registerViteHubMcpTools("comments", [])
     installConsoleSections("/storage-mcp", ["blob"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["blob:read"] }) })
     const listed = await rpc("tools/call", { name: "blob_list", arguments: { limit: 1 } })
@@ -84,7 +81,6 @@ describe("storage MCP tools", () => {
   })
 
   it("limits a store grant to that Blob store", async () => {
-    registerViteHubMcpTools("comments", [])
     installConsoleSections("/storage-mcp", ["blob"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content", "blob:archive"] }) })
     const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
@@ -121,7 +117,6 @@ describe("storage MCP tools", () => {
   })
 
   it("keeps a read-only store grant from writing", async () => {
-    registerViteHubMcpTools("comments", [])
     installConsoleSections("/storage-mcp", ["blob"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["blob:archive:read"] }) })
     const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)

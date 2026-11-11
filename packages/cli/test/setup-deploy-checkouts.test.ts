@@ -6,6 +6,7 @@ import process from "node:process"
 import { describe, expect, it, vi } from "vitest"
 
 import { builtProject, fakeHosts } from "./setup-deploy-helpers.ts"
+import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
 import { isolateProjectPackages, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -145,15 +146,15 @@ function workspaceApp(hosts: Awaited<ReturnType<typeof fakeHosts>>, workspace: W
   let committed = false
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input)
-    const body = JSON.parse(String(init?.body)) as { operation: string, input: { since?: string | null } }
+    const body = operationRpcRequest(init?.body) as { operation: string, input: { since?: string | null } }
     requests.push({ hostCallsBefore: (await hosts.calls()).length, operation: body.operation, url })
     if (!url.startsWith(remote)) throw new Error(`unexpected request to ${url}`)
     const changes = (committed ? workspace.after : undefined) ?? workspace.changes ?? { files: [], head: "r1" }
     const answer = body.operation === "workspace.changes"
-      ? { ok: true, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
-      : workspace.commit ?? { ok: true, value: { revision: { id: "r3" } } }
+      ? { ok: true as const, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
+      : workspace.commit ?? { ok: true as const, value: { revision: { id: "r3" } } }
     if (body.operation === "workspace.commit" && answer.ok) committed = true
-    return Response.json(answer, { status: answer.ok ? 200 : 409 })
+    return operationRpcResponse(init?.body, answer.ok ? answer : { ...answer, status: 409 })
   }
   return { fetch, requests }
 }

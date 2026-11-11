@@ -85,7 +85,7 @@ export function consoleResourcePath(config: Pick<ConsoleOAuthConfig, "path">): s
   return config.path.replace(/\/mcp\/?$/, "")
 }
 
-/** Whether the request is for one Console data route below the mount, such as `/_vitehub/rpc/__call`. */
+/** Whether the request is for one Console data route below the mount, such as `/_vitehub/rpc`. */
 export function isConsoleDataPath(config: Pick<ConsoleOAuthConfig, "path">, request: Pick<Request, "url">): boolean {
   const pathname = new URL(request.url).pathname
   const base = consoleResourcePath(config)
