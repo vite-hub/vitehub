@@ -7,7 +7,7 @@ ViteHub throws `DATABASE_NOT_FOUND` when you select a database by a name that ha
 
 ## Why it happens
 
-ViteHub discovers one Database for each Definition. A Named Database gets its name from `src/<name>.database.ts` or `server/databases/<name>/config.ts`. The Default Database is `default`. The error comes from these calls:
+ViteHub discovers one Database for each Definition. A Named Database gets its name from `server/databases/<name>.ts`, `server/databases/<name>/index.ts`, or `src/<name>.database.ts`. The Default Database is `default`. The error comes from these calls:
 
 - The Agent `db()` Capability with a `database` option. It calls `agentDb.database(name)`, which throws for an unknown name.
 - `useDatabase(name)` with an unknown name, including `default` when the app has only Named Databases.

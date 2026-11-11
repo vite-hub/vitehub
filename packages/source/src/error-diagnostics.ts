@@ -53,5 +53,9 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_B0006: dynamicError,
     SOURCE_B0007: dynamicError,
     SOURCE_B0008: dynamicError,
+    SOURCE_B0009: {
+      ...dynamicError,
+      fix: "Write `export default defineContent({ ... })` in server/content.ts. Run `npx @vite-hub/codemods define-forms` to move the export and the imports of it.",
+    },
   },
 })
