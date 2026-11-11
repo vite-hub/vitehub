@@ -18,7 +18,7 @@ const scopes = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.g
 
 async function fixture(rule: { read?: boolean, write?: readonly string[], approve?: boolean } = { read: true, write: ["gmail.users.drafts.create"], approve: false }) {
   const database = createClient({ url: ":memory:" })
-  const store = createDatabaseConnectionStore({ db: drizzle(database), encryptionKey: new Uint8Array(32).fill(3) })
+  const store = createDatabaseConnectionStore({ db: drizzle({ client: database }), encryptionKey: new Uint8Array(32).fill(3) })
   const requests: Array<{ body?: string, method: string, signal?: AbortSignal | null, url: URL }> = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString())

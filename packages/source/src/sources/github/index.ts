@@ -316,6 +316,9 @@ export function github(options: GitHubSourceOptions): GitHubSource {
       root,
     },
     name: "github",
+    async authenticated() {
+      return Boolean(await resolveAuth())
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)
