@@ -88,10 +88,11 @@ await content.sources.pin(sha, "docs") // serve this commit until unpin(), for e
 await content.sources.unpin("docs")
 ```
 
-- The first read resolves the branch, validates the commit, and stores the head when KV has none.
+- The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
 - `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. The GitHub push webhook below calls `advance()` for you.
-- A pinned head does not move until `unpin()`. `pin()` takes a full 40-character commit SHA and validates it too.
-- Each server instance holds the head in memory for 5 seconds. Other server instances serve a moved head within 5 seconds. `content.get()`, `list()`, `navigation()`, `search()`, and the Content route follow the head.
+- Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
+- A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
+- Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
 - Without a token, the Source is not live: each load reads the latest commit of its branch without validation, and Content logs `CONTENT_R0020` once. The token is `github({ auth })`, or the Server Env `VITEHUB_GITHUB_TOKEN`.
 - ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
 - Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
@@ -125,8 +126,8 @@ ViteHub adds the route only for an `import { github }` in `server/content.ts`. W
 The files of a commit never change. Content downloads and parses each commit once, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so no cache entry goes stale and nothing purges a cache, on any host.
 
 - A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
-- `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, and the Source options. A change to a plugin gives new keys, so you do not bump a parser version.
-- Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache.
+- `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, the Source options, and the build. A change to a plugin or its options gives new keys, so you do not bump a parser version. Each build of the app downloads a commit once more, because plugin options in closures are not visible to the hash.
+- Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache. A rejected commit or a failed download stays out of memory too, so `advance()` downloads it again.
 - Each server instance holds the last 4 commits in memory.
 - `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
@@ -175,9 +176,9 @@ const view = await content.sources.at(access.target) // the commit that allow() 
 | An invalid ref, or one that the repository does not have | No | `missing` |
 
 - The published branch is the `ref` of the `github()` Source, or the default branch of the repository. Content asks GitHub `compare/<branch>...<sha>` and counts `behind` and `identical`.
-- A request passes every rule with the preview cookie of `content.preview.enable()` (reason `console`), or with a link from `content.sources.sign(ref, source?, { maxAge })` (reason `token`). A link carries `?vitehub-content-token=<token>`, signs one ref of one Source, and expires after `maxAge` seconds: one hour by default, 24 hours at most. Both use `VITEHUB_CONTENT_KEY`. `sign()` is trusted server API: check `content.can()` or Console access before you call it.
+- A request passes every rule with the preview cookie of `content.preview.enable()` (reason `console`), or with a link from `content.sources.sign(ref, source?, { maxAge })` (reason `token`). A link carries `?vitehub-content-token=<token>`, signs one ref of one Source, and expires after `maxAge` seconds: one hour by default, 24 hours at most. Both use `VITEHUB_CONTENT_KEY`. `sign()` is trusted server API: check `content.can()` or Console access before you call it. A request with the link parameter bypasses Nitro's cache and gets `private, no-store`, so a cached route does not answer an expired link.
 - The `cms` preset with a GitHub store makes its `draftBranch` private. The pull requests that the CMS opens with `publish: "pr"` come from `vitehub/publish/*` branches, and these are always private: they hold drafts that nobody reviewed yet. A preset sets other private branches with `privateBranches`.
-- Content holds each decision from GitHub for 10 minutes on each server instance. A removed label or a closed pull request shows after 10 minutes at most. A failed GitHub call holds nothing and throws `CONTENT_R0032`.
+- Content holds each decision from GitHub for 10 minutes on each server instance. A removed label or a closed pull request shows after 10 minutes at most, also for a `target` or view that you keep: its pull request is read from GitHub again. A fork pull request counts for a commit SHA while it is one of the 100 most recently updated open pull requests, because GitHub does not list fork pull requests for a commit. A failed GitHub call holds nothing and throws `CONTENT_R0032`.
 - Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
 - Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
 

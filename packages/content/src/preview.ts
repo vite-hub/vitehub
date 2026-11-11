@@ -697,6 +697,14 @@ function publishedRequest(event: ContentPreviewEvent): boolean {
   }
 }
 
+/** Whether a request carries `?vitehub-content-token`, the signed link of `content.sources.sign()`. */
+function signedRefRequest(event: ContentPreviewEvent): boolean {
+  const raw = eventParts(event).url
+  const text = raw instanceof URL ? raw.href : raw
+  if (String(text) === text && !mayCarryParameter(text, contentRefTokenParameter)) return false
+  return requestUrl(event)?.searchParams.has(contentRefTokenParameter) === true
+}
+
 function requestUrl(event: ContentPreviewEvent): URL | undefined {
   const parts = eventParts(event)
   // An h3 v2 event has a URL object; a Request and a Node request have text.
@@ -1014,6 +1022,8 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed. A redirect
  * from it to the same host name, such as a canonical or locale redirect, gets the parameter in its `Location`, so the
  * page the browser lands on reads `published` too. A redirect to another host is not changed.
+ * A request with `?vitehub-content-token`, the signed ref link of `content.sources.sign()`, bypasses Nitro's cache and
+ * gets `private, no-store`, so a cached route never answers it after the token expires.
  * ViteHub generates this plugin for `server/content.ts` with a loader, so the server starts without the Content runtime.
  * The loader runs on the first request with a preview cookie, a preview frame form, or the published parameter. Other
  * requests never load it.
@@ -1034,15 +1044,37 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       return preview !== undefined && (preview.active() || preview.frame() !== undefined || frames.get(preview)?.published() === true)
     }
     const removeCacheBypass = addCacheBypass(previewing)
+    // A request with a signed ref link can read a private ref until its token expires. Nitro must not keep that answer.
+    let signedScope: Scope<true> | undefined
+    try {
+      signedScope = createScope<true>(true)
+    }
+    catch {
+      // Without AsyncLocalStorage the response is still `private, no-store`.
+    }
+    const signed = signedScope
+    const removeSignedBypass = signed ? addCacheBypass(() => signed.getStore() === true) : () => {}
     const hooks = nitroApp.hooks
     if (isObject(hooks) && hooks.hook instanceof Function) {
-      const dispose = () => removeCacheBypass()
+      const dispose = () => {
+        removeCacheBypass()
+        removeSignedBypass()
+      }
       for (const name of ["close", "shutdown", "dispose"]) {
         Reflect.apply(hooks.hook, hooks, [name, dispose])
       }
     }
     const scoped = (event: unknown, next: () => unknown): unknown => {
       if (!isObject(event)) return next()
+      if (signedRefRequest(event)) {
+        appendResponseHeader(event, "cache-control", "private, no-store", "set")
+        const run = () => previewScoped(event, next)
+        const result = signed ? signed.run(true, run) : run()
+        return result instanceof Promise ? result.then(privateResponse) : privateResponse(result)
+      }
+      return previewScoped(event, next)
+    }
+    const previewScoped = (event: ContentPreviewEvent, next: () => unknown): unknown => {
       if (!publishedRequest(event)) {
         return hasPreviewCookie(event) ? withPreview(next, preview => preview.run(event, next)) : next()
       }

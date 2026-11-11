@@ -213,6 +213,20 @@ describe("content.sources.allow()", () => {
     expect(decision(await content.sources.allow(ref, anonymous(), "docs"))).toEqual({ allowed: false, reason: "fork" })
   })
 
+  it("reads the pull request again for a kept target, so it does not renew a removed label", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const { pulls } = repository()
+    const content = server()
+    const ref = `pr/${pulls.labelled}`
+    const access = await content.sources.allow(ref, anonymous(), "docs")
+    if (!access.allowed) throw new Error("expected the labelled fork pull request to be public")
+
+    fake.pulls.find(pull => pull.number === pulls.labelled)!.labels = []
+    vi.setSystemTime(Date.now() + 11 * 60_000)
+    expect(decision(await content.sources.allow(access.target, anonymous()))).toEqual({ allowed: false, reason: "fork" })
+    expect(decision(await content.sources.allow(ref, anonymous(), "docs"))).toEqual({ allowed: false, reason: "fork" })
+  })
+
   it("holds denials, so repeated probes cost no GitHub calls", async () => {
     const { refs } = repository()
     const content = server()

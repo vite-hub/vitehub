@@ -18,6 +18,8 @@ export interface GitHubClient {
   compare: (base: string, head: string, token: string | undefined, signal?: AbortSignal) => Promise<"identical" | "behind" | "ahead" | "diverged" | undefined>
   /** The pull requests that contain a commit, with their head commits. Empty when the repository has no such commit. */
   commitPulls: (sha: string, token: string | undefined, signal?: AbortSignal) => Promise<Array<{ sha: string, pull: GitHubPullRequest }>>
+  /** The 100 most recently updated open pull requests, with their head commits. GitHub lists fork pull requests here too. */
+  openPulls: (token: string | undefined, signal?: AbortSignal) => Promise<Array<{ sha: string, pull: GitHubPullRequest }>>
   archive: (ref: string, token: string | undefined, signal?: AbortSignal) => Promise<Uint8Array>
   defaultBranch: (token: string | undefined, signal?: AbortSignal) => Promise<string>
   file: (path: string, ref: string, token: string | undefined, signal?: AbortSignal) => Promise<{ content: Uint8Array, sha: string | undefined }>
@@ -168,6 +170,15 @@ export function createGitHubClient(repo: string): GitHubClient {
       )).data))
       if (data === undefined) return []
       if (!Array.isArray(data)) throw malformed(repo, "commit pull requests")
+      return data.map(item => pullRequest(item, isRecord(item) && typeof item.number === "number" ? item.number : Number.NaN))
+    },
+    async openPulls(token, signal) {
+      const data = await request("open", "pull requests", token, signal, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/pulls?state=open&sort=updated&direction=desc&per_page=100`,
+        { signal },
+      )).data)
+      if (!Array.isArray(data)) throw malformed(repo, "pull requests")
       return data.map(item => pullRequest(item, isRecord(item) && typeof item.number === "number" ? item.number : Number.NaN))
     },
     async archive(ref, token, signal) {

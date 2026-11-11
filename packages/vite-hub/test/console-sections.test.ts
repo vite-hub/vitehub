@@ -205,6 +205,7 @@ describe("Console Go to shortcuts", () => {
       connections: "g c",
       email: "g m",
       "rate-limits": "g r",
+      setup: "g y",
     })
   })
 

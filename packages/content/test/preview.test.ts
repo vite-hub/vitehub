@@ -21,7 +21,7 @@ import { shouldBypassCache } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { documents } from "../src/collections.ts"
 import { contentPreviewErrorName } from "../src/client.ts"
-import { contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
+import { contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -315,6 +315,24 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(await (await nitroApp.fetch(new Request("https://site.test/posts", { headers: { cookie } }))).json()).toMatchObject({ total: 2 })
     expect(await (await nitroApp.fetch(new Request("https://site.test/posts"))).json()).toMatchObject({ total: 1 })
     expect(await titleOf(await nitroApp.fetch(new Request("https://site.test/api/content/get/posts/hello", { headers: { cookie } })))).toBe("Draft")
+    expect(shouldBypassCache()).toBe(false)
+  })
+
+  it("keeps a request with a signed ref link out of Nitro's cache", async () => {
+    const { content } = await setup()
+    const app = new H3().get("/preview/feat", (event) => {
+      event.res.headers.set("cache-control", "public, max-age=3600, s-maxage=3600")
+      return { bypass: shouldBypassCache() }
+    })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+
+    const signed = await nitroApp.fetch(new Request(`https://site.test/preview/feat?${contentRefTokenParameter}=v1.0.x.y`))
+    expect(await signed.json()).toEqual({ bypass: true })
+    expect(signed.headers.get("cache-control")).toBe("private, no-store")
+    const plain = await nitroApp.fetch(new Request("https://site.test/preview/feat"))
+    expect(await plain.json()).toEqual({ bypass: false })
+    expect(plain.headers.get("cache-control")).toBe("public, max-age=3600, s-maxage=3600")
     expect(shouldBypassCache()).toBe(false)
   })
 

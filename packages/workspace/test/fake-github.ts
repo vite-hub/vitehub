@@ -403,10 +403,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     if (/^\/commits\/[^/]+\/pulls$/.test(rest) && method === "GET") {
       const commit = resolve(rest.slice("/commits/".length, -"/pulls".length))
       if (!commit) return failure(422, "No commit found")
-      // GitHub lists the pull requests whose head branch contains the commit.
+      // GitHub lists the pull requests whose head branch contains the commit. It does not list a fork pull request here.
       return page(pulls.filter(pull => {
         const head = branches.get(pull.head)
-        return head !== undefined && reachable(head).has(commit.sha)
+        return !pull.headRepo && head !== undefined && reachable(head).has(commit.sha)
       }).map(pullBody), url)
     }
     if (rest.startsWith("/commits/") && method === "GET") {
