@@ -372,10 +372,6 @@ const threads = defineOperation({
   description: "List the comment threads on the app's pages, newest activity first, with the first comment and the Vue components where each was left. Read one with comments.get. After you change the code, reply with comments.reply and resolve it with comments.resolve.",
   input: threadsInput,
   kind: "read",
-  mcp: {
-    format: ({ status, threads }) => threads.length ? threads.map(commentThreadLine).join("\n") : `No ${status} threads.`,
-    title: "List comment threads",
-  },
   name: "comments.threads",
   run: async (input, context) => {
     const who = await caller(context)
@@ -397,6 +393,11 @@ const threads = defineOperation({
     }
     return { status, threads: found.map(commentThreadSummary) }
   },
+  // After `run`, so TypeScript infers the output from `run` before it types `format`.
+  mcp: {
+    format: ({ status, threads }) => threads.length ? threads.map(commentThreadLine).join("\n") : `No ${status} threads.`,
+    title: "List comment threads",
+  },
   section: "comments",
 })
 
@@ -404,12 +405,12 @@ const get = defineOperation({
   description: "Read one comment thread by id, or by number inside its scope: its page, the element and Vue components with their source files, the browser and build, and every comment. A thread that does not exist or that you may not read is null.",
   input: getInput,
   kind: "read",
+  name: "comments.get",
+  run: async (input, context): Promise<CommentThread | null> => commentActions.get(input, await caller(context)),
   mcp: {
     format: thread => thread ? describeCommentThread(thread) : "No thread with this id that you may read.",
     title: "Read a comment thread",
   },
-  name: "comments.get",
-  run: async (input, context): Promise<CommentThread | null> => commentActions.get(input, await caller(context)),
   section: "comments",
 })
 
@@ -426,10 +427,10 @@ const reply = defineOperation({
   description: "Add a message to a comment thread, for example to say what you changed. A resolved thread stays resolved.",
   input: replyInput,
   kind: "write",
-  mcp: { format: thread => `Replied to thread ${thread.id}.`, title: "Reply to a comment thread" },
   name: "comments.reply",
   // The comment UI keeps a reply box on resolved threads. A reply keeps the thread resolved.
   run: async (input, context): Promise<CommentThread> => (await commentActions.reply(input, await caller(context), { allowResolved: true })).thread,
+  mcp: { format: thread => `Replied to thread ${thread.id}.`, title: "Reply to a comment thread" },
   section: "comments",
 })
 

@@ -49,9 +49,9 @@ async function call(command: Record<string, unknown>, extra: Record<string, stri
 
 /** The value of a successful operation call. */
 async function value(response: Promise<Response>): Promise<unknown> {
-  const body = await (await response).json();
+  const body: unknown = await (await response).json();
   expect(body).toMatchObject({ ok: true });
-  return body.value;
+  return Reflect.get(Object(body), "value");
 }
 
 describe("Auth Console operations", () => {
@@ -130,7 +130,7 @@ describe("Auth Console operations", () => {
     const request = (body: Record<string, unknown>) => call(body, { cookie: operator.request.headers.get("cookie")! });
     expect(await value(call({ operation: "users" }, { origin: "https://localhost:3000", "sec-fetch-site": "same-origin" }))).toMatchObject({ total: 2 });
     for (const rejected of [
-      { origin: "null", "sec-fetch-site": "same-origin" },
+      { origin: "null", "sec-fetch-site": "same-origin" } as Record<string, string>,
       { "sec-fetch-site": "cross-site" },
       { "sec-fetch-site": "same-site" },
       { origin: "https://outside.example" },

@@ -62,7 +62,7 @@ async function replay(input: unknown, headers: Record<string, string> = {}): Pro
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }))
-  return { body: await response.json(), status: response.status }
+  return { body: Object(await response.json()), status: response.status }
 }
 
 describe("Console Channel replay operation", () => {

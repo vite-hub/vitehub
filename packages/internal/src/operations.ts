@@ -152,7 +152,7 @@ export interface OperationDefinition<Input, Output> {
    * result for the Agent, such as a list of lines. The result stays the structured content. Without `format`, the text
    * is the result as JSON.
    */
-  mcp?: false | { title?: string, format?: (output: Output) => string }
+  mcp?: false | { title?: string, format?: (output: NoInfer<Output>) => string }
   /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
   user?: false
   /**
