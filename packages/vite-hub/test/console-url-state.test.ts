@@ -8,7 +8,6 @@ import type { RouteRecordRaw, Router } from "vue-router"
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   blobGet: vi.fn(),
-  connections: vi.fn(),
   operation: vi.fn(),
   peek: vi.fn(),
   request: vi.fn(),
@@ -20,10 +19,6 @@ vi.mock("../src/console/runtime/client/request", async importOriginal => ({
 vi.mock("../src/console/runtime/client/auth-management", async importOriginal => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/auth-management")>(),
   readAuthConsole: mocks.auth,
-}))
-vi.mock("../src/console/runtime/client/connections-management", async importOriginal => ({
-  ...await importOriginal<typeof import("../src/console/runtime/client/connections-management")>(),
-  requestConnectionsManagement: mocks.connections,
 }))
 vi.mock("../src/console/runtime/client/operation-view", async importOriginal => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/operation-view")>(),
@@ -41,7 +36,7 @@ vi.mock("../src/console/runtime/client/sections", async importOriginal => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/sections")>(),
   loadConsoleNavigation: async () => undefined,
 }))
-for (const name of ["console-frame", "console-search", "console-media-browser", "console-blob-detail", "console-media-detail", "console-env-details", "console-connections-details", "console-auth-activity"]) {
+for (const name of ["console-frame", "console-search", "console-media-browser", "console-blob-detail", "console-media-detail", "console-env-details", "console-auth-activity"]) {
   vi.doMock(`../src/console/runtime/components/${name}.vue`, () => ({ default: {} }))
 }
 
@@ -165,9 +160,9 @@ describe("Auth", async () => {
   const description = { access: [], actions: {}, events: { enabled: true }, fields: [], pages: ["overview", "users", "organizations"], storage: { enabled: true } }
 
   it("restores an organization across Auth pages without changing Back or Forward history", async () => {
-    mocks.auth.mockImplementation(async (_base: string, kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 0 })
+    mocks.auth.mockImplementation(async (kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 0 })
     const { push, replace, router, state } = await mountPage<{ navigate(page: "users"): void, selectedOrg?: { id: string }, selectedOrgId: string | undefined }>(
-      Auth, { managementBase: "/manage", sectionsBase: "/sections" }, "/auth/organizations?org=o1", routes,
+      Auth, { sectionsBase: "/sections" }, "/auth/organizations?org=o1", routes,
     )
     await vi.waitFor(() => expect(state.selectedOrg?.id).toBe("o1"))
     state.navigate("users")
@@ -195,11 +190,11 @@ describe("Auth", async () => {
   })
 
   it("restores the user search, filter, page, and open user and organization", async () => {
-    mocks.auth.mockImplementation(async (_base: string, kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 80 })
+    mocks.auth.mockImplementation(async (kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 80 })
     const { push, replace, router, state } = await mountPage<{ filter: string, offset: number, search: string, selectedOrg?: { id: string }, selectedOrgId: string | undefined, selectedUser: string | undefined }>(
-      Auth, { managementBase: "/manage", sectionsBase: "/sections" }, "/auth/users?q=ann&filter=admins&offset=25&user=u1", routes,
+      Auth, { sectionsBase: "/sections" }, "/auth/users?q=ann&filter=admins&offset=25&user=u1", routes,
     )
-    await vi.waitFor(() => expect(mocks.auth).toHaveBeenCalledWith("/manage", "users", { query: { filter: "admins", limit: 25, offset: 25, search: "ann" } }, expect.anything()))
+    await vi.waitFor(() => expect(mocks.auth).toHaveBeenCalledWith("users", { query: { filter: "admins", limit: 25, offset: 25, search: "ann" } }, expect.anything()))
     expect(state.selectedUser).toBe("u1")
     state.offset = 50
     await settle(router, { filter: "admins", offset: "50", q: "ann", user: "u1" })
@@ -219,51 +214,25 @@ describe("Env", async () => {
   const routes = [{ component: {}, name: "vitehub-console-env", path: "/env" }]
   const entries = ["token", "label"].map(name => ({ hasDefault: false, path: `env.server.${name}`, required: true, secret: false, source: "env" }))
 
-  it("restores the search, source, open variable, and its management tab", async () => {
+  it("restores the search, source, and open variable", async () => {
     mocks.request.mockResolvedValue({ entries })
-    const { push, router, state } = await mountPage<{ manageTab: string, managing: boolean, search: string, selected?: { path: string }, source: string }>(
-      Env, { ...bases, envBase: "/env-api", managementBase: "/manage" }, "/env?q=tok&source=Host%20environment&variable=env.server.token&manage=1&tab=access", routes,
+    const { push, router, state } = await mountPage<{ search: string, selected?: { path: string }, source: string }>(
+      Env, { ...bases, envBase: "/env-api" }, "/env?q=tok&source=Host%20environment&variable=env.server.token", routes,
     )
     await vi.waitFor(() => expect(state.selected?.path).toBe("env.server.token"))
-    expect([state.search, state.source, state.managing, state.manageTab]).toEqual(["tok", "Host environment", true, "access"])
+    expect([state.search, state.source]).toEqual(["tok", "Host environment"])
     state.selected = entries[1]!
-    // Another variable opens without the management of the last one.
     await settle(router, { q: "tok", source: "Host environment", variable: "env.server.label" })
     expect(push).toHaveBeenCalled()
     router.back()
     await vi.waitFor(() => expect(state.selected?.path).toBe("env.server.token"))
-    expect(state.manageTab).toBe("access")
   })
 
   it("drops a source that the variables do not have", async () => {
     mocks.request.mockResolvedValue({ entries })
-    const { router, state } = await mountPage<{ source: string }>(Env, { ...bases, envBase: "/env-api", managementBase: "/manage" }, "/env?source=Vault", routes)
+    const { router, state } = await mountPage<{ source: string }>(Env, { ...bases, envBase: "/env-api" }, "/env?source=Vault", routes)
     await vi.waitFor(() => expect(state.source).toBe("all"))
     await settle(router, {})
-  })
-})
-
-describe("Connections", async () => {
-  const Connections = (await import("../src/console/runtime/components/console-connections.vue")).default
-  const routes = [{ component: {}, name: "vitehub-console-connections", path: "/connections" }]
-
-  it("restores the search, open connection, and its tab", async () => {
-    vi.stubGlobal("window", { location: { pathname: "/connections" } })
-    mocks.connections.mockImplementation(async (_base: string, action: string) => action === "list"
-      ? { connections: ["github", "slack"].map(name => ({ credential: { kind: "oauth" }, name, provider: name, status: "connected" })) }
-      : { counts: {} })
-    const { push, router, state } = await mountPage<{ open: (name: string) => void, search: string, selected?: { name: string }, selectedTab: string }>(
-      Connections, { ...bases, managementBase: "/manage" }, "/connections?q=git&connection=github&tab=approvals", routes,
-    )
-    await vi.waitFor(() => expect(state.selected?.name).toBe("github"))
-    expect([state.search, state.selectedTab]).toEqual(["git", "approvals"])
-    state.open("slack")
-    await settle(router, { connection: "slack", q: "git" })
-    expect(push).toHaveBeenCalled()
-    router.back()
-    await vi.waitFor(() => expect(state.selected?.name).toBe("github"))
-    expect(state.selectedTab).toBe("approvals")
-    vi.unstubAllGlobals()
   })
 })
 

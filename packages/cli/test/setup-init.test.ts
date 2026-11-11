@@ -16,10 +16,9 @@ import type { SetupError, SetupInitPlan, SetupMissing, SetupStatus } from "../sr
 const repository = fileURLToPath(new URL("../../../", import.meta.url))
 const installation = join(repository, "fixtures/docs-hosts/installation")
 const hosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const
-const hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
 type InitResult = SetupInitPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
-type StatusResult = SetupStatus & { stack: { command: string } | null, console: { pendingId: string } | null }
+type StatusResult = SetupStatus & { stack: { command: string } | null }
 
 function init(args: string[], cwd: string, spawn?: ViteHubCliSpawn) {
   return runSetup<InitResult>(["init", ...args, "--json"], cwd, {}, spawn ? { spawn } : {})
@@ -74,7 +73,7 @@ describe("vitehub init", () => {
 
   it("is a no-op when the same command runs again", async () => {
     const parent = await createProject()
-    const args = ["my-app", "--host", "vercel", "--features", "kv,queue", "--option", "kv.driver=upstash", "--console", `p_1:sha256:${hash}`, "--no-install", "--yes"]
+    const args = ["my-app", "--host", "vercel", "--features", "kv,queue", "--option", "kv.driver=upstash", "--no-install", "--yes"]
     expect((await init(args, parent)).exitCode).toBe(0)
     const before = await snapshot(join(parent, "my-app"))
 
@@ -84,50 +83,23 @@ describe("vitehub init", () => {
     expect(await snapshot(join(parent, "my-app"))).toEqual(before)
   })
 
-  it("writes the reproducing command into README.md without the --console value", async () => {
+  it("writes the reproducing command into README.md", async () => {
     const parent = await createProject()
-    const result = await init(["shop", "--host", "vercel", "--features", "kv", "--option", "kv.driver=upstash", "--console", `pending-42:sha256:${hash}`, "--no-install", "--yes"], parent)
+    const result = await init(["shop", "--host", "vercel", "--features", "kv", "--option", "kv.driver=upstash", "--no-install", "--yes"], parent)
     expect(result.exitCode, result.stdout).toBe(0)
     const command = "pnpm dlx vite-hub init shop --host vercel --features kv --option kv.driver=upstash --yes"
     expect(result.json.stack).toEqual({ command })
     const readme = await readFile(join(parent, "shop/README.md"), "utf8")
     expect(readme).toBe(`# shop\n\n<!-- vitehub:stack -->\nCreate the same stack with:\n\n\`\`\`sh\n${command}\n\`\`\`\n<!-- /vitehub:stack -->\n`)
-    expect(readme).not.toContain("pending-42")
-    expect(readme).not.toContain(hash)
     const status = await runSetup<StatusResult>(["status", "--json"], join(parent, "shop"))
     expect(status.json.stack).toEqual({ command })
   })
 
-  it("stores only the pendingId and the hash from --console in the gitignored link file", async () => {
+  it("refuses the removed --console flag", async () => {
     const parent = await createProject()
-    const result = await init(["app", "--host", "cloudflare", "--features", "kv", "--console", `p_1:sha256:${hash.toUpperCase()}`, "--no-install", "--yes"], parent)
-    expect(result.exitCode, result.stdout).toBe(0)
-    expect(result.json.console).toEqual({ pendingId: "p_1" })
-    const root = join(parent, "app")
-    expect(JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8"))).toEqual({ console: { pendingId: "p_1", tokenSha256: hash }, schemaVersion: 1 })
-    expect((await readFile(join(root, ".gitignore"), "utf8")).split("\n")).toContain(".vitehub")
-
-    const status = await runSetup<StatusResult>(["status", "--json"], root)
-    expect(status.json).toMatchObject({ console: { pendingId: "p_1" }, link: null })
-    expect(status.stdout).not.toContain(hash)
-    // Unlink removes a host link only. The pending Console link stays.
-    expect((await runSetup(["unlink", "--json"], root)).json).toMatchObject({ removed: false })
-    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(true)
-  })
-
-  it.each([
-    "vh_live_4f2c9a1b8e7d",
-    `p_1:${hash}`,
-    `p_1:sha256:${hash.slice(1)}`,
-    `p_1:sha1:${hash}`,
-    `bad id:sha256:${hash}`,
-    `p/1:sha256:${hash}`,
-  ])("rejects --console %s with exit 1 and never prints it", async (value) => {
-    const parent = await createProject()
-    const result = await init(["app", "--host", "node", "--features", "", "--console", value, "--yes"], parent)
-    expect(result.exitCode).toBe(1)
-    expect(result.json.error).toMatchObject({ code: "SETUP_CONSOLE_INVALID" })
-    expect(result.stdout + result.stderr).not.toContain(value)
+    const result = await init(["app", "--host", "node", "--features", "", "--console", "p_1:sha256:abc", "--yes"], parent)
+    expect(result.exitCode).not.toBe(0)
+    expect(result.json.error).toMatchObject({ code: "CLI_R0003" })
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 

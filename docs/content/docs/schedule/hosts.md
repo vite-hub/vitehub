@@ -34,7 +34,7 @@ When a Definition has no `cron`, the build adds the `vitehub/started-schedules` 
 Node has no host cron, so `vitehub({ host: 'node', schedule: true })` fails the build with `VITE_HUB_R0137`. Either:
 
 - Set `schedule: { runtime: { driver: 'process' } }` to run them in the server process.
-- Set `schedule: { providerOutput: false }` when your code or an external cron starts them, such as through `/_vitehub/schedules/run`.
+- Set `schedule: { providerOutput: false }` when your code or an external cron starts them, such as with `vitehub schedule run <name> --url <origin>`.
 
 Only builds check this, so `vite dev` works with `schedule: true`.
 
@@ -67,7 +67,7 @@ The CLI and the Console hide credentials in URLs, bearer tokens, and secret assi
 | Vite + Nitro | Yes. They call the dev server's Console RPC in the Nitro dev environment. | Definitions and a run action. |
 | Nuxt 5 | Yes. Nitro runs in the Vite process, as on Vite + Nitro. Use `--url http://localhost:3000` when the dev server file is not found. | Definitions and a run action. |
 | Plain Vite without Nitro | No. There is no Console RPC. | Not available. |
-| Deployed runtime | `vitehub schedule runs` and `attempts` call the Console with `--url` and Console credentials. `schedule run --url` needs `console.invoke` and signs with `VITEHUB_DISPATCH_KEY` when set. | Definitions, when the Console is on. |
+| Deployed runtime | `vitehub schedule runs` and `attempts` call the Console with `--url` and Console credentials. `schedule run --url` needs `console.invoke` and signs with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` when it is set. | Definitions, when the Console is on. |
 
 ::warning
 Memory stores lose runs on restart. Use a KV store to keep them.

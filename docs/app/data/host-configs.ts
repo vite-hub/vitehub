@@ -63,11 +63,11 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
   },
   // kv/configure.md, "Configuration options": `kv: { driver: 'upstash' }` reads its URL and token from Env.
   kv: {
-    cloudflare: { options: { kv: { comment: "On Cloudflare, values are saved in Workers KV", value: "true" } } },
-    deno: { options: { kv: { comment: "On Deno, values are saved in Deno KV", value: "true" } } },
-    netlify: { options: { kv: { comment: "On Netlify, values are saved in Upstash Redis", value: "{ driver: 'upstash' }" } } },
-    node: { options: { kv: { comment: "On Node, values are saved in .vitehub/data/kv", value: "true" } } },
-    vercel: { options: { kv: { comment: "On Vercel, values are saved in Upstash Redis", value: "true" } } },
+    cloudflare: { options: { kv: { comment: "On Cloudflare, use Workers KV", value: "true" } } },
+    deno: { options: { kv: { comment: "On Deno, use Deno KV", value: "true" } } },
+    netlify: { options: { kv: { comment: "On Netlify, use Upstash Redis", value: "{ driver: 'upstash' }" } } },
+    node: { options: { kv: { comment: "Node supports shared stores and local files", value: "true" } } },
+    vercel: { options: { kv: { comment: "On Vercel, use Upstash Redis", value: "true" } } },
   },
   queue: {
     cloudflare: { options: { queue: { comment: "On Cloudflare, jobs go to Cloudflare Queues", value: "true" } } },

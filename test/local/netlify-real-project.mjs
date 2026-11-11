@@ -69,6 +69,7 @@ function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
     "  esbuild: true",
     "  msgpackr-extract: false",
     "  node-liblzma: true",
+    "  vue-demi: false",
     "catalog:",
     `  vite: npm:@voidzero-dev/vite-plus-core@${vitePlusVersion}`,
     `  vitest: ${vitestVersion}`,

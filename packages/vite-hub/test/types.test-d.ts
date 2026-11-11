@@ -81,24 +81,25 @@ describe("vite-hub public types", () => {
     vitehub({ name: "my-app", host: "cloudflare", blob: true, rateLimit: true })
     vitehub({ agent: true, database: true, host: "node", workflow: true, workspace: true })
     vitehub({ auth: true, console: true, host: "node" })
-    // @ts-expect-error console.auth is required.
     vitehub({ console: {}, host: "node" })
     vitehub({ console: false, host: "node" })
     vitehub({ console: { auth: false }, host: "node" })
-    vitehub({ auth: true, console: { auth: "app" }, host: "node" })
-    vitehub({ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }, host: "node" })
+    vitehub({ auth: true, console: { authorize: "server/console-authorize.ts", impersonation: true }, host: "node" })
     vitehub({ console: { auth: false, authorize: "server/console-authorize.ts" }, host: "node" })
     vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: true }, host: "node" })
-    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: false }, host: "node" })
-    vitehub({ console: { auth: { provider: "github", allowedEmails: ["maintainer@example.com"] }, authorize: "server/console-authorize.ts" }, host: "node" })
+    vitehub({ console: { authorize: "server/console-authorize.ts", invoke: false }, host: "node" })
     // @ts-expect-error console.authorize is a server file path, not an inline function.
     vitehub({ console: { auth: false, authorize: () => true }, host: "node" })
+    // @ts-expect-error Apps do not sign people in to the Console: `auth: "app"` was removed.
+    vitehub({ auth: true, console: { auth: "app" }, host: "node" })
+    // @ts-expect-error Signed calls are the default: `auth: "token"` was removed.
+    vitehub({ console: { auth: "token" }, host: "node" })
+    // @ts-expect-error Console Auth (GitHub, a server file, Cloudflare Access) was removed.
     vitehub({ console: { auth: { provider: "cloudflare-access" } }, host: "cloudflare" })
-    vitehub({ console: { auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, host: "vercel" })
-    // @ts-expect-error Cloudflare Access Console Auth has no database or allowlist; the Access policy decides who signs in.
-    vitehub({ console: { auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, host: "cloudflare" })
-    // @ts-expect-error Access settings are strings or Env declarations.
-    vitehub({ console: { auth: { provider: "cloudflare-access", audience: 1 } }, host: "cloudflare" })
+    // @ts-expect-error Apps take no Console calls from browsers.
+    vitehub({ console: { origins: ["https://console.vitehub.dev"] }, host: "node" })
+    // @ts-expect-error Apps serve no Console MCP.
+    vitehub({ console: { mcp: { resource: "https://app.example.com/_vitehub/mcp" } }, host: "node" })
     // @ts-expect-error The old access and exposure keys are removed.
     vitehub({ console: { access: "auth" }, host: "node" })
     // @ts-expect-error Unknown Console Auth modes must not silently expose inspection routes.

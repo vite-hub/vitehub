@@ -36,7 +36,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'node',
-    console: { auth: false },
     connections: true,
     env: {
       server: {
@@ -61,7 +60,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     host: 'node',
-    console: { auth: false },
     connections: true,
     env: {
       server: {
@@ -85,7 +83,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     host: 'node',
-    console: { auth: false },
     connections: true,
     env: {
       server: {
@@ -102,7 +99,6 @@ export default defineConfig({
 :::
 
 - `connections: true` turns on Connections.
-- `console: { auth: false }` turns on the [Console](/docs/development/console) endpoint without a sign-in. The CLI uses it to connect accounts. Use this only on your computer.
 - `env.server.google` reads your Google client ID and secret from environment variables. `secret: true` hides the value until your code calls `unseal()`.
 
 Connections encrypts what it stores with a key. Make a random key:

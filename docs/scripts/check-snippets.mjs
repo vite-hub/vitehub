@@ -167,6 +167,23 @@ export function collectSnippets(sources = snippetSources()) {
   return snippets
 }
 
+/**
+ * `hubAuth()` registers the rules of `shared/abilities.ts` in `.vitehub/types/auth.d.ts`.
+ * A snippet program can register one rules file.
+ */
+function abilitiesDeclarations(snippets) {
+  const rules = snippets.filter(snippet => snippet.label === "shared/abilities.ts" && isAppFile(snippet))
+  if (rules.length > 1) throw new Error(`Only one page can show shared/abilities.ts. Found: ${rules.map(snippet => snippet.page).join(", ")}`)
+  if (!rules.length) return []
+  return [[join(docsRoot, ".snippets/vitehub-auth-abilities.d.ts"), [
+    `declare global {`,
+    `  namespace ViteHub {`,
+    `    interface AuthRegistry { abilities: typeof import(${JSON.stringify(rules[0].file)}).default }`,
+    `  }`,
+    `}`,
+    `export {}`,
+  ].join("\n")]]
+}
 /** A whole file of the page's app. Excerpts and examples of mistakes are not part of it. */
 const isAppFile = snippet => !snippet.fragment && !snippet.fails
 
@@ -438,6 +455,7 @@ const installedResolutions = new Map()
 export function checkSnippets(snippets, declarations = [], oldProgram = undefined) {
   const virtualFiles = new Map([
     ...[...appDeclarations, ...declarations].map(declaration => [declaration.file, declaration.code]),
+    ...abilitiesDeclarations(snippets),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
   // A page can show one file several times as it grows. A relative import gets the last full version of the

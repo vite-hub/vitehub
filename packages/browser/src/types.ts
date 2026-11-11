@@ -1,5 +1,4 @@
 import type {
-  LeaseStore,
   MaybePromise,
   TraceEvent,
 } from "@vite-hub/runtime"
@@ -119,7 +118,6 @@ export interface BrowserPolicy {
 }
 
 export interface CreateBrowserOptions<TConnection> {
-  leaseStore?: LeaseStore
   policy?: BrowserPolicy
   provider: BrowserProvider<TConnection>
   trace?: (event: TraceEvent) => MaybePromise<void>

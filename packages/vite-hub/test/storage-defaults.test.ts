@@ -46,19 +46,6 @@ describe("Node storage defaults", () => {
     })
   })
 
-  it("puts the inline Console Auth database under the explicit directory", () => {
-    const dataDir = "/var/lib/app data"
-    const auth = { provider: "github" as const, org: "acme" }
-    expect(withDataDir({ host: "node", dataDir, console: { auth } }).console).toMatchObject({
-      auth: { ...auth, databasePath: join(dataDir, "console-auth.sqlite") },
-    })
-    expect(withDataDir({ host: "node", dataDir, console: { auth: { ...auth, databasePath: "/data/auth.sqlite" } } }).console)
-      .toMatchObject({ auth: { databasePath: "/data/auth.sqlite" } })
-    expect(withDataDir({ host: "node", dataDir, console: { auth: {} } }).console).toMatchObject({ auth: {} })
-    const accessAuth = { provider: "cloudflare-access" as const, audience: "aud", teamDomain: "acme.cloudflareaccess.com" }
-    expect(withDataDir({ host: "node", dataDir, console: { auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
-  })
-
   it.each(["serve", "build"] as const)("keeps the default Agent journal under dataDir during %s, with the Console on or off", async (command) => {
     const dataDir = "/var/lib/app data"
     const databaseUrl = JSON.stringify(pathToFileURL(join(dataDir, "agent-invocations.sqlite")).href)

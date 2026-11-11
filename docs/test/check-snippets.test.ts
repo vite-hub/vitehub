@@ -175,6 +175,24 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("checks ability names and arguments against the page's shared rules", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/abilities-test")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), label, line: 1, page: "abilities-test.md" })
+    const rules = snippet("shared/abilities.ts", [
+      'import { defineAbilities } from "@vite-hub/auth/abilities"',
+      'export default defineAbilities({ "posts.edit": (user, post: { authorId: string }) => user.id === post.authorId })',
+    ].join("\n"))
+    const consumer = (name: string, argument: string) => snippet("server/check.ts", [
+      'import type { AbilityArgs, AbilityName } from "@vite-hub/auth/abilities"',
+      `export const name: AbilityName = ${JSON.stringify(name)}`,
+      `export const args: AbilityArgs<"posts.edit"> = [${argument}]`,
+    ].join("\n"))
+
+    expect(checkSnippets([rules, consumer("posts.edit", '{ authorId: "author" }')]).failures).toEqual([])
+    const failures = checkSnippets([rules, consumer("posts.delete", '{ authorId: 123 }')]).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322, 2322]])
+  }, 60_000)
+
   it("requires a block marked fails to fail with exactly the errors that it names", () => {
     const [marked] = extractBlocks("```ts [server/auth.ts] fails=TS2322,TS2353\nexport const a = 1\n```")
     expect(marked.fails).toEqual([2322, 2353])

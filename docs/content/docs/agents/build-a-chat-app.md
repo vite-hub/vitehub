@@ -62,8 +62,8 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "ai": "7.0.130",
-    "h3": "1.15.11",
-    "nuxt": "4.5.2",
+    "h3": "2.0.8",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
     "tailwindcss": "4.3.3",
     "vite-hub": "workspace:*",
     "vue": "3.5.44",
@@ -86,6 +86,7 @@ The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the 
 - Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
 - `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
 - `buildDir: ".nuxt"` keeps generated TypeScript in the project. This Nuxt version builds under `node_modules` by default, where the pinned Nitro skips TypeScript transforms.
+- The Shiki aliases inline its WebAssembly for the Nuxt 5 server build.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -99,6 +100,16 @@ export default defineNuxtConfig({
     console: false,
   }]],
   css: ["~/assets/main.css"],
+  vite: {
+    resolve: {
+      alias: [
+        // Inline Shiki's WebAssembly for the Nuxt 5 server build.
+        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+      ],
+    },
+  },
   ui: { fonts: false },
   devtools: { enabled: false },
 });
