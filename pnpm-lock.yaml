@@ -2221,9 +2221,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nitropack:
+      nitro:
         specifier: catalog:unjs
-        version: 2.13.6(2fab1ec8cd447764f88b869c451f74f7)
+        version: 3.0.261103-rc
       nuxt:
         specifier: catalog:nuxt
         version: nuxt-nightly@5.0.0-2611052317-a04317f(1d0fe79fa9325eba99b65f94e7f807de)
