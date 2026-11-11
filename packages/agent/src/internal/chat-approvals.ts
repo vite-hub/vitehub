@@ -1,13 +1,6 @@
 import { defineGrant, type Grant } from "@vite-hub/runtime/internal/grant"
 
 import { AgentHttpError } from "../http-error.ts"
-import {
-  isRuntimeBoolean,
-  isRuntimeFunction,
-  isRuntimeNumber,
-  isRuntimeObject,
-  isRuntimeString,
-} from "./runtime-value.ts"
 
 import type { UIMessageLike } from "../chat-message-input.ts"
 import type { StateAdapter } from "chat"
@@ -49,21 +42,21 @@ const defaultAgentChatApprovalTtlMs = 24 * 60 * 60 * 1000
 const agentChatApprovalLockTtlMs = 10_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return isRuntimeObject(value) && value !== null
+  return typeof value === "object" && value !== null
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => isRuntimeString(value) && value.length > 0)
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
 function isReadableStreamLike(value: unknown): value is ReadableStream<unknown> {
   return (
-    isRecord(value) && isRuntimeFunction(value.getReader) && isRuntimeFunction(value.pipeThrough)
+    isRecord(value) && typeof value.getReader === "function" && typeof value.pipeThrough === "function"
   )
 }
 
 function isHeadersLike(value: unknown): value is Headers {
-  return isRecord(value) && isRuntimeFunction(value.entries) && isRuntimeFunction(value.get)
+  return isRecord(value) && typeof value.entries === "function" && typeof value.get === "function"
 }
 
 function isResponseLike(value: unknown): value is Response & { body: ReadableStream<unknown> } {
@@ -71,8 +64,8 @@ function isResponseLike(value: unknown): value is Response & { body: ReadableStr
     isRecord(value) &&
     isReadableStreamLike(value.body) &&
     isHeadersLike(value.headers) &&
-    isRuntimeNumber(value.status) &&
-    isRuntimeString(value.statusText)
+    typeof value.status === "number" &&
+    typeof value.statusText === "string"
   )
 }
 
@@ -87,10 +80,10 @@ function approvalError(statusCode: number, message: string): AgentHttpError {
 function isAgentChatConsumedApproval(value: unknown): value is AgentChatConsumedApproval {
   return (
     isRecord(value) &&
-    isRuntimeString(value.id) &&
-    isRuntimeString(value.name) &&
-    isRuntimeString(value.toolCallId) &&
-    isRuntimeBoolean(value.approved)
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.toolCallId === "string" &&
+    typeof value.approved === "boolean"
   )
 }
 
@@ -116,10 +109,10 @@ function uiApprovalPart(
 ): { approval: Record<string, unknown> & { id: string }; record: Record<string, unknown> } | undefined {
   if (!isRecord(part)) return
   const type = part.type
-  if (type !== "dynamic-tool" && !(isRuntimeString(type) && type.startsWith("tool-"))) return
+  if (type !== "dynamic-tool" && !(typeof type === "string" && type.startsWith("tool-"))) return
   if (part.state !== "approval-requested" && part.state !== "approval-responded") return
   const approval = part.approval
-  if (!isRecord(approval) || !isRuntimeString(approval.id)) return
+  if (!isRecord(approval) || typeof approval.id !== "string") return
   return { approval: { ...approval, id: approval.id }, record: part }
 }
 
@@ -254,7 +247,7 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
                   `Agent chat approval ${JSON.stringify(id)} was not issued by this session.`,
                 )
               if (submittedPart.record.state === "approval-responded") {
-                if (!isRuntimeBoolean(submittedPart.approval.approved)) {
+                if (typeof submittedPart.approval.approved !== "boolean") {
                   throw approvalError(
                     400,
                     `Agent chat approval ${JSON.stringify(id)} requires an approved decision.`,
@@ -271,10 +264,10 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
                 ...submittedPart.record,
                 approval: {
                   id,
-                  ...(isRuntimeBoolean(submittedPart.approval.approved)
+                  ...(typeof submittedPart.approval.approved === "boolean"
                     ? { approved: historicalDecision?.approved ?? submittedPart.approval.approved }
                     : {}),
-                  ...(isRuntimeString(historicalDecision?.reason ?? submittedPart.approval.reason)
+                  ...(typeof (historicalDecision?.reason ?? submittedPart.approval.reason) === "string"
                     ? { reason: historicalDecision?.reason ?? submittedPart.approval.reason }
                     : {}),
                 },
@@ -310,13 +303,13 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
           const decision = submitted.find(
             (part) => part.approval.id === id && part.record.state === "approval-responded",
           )?.approval
-          if (request && isRuntimeBoolean(decision?.approved)) {
+          if (request && typeof decision?.approved === "boolean") {
             await state.set(
               agentChatConsumedApprovalKey(invokerId, sessionId, id),
               {
                 ...request,
                 approved: decision.approved,
-                ...(isRuntimeString(decision.reason) ? { reason: decision.reason } : {}),
+                ...(typeof decision.reason === "string" ? { reason: decision.reason } : {}),
               } satisfies AgentChatConsumedApproval,
               ttlMs,
             )
