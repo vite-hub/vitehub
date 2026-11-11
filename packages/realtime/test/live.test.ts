@@ -390,6 +390,55 @@ describe("editor versions", () => {
 })
 
 describe("saves that do not fit the schema", () => {
+  it.each([
+    "[`defineContent`](/docs/content)",
+    "**`bold code`**",
+    "*`italic code`*",
+    "~~`deleted code`~~",
+    "---\n---",
+    "---\ntitle: Page\n---",
+  ])("saves field edits to codec-produced Markdown: %s", async (body) => {
+    const memory = createMemoryAdapter({ page: { body } })
+    const server = createTestServer({ document: memory.adapter, persistence: false })
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    client.doc.getMap("fields").set("title", "Updated")
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(200)
+    await expect(save.json()).resolves.toMatchObject({ document: { body, fields: { title: "Updated" } }, error: null, issues: [] })
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(memory.store.get("page")).toMatchObject({ body, fields: { title: "Updated" } })
+    client.close()
+  })
+
+  it("saves a custom editor's top node and checks its codec read-back", async () => {
+    const base = createStubEditor().editor
+    const editor = defineRealtimeEditor({
+      ...base,
+      extensions: () => base.extensions().map(extension => extension.name === "doc" ? extension.extend({ name: "page" }) : extension),
+      fromMarkdown: async markdown => ({ ...await base.fromMarkdown(markdown), type: "page" }),
+      toMarkdown: vi.fn(base.toMarkdown),
+    })
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter, { editor, persistence: false }))
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    client.doc.getMap("fields").set("title", "Updated")
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(200)
+    await expect(save.json()).resolves.toMatchObject({ document: { body: "Start", fields: { title: "Updated" } }, error: null, issues: [] })
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(editor.toMarkdown).toHaveBeenLastCalledWith({
+      type: "page",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Start" }] }],
+    })
+    client.close()
+  })
+
   function appendElement(doc: Y.Doc, element: Y.XmlElement): void {
     doc.getXmlFragment("body").push([element])
   }
