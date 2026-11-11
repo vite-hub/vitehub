@@ -163,7 +163,7 @@ upgrades never reach Nitro. There, build and preview to test rooms.
 
 | Host | Authority | Live state | What survives a restart |
 | --- | --- | --- | --- |
-| Node, Docker (several instances) | `redis` or `postgres`, which `auto` picks | In the memory of each instance, shared through the bus. | What the document adapter saved, and the shared room record. Unsaved edits are lost only when every instance with the room stops. |
+| Node, Docker (several instances) | `redis` or `postgres`, which `auto` picks | In the memory of each instance, shared through the bus. | What the document adapter saved, and the shared room record. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). |
 | Node, Docker (one process) | `memory`, which `auto` picks without `REDIS_URL` or a Postgres Default Database | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
 | Cloudflare Workers | `cloudflare` | One Durable Object per document, with Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
 | Vercel, Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |

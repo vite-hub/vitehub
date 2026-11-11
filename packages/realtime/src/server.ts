@@ -407,10 +407,14 @@ interface DocumentRoom extends RoomBase {
   operations: number
   peerUsers: WeakMap<WebSocketPeer, RealtimeUser>
   persistedUpdates: number
+  /** Gives a running saver time to publish its exact normalized result before treating a mismatch as external. */
+  pendingRecovery?: { digest: string | null, since: number }
   queue: Promise<void>
   resolved: ResolvedRealtimeDefinition
   retryDelay: number
   revision: number
+  /** A successful adapter save whose final shared record write still needs to complete. */
+  unwrittenRecord?: RealtimeRoomRecord
   sql?: RealtimeRoomSql
 }
 
@@ -1171,18 +1175,42 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     let pendingLoaded: RealtimeLoadedDocument | undefined
     if (!record) return true
     if (record.epoch !== room.epoch) {
+      room.unwrittenRecord = undefined
       await reseedRoom(room, "source-changed", undefined, false, true)
       return false
+    }
+    const unwritten = room.unwrittenRecord
+    if (unwritten) {
+      const saved = new Y.Doc()
+      try {
+        Y.applyUpdate(saved, unwritten.state)
+        // Another instance may already have recovered or advanced the record. Never replace a newer pending save
+        // with our older result. A readback digest, rather than body equality, also covers adapter normalization.
+        if (record.pending && unwritten.epoch === record.epoch && containsRealtimeState(saved, record.state)) {
+          const loaded = await room.resolved.adapter.load(room.context)
+          if (loaded.digest === unwritten.digest) {
+            await writeSharedRecord(bus, room.key, unwritten)
+            record = unwritten
+          }
+        }
+        room.unwrittenRecord = undefined
+      }
+      finally { saved.destroy() }
     }
     if (record.pending) {
       const loaded = await room.resolved.adapter.load(room.context)
       pendingLoaded = loaded
       record = await recoverSharedRecord(bus, room.key, room.editor, loaded, record)
       if (record.digest !== loaded.digest) {
+        if (room.pendingRecovery?.digest !== loaded.digest) room.pendingRecovery = { digest: loaded.digest, since: Date.now() }
+        if (Date.now() - room.pendingRecovery.since < 10_000) {
+          throw new HTTPError({ status: 503, message: "Realtime is waiting for another instance to finish its interrupted save. Retry the save." })
+        }
         await reseedRoom(room, "source-changed", loaded)
         return false
       }
     }
+    room.pendingRecovery = undefined
     if (record.digest === room.digest && !record.pending) return true
     const saved = new Y.Doc()
     try {
@@ -1568,6 +1596,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const peers = [...room.peers]
     // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
     room.epoch = epoch
+    room.unwrittenRecord = undefined
+    room.pendingRecovery = undefined
     room.digest = source.digest
     room.guard = guard
     room.dirty = dirty
@@ -1617,7 +1647,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         // outside write if this process stops before recording the new digest. Later edits stay unsaved.
         return await saveRoomNow(room, reason, force,
           async (digest, state) => {
-            await writeSharedRecord(bus, room.key, { epoch: room.epoch, digest, state })
+            const record = { epoch: room.epoch, digest, state }
+            room.unwrittenRecord = record
+            await writeSharedRecord(bus, room.key, record)
+            room.unwrittenRecord = undefined
           },
           async (state) => {
             await writeSharedRecord(bus, room.key, { epoch: room.epoch, digest: room.digest, state, pending: true })
@@ -1676,6 +1709,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const { clean } = room.guard
       if (room.digest !== null && document.body === clean.body && realtimeJsonEqual(document.fields, clean.fields)) {
         // The edits cancel out, or only change the codec's own form of the stored document: write nothing.
+        await onStored?.(room.digest, Y.encodeStateAsUpdate(submitted))
         writeRealtimeStatus(room.document, { error: null }, serverOrigin)
         finishSave()
         return { ...readRealtimeStatus(room.document), document }

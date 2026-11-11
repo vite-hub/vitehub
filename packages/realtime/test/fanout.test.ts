@@ -319,15 +319,118 @@ function controllable(adapter: RealtimeDocumentAdapter) {
 }
 
 describe("saves across instances", () => {
-  function controlledInstances() {
+  function controlledInstances(options: Parameters<typeof createMemoryAdapter>[1] = {}) {
     const network = createMemoryBusNetwork()
-    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const memory = createMemoryAdapter({ page: { body: "Start" } }, options)
     const [controlA, controlB] = [controllable(memory.adapter), controllable(memory.adapter)]
     const [busA, busB] = [network.bus(), network.bus()]
     const a = createTestServer(definition(controlA.adapter), { handler: { bus: () => busA } })
     const b = createTestServer(definition(controlB.adapter), { handler: { bus: () => busB } })
     return { a, b, busA, controlA, controlB, memory, network }
   }
+
+  it.each([false, true])("clears an unfinished save when a retry finds that the edits cancelled out (record failure: %s)", async (recordFailure) => {
+    const { a, b, busA, memory, network } = controlledInstances()
+    const onA = await a.connect("page")
+    await flush()
+    memory.adapter.save.mockImplementationOnce(async () => { throw new Error("Store unavailable") })
+    appendParagraph(onA.doc, "Deleted later")
+    await flush(2_100)
+    const key = realtimeRoomKey("docs", "page")
+    expect(network.records.get(key)).toMatchObject({ digest: "v1", pending: true })
+    const write = busA.writeRoom.bind(busA)
+    let failures = 0
+    vi.spyOn(busA, "writeRoom").mockImplementation(async (room, record, ifEpoch) => {
+      if (recordFailure && !record.pending && failures < 3) {
+        failures++
+        throw new Error("Record write failed")
+      }
+      return await write(room, record, ifEpoch)
+    })
+
+    onA.doc.getXmlFragment("body").delete(1, 1)
+    await flush(7_000)
+    expect(memory.adapter.save).toHaveBeenCalledTimes(1)
+    expect(memory.store.get("page")).toMatchObject({ body: "Start", digest: "v1" })
+    onA.close()
+    await flush()
+    const onB = await b.connect("page")
+    await flush(3_000)
+    expect(paragraphs(onB.doc)).toEqual(["Start"])
+    expect(network.records.get(key)?.pending).not.toBe(true)
+    expect(memory.store.get("page")).toMatchObject({ body: "Start", digest: "v1" })
+  })
+
+  it.each(["throw", "reject"])("retries the exact normalized record before its next save: %s", async (failure) => {
+    const { a, b, busA, memory, network } = controlledInstances({
+      normalize: document => ({ ...document, body: document.body.replace("saved by A", "Saved by A") }),
+    })
+    const onA = await a.connect("page")
+    const onB = await b.connect("page")
+    await flush()
+    const key = realtimeRoomKey("docs", "page")
+    const epoch = network.records.get(key)!.epoch
+    const write = busA.writeRoom.bind(busA)
+    let failures = 0
+    vi.spyOn(busA, "writeRoom").mockImplementation(async (room, record, ifEpoch) => {
+      if (record.digest === "v2" && failures < 3) {
+        failures++
+        if (failure === "reject") return false
+        throw new Error("Record write failed")
+      }
+      return await write(room, record, ifEpoch)
+    })
+    // B's own save must give A time to retry the final record, rather than re-seeding immediately.
+    appendParagraph(onA.doc, "saved by A")
+    await flush(2_100)
+    expect(failures).toBe(3)
+    expect(memory.store.get("page")!.body).toBe("Start\n\nSaved by A")
+    expect(network.records.get(key)).toMatchObject({ digest: "v1", pending: true })
+    appendParagraph(onB.doc, "Typed on B")
+    await flush(6_000)
+
+    expect(memory.store.get("page")!.body).toBe("Start\n\nSaved by A\n\nTyped on B")
+    expect(paragraphs(onA.doc)).toEqual(["Start", "Saved by A", "Typed on B"])
+    expect(paragraphs(onB.doc)).toEqual(paragraphs(onA.doc))
+    expect([...onA.controls, ...onB.controls].filter(control => control.type === "reset")).toEqual([])
+    expect(network.records.get(key)).toMatchObject({ epoch, digest: memory.store.get("page")!.digest })
+    expect(network.records.get(key)?.pending).not.toBe(true)
+  })
+
+  it.each(["stopped saver", "outside write"])("re-seeds an unmatched pending save after a %s", async (scenario) => {
+    const { a, b, busA, controlA, memory, network } = controlledInstances({
+      normalize: document => ({ ...document, body: document.body.replace("saved by A", "Saved by A") }),
+    })
+    const onA = await a.connect("page")
+    const onB = await b.connect("page")
+    await flush()
+    const key = realtimeRoomKey("docs", "page")
+    const epoch = network.records.get(key)!.epoch
+    const write = busA.writeRoom.bind(busA)
+    vi.spyOn(busA, "writeRoom").mockImplementation(async (room, record, ifEpoch) => {
+      if (record.digest === "v2") throw new Error("Record write failed")
+      return await write(room, record, ifEpoch)
+    })
+    appendParagraph(onA.doc, "saved by A")
+    await flush(2_100)
+    if (scenario === "stopped saver") {
+      busA.crash()
+      controlA.crash()
+    }
+    else memory.write("page", "Changed outside the room")
+    appendParagraph(onB.doc, "Typed on B")
+    await flush(16_000)
+
+    expect(onB.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
+    expect(onB.closed).toMatchObject({ code: 4409 })
+    // The reset lets a client keep its old document for manual recovery; it must not silently overwrite the store.
+    expect(paragraphs(onB.doc)).toContain("Typed on B")
+    const fresh = await b.connect("page")
+    await flush()
+    expect(paragraphs(fresh.doc)).toEqual(scenario === "stopped saver" ? ["Start", "Saved by A"] : ["Changed outside the room"])
+    expect(network.records.get(key)!.epoch).not.toBe(epoch)
+    expect(network.records.get(key)?.pending).not.toBe(true)
+  })
 
   it("keeps an edit that arrived during another instance's save unsaved, so it is saved when that instance crashes", async () => {
     const { a, b, busA, controlA, memory } = controlledInstances()
