@@ -87,7 +87,7 @@ ssh -N -L 4799:127.0.0.1:4799 user@server
 
 Open the printed URL in that browser. If only the server can reach the laptop, run `ssh -N -R 4799:127.0.0.1:4799 user@laptop` on the server. Over SSH, or with no browser, the CLI prints the port to forward.
 
-Inspection shows the email, granted and missing scopes, plan status, token expiry, client ID, and host ID, never tokens. The Console shows the same, but sign-in uses the CLI, because a website redirect cannot grant plan usage.
+Inspection shows the email, granted and missing scopes, plan status, token expiry, client ID, and host ID, never tokens. Sign-in uses the CLI, because a website redirect cannot grant plan usage.
 
 `models` fetches the account's models with `visibility == "list"`. Set `driver.model` to one of them. Codex's built-in list does not prove access.
 
