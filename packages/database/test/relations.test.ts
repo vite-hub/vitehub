@@ -100,7 +100,8 @@ describe("mergeDatabaseRelations", () => {
     expect(merged.users!.relations.posts).toBe(app.relations.users.relations.posts)
     expect(merged.posts!.relations.author).toBe(app.relations.posts.relations.author)
 
-    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged, schema: mergedSchema })
+    // All surviving fields come from the app; retain its concrete graph type after the dynamic merge.
+    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged as typeof app.relations, schema: mergedSchema })
     await seed(db)
     await db.run(sql`ALTER TABLE users ADD COLUMN email TEXT`)
     await db.run(sql`UPDATE users SET email = 'ada@example.com' WHERE id = 1`)
@@ -153,7 +154,8 @@ describe("mergeDatabaseRelations", () => {
     expect(Object.hasOwn(merged.posts!.relations, "__proto__")).toBe(true)
     expect(merged.posts!.relations["__proto__"]).toBe(part.posts.relations["__proto__"])
 
-    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged, schema })
+    // This merge preserves the part's graph, including its computed relation name.
+    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged as typeof part, schema })
     await seed(db)
     await expect(db.query.posts!.findMany({ columns: { title: true }, orderBy: { id: "asc" }, where: { ["__proto__"]: { name: "Ada" } } })).resolves.toEqual([
       { title: "First" }, { title: "Second" },
