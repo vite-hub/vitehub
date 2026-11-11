@@ -46,7 +46,6 @@ export function validateScheduledAt(scheduledAt: Date | undefined): Date {
  * as `2026-01-31T23:59:00Z`. Anything else fails with `SCHEDULE_INVALID_SCHEDULED_AT`. Absent means now.
  */
 export function parseScheduledAt(scheduledAt: Date | string | undefined): Date {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The run time comes from CLI, RPC, or dispatch input.
   if (typeof scheduledAt !== "string") return validateScheduledAt(scheduledAt)
   const parsed = parseScheduledAtText(scheduledAt)
   if (parsed) return parsed
