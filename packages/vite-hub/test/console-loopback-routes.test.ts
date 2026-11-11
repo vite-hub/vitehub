@@ -62,7 +62,7 @@ function sourceFile(handler: string): string {
 
 /** One request for a registered route: the concrete path for a `**` route, and its method. */
 function remoteRequest(entry: Registration, remoteAddress?: string): ConsoleRequestEvent {
-  const path = entry.route!.replace("/_vitehub/rpc/**", "/_vitehub/rpc/__call").replace("/**", "/agents")
+  const path = entry.route!.replace("/**", "/agents")
   const method = [entry.method ?? "post"].flat()[0]!.toUpperCase()
   return consoleEvent({
     url: `http://localhost:3000${path}`,

@@ -21,6 +21,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { resolveConsoleAccessBuild, type ConsoleOptions } from "../src/console/vite.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
+import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -588,13 +589,13 @@ describe("MCP sign-in with OAuth access tokens", () => {
       expect((await post(rpc(1, "ping"), headers, `${app}${path}`)).status, path).toBe(401)
     }
     const rpcResponse = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/_vitehub/mcp`, {
-      body: JSON.stringify({ input: {}, operation: "sections.list" }),
+      body: operationRpcBody("sections.list", {}),
       headers: { ...headers, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))
     expect(rpcResponse.status).toBe(401)
-    const rpcRoot = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
-      body: JSON.stringify({ input: {}, operation: "sections.list" }),
+    const rpcRoot = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc`, {
+      body: operationRpcBody("sections.list", {}),
       headers: { ...headers, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))

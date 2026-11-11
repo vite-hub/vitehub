@@ -51,7 +51,8 @@ export function addConsoleRpcHandler(
   // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
   const handlers = kit.config.handlers as NitroHandler[]
   const registrations: Array<{ absolute?: true, handler: string, method?: "get" | "post", middleware?: true, suffix: string }> = [
-    { suffix: "/_vitehub/rpc/**", handler: join(consoleRuntimeRoot, "server/rpc.js") },
+    // One birpc call per POST. The route answers other methods with 405 and leaves the paths below it to the app.
+    { suffix: "/_vitehub/rpc", handler: join(consoleRuntimeRoot, "server/rpc.js") },
     { suffix: "/_vitehub/auth/manage", handler: join(consoleRuntimeRoot, "server/auth-manage.js"), method: "post" },
     { suffix: "/_vitehub/env/manage", handler: join(consoleRuntimeRoot, "server/env-manage.js"), method: "post" },
     { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js"), method: "post" },
@@ -136,7 +137,7 @@ export function addConsoleRpcHandler(
     if (conflict && registration.absolute) continue
     if (conflict) {
       const message =
-        registration.suffix === "/_vitehub/rpc/**"
+        registration.suffix === "/_vitehub/rpc"
           ? `Cannot mount the ViteHub Console handler at "${route}" because that route already uses "${conflict.handler}".`
           : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("mcp") ? "MCP" : "Schedule run"} handler at "${route}" because that route is already registered.`;
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })

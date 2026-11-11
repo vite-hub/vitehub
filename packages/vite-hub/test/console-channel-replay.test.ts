@@ -15,6 +15,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 import type { AgentRunContext } from "@vite-hub/agent"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]
 
@@ -57,12 +58,12 @@ function labeller() {
 
 /** One `channels.replay` call through the Console RPC. */
 async function replay(input: unknown, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
-  const response = await handleConsoleRpcRequest(new Request("https://app.test/_vitehub/rpc/__call", {
-    body: JSON.stringify({ operation: "channels.replay", input }),
+  const response = await handleConsoleRpcRequest(new Request("https://app.test/_vitehub/rpc", {
+    body: operationRpcBody("channels.replay", input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }))
-  return { body: Object(await response.json()), status: response.status }
+  return { body: Object(await operationRpcResponseResult(response)), status: response.status }
 }
 
 describe("Console Channel replay operation", () => {

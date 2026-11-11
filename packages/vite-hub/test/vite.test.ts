@@ -420,7 +420,7 @@ describe("vitehub", () => {
 
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+          expect.objectContaining({ route: "/_vitehub/rpc" }),
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
@@ -487,7 +487,7 @@ describe("vitehub", () => {
       const namedConfig: Record<string, unknown> = { root }
       await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
       })
       await callHook(named.configResolved, [namedConfig])
 
@@ -495,7 +495,7 @@ describe("vitehub", () => {
       expect(generated).toContain('"kv"')
       expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
       })
 
     }
@@ -574,7 +574,7 @@ describe("vitehub", () => {
     await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
     expect(config.nitro.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({ route: "/_vitehub/api/kv" }),
-      expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+      expect.objectContaining({ route: "/_vitehub/rpc" }),
     ]))
   })
 
@@ -601,7 +601,7 @@ describe("vitehub", () => {
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
           expect.objectContaining({ route: "/_vitehub/sign-in", middleware: true }),
-          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+          expect.objectContaining({ route: "/_vitehub/rpc" }),
         ]),
       })
     }
@@ -656,7 +656,7 @@ describe("vitehub", () => {
       expect(implicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+            expect.objectContaining({ route: "/_vitehub/rpc" }),
           ]),
         },
       })
@@ -676,7 +676,7 @@ describe("vitehub", () => {
       expect(explicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+            expect.objectContaining({ route: "/_vitehub/rpc" }),
           ]),
         },
       })

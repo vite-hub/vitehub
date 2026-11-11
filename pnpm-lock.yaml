@@ -460,6 +460,9 @@ catalogs:
     '@valibot/to-json-schema':
       specifier: ^1.8.0
       version: 1.8.0
+    birpc:
+      specifier: ^4.2.0
+      version: 4.2.0
     diff:
       specifier: ^9.0.0
       version: 9.0.0
@@ -1103,6 +1106,9 @@ importers:
       ai:
         specifier: catalog:ai
         version: 7.0.130(zod@4.6.7)
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       chat:
         specifier: catalog:chat
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
@@ -1365,6 +1371,9 @@ importers:
       aws4fetch:
         specifier: catalog:storage
         version: 1.0.20
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       box-typescript-sdk-gen:
         specifier: catalog:storage
         version: 1.19.1(supports-color@8.1.1)
@@ -1561,6 +1570,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       diff:
         specifier: catalog:runtime
         version: 9.0.0
@@ -1769,6 +1781,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       confbox:
         specifier: ^0.3.1
         version: 0.3.2
@@ -1919,6 +1934,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       drizzle-kit:
         specifier: catalog:database
         version: 1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))
@@ -1976,6 +1994,9 @@ importers:
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       comark:
         specifier: catalog:markdown-ui
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
@@ -2280,6 +2301,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
@@ -2422,6 +2446,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -2629,6 +2656,9 @@ importers:
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.67.5)(supports-color@10.2.2)
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
@@ -2696,6 +2726,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       defu:
         specifier: catalog:unjs
         version: 6.1.7
@@ -2950,6 +2983,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -3594,6 +3630,9 @@ importers:
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       confbox:
         specifier: ^0.2.4
         version: 0.2.4
@@ -3602,7 +3641,7 @@ importers:
         version: 0.28.2
       evlog:
         specifier: ^2.28.1
-        version: 2.33.1(a99bd51c4efc81014f30034ad2216a85)
+        version: 2.29.0(dcb35c909978edabb8a610f4456e4d0b)
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -4080,6 +4119,9 @@ importers:
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       defu:
         specifier: catalog:unjs
         version: 6.1.7
@@ -14058,6 +14100,66 @@ packages:
   eventsource@3.0.7:
     resolution: {integrity: sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==}
     engines: {node: '>=18.0.0'}
+
+  evlog@2.29.0:
+    resolution: {integrity: sha512-1qk5W3lttyAUz326ptqRbasPyc19u/ECa8UULjtRihUUyKV8W2ihsr4kB2qkxfqaMY4dFNhH9iShrYy93jxt5A==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@nestjs/common': '>=11.2.3'
+      '@nuxt/kit': ^4.4.2
+      '@orpc/server': '>=1.15.0'
+      '@tanstack/start-client-core': ^1.170.28
+      ai: 7.0.130
+      elysia: '>=1.4.30'
+      eve: '>=0.30.0'
+      express: '>=5.2.1'
+      fastify: '>=5.12.3'
+      h3: ^1.15.11
+      hono: '>=4.13.7'
+      next: '>=16.3.4'
+      nitro: ^3.0.260311-beta
+      nitropack: ^2.13.4
+      ofetch: ^1.5.1
+      react: '>=19.2.8'
+      react-router: '>=7.18.3'
+      vite: ^7.0.0 || ^8.0.0
+    peerDependenciesMeta:
+      '@nestjs/common':
+        optional: true
+      '@nuxt/kit':
+        optional: true
+      '@orpc/server':
+        optional: true
+      '@tanstack/start-client-core':
+        optional: true
+      ai:
+        optional: true
+      elysia:
+        optional: true
+      eve:
+        optional: true
+      express:
+        optional: true
+      fastify:
+        optional: true
+      h3:
+        optional: true
+      hono:
+        optional: true
+      next:
+        optional: true
+      nitro:
+        optional: true
+      nitropack:
+        optional: true
+      ofetch:
+        optional: true
+      react:
+        optional: true
+      react-router:
+        optional: true
+      vite:
+        optional: true
 
   evlog@2.33.1:
     resolution: {integrity: sha512-raahjdFBFXWBYRD/SMuBs/pBAcarTlV/YzuIk/iWH/Snieo5mqh1a9epfo7DOKXq1OWpHqH4xXhVxWv1JIIg+w==}
@@ -32815,6 +32917,22 @@ snapshots:
   eventsource@3.0.7:
     dependencies:
       eventsource-parser: 3.1.1
+
+  evlog@2.29.0(dcb35c909978edabb8a610f4456e4d0b):
+    optionalDependencies:
+      '@nestjs/common': 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2)
+      '@nuxt/kit': 4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5))
+      ai: 7.0.130(zod@4.6.7)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0(supports-color@10.2.2))
+      express: 5.2.1(supports-color@10.2.2)
+      fastify: 5.12.5
+      h3: 1.15.11
+      hono: 4.13.12
+      nitro: 3.0.261102-rc
+      nitropack: 2.13.6(ee8c7d467d699d374ec3b462f4deafab)
+      ofetch: 1.5.1
+      react: 19.2.6
+      vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
 
   evlog@2.33.1(4f6b3ec5411fc8729d1e999da7315aac):
     optionalDependencies:

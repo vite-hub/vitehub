@@ -5,6 +5,7 @@ import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/wor
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { channelReplayQuery, channelReplayQueryHelp, parseChannelReplayArgs, runAgentChannelReplayCli } from "../src/internal/channel-replay-cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const querySchema = {
   properties: {
@@ -143,10 +144,10 @@ describe("vitehub channels replay", () => {
     const stdout = output()
     const requests: Array<{ body: Record<string, unknown>, headers: Headers, url: string }> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { input: Record<string, unknown>, operation: string }
+      const body = operationRpcRequest(init?.body) as { input: Record<string, unknown>, operation: string }
       requests.push({ body, headers: new Headers(init?.headers), url: String(url) })
-      if (body.input.describe) return Response.json({ ok: true, value: { channel: "mailbox", query: querySchema, trigger: "received" } })
-      return Response.json({ ok: true, value: { failed: 1, items: [{ error: "Invalid input", key: "m1", status: "failed" }], nextCursor: null, processed: 0, skipped: 0 } })
+      if (body.input.describe) return operationRpcResponse(init?.body, { ok: true, value: { channel: "mailbox", query: querySchema, trigger: "received" } })
+      return operationRpcResponse(init?.body, { ok: true, value: { failed: 1, items: [{ error: "Invalid input", key: "m1", status: "failed" }], nextCursor: null, processed: 0, skipped: 0 } })
     })
     const code = await runAgentChannelReplayCli(
       ["--agent", "labeller", "--channel", "mailbox", "--url", "https://mail.example.com/app", "--dry-run", "--folder", "inbox"],
@@ -168,7 +169,7 @@ describe("vitehub channels replay", () => {
       { input: { agent: "labeller", channel: "mailbox", describe: true }, operation: "channels.replay" },
       { input: { agent: "labeller", channel: "mailbox", dryRun: true, limit: 10, query: { folder: "inbox" } }, operation: "channels.replay" },
     ])
-    expect(requests[1]?.url).toBe("https://mail.example.com/app/_vitehub/rpc/__call")
+    expect(requests[1]?.url).toBe("https://mail.example.com/app/_vitehub/rpc")
     expect(requests[1]?.headers.get("authorization")).toBe("Basic abc")
     expect(requests[1]?.headers.get("cf-access-client-id")).toBe("client-id")
     expect(requests[1]?.headers.get("cf-access-client-secret")).toBe("client-secret")

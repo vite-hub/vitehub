@@ -4,7 +4,7 @@
  */
 
 /** The data routes of a project: the operation RPC, the Console API routes, and the page tools session. */
-const forwardedPath = /^\/_vitehub\/(?:rpc\/.|api\/.|page\/session$)/
+const forwardedPath = /^\/_vitehub\/(?:rpc$|api\/.|page\/session$)/
 const forwardedMethods = new Set(["GET", "HEAD", "POST", "PUT", "DELETE"])
 /** Cookies, `Origin`, and `Authorization` of the Console page never reach the project. */
 const requestHeaders = ["accept", "content-type", "if-none-match", "x-vitehub-console"]
@@ -30,7 +30,7 @@ function problem(status: number, code: string, message: string): Response {
 
 /**
  * Send one Console call to a project. `path` is the app path after the project prefix, with its query, such as
- * `/_vitehub/rpc/__call`. Only the data routes go through. The project's answer comes back with its status and body,
+ * `/_vitehub/rpc`. Only the data routes go through. The project's answer comes back with its status and body,
  * and without cookies. The Console contains project content so it cannot execute on the Console origin.
  */
 export async function forwardProjectRequest(request: Request, target: ForwardTarget, path: string, send: typeof fetch = fetch): Promise<Response> {
