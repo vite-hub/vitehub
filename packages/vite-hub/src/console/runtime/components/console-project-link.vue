@@ -11,6 +11,7 @@ import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
+import ConsoleCodeText from "./console-code-text.vue";
 
 const open = defineModel<boolean>("open", { required: true });
 const persistent = useConsoleProjects().persistent;
@@ -102,17 +103,17 @@ function back(): void {
     v-model:open="open"
     :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
     :content="content"
-    :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)] sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
+    :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
       <template v-if="oauthStep">{{ consoleProjectHost(oauthStep.target) }} signs you in on its own page.</template>
-      <template v-else-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
-      <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>.</template>
+      <ConsoleCodeText v-else-if="tokenStep" :text="`${consoleProjectHost(tokenStep.target)} uses \`auth: &quot;token&quot;\`.`" />
+      <ConsoleCodeText v-else text="Open a ViteHub app in this Console. The app must list this Console in `console.origins`." />
     </template>
     <template #body>
       <div v-if="oauthStep" class="grid gap-3">
         <ConsoleProjectOAuth :target="oauthStep.target" :resource-metadata="oauthStep.resourceMetadata" />
-        <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" @click="back" />
+        <UButton variant="link" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" @click="back" />
       </div>
       <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
@@ -120,7 +121,7 @@ function back(): void {
           :problem="tokenProblem"
           @submit="link"
         />
-        <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />
+        <UButton variant="link" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />
       </div>
       <form v-else class="grid gap-4" novalidate @submit.prevent="link()">
         <UFormField
@@ -154,10 +155,6 @@ function back(): void {
 </template>
 
 <style>
-.vitehub-project-dialog :is(button, a[href]):focus-visible {
-  outline-offset: 2px;
-}
-
 @media (pointer: coarse) {
   .vitehub-project-dialog :is(button:not([role="checkbox"], [role="radio"]), input) {
     min-height: 44px;

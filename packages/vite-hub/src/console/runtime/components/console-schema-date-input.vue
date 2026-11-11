@@ -5,8 +5,6 @@ import { computed, ref } from "vue";
 /** The control of a schema form date field: a date, or a UTC date and time with `kind: "date-time"`. */
 const props = defineProps<{
   disabled?: boolean;
-  /** Classes of the ghost controls of the schema form. */
-  ghost: string;
   id: string;
   invalid?: boolean;
   kind: "date" | "date-time";
@@ -59,16 +57,18 @@ const calendarOpen = ref(false);
       :id="id"
       v-model="date"
       variant="ghost"
-      :ui="{ base: `${ghost} gap-0`, segment }"
+      :ui="{ segment }"
+      :highlight="Boolean(invalid)"
+      :color="invalid ? 'error' : undefined"
       :disabled="disabled"
       :aria-label="kind === 'date-time' ? `${label} date` : label"
       :aria-invalid="invalid ? 'true' : undefined"
     >
       <template #trailing>
         <UPopover v-model:open="calendarOpen" :content="{ align: 'start' }">
-          <UButton variant="link" size="xs" icon="i-lucide-calendar" :aria-label="`Pick ${label.toLowerCase()} from a calendar`" class="px-0 text-dimmed hover:text-highlighted" :disabled="disabled" />
+          <UButton variant="ghost" size="xs" icon="i-lucide-calendar" :aria-label="`Pick ${label.toLowerCase()} from a calendar`" :disabled="disabled" />
           <template #content>
-            <UCalendar v-model="date" class="p-2" :ui="{ cellTrigger: 'tabular-nums' }" @update:model-value="calendarOpen = false" />
+            <UCalendar v-model="date" class="p-2 tabular-nums" @update:model-value="calendarOpen = false" />
           </template>
         </UPopover>
       </template>
@@ -78,7 +78,7 @@ const calendarOpen = ref(false);
         v-model="time"
         variant="ghost"
         :hour-cycle="24"
-        :ui="{ base: `${ghost} gap-0`, segment }"
+        :ui="{ segment }"
         :disabled="disabled || !date"
         :aria-label="`${label} time, UTC`"
       />

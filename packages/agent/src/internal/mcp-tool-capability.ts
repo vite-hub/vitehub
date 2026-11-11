@@ -161,17 +161,40 @@ function mcpFailureStatus(error: unknown): number | undefined {
   return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : undefined
 }
 
+/** Connection errors about the account or the provider. A person fixes them in the Console, not in code. */
+const connectionAvailabilityCodes = new Set([
+  "CONNECTIONS_NEEDS_RECONNECT",
+  "CONNECTIONS_NOT_CONNECTED",
+  "CONNECTIONS_PROVIDER_FAILED",
+  "CONNECTIONS_UNAVAILABLE",
+])
+
+function connectionFailureCode(error: unknown, seen = new Set<unknown>()): string | undefined {
+  if (!isRuntimeRecord(error) || seen.has(error)) return undefined
+  seen.add(error)
+  if (typeof error.code === "string" && connectionAvailabilityCodes.has(error.code)) return error.code
+  return connectionFailureCode(error.cause, seen)
+}
+
+/**
+ * A failure that leaves one server out of the Invocation instead of failing it: the server answered
+ * with an HTTP error, including a rejected or expired credential, its Connection cannot authorize,
+ * the network failed, or a bounded timer ran out. Cancellation, protocol, and configuration errors
+ * still fail the Invocation.
+ */
 function isMcpAvailabilityFailure(error: unknown, seen = new Set<unknown>()): boolean {
   if (!isRuntimeRecord(error) || seen.has(error)) return false
   seen.add(error)
   if (error.name === "AbortError") return false
+  // The SDK throws this after a 401 when OAuth requires user reauthorization, without a status.
+  if (error.name === "UnauthorizedError") return true
   if (error.name === "MCPClientError" && typeof error.message === "string") {
     if (/\baborted\b/.test(error.message) || typeof error.code === "number") return false
     // The SDK has no structured timeout code for these two bounded timers.
     if (/^(?:MCP client initialization|Request) timed out after \d+(?:\.\d+)?ms$/.test(error.message)) return true
   }
-  const status = mcpFailureStatus(error)
-  if (status !== undefined) return status === 408 || status === 409 || status === 429 || status >= 500
+  if (typeof error.code === "string" && connectionAvailabilityCodes.has(error.code)) return true
+  if (mcpFailureStatus(error) !== undefined) return true
   if (error.name === "TimeoutError") return true
   if (typeof error.code === "string" && ["ECONNREFUSED", "ECONNRESET", "EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
   if (error.cause !== undefined) return isMcpAvailabilityFailure(error.cause, seen)
@@ -189,10 +212,12 @@ function recordMcpAvailabilityWarning(
     ? input.context
     : {}
   const statusCode = mcpFailureStatus(error)
+  const code = connectionFailureCode(error)
   const warning = {
     server,
     phase,
     ...(statusCode ? { statusCode } : {}),
+    ...(code ? { code } : {}),
   }
   const currentWarnings = Array.isArray(currentContext["vitehub.mcp.warnings"])
     ? currentContext["vitehub.mcp.warnings"]

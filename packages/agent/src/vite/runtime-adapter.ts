@@ -12,6 +12,7 @@ import {
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -37,10 +38,6 @@ interface LoadedViteAgent {
   identity: AgentHostIdentity
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
 function resolveAgentModule(module: unknown): AgentInput<ViteAgentRuntimeContext> | undefined {
   if (isRecord(module) && "default" in module) {
     return module.default as AgentInput<ViteAgentRuntimeContext> | undefined
@@ -59,8 +56,11 @@ function colocatedSkills(file: string) {
   return decodeColocatedAgentSkills(readColocatedAgentSkills(file))
 }
 
+/** The part of a Vite dev server that loads an Agent module. */
+export type ViteAgentModuleServer = Pick<ViteDevServer, "config" | "ssrLoadModule">
+
 export async function loadViteAgent(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ): Promise<LoadedViteAgent | undefined> {
   const module = await createViteWorkspaceAgentLoader(server, definition)()
@@ -77,7 +77,7 @@ export async function loadViteAgent(
 }
 
 export function createViteWorkspaceAgentLoader(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ) {
   return async () => {

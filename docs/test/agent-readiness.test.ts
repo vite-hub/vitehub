@@ -24,7 +24,7 @@ describe("agent-ready HTTP contracts", () => {
     // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
     expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
-    expect(workspace).toContain("nuxt-agent-discovery@0.8.1: patches/nuxt-agent-discovery@0.8.1.patch");
+    expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
     expect(workspace).not.toContain("docus");
     // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
     expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");

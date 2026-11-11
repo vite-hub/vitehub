@@ -22,14 +22,14 @@ function download(value: string, filename: string) {
   <div class="flex w-full max-w-md flex-col gap-4">
     <CodeBlock>
       <CodeBlockHeader>
-        <CodeBlockTitle><UIcon name="i-ph-terminal-light" />Terminal</CodeBlockTitle>
+        <CodeBlockTitle><UIcon name="i-lucide-terminal" />Terminal</CodeBlockTitle>
         <CodeBlockActions>
           <UButton
             color="neutral"
             variant="ghost"
             size="xs"
             square
-            icon="i-ph-text-align-left-light"
+            icon="i-lucide-text-align-start"
             aria-label="Wrap lines"
             :aria-pressed="wrap"
             class="aria-pressed:text-highlighted"
@@ -40,7 +40,7 @@ function download(value: string, filename: string) {
             variant="ghost"
             size="xs"
             square
-            icon="i-ph-download-simple-light"
+            icon="i-lucide-download"
             aria-label="Download"
             @click="download(output, 'lint.log')"
           />

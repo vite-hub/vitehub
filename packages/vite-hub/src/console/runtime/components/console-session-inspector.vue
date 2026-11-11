@@ -92,6 +92,10 @@ const selectedDiffs = ref<number[]>([]);
 const diffPanel = ref<HTMLElement | null>(null);
 const { width: diffWidth } = useElementSize(diffPanel);
 const activeDiffTurn = ref<number | "all">("all");
+const diffTurnItems = computed<TabsItem[]>(() => [
+  { label: "All changes", value: "all" },
+  ...diffs.value.map((_, index) => ({ label: `Turn ${index + 1}`, value: index })),
+]);
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
 function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
 watch(() => props.invocation.id, () => {
@@ -262,7 +266,7 @@ watch(activeSurface, async () => {
 // the active tab, so it does not fall to the page body.
 async function focusActiveTab() {
   await nextTick();
-  tabstrip.value?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus();
+  tabstrip.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
 }
 
 function openView(value: InspectorTab) {
@@ -507,6 +511,10 @@ function message(error: unknown) {
   <aside class="session-inspector">
     <header class="session-inspector__header">
       <div ref="tabstrip" class="session-inspector__tabstrip">
+        <!--
+          Reka tabs, not UTabs: each tab has its own close button beside the trigger, and UTabs renders its trailing
+          slot inside the trigger button, where a second button is not valid. The look follows the theme's underline tabs.
+        -->
         <TabsRoot
           v-if="surfaceItems.length"
           :model-value="activeSurface"
@@ -514,7 +522,7 @@ function message(error: unknown) {
           orientation="horizontal"
           @update:model-value="activateSurface"
         >
-          <TabsList data-slot="list">
+          <TabsList class="session-inspector__tablist">
             <div
               v-for="item in surfaceItems"
               :key="String(item.value)"
@@ -523,43 +531,28 @@ function message(error: unknown) {
             >
               <TabsTrigger
                 :value="String(item.value)"
-                data-slot="trigger"
-                class="group/tab h-6 max-w-36 shrink-0 grow-0 cursor-pointer justify-start gap-0.5 rounded-md px-1.5 py-0 text-xs"
+                class="flex h-7 min-w-0 max-w-36 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted hover:text-highlighted data-[state=active]:text-highlighted"
               >
                 <UIcon :name="item.icon" class="session-inspector__surface-icon" aria-hidden="true" />
                 <span class="truncate">{{ item.label }}</span>
               </TabsTrigger>
-              <button
-                type="button"
-                class="session-inspector__tab-close"
+              <UButton
+                icon="i-lucide-x"
+                variant="ghost"
+                size="xs"
                 :aria-label="`Close ${item.label}`"
                 @click.stop="closeSurface(item); focusActiveTab()"
-              >
-                <UIcon name="i-lucide-x" class="session-inspector__surface-close" aria-hidden="true" />
-              </button>
+              />
             </div>
           </TabsList>
         </TabsRoot>
         <UDropdownMenu
           :items="launcherItems"
           :content="{ align: 'start', side: 'bottom', sideOffset: 6 }"
-          size="sm"
-          :ui="{
-            content:
-              'session-inspector__launcher-menu w-44 rounded-lg p-1 shadow-[0_16px_40px_-18px_rgb(0_0_0/35%)] ring-1 ring-default',
-            viewport: 'gap-0',
-            item: 'session-inspector__launcher-item min-h-7 gap-2 rounded-sm px-2 py-1',
-            itemLeadingIcon: 'size-4 shrink-0 text-muted',
-            itemWrapper: 'min-w-0 flex-1',
-            itemLabel: 'truncate text-sm',
-            itemTrailing: 'ms-auto',
-            itemTrailingKbds: 'ms-auto',
-          }"
         >
           <UButton
             class="session-inspector__icon-button"
             icon="i-lucide-plus"
-            color="neutral"
             variant="ghost"
             size="xs"
             aria-label="Open tab"
@@ -574,7 +567,6 @@ function message(error: unknown) {
             class="session-inspector__icon-button"
             data-slot="session-inspector-maximize"
             :icon="props.maximized ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
-            color="neutral"
             variant="ghost"
             size="xs"
             :aria-label="props.maximized ? 'Restore panel size' : 'Maximize panel'"
@@ -585,7 +577,6 @@ function message(error: unknown) {
           ><UButton
             class="session-inspector__icon-button"
             icon="i-lucide-panel-right"
-            color="neutral"
             variant="ghost"
             size="xs"
             aria-label="Toggle right panel"
@@ -595,18 +586,28 @@ function message(error: unknown) {
       </div>
     </header>
 
-    <div v-if="!activeSurfaceExists" class="session-inspector__empty border-0">
-      <div class="session-inspector__empty-copy">
-        <strong>Open a tab</strong>
-        <span>Choose what to inspect in this Agent Invocation.</span>
-      </div>
-      <div class="session-inspector__surface-launcher">
-        <button v-for="view in inspectorViews" :key="view" type="button" @click="openView(view); focusActiveTab()">
-          <span><UIcon :name="viewMeta[view].icon" />{{ viewMeta[view].label }}</span>
-          <small>{{ viewMeta[view].description }}</small>
-        </button>
-      </div>
-    </div>
+    <UEmpty
+      v-if="!activeSurfaceExists"
+      variant="naked"
+      class="session-inspector__empty"
+      title="Open a tab"
+      description="Choose what to inspect in this Agent Invocation."
+    >
+      <template #body>
+        <div class="session-inspector__surface-launcher">
+          <UButton
+            v-for="view in inspectorViews"
+            :key="view"
+            variant="outline"
+            class="flex-col items-start gap-1 p-3 text-start"
+            @click="openView(view); focusActiveTab()"
+          >
+            <span class="flex items-center gap-2 text-highlighted"><UIcon :name="viewMeta[view].icon" class="size-4 text-muted" />{{ viewMeta[view].label }}</span>
+            <span class="text-xs font-normal text-muted">{{ viewMeta[view].description }}</span>
+          </UButton>
+        </div>
+      </template>
+    </UEmpty>
 
     <AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" @select-activity="emit('focusActivity', $event)" />
 
@@ -621,14 +622,14 @@ function message(error: unknown) {
       @select-activity="emit('focusActivity', $event)"
     >
       <template #identityActions>
-        <button
+        <UButton
           v-if="props.workspaceBase"
-          class="session-inspector__instructions-link"
-          type="button"
+          icon="i-lucide-file-text"
+          label="Instructions"
+          variant="ghost"
+          size="xs"
           @click="openWorkspaceInstructions"
-        >
-          <UIcon name="i-lucide-file-text" />Instructions
-        </button>
+        />
       </template>
     </AgentInvocationInspector>
 
@@ -644,14 +645,18 @@ function message(error: unknown) {
           <strong>Code changes</strong>
           <span class="session-inspector__eyebrow">{{ diffs.length }} turn{{ diffs.length === 1 ? '' : 's' }}</span>
         </div>
-        <UButton size="xs" color="neutral" variant="outline" :disabled="!diffs.length" @click="toggleAllDiffs">
+        <UButton size="xs" variant="outline" :disabled="!diffs.length" @click="toggleAllDiffs">
           {{ allDiffsSelected ? 'Clear selection' : 'Select all' }}
         </UButton>
       </div>
-      <nav v-if="diffs.length > 1" class="session-inspector__diff-turns" aria-label="Diff turns">
-        <button type="button" :class="{ 'is-active': activeDiffTurn === 'all' }" @click="activeDiffTurn = 'all'">All changes</button>
-        <button v-for="(_, index) in diffs" :key="index" type="button" :class="{ 'is-active': activeDiffTurn === index }" @click="activeDiffTurn = index">Turn {{ index + 1 }}</button>
-      </nav>
+      <UTabs
+        v-if="diffs.length > 1"
+        v-model="activeDiffTurn"
+        :items="diffTurnItems"
+        :content="false"
+        aria-label="Diff turns"
+        class="session-inspector__diff-turns"
+      />
       <UEmpty v-if="!diffs.length" icon="i-lucide-git-compare-arrows" title="No code changes" description="Changes made during this run will appear here." />
       <div v-else class="session-inspector__diff-list">
         <section v-for="(diff, index) in diffs" v-show="activeDiffTurn === 'all' || activeDiffTurn === index" :key="diff.id" class="session-inspector__diff-turn">
@@ -678,7 +683,6 @@ function message(error: unknown) {
           <UTooltip :text="wrapLines ? 'Disable line wrap' : 'Enable line wrap'">
             <UButton
               icon="i-lucide-wrap-text"
-              color="neutral"
               variant="ghost"
               size="xs"
               :aria-label="wrapLines ? 'Disable line wrap' : 'Enable line wrap'"
@@ -689,7 +693,6 @@ function message(error: unknown) {
           <UTooltip text="Reload Workspace"
             ><UButton
               icon="i-lucide-rotate-cw"
-              color="neutral"
               variant="ghost"
               size="xs"
               aria-label="Reload Workspace"
@@ -698,7 +701,6 @@ function message(error: unknown) {
           <UTooltip v-if="workspace" :text="treeOpen ? 'Hide file tree' : 'Show file tree'"
             ><UButton
               icon="i-lucide-folder-tree"
-              color="neutral"
               variant="ghost"
               size="xs"
               :aria-label="treeOpen ? 'Hide file tree' : 'Show file tree'"
