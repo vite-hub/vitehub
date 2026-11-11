@@ -759,14 +759,28 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       }
       const grant = await contentRefGrant(request, state.name, target.ref)
       if (grant) return { allowed: true, reason: grant, target }
-      if (isPrivateRef(target, privateBranches)) return deny("private", target)
       const key = `${state.name}:${target.ref}:${target.sha}`
       const held = decisions.get(key)
       let reason = held && Date.now() - held.at < ACCESS_HOLD_MS ? held.reason : undefined
       if (!reason) {
-        reason = await publicRule(target, publicFacts(state, target), privateBranches)
+        // A target or view that a caller kept holds the pull request as it was. The rule reads it from GitHub again, so a
+        // removed label or a closed pull request counts. The pull request makes this commit public only while it is its head.
+        let facts = target
+        if (target.kind === "pull" && typeof ref === "object") {
+          try {
+            const current = await resolveRef(state, parseContentRef(target.ref))
+            facts = { ...target, pull: current.sha === target.sha ? current.pull : null }
+          }
+          catch (error) {
+            if (isDiagnostic(error, "CONTENT_R0028")) return deny("missing", target)
+            throw error
+          }
+        }
+        if (isPrivateRef(facts, privateBranches)) return deny("private", target)
+        reason = await publicRule(facts, publicFacts(state, facts), privateBranches)
         decisions.set(key, { at: Date.now(), reason })
       }
+      else if (isPrivateRef(target, privateBranches)) return deny("private", target)
       return isAllowReason(reason) ? { allowed: true, reason, target } : deny(reason, target)
     },
     async sign(ref, source, signOptions) {
