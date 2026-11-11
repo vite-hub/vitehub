@@ -385,5 +385,36 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
+  await t.test("on a touch screen the Comment bar goes above text that ends near the bottom edge", async () => {
+    const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
+    try {
+      await touch.goto(`http://127.0.0.1:${port}/`)
+      await touch.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      const end = await touch.evaluate(() => {
+        // Moves the paragraph down until its text ends at 700px, 20px above the bottom edge.
+        const second = document.querySelector("#second")
+        const range = document.createRange()
+        range.selectNodeContents(second)
+        second.style.marginTop = `${parseFloat(getComputedStyle(second).marginTop) + 700 - range.getBoundingClientRect().bottom}px`
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+        return range.getBoundingClientRect().bottom
+      })
+      assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
+      const button = touch.locator("vitehub-comments .selection-bar button")
+      await button.waitFor({ timeout: 5000 })
+      const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
+      assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
+      const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
+      assert.ok(box.y + box.height <= start, `bar ends at ${box.y + box.height}, text starts at ${start}`)
+      if (evidence) await touch.screenshot({ path: `${evidence}/touch-bar-near-bottom.png` })
+      await button.tap()
+      await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
+    }
+    finally {
+      await touch.close()
+    }
+  })
+
   assert.deepEqual(errors, [])
 })
