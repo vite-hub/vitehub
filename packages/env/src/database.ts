@@ -3,7 +3,7 @@ import * as v from "valibot";
 import type { SQL } from "drizzle-orm";
 import { envBridgeError } from "./bridge-error.ts";
 import type { EnvAccessStore, EnvSecretStore } from "./bridge.ts";
-import { importSealKey, seal, sealedPayloadPattern, unseal } from "./seal.ts";
+import { importSealKey, sealedPayloadPattern, sealWithKey, unsealWithKey } from "./seal.ts";
 
 export interface EnvDatabase {
   run(query: SQL): unknown;
@@ -129,14 +129,14 @@ export function createDatabaseEnvStore(options: {
       async read(key) {
         const stored = await row(key);
         if (!stored) return;
-        const value = await unseal(await encryptionKey, aad(key, stored.revision), stored.payload);
+        const value = await unsealWithKey(await encryptionKey, aad(key, stored.revision), stored.payload);
         return { value, revision: stored.revision };
       },
       async replace({ key, value, expectedRevision }) {
         await initialize();
         const revision = crypto.randomUUID();
         const updatedAt = new Date().toISOString();
-        const payload = await seal(await encryptionKey, aad(key, revision), value);
+        const payload = await sealWithKey(await encryptionKey, aad(key, revision), value);
         const preview =
           options.previews && value.length > 12 && /^[A-Za-z0-9_.-]+$/.test(value)
             ? `${value.slice(0, 4)}••••${value.slice(-4)}`

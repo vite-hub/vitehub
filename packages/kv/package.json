@@ -40,26 +40,6 @@
       "import": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
-    "./errors": {
-      "types": "./dist/errors.d.ts",
-      "import": "./dist/errors.js",
-      "default": "./dist/errors.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
-    "./runtime/cloudflare-kv": {
-      "types": "./dist/runtime/cloudflare-kv.d.ts",
-      "import": "./dist/runtime/cloudflare-kv.js",
-      "default": "./dist/runtime/cloudflare-kv.js"
-    },
-    "./runtime/nitro-cache": {
-      "types": "./dist/runtime/nitro-cache.d.ts",
-      "import": "./dist/runtime/nitro-cache.js",
-      "default": "./dist/runtime/nitro-cache.js"
-    },
     "./runtime/upstash-driver": {
       "types": "./dist/runtime/upstash-driver.d.ts",
       "import": "./dist/runtime/upstash-driver.js",
@@ -81,17 +61,21 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/kv#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/kv#build && vp test"
+    "test": "vp run --cache -t @vite-hub/kv#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "destr": "^2.0.5",
     "nostics": "catalog:runtime",
+    "proper-lockfile": "catalog:",
     "unstorage": "catalog:storage",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@types/proper-lockfile": "catalog:",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

@@ -3,17 +3,17 @@ title: Prompt Input
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
 navigation.order: 24
 navigation.group: Chat
-icon: i-ph-paper-plane-tilt-light
+icon: i-lucide-send
 ---
 
-`PromptInput` is a chat input with attachments, built like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input): a framed textarea that grows with its content, attachments above it as [Attachment](/docs/ui/attachment) parts, and round attach and send buttons below it. Enter sends and Shift+Enter adds a line; text composed with an input method never sends. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds clipboard paste for files and one `submit` payload with text and AI SDK file parts.
+`PromptInput` is a chat input with attachments, like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input). It has a textarea that grows with its text, [Attachment](/docs/ui/attachment) parts above it, and round attach and send buttons below it. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds file paste and one `submit` payload with the text and AI SDK file parts.
 
-::component-preview{name="ChatPromptExample"}
+::example{name="ChatPromptExample" height=8}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/prompt-input`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/prompt-input`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
 
 ```ts
 import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
@@ -39,7 +39,7 @@ import { PromptInput } from "@vite-hub/ui";
 
 ## Composition
 
-The root is a `<form>`. Each slot replaces one area. The `data-slot` attributes name the areas for styles.
+The root is a `<form>`. Each slot replaces one area. Use the `data-slot` attributes for styles.
 
 ```text
 PromptInput (form, data-slot="prompt-input")
@@ -55,56 +55,54 @@ PromptInput (form, data-slot="prompt-input")
 
 ## Features
 
-- Uses `v-model` for the draft and `v-model:files` for AI SDK `FileUIPart` attachments.
-- Changes the submit button with the AI SDK `ChatStatus`: Send, Stop, or Retry.
-- Emits one `submit` payload with the trimmed text and the files.
-- Adds files from the file picker or from clipboard paste.
-- Filters raw files before conversion with `filter-files`.
-- Does not clear the draft. Your application clears it after a successful send.
+- `v-model` for the draft and `v-model:files` for AI SDK `FileUIPart` attachments.
+- The submit button follows the AI SDK `ChatStatus`.
+- One `submit` payload with the trimmed text and files.
+- Files from the file picker or clipboard paste.
+- `filter-files` filters raw files before conversion.
 
 ## Keyboard
 
-Enter sends the message. Shift+Enter adds a new line. Text composed with an input method never sends. Enter does not trigger Stop or Retry.
+Enter sends. Shift+Enter adds a line. Text from an input method never sends. Enter does not trigger Stop or Retry.
 
-On a touch-only device, such as a phone, the on-screen keyboard has no Shift+Enter, so Enter adds a line and the Send button sends. The textarea's `enterkeyhint` names that key: `send` with a mouse or trackpad, `enter` on a touch-only device. The toolbar buttons get a 48px touch target around their 32px circle.
+On a touch-only device, such as a phone, there is no Shift+Enter, so Enter adds a line and the Send button sends. The textarea's `enterkeyhint` is `send` with a mouse or trackpad and `enter` on touch-only devices. Toolbar buttons have a 48px touch target around their 32px circle.
 
 ## Attachments
 
-The file picker and clipboard paste use the same path. A pasted image always becomes an attachment. Other pasted files become attachments only when the clipboard has no text. Set `multiple` to `false` to keep one file. A new file then replaces the current one.
+The file picker and paste use the same path. A pasted image always becomes an attachment. Other pasted files do only when the clipboard has no text. Set `multiple` to `false` to keep one file. A new file then replaces it.
 
 ## Submission Rules
 
-- `submit` fires only when `status` is `ready`, the text or the files are not empty, and every attachment batch has finished conversion. Enter, form submission, and the Send button use the same rule.
+- `submit` fires only when `status` is `ready`, there is text or a file, and all attachments are converted. Enter, form submission, and the Send button use the same rule.
 - You can edit the draft while a response streams or files convert.
-- Stop and Retry stay available in their states. Enter does not trigger them.
 - The component does not clear the draft. Clear `input` and `files` after a successful send.
-- An attachment conversion error emits `error`. It keeps the draft and the existing attachments.
-- Unmount the prompt when the user changes to another session, so a pending file read cannot update that session. A `:key` with the session ID does this.
+- A failed attachment conversion emits `error` and keeps the draft and attachments.
+- Unmount the prompt when the user changes session, so a pending file read cannot update the new one. A `:key` with the session ID does this.
 
 ## Status
 
-The submit button follows `status`: Send in `ready`, Stop in `submitted` and `streaming`, and Retry in `error`. Change the status and watch the button and the emitted event.
+The submit button shows Send in `ready`, Stop in `submitted` and `streaming`, and Retry in `error`. Change the status to see the button and event.
 
-::component-preview{name="ChatPromptStatusExample"}
+::example{name="ChatPromptStatusExample" height=12}
 ::
 
 ## Custom Submit Button
 
 The `submit` slot receives `{ status, canSubmit, preparingFiles }`. Disable your button with `canSubmit` and show progress with `preparingFiles`.
 
-::component-preview{name="ChatPromptCustomSubmitExample"}
+::example{name="ChatPromptCustomSubmitExample" height=8}
 ::
 
 ## Filter Files
 
-`filter-files` receives the raw `File` objects of a batch before conversion. Return the files to keep, in the order you want. Return `[]` to reject the batch. This example rejects files over 200 KB.
+`filter-files` receives each batch of raw `File` objects before conversion. Return the files to keep, in order, or `[]` to reject the batch. This example rejects files over 200 KB.
 
-::component-preview{name="ChatPromptFilterFilesExample"}
+::example{name="ChatPromptFilterFilesExample" height=8}
 ::
 
 ## Model Picker
 
-Use the `footer-leading` slot for a model or profile picker. It renders after the attachment button and before the submit button.
+Use the `footer-leading` slot for a model or profile picker. It sits between the attachment and submit buttons.
 
 ```vue
 <PromptInput v-model="input" :status @submit="submit">
@@ -116,31 +114,31 @@ Use the `footer-leading` slot for a model or profile picker. It renders after th
 
 ## Accessibility
 
-- The input has the accessible name **Message**. Pass `aria-label` to change it.
+- The input is named **Message**. Pass `aria-label` to change it.
 - The attachment button is named **Add attachment**. Each attachment has a **Remove** button with the file name.
-- The submit button is named **Send prompt**, **Stop response**, or **Retry prompt**, based on `status`. The `submitLabel` prop renames the button in `ready`; the [comment composer](/docs/ui/comments) uses it to say **Comment**, **Reply**, or **Save**.
+- The submit button is named **Send prompt**, **Stop response**, or **Retry prompt**, based on `status`. `submitLabel` renames it in `ready`. The [comment composer](/docs/ui/comments) uses it for **Comment**, **Reply**, or **Save**.
 - Give custom buttons in the `actions` and `submit` slots their own accessible names.
 
 ## API Reference
 
 ### PromptInput
 
-Renders a `<form>` with a textarea, the attachments, and the attach and submit buttons.
+Renders a `<form>` with a textarea, attachments, and attach and submit buttons.
 
 #### Props
 
 | Prop          | Type                                           | Default   | Description                                                      |
 | ------------- | ---------------------------------------------- | --------- | ---------------------------------------------------------------- |
 | `modelValue`  | `string`                                       | `""`      | The draft text. Use `v-model`.                                   |
-| `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and attachment handling.             |
+| `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and handling. |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
-| `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files while keeping the text editable. |
-| `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and the submit rule. |
-| `accept`      | `string`                                       |           | Accepted file types for the picker, in `<input accept>` format.  |
+| `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files. Text stays editable. |
+| `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and rule. |
+| `accept`      | `string`                                       |           | File types for the picker, in `<input accept>` format. |
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |
-| `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |
+| `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion. |
 | `placeholder` | `string`                                       |           | Placeholder text of the input.                                   |
-| `submitLabel` | `string`                                       | | Name of the submit button while `status` is `ready`. Falls back to `"Send prompt"`. |
+| `submitLabel` | `string`                                       | | Submit button name in `ready`. Falls back to `"Send prompt"`. |
 
 Other attributes go to the root `<form>`.
 
@@ -148,11 +146,11 @@ Other attributes go to the root `<form>`.
 
 | Event               | Payload                 | Description                                                    |
 | ------------------- | ----------------------- | -------------------------------------------------------------- |
-| `submit`            | `PromptInputSubmit`     | `{ text, files }`. The text is trimmed. Empty text is allowed when files exist. |
+| `submit`            | `PromptInputSubmit`     | `{ text, files }`. Text is trimmed and may be empty when files exist. |
 | `update:modelValue` | `string`                | The draft text changed.                                        |
 | `update:files`      | `readonly FileUIPart[]` | Files were added or removed.                                   |
-| `stop`              |                         | The viewer selected Stop. Connect it to the AI SDK `stop()`.   |
-| `reload`            |                         | The viewer selected Retry. Connect it to the AI SDK `regenerate()`. |
+| `stop`              |                         | Stop was selected. Connect it to the AI SDK `stop()`. |
+| `reload`            |                         | Retry was selected. Connect it to the AI SDK `regenerate()`. |
 | `error`             | `unknown`               | A file could not be read or converted.                         |
 
 #### Slots
@@ -160,13 +158,15 @@ Other attributes go to the root `<form>`.
 | Slot             | Scope                                   | Description                                         |
 | ---------------- | --------------------------------------- | --------------------------------------------------- |
 | `files`          | `{ files, remove }`                     | Replaces the attachment row. Call `remove(index)` to remove a file. |
-| `footer-leading` |                                         | Controls at the start of the footer, after the attachment button. Use it for a model or profile picker. |
+| `footer-leading` |                                         | Controls after the attachment button, such as a model picker. |
 | `actions`        |                                         | Replaces the attachment button.                     |
 | `submit`         | `{ status, canSubmit, preparingFiles }` | Replaces the submit button.                         |
 
 #### Types
 
 ```ts
+import type { FileUIPart } from "ai"
+
 interface PromptInputSubmit {
   files: readonly FileUIPart[];
   text: string;

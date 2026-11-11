@@ -5,7 +5,10 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports"
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
-    copy: [{ from: "src/host-declarations.d.ts", to: "dist" }],
+    copy: [
+      { from: "src/host-declarations.d.ts", to: "dist" },
+      { from: "src/bun-sqlite.d.ts", to: "dist" },
+    ],
     deps: {
       neverBundle: [
         "better-auth",
@@ -40,6 +43,7 @@ export default defineConfig({
       "src/console.ts",
       "src/console-runtime.ts",
       "src/database.ts",
+      "src/mcp.ts",
       "src/index.ts",
       "src/runtime/empty-definition.ts",
       "src/runtime/nuxt.ts",
@@ -64,6 +68,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 })

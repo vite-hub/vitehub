@@ -58,6 +58,15 @@ export function tutorialWorkspaceFiles(tutorial: Pick<RunnableTutorialData, "fil
   return Object.assign(next, target);
 }
 
+// Nitro looks for `index.html` once per process and caches a miss, so a Vite restart in the same process does not find
+// a new page. Vite restarts on its own when `vite.config.*` changes, which is enough for config edits.
+const startFiles = ["index.html"];
+
+/** Whether going from `before` to `after` adds or removes a file that the dev server reads only when its process starts. */
+export function restartsDevServer(before: TutorialFiles, after: TutorialFiles): boolean {
+  return startFiles.some(path => (path in before) !== (path in after));
+}
+
 /** The `dependencies` of a `package.json`, sorted, so two apps with the same install compare equal. Invalid JSON has its own key. */
 export function dependencyKey(packageJson: string | undefined): string {
   try {

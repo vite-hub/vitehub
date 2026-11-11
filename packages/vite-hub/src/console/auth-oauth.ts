@@ -3,13 +3,11 @@ import { createAuthMiddleware } from "better-auth/api"
 import { jwt } from "better-auth/plugins"
 
 import { consoleAuthPath } from "./auth-path.ts"
-import { consoleMcpScopes } from "./runtime/server/bearer.ts"
+import { isRecord } from "@vite-hub/internal/object"
+import { consoleMcpScopes, consoleResourceOf } from "./runtime/server/bearer.ts"
+import { withListedOriginHeaders } from "./runtime/server/cors.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 /** A redirect that only a program on this machine can receive: a loopback address or a private-use scheme. */
 function isNativeRedirect(value: unknown): boolean {
@@ -46,6 +44,15 @@ export function consoleMcpNativeClients(): BetterAuthPlugin {
   }
 }
 
+/**
+ * The resources that the Auth issues access tokens for: the MCP endpoint, and the Console resource next to it,
+ * `<origin><base>/_vitehub`, which a hosted Console such as console.vitehub.dev signs in for.
+ */
+function withConsoleResource(mcpResource: string): string[] {
+  const console = consoleResourceOf(mcpResource)
+  return console ? [mcpResource, console] : [mcpResource]
+}
+
 /** Options of {@link consoleMcpOAuth}. */
 export interface ConsoleMcpOAuthOptions {
   /** The absolute URL of the MCP endpoint, the same as `console.mcp.resource`: `https://app.example.com/_vitehub/mcp`. */
@@ -72,15 +79,33 @@ export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlug
   resource.pathname = resource.pathname.replace(/\/+$/, "")
   const loginPage = options.loginPage ?? new URL("sign-in", resource).pathname
   return [
+    {
+      hooks: {
+        after: [{
+          handler: createAuthMiddleware(async (context) => {
+            const request = context.request
+            if (!request || request.headers.has("cookie")) return
+            // The hosted client exchanges a PKCE code without cookies. Leave session endpoints to app Auth.
+            const response = withListedOriginHeaders(request, new Response(null, { headers: context.context.responseHeaders }))
+            for (const name of ["access-control-allow-origin", "access-control-expose-headers", "vary"]) {
+              const value = response.headers.get(name)
+              if (value) context.setHeader(name, value)
+            }
+          }),
+          matcher: context => context.path === "/oauth2/token",
+        }],
+      },
+      id: "vitehub-console-oauth-cors",
+    },
     // By default the plugin signs a token on every session read, which the Console never uses and which fails after the secret changes.
     jwt({ disableSettingJwtHeader: true, jwt: { issuer } }),
     oauthProvider({
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
-      clientRegistrationDefaultResources: [options.resource],
+      clientRegistrationDefaultResources: withConsoleResource(options.resource),
       consentPage: options.consentPage ?? loginPage,
       loginPage,
-      resources: [options.resource],
+      resources: withConsoleResource(options.resource),
       scopes: ["openid", "profile", "email", "offline_access", ...consoleMcpScopes],
     }),
     consoleMcpNativeClients(),
@@ -105,10 +130,10 @@ export function consoleOAuthPlugins(options: { defaults?: boolean, mountBaseURL:
           oauthProvider({
             allowDynamicClientRegistration: true,
             allowUnauthenticatedClientRegistration: true,
-            clientRegistrationDefaultResources: [resource],
+            clientRegistrationDefaultResources: withConsoleResource(resource),
             consentPage: page,
             loginPage: page,
-            resources: [resource],
+            resources: withConsoleResource(resource),
             scopes: ["openid", "profile", "email", "offline_access", ...consoleMcpScopes],
           }),
         ]),

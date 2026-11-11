@@ -7,13 +7,13 @@ icon: i-lucide-file-user
 navigation.kind: Reference
 ---
 
-An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Actor resolution, hooks, or hosted runtime behavior.
+An Agent Definition is the object that you pass to `defineAgent()` to configure one Agent. It chooses the [Agent Driver](/docs/agents/agent-drivers) that runs it (for example, a model), its Capabilities (tools), its Workspace context (reachable files), and, when needed, Channels, Actor resolution, hooks, and hosted runtime behavior.
 
-ViteHub discovers definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`.
+ViteHub finds definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`.
 
 ## Define an Agent
 
-This Agent answers a prompt with a model. `runtime: false` keeps its execution inline so a direct caller can wait for the result.
+This Agent answers a prompt with a model. `runtime: false` runs it inline, so a caller can wait for the result.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -27,17 +27,19 @@ export default defineAgent({
 })
 ```
 
-Configure [model credentials](/docs/agents/agent-drivers#use-a-model-backed-driver) before running it. For a first result without a model or API key, follow [First Agent](/docs/getting-started/first-agent).
+Set up [model credentials](/docs/agents/agent-drivers#use-a-model-backed-driver) first, or follow [First Agent](/docs/getting-started/first-agent) for a result without a model or API key.
 
-A Driver selects one execution path: a model, a custom `run` function, typed `ask` questions, or a coding provider. Create a provider Driver with `codexDriver()` or `claudeCodeDriver()` from `vite-hub/agent`. Both use `permissions: 'ask'` by default, so provider actions request approval. Read [Agent Drivers](/docs/agents/agent-drivers) for provider setup and options such as `codexDriver({ model: 'gpt-5.5' })`.
+The Driver runs the Agent with a model, your own `run` function, typed `ask` questions, or a coding provider from `codexDriver()` or `claudeCodeDriver()` in `vite-hub/agent`. Provider Drivers default to `permissions: 'ask'`, so provider actions ask for approval. [Agent Drivers](/docs/agents/agent-drivers) explains setup and options such as `codexDriver({ model: 'gpt-5.5' })`.
 
-Continue with [Run an Agent](/docs/agents/invocations#run-an-agent) to call this definition, or [Build a chat app](/docs/agents/build-a-chat-app) to connect a model to a browser UI.
+[Run an Agent](/docs/agents/invocations#run-an-agent) shows how to call it, and [Build a chat app](/docs/agents/build-a-chat-app) connects a model to a browser UI.
 
 ## Bound an Invocation budget
 
-Use the top-level `budget` option for per-invocation token and cost limits. ViteHub installs the same inspectable `budget` Capability used by reusable Capability lists:
+The top-level `budget` option limits tokens and cost per Invocation (one run of the Agent). It adds the same `budget` Capability that you can put in a Capability list, inspectable the same way:
 
 ```ts [server/agents/review.ts]
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   budget: {
@@ -48,11 +50,11 @@ export default defineAgent({
 })
 ```
 
-The default `observe` mode records limits and exceedance in the `budget` finish extension. `mode: 'enforce'` fails the Invocation after its normalized usage is available. See [Budget](/docs/agents/capabilities/budget) for provider support and the difference between an Invocation budget, Driver capacity, and host admission.
+The default `observe` mode records limits and any overrun in the `budget` finish extension. `mode: 'enforce'` fails an Invocation over a limit once its normalized usage is available. [Budget](/docs/agents/capabilities/budget) explains provider support and how this differs from Driver capacity and host admission.
 
 ## Add abilities and context
 
-Capabilities decide which runtime abilities the selected Driver receives. Workspace context decides which files and Sources those abilities can reach.
+Capabilities decide which tools the Driver gets. Workspace context decides which files and Sources (file sets mounted in the Workspace, such as this project's Markdown) they reach.
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -74,25 +76,21 @@ export default defineAgent({
 })
 ```
 
-Declaring a Workspace does not automatically grant model-backed or custom Drivers file access. Provider Drivers receive the selected Workspace as their working directory; Capabilities still control additional tools and invocation behavior.
+A Workspace alone gives model and custom Drivers no file access. Provider Drivers get it as their working directory. Capabilities still control other tools and Invocation behavior.
 
-AI SDK Model Drivers make one output-only correction call when a known tool receives arguments that fail its input schema. The correction cannot select another tool or execute a provider-defined tool. Set `driver.execution.repairToolCall: false` to disable this behavior.
+When a model calls a known tool with arguments that fail its input schema, an AI SDK model Driver makes one output-only correction call. It cannot select another tool or run a provider-defined tool. `driver.execution.repairToolCall: false` turns it off.
 
 ## Extend an Agent
 
-Use `extends` to reuse one Agent Definition. The child gets a fresh runtime; Channels and hooks merge by key; matching entries replace inherited values. Static Capabilities merge by ID, with an optional extension hook. Persistent stores remain shared when both definitions select the same store.
-
-Read [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for examples, merge rules, shared Skills, and Workspace discovery.
+`extends` reuses an Agent Definition, and the child gets a fresh runtime. Channels merge by key (the child entry wins), hooks by name (the child hook runs after the parent's), and static Capabilities by ID with an optional extension hook. Persistent stores stay shared when both select the same store. [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) has examples, merge rules, shared Skills, and Workspace discovery.
 
 ### Named presets
 
-Use `preset` and `presets` to select a locally imported definition by name. Select one parent with either `preset` or `extends`.
-
-Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#named-presets) with typed options and a `configure` callback.
+A preset is a named reusable Agent Definition. `preset` and `presets` select a locally imported definition by name. Select one parent only, with `preset` or `extends`. Use a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#named-presets) with typed options and a `configure` callback.
 
 ## Return structured output
 
-Set `driver.output` when downstream code needs validated data instead of free-form text.
+Set `driver.output` when your code needs validated data instead of free text.
 
 ```ts [server/agents/triage.ts]
 import * as v from 'valibot'
@@ -112,31 +110,31 @@ export default defineAgent({
 })
 ```
 
-Inline `runAgent()` execution returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output. Workflow-backed calls return an `AgentWorkflowRun` after the Workflow starts. Poll `getWorkflowRun(workflowName, run.id)` until its status is `completed`, then read `result` for the validated Agent value. Treat `failed`, `cancelled`, and `unknown` as terminal states instead of waiting indefinitely.
+`runAgent()` returns the validated structured result as `result.output`. A schema failure fails the invocation instead of returning unchecked model output. A Workflow run that the Agent routes start keeps the validated Agent value in the `result` of its Workflow Run.
 
-When an AI SDK Model Driver returns invalid native structured output, it makes up to three total attempts by default: the original request and two output-only correction calls. Set `driver.output.maxAttempts` to a positive integer to choose the total attempt limit; `maxAttempts: 1` disables correction calls. Corrections keep the invocation's prepared model and provider route, but they do not replay conversation messages or expose tools, so completed tool effects cannot run again. Tool results remain available as bounded evidence for corrected output. Usage records include every model call, with per-call attribution, aggregate token totals, and aggregate cost when provider metadata or configured pricing supplies it.
+An AI SDK model Driver retries invalid native structured output:
 
-Provider Drivers such as `codex` and `claude-code`, and custom-run Drivers, validate their returned output once. They do not accept `maxAttempts` because a second provider session or application callback would replay work instead of performing an output-only Model Driver correction.
+- Up to three attempts in total by default: the first request and two output-only correction calls. `driver.output.maxAttempts` (a positive integer) sets the total, and `1` turns corrections off.
+- Corrections use the same prepared model and provider route, without replaying messages or giving tools, so a past tool effect cannot run again. Tool results stay available as evidence, within a size limit.
+- Usage records include every call, with per-call usage, total tokens, and total cost when provider metadata or configured pricing supplies it.
+
+Provider Drivers (`codex`, `claude-code`) and custom-run Drivers validate output once and do not accept `maxAttempts`, because a retry would replay the work in a new session or call. A model correction only asks for new output.
 
 ## Accept structured data
 
-Set `data` to a Standard Schema when callers pass structured values instead of, or in addition to, model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver run. Invalid data fails the Invocation: `runAgent()` returns `[Error, null]`, and the Driver does not run.
+Set `data` to a Standard Schema when callers pass structured values instead of, or in addition to, model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver run. Invalid data fails the Invocation: `runAgent()` returns `AGENT_RUN_FAILED` with the validation error as `error.cause`, and the Driver does not run.
 
-`data` does not replace `prompt` or `messages`. Model Drivers and provider Drivers do not read `data`, so pass the text they need in `prompt` or `messages`. A `prompt` also names Console sessions and gives the `title()` Capability its source text. Hooks, `intercept`, and custom-run Drivers receive the parsed value.
+`data` does not replace `prompt` or `messages`. Model and provider Drivers do not read `data`, so pass their text in `prompt` or `messages`. A `prompt` also names Console sessions and gives the `title()` Capability its source text. Hooks, `intercept`, and custom-run Drivers get the parsed value.
 
-Call sites use the schema input type. Hooks and `intercept` receive the schema output type. A custom-run Driver reads the same parsed value from `input.data` with the type `unknown`. ViteHub applies a schema transform once, before any of them run.
+Call sites use the schema input type. Hooks and `intercept` get the output type. A custom-run Driver reads the parsed value from `input.data` as `unknown`. A schema transform runs once, before all of them.
 
-ViteHub validates changed data again after input hooks and before the Driver runs. It detects in-place changes to arrays, plain records, `Date`, `RegExp`, `Map`, `Set`, `URL`, and `URLSearchParams`. Replace other class instances instead of mutating their internal state, which ViteHub cannot snapshot.
-
-Hooks and Capabilities receive the parsed output, but changed data is validated as schema input. Do not replace transformed output with another value; define the desired value in the original input form instead.
+Input hooks can change the data, which ViteHub validates again before the Driver runs. It detects in-place changes to arrays, plain records, `Date`, `RegExp`, `Map`, `Set`, `URL`, and `URLSearchParams`. It cannot snapshot other class instances, so replace them instead of changing them. Changed data is validated as schema input, so write values in the original input form, not as a transformed output.
 
 ## Finish before the Driver
 
-Set `intercept` when app code can answer some Invocations without the Driver. The handler receives the same context as an `agent:input` hook plus the parsed `data`. Return `undefined` to continue to the Driver. Return another value to finish the Invocation with that value as its output. Throw to fail the Invocation.
+Set `intercept` when your code can answer some Invocations without the Driver. It gets the `agent:input` hook context plus the parsed `data`. Return `undefined` to continue to the Driver, another value to finish with that output, or throw to fail.
 
-Without an Agent `data` schema, `intercept.data` uses `input.data` when it exists. Otherwise, a Channel-triggered Invocation uses the Trigger's message, validated by the Channel's `message.data` schema. The value stays typed as `unknown`, since direct Invocations and explicit trigger data can have another shape. Use an Agent `data` schema when interception needs a known type.
-
-A Capability trigger that selects a Channel can omit its message. Without an Agent `data` schema or explicit `input.data`, `intercept.data` stays `undefined`.
+Without an Agent `data` schema, `intercept.data` is `input.data` when present. Otherwise a Channel-triggered Invocation uses the Trigger message, validated by the Channel's `message.data` schema. The type stays `unknown`, because direct Invocations and explicit trigger data can differ; use an Agent `data` schema for a known type. A Capability trigger that selects a Channel can leave out its message, and then `intercept.data` stays `undefined`.
 
 ```ts [server/agents/labeller.ts]
 import * as v from 'valibot'
@@ -164,32 +162,36 @@ export default defineAgent({
 })
 ```
 
-```ts [server/lib/sync.ts]
+```ts [server/lib/sync.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import labeller from '../agents/labeller'
 
-const [error, output] = await runAgent(labeller, {
-  data: { from: email.from, subject: email.subject },
-  prompt: `${email.from}: ${email.subject}`,
-})
-if (error) throw error
-if (output instanceof Response || !('source' in output)) throw new Error('Expected inline labeller output')
-// output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+export async function labelEmail(email: { from: string, subject: string }) {
+  const [error, result] = await runAgent(labeller, {
+    data: { from: email.from, subject: email.subject },
+    prompt: `${email.from}: ${email.subject}`,
+  })
+  if (error) throw error
+  const output = result.output
+  if (!output) throw new Error('Expected labeller output')
+  // output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+  return output.label
+}
 ```
 
-The `runAgent()` output type is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again. As for any Agent, the type also includes `Response` and `AgentWorkflowRun`, so exclude those first.
+The type of `result.output` is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again.
 
-An intercepted Invocation skips the Driver, tools, and start Capabilities. `agent:finish` hooks receive the intercepted value as `result`. The `agent.invocation.finish` trace event sets `agent.intercepted: true` and records the value as `result.output`. Traces record `input.data` and `result.output` only when the trace content policy is `content`; the `metadata` policy keeps only `input.hasData`.
+When `intercept` finishes an Invocation, the Driver, tools, and start Capabilities do not run. `agent:finish` hooks get the value as `result`, and the `agent.invocation.finish` trace event sets `agent.intercepted: true` with `result.output`. Traces record `input.data` and `result.output` only with the `content` policy; `metadata` keeps only `input.hasData`.
 
-The Capability pipeline pauses before its first `prepare` callback or preparation hook, and tool resolution waits for interception. When `intercept` returns `undefined`, the pipeline resumes at that point and keeps the configured Capability and phase order. Phases after that point do not run for an intercepted Invocation, so their input or context changes are not available to `intercept`. Data changed by a resumed phase is validated before the Driver runs.
+The Capability pipeline and tool resolution wait for `intercept` before the first `prepare` callback or preparation hook. On `undefined`, the pipeline continues from there in the configured order. An intercepted Invocation skips those later phases, so `intercept` does not see their input or context changes. Data that a resumed phase changes is validated before the Driver runs.
 
-A child Agent that sets `data` or `intercept` replaces the parent value. ViteHub does not merge schemas or compose interceptors.
+A child Agent's `data` or `intercept` replaces the parent's; schemas and interceptors do not merge.
 
 ## Choose hosted execution
 
-Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
+A discovered Agent runs through the active host's Workflow integration by default. `runtime: false` finishes inline, and `runtime: workflow('support')` selects a named Workflow identity.
 
-The two-argument `runAgent(agent, input)` form cannot discover the host Workflow by itself. Set `runtime: false` for standalone inline calls, supply an explicit `workflow('support')` binding, or pass a host Runtime Context. See [Run without a host context](/docs/agents/invocations#run-without-a-host-context).
+`runAgent()` and `streamAgent()` run the Agent inline in the calling process, whatever its `runtime`. See [Run an Agent](/docs/agents/invocations#run-an-agent).
 
 ## Definition options
 
@@ -197,11 +199,11 @@ The two-argument `runAgent(agent, input)` form cannot discover the host Workflow
 | --- | --- |
 | `extends`, `preset`, `presets` | Reuse one parent Definition. See [Agent presets and inheritance](/docs/agents/agent-presets). |
 | `options`, `configure`, `configKey` | Expose typed settings on a reusable Agent preset. |
-| `driver` | Required unless inherited. Selects one built-in provider, model-backed, or custom-run execution path. |
-| `capabilities` | Attaches a static list or invocation-time Capability resolver. |
+| `driver` | Required unless inherited. Selects a built-in provider, model-backed, or custom-run path. |
+| `capabilities` | A static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
-| `sandbox` | Runs a built-in provider Driver inside a [Sandbox](/docs/agents/sandboxes) with a checkout, private Home, environment, and boot checks. Cannot be combined with `workspace`. |
-| `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |
+| `sandbox` | Runs a built-in provider Driver in a [Sandbox](/docs/agents/sandboxes) with a checkout, private Home, environment, and boot checks. Not with `workspace`. |
+| `driver.instructions` | Driver [instructions](/docs/agents/instructions). |
 | `driver.output` | Validates structured Agent output. |
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
@@ -210,9 +212,9 @@ The two-argument `runAgent(agent, input)` form cannot discover the host Workflow
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `invocations` | Selects the [Invocation journal](/docs/agents/invocation-storage) and its storage policy. |
-| `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. Finish and error hooks act on the triggering Channel message through [`event.message`](/docs/agents/channels#act-on-the-channel-message-in-hooks). |
+| `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. Finish and error hooks act on the Channel message through [`event.message`](/docs/agents/channels#act-on-the-channel-message-in-hooks). |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
-| `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
-| `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
+| `name`, `description`, `version` | Explicit discovery and inspection metadata. |
+| `cli.capabilities` | Turns Capability-contributed CLI commands on or off. |
 
-Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), and [Invocations](/docs/agents/invocations).
+Details: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), and [Invocations](/docs/agents/invocations).

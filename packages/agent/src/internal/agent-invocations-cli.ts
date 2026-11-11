@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
@@ -17,6 +17,7 @@ import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
+import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
@@ -99,8 +100,8 @@ interface AgentInvocationsDevDiscovery {
 }
 
 function parseCancelDiscovery(value: unknown): AgentInvocationsDevDiscovery {
-  if (!isRuntimeRecord(value) || !hasRuntimeType(value.root, "string") || !hasRuntimeType(value.runtime, "string")
-    || (value.message !== undefined && !hasRuntimeType(value.message, "string"))) {
+  if (!isRuntimeRecord(value) || typeof value.root !== "string" || typeof value.runtime !== "string"
+    || (value.message !== undefined && typeof value.message !== "string")) {
     throw agentDiagnostics.AGENT_R0971({ message: "Invocation cancellation discovery returned an invalid response." })
   }
   const discovery: AgentInvocationsDevDiscovery = { root: value.root, runtime: value.runtime }
@@ -153,7 +154,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
     "                            and does not wait on them. Defaults to 2h.",
     "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
-    "  --database <url>          Journal database for delete, prune, compact, export, and wait-idle. Defaults to the Console journal.",
+    "  --database <url>          Journal database for delete, prune, compact, export, and wait-idle. Defaults to the default journal file.",
     "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
     "                            a running container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
@@ -372,7 +373,7 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * A deployed host, or any URL of a Console page such as `http://localhost:3000/_vitehub`, selects the Console.
+ * A deployed host, or any URL with `/_vitehub`, such as `http://localhost:3000/_vitehub`, selects the Console endpoint.
  * Other loopback URLs keep their local meaning: the invocation endpoint, or the Vite Development Server for cancel.
  */
 function consoleBaseUrl(value: string): URL | undefined {
@@ -410,17 +411,17 @@ type ResponseParser<T> = (value: unknown) => T
 
 function isInvocationSummary(value: unknown): boolean {
   return isRuntimeRecord(value)
-    && hasRuntimeType(value.createdAt, "string")
-    && hasRuntimeType(value.cursor, "string")
-    && hasRuntimeType(value.id, "string")
-    && hasRuntimeType(value.status, "string")
-    && hasRuntimeType(value.traceId, "string")
-    && hasRuntimeType(value.updatedAt, "string")
+    && typeof value.createdAt === "string"
+    && typeof value.cursor === "string"
+    && typeof value.id === "string"
+    && typeof value.status === "string"
+    && typeof value.traceId === "string"
+    && typeof value.updatedAt === "string"
     && (value.error === undefined || isRuntimeRecord(value.error))
 }
 
 function parseInvocationList(value: unknown): AgentInvocationListResult {
-  if (!isRuntimeRecord(value) || !Array.isArray(value.invocations) || value.invocations.some(record => !isInvocationSummary(record)) || value.cursor !== undefined && !hasRuntimeType(value.cursor, "string")) {
+  if (!isRuntimeRecord(value) || !Array.isArray(value.invocations) || value.invocations.some(record => !isInvocationSummary(record)) || value.cursor !== undefined && typeof value.cursor !== "string") {
     throw agentDiagnostics.AGENT_R0508({ message: "Invocation inspection returned an invalid list response." })
   }
   // SAFETY: The list parser validates its cursor and every summary field consumed by the CLI.
@@ -429,12 +430,12 @@ function parseInvocationList(value: unknown): AgentInvocationListResult {
 
 function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
   if (!isRuntimeRecord(value) || !isInvocationSummary(value.invocation) || !Array.isArray(value.observations)
-    || (value.observationCursor !== undefined && !hasRuntimeType(value.observationCursor, "string"))
-    || (value.appendObservations !== undefined && !hasRuntimeType(value.appendObservations, "boolean"))) {
+    || (value.observationCursor !== undefined && typeof value.observationCursor !== "string")
+    || (value.appendObservations !== undefined && typeof value.appendObservations !== "boolean")) {
     throw agentDiagnostics.AGENT_R0509({ message: "Invocation inspection returned an invalid detail response." })
   }
   for (const observation of value.observations) {
-    if (!isRuntimeRecord(observation) || !hasRuntimeType(observation.name, "string") || !hasRuntimeType(observation.sequence, "number") || !hasRuntimeType(observation.timestamp, "string")) {
+    if (!isRuntimeRecord(observation) || typeof observation.name !== "string" || typeof observation.sequence !== "number" || typeof observation.timestamp !== "string") {
       throw agentDiagnostics.AGENT_R0510({ message: "Invocation inspection returned an invalid observation." })
     }
   }
@@ -485,8 +486,8 @@ async function consoleCall<T>(target: ConsoleTarget, operation: string, input: R
     json = undefined
   }
   if (response.ok && isRuntimeRecord(json) && json.ok === true) return parseResponse(json.value)
-  const message = isRuntimeRecord(json) && hasRuntimeType(json.message, "string") && json.message ? json.message.replace(/\.$/, "") : undefined
-  const status = response.ok && isRuntimeRecord(json) && hasRuntimeType(json.status, "number") ? json.status : response.status
+  const message = isRuntimeRecord(json) && typeof json.message === "string" && json.message ? json.message.replace(/\.$/, "") : undefined
+  const status = response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status
   if (status === 401 || (status >= 300 && status < 400)) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${consoleCredentialHint}` })
   }
@@ -633,10 +634,10 @@ const cancelOutcomes = new Set<unknown>(["not-found", "requested", "terminal", "
 function parseCancelResult(value: unknown): AgentInvocationCancelResult {
   if (
     !isRuntimeRecord(value)
-    || !hasRuntimeType(value.id, "string")
+    || typeof value.id !== "string"
     || !cancelOutcomes.has(value.outcome)
-    || (value.status !== undefined && !hasRuntimeType(value.status, "string"))
-    || (value.notEnforcedBy !== undefined && !hasRuntimeType(value.notEnforcedBy, "string"))
+    || (value.status !== undefined && typeof value.status !== "string")
+    || (value.notEnforcedBy !== undefined && typeof value.notEnforcedBy !== "string")
     || (value.delivery !== undefined && value.delivery !== "journal" && value.delivery !== "local")
   ) {
     throw agentDiagnostics.AGENT_R0971({ message: "Invocation cancel returned an invalid response." })
@@ -662,14 +663,14 @@ async function requestCancel(parsed: ParsedArgs, id: string, context: AgentInvoc
   const discovery = parseCancelDiscovery(server.discovery)
   // Nuxt and plain Vite do not run Nitro in the Vite process, so the cancel cannot reach the application runtime.
   if (discovery.runtime !== "nitro") {
-    context.stderr.write(`${hasRuntimeType(discovery.message, "string") ? discovery.message : agentInvocationsDevRuntimeUnavailableMessage}\n`)
+    context.stderr.write(`${typeof discovery.message === "string" ? discovery.message : agentInvocationsDevRuntimeUnavailableMessage}\n`)
     return
   }
   const body: AgentInvocationsDevRequestBody = { id, operation: "cancel" }
-  if (!hasRuntimeType(discovery.workspaceDevTokenServerId, "string")) {
+  if (typeof discovery.workspaceDevTokenServerId !== "string") {
     throw agentDiagnostics.AGENT_R0971({ message: "Invocation cancellation discovery did not publish a token server ID." })
   }
-  const token = await readWorkspaceDevToken(hasRuntimeType(discovery.root, "string") ? discovery.root : rootDir, { serverId: discovery.workspaceDevTokenServerId })
+  const token = await readWorkspaceDevToken(typeof discovery.root === "string" ? discovery.root : rootDir, { serverId: discovery.workspaceDevTokenServerId })
   if (!token) throw agentDiagnostics.AGENT_R0972({ message: "No private Agent Dev token found. Start the Compatible Vite Development Server first." })
   const response = await fetchViteHubDevEndpoint(fetchImpl, url, cancelEndpoint, {
     body: JSON.stringify(body),
@@ -686,7 +687,7 @@ async function cancelFailureMessage(response: Response): Promise<string> {
   try {
     const value: unknown = JSON.parse(text)
     const message: unknown = isRuntimeRecord(value) && isRuntimeRecord(value.error) ? value.error.message : undefined
-    if (hasRuntimeType(message, "string") && message) return message
+    if (typeof message === "string" && message) return message
   }
   catch {
     // Plain text responses carry the message as the body.
@@ -753,11 +754,8 @@ function safeDecode(value: string): string {
 
 function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext): JournalDatabase {
   const root = resolveViteHubProjectRoot(context.rootDir ?? process.cwd())
-  const explicit = parsed.database?.trim() || context.env.VITEHUB_AGENT_INVOCATIONS_DATABASE_URL?.trim()
-  const configured = explicit || context.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
-  const authToken = explicit
-    ? context.env.VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN
-    : context.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
+  const configured = parsed.database?.trim() || context.env[defaultAgentInvocationsUrlEnv]?.trim()
+  const authToken = configured ? context.env[defaultAgentInvocationsAuthTokenEnv] : undefined
   const token = authToken ? { authToken } : {}
   const secrets = authToken ? [authToken] : []
   const isWindowsPath = /^[a-z]:[\\/]/i.test(configured ?? "")
@@ -777,7 +775,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
     }
     return { ...token, label: `${location.protocol}//${location.host}${location.pathname === "/" ? "" : location.pathname}`, secrets, url: configured }
   }
-  const target = configured || resolve(root, ".vitehub/data/console.sqlite")
+  const target = configured || resolve(root, defaultAgentInvocationsPath)
   const withoutFragment = target.split("#", 1)[0]!
   const queryIndex = withoutFragment.indexOf("?")
   const location = queryIndex === -1 ? withoutFragment : withoutFragment.slice(0, queryIndex)
@@ -946,10 +944,10 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
     if (observation.name !== "agent.message.delta") return
     const delta = observation.attributes ?? {}
     if (delta["message.phase"] !== "final" && delta["message.phase"] !== "final_answer") return
-    const id = hasRuntimeType(delta["message.id"], "string") ? delta["message.id"] : "__anonymous"
+    const id = typeof delta["message.id"] === "string" ? delta["message.id"] : "__anonymous"
     const group = finalDeltaGroups.get(id) ?? { sequence: index, text: "" }
     group.sequence = index
-    if (hasRuntimeType(delta["message.content"], "string")) group.text += delta["message.content"]
+    if (typeof delta["message.content"] === "string") group.text += delta["message.content"]
     finalDeltaGroups.set(id, group)
   })
   const deltas = [...finalDeltaGroups.values()].sort((left, right) => right.sequence - left.sequence)[0]?.text
@@ -957,9 +955,9 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
     ...invocation,
     runId: start["agent.run.id"],
     prompt: start["input.prompt"],
-    final: hasRuntimeType(finish, "string") ? finish : deltas || undefined,
+    final: typeof finish === "string" ? finish : deltas || undefined,
     deliveries: observationAttributes(observations, "agent.channel.delivery.effect").map(effect => ({
-      channel: hasRuntimeType(effect["channel.effect.channel"], "string") ? effect["channel.effect.channel"] : "unknown",
+      channel: typeof effect["channel.effect.channel"] === "string" ? effect["channel.effect.channel"] : "unknown",
       content: effect["channel.effect.content"],
       intent: effect["channel.effect.intent"],
       kind: effect["channel.effect.kind"],

@@ -10,19 +10,93 @@ import { assertFeaturePackages, importOptionalOwner, type OptionalFeature } from
 
 import type { Plugin } from "vite"
 
-/** The build-time modules of the optional owner packages. A module is `undefined` when the app did not install its package. */
+/**
+ * The build-time modules of the optional owner packages. A module is `undefined` when the app did not install its
+ * package, so an app without features loads none of them. They load in parallel.
+ */
+const [
+  agentVite,
+  authConsole,
+  authVite,
+  blobVite,
+  browserVite,
+  channelsVite,
+  cmsVite,
+  commentsVite,
+  connectionsVite,
+  contentVite,
+  databaseConfig,
+  databaseVite,
+  emailVite,
+  formsVite,
+  i18nNuxt,
+  i18nVite,
+  kvVite,
+  markdownTemplateVite,
+  mcpVite,
+  queueVite,
+  rateLimitVite,
+  realtimeVite,
+  sandboxTaskVite,
+  scheduleVite,
+  workflowVite,
+  workspaceVite,
+] = await Promise.all([
+  importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/vite")),
+  importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/console")),
+  importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/vite")),
+  importOptionalOwner("@vite-hub/blob", () => import("@vite-hub/blob/vite")),
+  importOptionalOwner("@vite-hub/browser", () => import("@vite-hub/browser/vite")),
+  importOptionalOwner("@vite-hub/channels", () => import("@vite-hub/channels/vite")),
+  importOptionalOwner("@vite-hub/cms", () => import("@vite-hub/cms/vite")),
+  importOptionalOwner("@vite-hub/comments", () => import("@vite-hub/comments/vite")),
+  importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/vite")),
+  importOptionalOwner("@vite-hub/content", () => import("@vite-hub/content/vite")),
+  importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")),
+  importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/vite")),
+  importOptionalOwner("@vite-hub/email", () => import("@vite-hub/email/vite")),
+  importOptionalOwner("@vite-hub/forms", () => import("@vite-hub/forms/vite")),
+  importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/nuxt")),
+  importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/vite")),
+  importOptionalOwner("@vite-hub/kv", () => import("@vite-hub/kv/vite")),
+  importOptionalOwner("@vite-hub/markdown-template", () => import("@vite-hub/markdown-template/vite")),
+  importOptionalOwner("@vite-hub/mcp", () => import("@vite-hub/mcp/vite")),
+  importOptionalOwner("@vite-hub/queue", () => import("@vite-hub/queue/vite")),
+  importOptionalOwner("@vite-hub/rate-limit", () => import("@vite-hub/rate-limit/vite")),
+  importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")),
+  importOptionalOwner("@vite-hub/sandbox", () => import("@vite-hub/sandbox/task/vite")),
+  importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")),
+  importOptionalOwner("@vite-hub/workflow", () => import("@vite-hub/workflow/vite")),
+  importOptionalOwner("@vite-hub/workspace", () => import("@vite-hub/workspace/vite")),
+])
+
 export const ownerModules = {
-  agentVite: await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/vite")),
-  authConsole: await importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/console")),
-  authVite: await importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/vite")),
-  cmsVite: await importOptionalOwner("@vite-hub/cms", () => import("@vite-hub/cms/vite")),
-  commentsVite: await importOptionalOwner("@vite-hub/comments", () => import("@vite-hub/comments/vite")),
-  contentVite: await importOptionalOwner("@vite-hub/content", () => import("@vite-hub/content/vite")),
-  databaseConfig: await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")),
-  databaseVite: await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/vite")),
-  realtimeVite: await importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")),
-  scheduleVite: await importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")),
-  workspaceVite: await importOptionalOwner("@vite-hub/workspace", () => import("@vite-hub/workspace/vite")),
+  agentVite,
+  authConsole,
+  authVite,
+  blobVite,
+  browserVite,
+  channelsVite,
+  cmsVite,
+  commentsVite,
+  connectionsVite,
+  contentVite,
+  databaseConfig,
+  databaseVite,
+  emailVite,
+  formsVite,
+  i18nNuxt,
+  i18nVite,
+  kvVite,
+  markdownTemplateVite,
+  mcpVite,
+  queueVite,
+  rateLimitVite,
+  realtimeVite,
+  sandboxTaskVite,
+  scheduleVite,
+  workflowVite,
+  workspaceVite,
 }
 
 function findServerEntry(projectRoot: string, serverDirs: readonly string[] | undefined, name: string): string | undefined {
@@ -32,6 +106,11 @@ function findServerEntry(projectRoot: string, serverDirs: readonly string[] | un
       if (existsSync(file)) return file
     }
   }
+}
+
+/** Whether the app has a `server/forms/` folder. Forms then needs its package. */
+export function hasFormsDirectory(projectRoot: string, serverDirs: readonly string[] | undefined): boolean {
+  return (serverDirs ?? ["server"]).some(directory => existsSync(resolve(projectRoot, directory, "forms")))
 }
 
 /** Follow the relative Content re-exports accepted by CMS discovery, without loading an optional owner. */
@@ -57,10 +136,10 @@ function importsCmsPreset(file: string, seen = new Set<string>()): boolean {
 }
 
 /**
- * Comments, Content, and the `cms` preset are on when the app has `server/comments.ts` or `server/content.ts`. This
- * plugin fails the build when such a file exists but its package is not installed.
+ * Comments, Forms, Content, and the `cms` preset are on when the app has `server/comments.ts`, `server/forms/`, or
+ * `server/content.ts`. This plugin fails the build when such a file exists but its package is not installed.
  */
-export function optionalOwnerEntriesPlugin(): Plugin {
+export function optionalOwnerEntriesPlugin(options: { database?: boolean } = {}): Plugin {
   return {
     name: "vite-hub/optional-owner-entries",
     async configResolved(config) {
@@ -71,6 +150,10 @@ export function optionalOwnerEntriesPlugin(): Plugin {
       const content = await findContentEntry({ projectRoot, serverDirs: serverDirs?.slice() })
       const features: OptionalFeature[] = []
       if (findServerEntry(projectRoot, serverDirs, "comments")) features.push("comments", "database")
+      if (hasFormsDirectory(projectRoot, serverDirs)) {
+        features.push("forms")
+        if (options.database !== false) features.push("database")
+      }
       if (content) features.push("content")
       if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
       assertFeaturePackages([...new Set(features)])
@@ -92,26 +175,52 @@ export function commentsOffPlugin(): Plugin {
   }
 }
 
-const ownerFacade = /^vite-hub\/(ui|presets|shell)(?:\/|$)/
+/** The `vite-hub` subpaths that re-export an optional owner package, by subpath root. */
+const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
+  "blob": "blob",
+  "browser": "browser",
+  "channels": "channels",
+  "connections": "connections",
+  "console/ui": "console ui",
+  "decisions": "decisions",
+  "email": "email",
+  "forms": "forms",
+  "gateways": "gateways",
+  "kv": "kv",
+  "markdown-template": "markdown-template",
+  "mcp": "mcp",
+  "presets": "presets",
+  "queue": "queue",
+  "rate-limit": "rateLimit",
+  "sandbox": "sandboxTask",
+  "shell": "shell",
+  "ui": "ui",
+  "workflow": "workflow",
+} satisfies Record<string, OptionalFeature>))
 
-/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
-export function ownerFacadeFeature(specifier: string): "presets" | "shell" | "ui" | undefined {
-  const feature = ownerFacade.exec(specifier)?.[1]
-  return feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
+const ownerFacade = new RegExp(`^vite-hub/(${[...ownerFacadeFeatures.keys()].join("|")})(?:/|$)`)
+const markdownTemplateFile = /\.template\.md$/
+const optionalOwnerImport = new RegExp(`${ownerFacade.source}|${markdownTemplateFile.source}`)
+
+/** The feature of a `vite-hub` subpath that re-exports an optional owner package, such as `vite-hub/kv`. */
+export function ownerFacadeFeature(specifier: string): OptionalFeature | undefined {
+  const root = ownerFacade.exec(specifier)?.[1]
+  return root === undefined ? undefined : ownerFacadeFeatures.get(root)
 }
 
 /**
- * `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This plugin fails an
- * import of one of them with the install command when the app did not install its package.
+ * The `vite-hub` facades of optional owners, such as `vite-hub/kv` and `vite-hub/ui`, import packages that the app
+ * installs. A `.template.md` import needs `@vite-hub/markdown-template`. This plugin fails such an import with the
+ * install command when the app did not install the packages.
  */
 export function optionalOwnerImportsPlugin(): Plugin {
   return {
     name: "vite-hub/optional-owner-imports",
     enforce: "pre",
     resolveId: {
-      filter: { id: ownerFacade },
+      filter: { id: optionalOwnerImport },
       handler(source) {
-        const feature = ownerFacadeFeature(source)
+        const feature = markdownTemplateFile.test(source) ? "markdown-template" : ownerFacadeFeature(source)
         if (feature) assertFeaturePackages([feature])
       },
     },

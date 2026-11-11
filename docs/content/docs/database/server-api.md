@@ -1,6 +1,6 @@
 ---
 title: Database server API
-description: Query a discovered database from server code with a typed Drizzle client.
+description: Query a database from server code with a typed Drizzle client and handle errors.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -10,22 +10,53 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
-| `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
-| `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
-| `@vite-hub/database/config` | Resolve database config values and discovery config. |
-| `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
-| `@vite-hub/database/nuxt` | Use the narrow Nuxt D1 host-resource bridge. |
+| `defineDatabase` from `vite-hub/database` | Declare a Database Definition. |
+| `useDatabase` from `vite-hub/database/drizzle` | Select a generated Drizzle database and its schema, by name or the only one. |
+| `useDatabaseBinding` from `vite-hub/database/drizzle` | Get the D1 binding or request session of a database. |
+| `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
+| `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
+| `@vite-hub/database/config` | Resolve config values and discovery config. |
+| `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 
-All Database Definition, integration, connection, Cloudflare D1, Drizzle, and runtime config types are exported from `@vite-hub/database`.
+`vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
+
+| Call | App Databases | Result |
+| --- | --- | --- |
+| `useDatabase()` | A Default Database, or one Named Database | That Database |
+| `useDatabase()` | Several Named Databases | Throws [`DATABASE_NAME_REQUIRED`](/docs/database/limits-and-errors#database_name_required) |
+| `useDatabase(name)` | A Definition with this name | That Database |
+| `useDatabase(name)` or `useDatabase()` | No Definition with this name, or no Database | Throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found) |
+
+Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
+
+This route reads the `notes` table of the Default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
+
+```ts [src/database.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+    files: sqliteTable('files', {
+      id: text('id').primaryKey(),
+      ownerId: text('owner_id').notNull(),
+      name: text('name').notNull(),
+    }),
+  },
+})
+```
 
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('default')
@@ -33,14 +64,16 @@ export default defineEventHandler(() => {
 })
 ```
 
-The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server code that Nitro builds. Do not run files that import it with plain `node`. Run them through your Nitro server output.
+ViteHub resolves `vite-hub/database/drizzle` only in server code that Nitro builds. Do not run files that import it with plain `node`. Run your Nitro server output.
 
 ### Use Named Databases
 
-Use Named Databases when the app needs more than one independent database. Name a database for a real data or deployment split, not for a source-code folder.
+Use named databases when the app needs more than one separate database. Split for a real data or deployment reason, not to mirror a source folder.
+
+The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts`, `server/api/notes.get.ts`, and `server/utils/files.ts` (shown below) before using it. An app cannot combine Default and Named Database Definitions.
 
 ```ts [src/analytics.database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const events = sqliteTable('events', {
@@ -55,7 +88,8 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/events.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('analytics')
@@ -63,13 +97,21 @@ export default defineEventHandler(() => {
 })
 ```
 
+### Pass the D1 binding to other code
+
+Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).
+
+The return type, `DatabaseD1Binding`, exposes `prepare()` and `batch()`, which both bindings and sessions support. It fits consumers of these operations, including the D1 Agent Invocation store. It is not the full Cloudflare `D1Database` type: sessions have no `exec()`, `withSession()`, or `dump()`.
+
+It throws `DATABASE_NO_D1_BINDING` when the database does not run on a D1 binding, such as local SQLite during `vite dev` or D1 over HTTP.
+
 ### Stay under the bound parameter limit
 
-Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert fails on D1, even when it works on local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each:
+D1 binds at most 100 parameters per statement. A longer `inArray()` list or a multi-row insert rejects with [`DATABASE_D1_TOO_MANY_PARAMETERS`](/docs/database/limits-and-errors#database_d1_too_many_parameters) on D1, and in a Cloudflare dev server on local SQLite. `chunkParameters(values, options)` splits the values into arrays that each fit one statement. This example uses the `files` table of the Default Database above:
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
-import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
+import { chunkParameters, useDatabase } from 'vite-hub/database/drizzle'
 
 const { db, schema } = useDatabase('default')
 
@@ -88,17 +130,17 @@ export async function deleteFiles(ownerId: string, ids: string[]) {
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `per` | `1` | Bound parameters that one value takes. A Drizzle table counts its columns for inserts binding at most one parameter per column. |
-| `reserved` | `0` | Other bound parameters in the same statement. |
-| `limit` | `100` | The most bound parameters in one statement. 100 is the D1 limit and the lowest of the supported drivers. |
+| `per` | `1` | Parameters that one value binds. A Drizzle table counts its columns, for inserts that bind at most one parameter per column. |
+| `reserved` | `0` | Other parameters in the same statement. |
+| `limit` | `100` | Most parameters per statement. 100 is the D1 limit, the lowest of the supported drivers. |
 
-The helper uses the counts you supply; it does not inspect row contents or SQL defaults. SQL expressions can bind several parameters in one column. For example, a one-column row containing `` sql`${first} || ${second}` `` binds two parameters, so use `{ per: 2 }` instead of the table shorthand. Choose a numeric `per` that covers the maximum bindings of a whole row, including SQL defaults.
+The helper trusts your counts. It does not read row contents or SQL defaults. An SQL expression can bind several parameters in one column: a one-column row with `` sql`${first} || ${second}` `` binds two, so use `{ per: 2 }`, not the table. Pick a `per` that covers the most a whole row can bind, SQL defaults included.
 
-Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. The chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
+Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
 
 ## See database work on each request
 
-When the app registers the evlog Nitro module, through `vitehub({ observability })` or by itself, each request's wide event gets a `database` field:
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, each request's wide event gets a `database` field:
 
 ```json
 { "path": "/api/notes", "status": 200, "database": { "calls": 9, "ms": 480, "maxConcurrent": 1 } }
@@ -107,9 +149,9 @@ When the app registers the evlog Nitro module, through `vitehub({ observability 
 | Field | Meaning |
 | --- | --- |
 | `calls` | Calls to a database. A batch is one call. |
-| `ms` | Milliseconds with at least one call in flight: how long the request waited for its databases. |
-| `maxConcurrent` | The most calls in flight at the same time. `1` means each call waited for the one before it. |
+| `ms` | Milliseconds with at least one call running: how long the request waited for its databases. |
+| `maxConcurrent` | The most calls running at once. `1` means each call waited for the one before. |
 
-A request with `calls: 9`, `maxConcurrent: 1` and a high `ms` makes its database calls one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
+`calls: 9`, `maxConcurrent: 1`, and a high `ms` mean the calls ran one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
 
-It counts every database of the app and every driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request that makes no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. It counts queries made through `db`. `db.$client` stays the app's own driver client, so a call made directly on it is not counted. Calls that run after the response, in `waitUntil()`, are not counted. Without evlog, nothing is measured.
+It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.

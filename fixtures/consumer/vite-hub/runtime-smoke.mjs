@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { defineAgent, runAgent, workflow as agentWorkflow } from "vite-hub/agent"
+import { defineAgent, runAgent, startAgentInvocation, workflow as agentWorkflow } from "vite-hub/agent"
 import { blob as blobCapability } from "vite-hub/agent/capabilities"
 import { env } from "vite-hub/env"
 import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"
@@ -19,18 +19,21 @@ const agent = defineAgent({
     },
   },
 })
-const agentResult = await runAgent(agent, {
-  memo(key, create) {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key)
+const [agentResultError, agentResult] = await runAgent(agent, { prompt: "smoke" }, {
+  runtimeContext: {
+    memo(key, create) {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key)
+    },
+    runtime: "vite",
+    waitUntil(task) {
+      void task.catch(() => {})
+    },
   },
-  runtime: "vite",
-  waitUntil(task) {
-    void task.catch(() => {})
-  },
-}, { prompt: "smoke" })
+})
+assert.equal(agentResultError, undefined)
 
-assert.deepEqual(agentResult, { text: "runtime:smoke" })
+assert.equal(agentResult.text, "runtime:smoke")
 
 const crossOwnerAgent = defineAgent({
   capabilities: [blobCapability()],
@@ -45,17 +48,20 @@ const crossOwnerAgent = defineAgent({
     },
   },
 })
-const crossOwnerResult = await runAgent(crossOwnerAgent, {
-  memo(key, create) {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key)
+const [crossOwnerResultError, crossOwnerResult] = await runAgent(crossOwnerAgent, { prompt: "owner edge" }, {
+  runtimeContext: {
+    memo(key, create) {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key)
+    },
+    runtime: "vite",
+    waitUntil(task) {
+      void task.catch(() => {})
+    },
   },
-  runtime: "vite",
-  waitUntil(task) {
-    void task.catch(() => {})
-  },
-}, { prompt: "owner edge" })
-assert.deepEqual(crossOwnerResult, { text: "blob owner edge ok" })
+})
+assert.equal(crossOwnerResultError, undefined)
+assert.equal(crossOwnerResult.text, "blob owner edge ok")
 
 const workspaceAgent = defineAgent({
   runtime: false,
@@ -67,17 +73,20 @@ const workspaceAgent = defineAgent({
     },
   },
 })
-const workspaceAgentResult = await runAgent(workspaceAgent, {
-  memo(key, create) {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key)
+const [workspaceAgentResultError, workspaceAgentResult] = await runAgent(workspaceAgent, { prompt: "owner edge" }, {
+  runtimeContext: {
+    memo(key, create) {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key)
+    },
+    runtime: "vite",
+    waitUntil(task) {
+      void task.catch(() => {})
+    },
   },
-  runtime: "vite",
-  waitUntil(task) {
-    void task.catch(() => {})
-  },
-}, { prompt: "owner edge" })
-assert.equal(workspaceAgentResult, "workspace owner edge ok")
+})
+assert.equal(workspaceAgentResultError, undefined)
+assert.equal(workspaceAgentResult.text, "workspace owner edge ok")
 
 const workflowTasks = []
 const workflowAgent = defineAgent({
@@ -88,7 +97,7 @@ const workflowAgent = defineAgent({
     },
   },
 })
-const workflowAgentRun = await runAgent(workflowAgent, {
+const workflowAgentRun = await startAgentInvocation(workflowAgent, {
   memo(key, create) {
     if (!values.has(key)) values.set(key, create())
     return values.get(key)
@@ -117,7 +126,7 @@ const pwd = await workspaceTools.shell.execute({ command: "pwd" })
 assert.equal(pwd.exitCode, 0)
 assert.equal(pwd.stdout, "/workspace\n")
 
-const workflow = defineWorkflow(async ({ payload }) => ({ marker: payload.marker }))
-assert.deepEqual(await workflow.handler({ payload: { marker: "runtime" } }), { marker: "runtime" })
+const workflow = defineWorkflow("runtime", async payload => ({ marker: payload.marker }))
+assert.deepEqual(await workflow.handler({ marker: "runtime" }, { name: "runtime", payload: { marker: "runtime" }, provider: "openworkflow", steps: {} }), { marker: "runtime" })
 
 console.log("vite-hub runtime smoke ok")

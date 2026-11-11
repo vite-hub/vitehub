@@ -519,6 +519,32 @@ function mergeExcludedHostState(
   return { contents, snapshot: { ...materialized.snapshot, entries } }
 }
 
+async function restoreHostEntries(
+  host: WorkspaceSessionHost,
+  root: string,
+  entries: readonly (readonly [string, WorkspaceSnapshot["entries"][string]])[],
+  contents: ReadonlyMap<string, Uint8Array | string>,
+  abortSignal?: AbortSignal,
+) {
+  for (const [path, entry] of entries) {
+    abortSignal?.throwIfAborted()
+    const target = toHostPath(root, path)
+    await removeHostSymlinkAncestors(host, root, target, abortSignal)
+    if (entry.type === "directory") {
+      await host.files.mkdir(target, { recursive: true, signal: abortSignal })
+      continue
+    }
+    const content = contents.get(path)
+    if (content === undefined) continue
+    await ensureHostParent(host, target, abortSignal)
+    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content), abortSignal)
+    else {
+      await host.files.write(target, contentToBytes(content), { signal: abortSignal })
+      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
+    }
+  }
+}
+
 async function restoreExcludedHostState(
   host: WorkspaceSessionHost,
   root: string,
@@ -545,23 +571,7 @@ async function restoreExcludedHostState(
 
   const entries = Object.entries(state.snapshot.entries)
     .sort(([left], [right]) => left.split("/").length - right.split("/").length)
-  for (const [path, entry] of entries) {
-    abortSignal?.throwIfAborted()
-    const target = toHostPath(root, path)
-    await removeHostSymlinkAncestors(host, root, target, abortSignal)
-    if (entry.type === "directory") {
-      await host.files.mkdir(target, { recursive: true, signal: abortSignal })
-      continue
-    }
-    const content = state.contents.get(path)
-    if (content === undefined) continue
-    await ensureHostParent(host, target, abortSignal)
-    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content), abortSignal)
-    else {
-      await host.files.write(target, contentToBytes(content), { signal: abortSignal })
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
-    }
-  }
+  await restoreHostEntries(host, root, entries, state.contents, abortSignal)
 }
 
 async function restoreAttachedHost(
@@ -581,23 +591,7 @@ async function restoreAttachedHost(
     .map(path => [path, state.snapshot.entries[path]] as const)
     .filter((entry): entry is readonly [string, NonNullable<(typeof entry)[1]>] => Boolean(entry[1]))
     .sort(([left], [right]) => left.split("/").length - right.split("/").length)
-  for (const [path, entry] of baselineEntries) {
-    abortSignal?.throwIfAborted()
-    const target = toHostPath(root, path)
-    await removeHostSymlinkAncestors(host, root, target, abortSignal)
-    if (entry.type === "directory") {
-      await host.files.mkdir(target, { recursive: true, signal: abortSignal })
-      continue
-    }
-    const content = state.contents.get(path)
-    if (content === undefined) continue
-    await ensureHostParent(host, target, abortSignal)
-    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content), abortSignal)
-    else {
-      await host.files.write(target, contentToBytes(content), { signal: abortSignal })
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
-    }
-  }
+  await restoreHostEntries(host, root, baselineEntries, state.contents, abortSignal)
 }
 
 async function resetHostWorkspaceRoot(host: WorkspaceSessionHost, root: string, abortSignal?: AbortSignal) {

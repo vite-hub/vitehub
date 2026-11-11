@@ -14,7 +14,8 @@ import type {
   AuthConsoleQuery,
 } from "@vite-hub/auth/console";
 
-import { consoleDateTime } from "./time";
+import { consoleDateTime } from "./format";
+import { projectFetch } from "./project";
 import { ConsoleRequestError } from "./request";
 
 type AuthResults = {
@@ -29,7 +30,7 @@ type AuthResults = {
   agents: AuthConsoleList<AuthConsoleAgent>;
 };
 async function request(base: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(base, {
+  const response = await projectFetch(base, {
     method: "POST",
     headers: { "content-type": "application/json", "x-vitehub-console": "1" },
     body: JSON.stringify(body),
@@ -70,12 +71,3 @@ export const authFieldValue = (value: unknown) =>
     : Array.isArray(value)
       ? value.join(", ")
       : String(value);
-/** A session length in words, such as "1 hour" or "1 hour 30 minutes". */
-export function authDuration(seconds: number): string {
-  const minutes = Math.max(1, Math.round(seconds / 60));
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  const unit = (value: number, name: string) => `${value} ${name}${value === 1 ? "" : "s"}`;
-  if (!hours) return unit(rest, "minute");
-  return rest ? `${unit(hours, "hour")} ${unit(rest, "minute")}` : unit(hours, "hour");
-}

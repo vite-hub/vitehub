@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { existsSync, statSync } from "node:fs"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -8,6 +9,7 @@ import * as v from "valibot";
 import {
   createNoExternalAddition,
   hasNitroConfigContext,
+  isProductionBuild,
   isServerEnvironment,
   loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
@@ -20,13 +22,14 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 export { discoverConnectionDefinitions } from "./discovery.ts";
 import { resolveActivityRetention } from "./internal/activity-retention.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
-import type { Plugin, ResolvedConfig } from "vite";
+import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
 export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
@@ -297,6 +300,16 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   };
 };
 
+/** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
+export function colocatedConnectionDocsFile(handler: string): string {
+  return handler.replace(/\.(?:[jt]sx?|[cm][jt]s)$/i, ".md");
+}
+
+function hasColocatedConnectionDocs(definition: DiscoveredConnectionDefinition): boolean {
+  const file = colocatedConnectionDocsFile(definition.handler);
+  return file !== definition.handler && existsSync(file) && statSync(file).isFile();
+}
+
 function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
   database: string | false,
@@ -305,6 +318,12 @@ function renderRegistry(
 ): string {
   return [
     `export const activityRetention = ${JSON.stringify(activityRetention)}`,
+    // Each `<name>.md` loads like its definition, so an edit reaches the next `inspect()` in `vite dev`.
+    "export const docs = Object.create(null)",
+    ...definitions.filter(hasColocatedConnectionDocs).map(
+      (definition) =>
+        `docs[${JSON.stringify(definition.name)}] = () => import(${JSON.stringify(`${colocatedConnectionDocsFile(definition.handler)}?raw`)}).then(module => module.default)`,
+    ),
     "const registry = Object.create(null)",
     ...definitions.map(
       (definition) =>
@@ -375,7 +394,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
   const databaseName = options.databaseName ?? "default";
-  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw new Error(`[vitehub] connections.database must be a Database name, such as "users". Got ${JSON.stringify(databaseName)}.`);
+  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ name: databaseName, problem: "database" });
   const activityRetention = resolveActivityRetention(options.activityRetention);
   let resolved: ResolvedConfig | undefined;
   let definitions: DiscoveredConnectionDefinition[] = [];
@@ -431,6 +450,14 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
       });
     });
+  }
+
+  async function refreshRegistry(server: ViteDevServer): Promise<void> {
+    resolved = server.config;
+    refresh();
+    await refreshGeneratedFiles();
+    const module = server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
+    if (module) server.moduleGraph.invalidateModule(module);
   }
 
   return {
@@ -526,54 +553,22 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       if (environment.command === "serve" || options.management) {
         const actorModule =
           (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
-        if (environment.command !== "serve" && !actorModule?.trim()) {
-          throw new Error(
-            "Connections management in production requires management: { actor: <authentication module> }.",
-          );
+        if (isProductionBuild(config, environment) && !actorModule?.trim()) {
+          throw connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "management-actor" });
         }
         const actorImport = actorModule?.startsWith(".") ? resolve(root, actorModule) : actorModule;
         const writeManagementHandler = async (managementRoute: string) => await writeFileIfChanged(
           handlerFile,
           [
             `import { createConnectionsHandler } from ${JSON.stringify(`${importBase}/server`)}`,
-            `import type { IncomingMessage } from "node:http"`,
             "",
             ...(actorModule ? [`import actor from ${JSON.stringify(actorImport)}`] : []),
             "",
             // Without an actor module, only a development server allows management.
+            // The handler is a Fetchable: Nitro calls `fetch(event.req)`.
             actorModule
-              ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
-              : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
-            "",
-            // Nitro 2 on Workers, which Nuxt 4 builds, gives a request mock that keeps the body in `body` and cannot be
-            // iterated. A Node.js server gives a real IncomingMessage.
-            "export default async (event: { req?: Request, _requestBody?: unknown, node?: { req?: IncomingMessage & { body?: unknown, rawBody?: unknown, originalUrl?: string, socket: { encrypted?: boolean }, [key: symbol]: unknown } } }) => {",
-            "  const raw = event.req ?? event.node?.req",
-            "  if (!raw) return handle(new Request('http://localhost/'), event)",
-            "  if (raw instanceof Request) return handle(raw, event)",
-            "  const headers = new Headers()",
-            "  for (const [name, value] of Object.entries(raw.headers ?? {})) { if (typeof value === 'string') headers.set(name, value); else if (Array.isArray(value)) for (const item of value) headers.append(name, item) }",
-            "  const firstHeader = (name: string) => headers.get(name)?.split(',')[0]?.trim()",
-            "  const host = firstHeader('x-forwarded-host') ?? firstHeader('host') ?? 'localhost'",
-            "  const protocol = firstHeader('x-forwarded-proto') ?? (raw.socket?.encrypted ? 'https' : 'http')",
-            "  const method = raw.method ?? 'GET'",
-            "  const init: RequestInit & { duplex?: 'half' } = { method, headers }",
-            "  if (method !== 'GET' && method !== 'HEAD') {",
-            // Match the H3 1 cache precedence in openNodeRequestBody before touching a consumed Node stream.
-            "    const body = await (event._requestBody ?? raw[Symbol.for('h3RawBody')] ?? raw.rawBody ?? raw.body)",
-            "    if (typeof body === 'string' || body instanceof URLSearchParams || body instanceof ReadableStream) init.body = body",
-            "    else if (body instanceof Uint8Array) init.body = new ReadableStream({ start(controller) { controller.enqueue(body); controller.close() } })",
-            "    else if (body instanceof Object && Object.getPrototypeOf(body) === Object.prototype) init.body = JSON.stringify(body)",
-            "    else {",
-            "      const iterator = raw[Symbol.asyncIterator]()",
-            "      init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
-            "    }",
-            "    if (init.body instanceof ReadableStream) init.duplex = 'half'",
-            "  }",
-            "  const path = (raw.originalUrl || raw.url || '/').replace(/^[/\\\\]+/, '/')",
-            "  const request = new Request(new URL(path, `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
-            "  return handle(request, event)",
-            "}",
+              ? `export default createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
+              : `export default createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
           ].join("\n"),
         );
@@ -618,19 +613,35 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };
     },
+    configureServer(server) {
+      // Vite only calls handleHotUpdate for edits. Docs membership also changes on add and unlink.
+      server.watcher.add([...new Set(definitions.map(definition => dirname(definition.handler)))]);
+      const refreshDocs = (file: string) => {
+        if (!definitions.some(definition => colocatedConnectionDocsFile(definition.handler) === resolve(file))) return;
+        return refreshRegistry(server).catch(error => server.config.logger.error(String(error)));
+      };
+      server.watcher.on("add", refreshDocs);
+      server.watcher.on("unlink", refreshDocs);
+      server.httpServer?.once("close", () => {
+        server.watcher.off("add", refreshDocs);
+        server.watcher.off("unlink", refreshDocs);
+      });
+    },
     async handleHotUpdate(context) {
       if (!isConnectionDefinitionFile(context.file, projectRoot, serverDirs)) return;
-      resolved = context.server.config;
-      refresh();
-      await refreshGeneratedFiles();
-      const module = context.server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
-      if (module) context.server.moduleGraph.invalidateModule(module);
+      await refreshRegistry(context.server);
     },
-    resolveId(id) {
-      if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+    resolveId: {
+      filter: { id: /^#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+      },
     },
-    load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+    load: {
+      filter: { id: /^\0#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+      },
     },
   };
 }

@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
+import { assertWorkflowDefinitionName } from "../definition.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { setWorkflowDevRecorder } from "./dev-recorder.ts"
 
 const RUNS_LIMIT = 1024
 const RUNS_TTL_MS = 5 * 60 * 1000
@@ -97,13 +99,13 @@ function isWorkflowHandle(value: unknown): value is { name: string } {
     name?: unknown
     defer?: unknown
     getRun?: unknown
-    run?: unknown
+    start?: unknown
   }
 
   if (typeof candidate.name !== "string") return false
   if (typeof candidate.defer !== "function") return false
   if (typeof candidate.getRun !== "function") return false
-  return typeof candidate.run === "function"
+  return typeof candidate.start === "function"
 }
 
 function findExportedInlineWorkflowDefinition(
@@ -239,6 +241,7 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
     // SAFETY: Registry module exports are validated as WorkflowDefinitions at this boundary.
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
+      assertWorkflowDefinitionName(name, definition)
       return definition
     }
     const exportedInlineDefinition = findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)
@@ -349,4 +352,5 @@ export function resetWorkflowRuntime(): void {
   inFlightRuns.clear()
   fallbackRunKeys.clear()
   completedRuns.clear()
+  setWorkflowDevRecorder(undefined)
 }

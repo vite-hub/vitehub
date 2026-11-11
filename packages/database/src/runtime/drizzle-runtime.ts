@@ -1,10 +1,9 @@
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
-
 import databaseEntries from "#vitehub/database/databases"
+import { localSqlite } from "#vitehub/database/libsql"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { createLocalSqliteClient } from "./local-client.ts"
-import { resolveLocalSqliteUrl } from "./local-url.ts"
+import { createUseDatabase } from "./use-database.ts"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
@@ -42,10 +41,40 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
   }
 
   return createDrizzleSqliteAdapter(config, schema, {
-    libsql: { createClient: createLocalSqliteClient, drizzle: drizzleLibsql as never },
-    missingConnection: "a Cloudflare D1 binding or `connection.url`",
+    libsql: localSqlite,
+    missingConnection: localSqlite ? "a Cloudflare D1 binding or `connection.url`" : "a Cloudflare D1 binding or `cloudflare.http`",
     requireRemoteUrl: false,
-    resolveLocalUrl: resolveLocalSqliteUrl,
+    resolveLocalUrl: localSqlite?.resolveLocalUrl,
+  })
+}
+
+/**
+ * In app tests, `vite-hub/test` turns on test mode, and each database is an in-memory SQLite with the migrations of
+ * its Definition, created again after each reset. The choice happens on each property read, because the app imports
+ * `db` before the test turns test mode on.
+ */
+function withTestDatabase<TSchema extends Record<string, unknown>>(
+  name: string,
+  schema: TSchema,
+  migrationsDir: string | undefined,
+  database: RuntimeDrizzleDatabase<TSchema>,
+): RuntimeDrizzleDatabase<TSchema> {
+  function current(): RuntimeDrizzleDatabase<TSchema> {
+    const test = getViteHubTestMode()
+    // App tests never run a Cloudflare production build, the only build without local SQLite.
+    if (!test || !localSqlite) return database
+    const sqlite = localSqlite
+    return test.backend(`database:${name}`, () => {
+      const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
+      const client = sqlite.createTestClient(test.root, directory)
+      // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
+      return sqlite.drizzle(client, { schema }) as RuntimeDrizzleDatabase<TSchema>
+    }, db => (Reflect.get(db, "$client") as { close: () => void }).close())
+  }
+  // SAFETY: Every read goes to the current database, so the proxy has the full database shape.
+  return new Proxy({} as RuntimeDrizzleDatabase<TSchema>, {
+    get: (_target, property) => Reflect.get(current(), property),
+    has: (_target, property) => Reflect.has(current(), property),
   })
 }
 
@@ -56,7 +85,10 @@ const resolvedDatabases = Object.fromEntries(
   Object.entries(runtimeEntries).map(([name, entry]) => [
     name,
     {
-      db: entry.db ?? createRuntimeDatabase(entry.config, entry.schema, name),
+      // Postgres entries bring their own client and keep it in tests.
+      db: entry.db ?? (entry.config
+        ? withTestDatabase(name, entry.schema, entry.config.migrationsDir, createRuntimeDatabase(entry.config, entry.schema, name))
+        : createMissingDatabaseProxy(name)),
       schema: entry.schema,
     } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
   ]),
@@ -77,3 +109,5 @@ export const databases = {
 }
 
 export const db = databases.default.db
+
+export const useDatabase = createUseDatabase(databases, Object.keys(resolvedDatabases))

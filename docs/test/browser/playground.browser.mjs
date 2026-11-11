@@ -62,6 +62,22 @@ async function readPreviewTab(page, pattern) {
   return text.trim();
 }
 
+/** Finds the Channel simulator page whose title matches `title` in the preview frames, sends `text`, and waits for the reply. */
+async function chatInPreview(page, title, text) {
+  let chat;
+  for (let attempt = 0; attempt < 120 && !chat; attempt++) {
+    await page.waitForTimeout(500);
+    for (const frame of page.frames().filter(candidate => candidate.url().includes("webcontainer-api.io"))) {
+      const read = frame.evaluate(() => document.getElementById("input") ? document.title : "").catch(() => "");
+      if (title.test(await Promise.race([read, new Promise(done => setTimeout(done, 1000, ""))]))) chat = frame;
+    }
+  }
+  assert.ok(chat, `the preview shows a page titled ${title}`);
+  await chat.locator("#input").fill(text);
+  await chat.locator("#input").press("Enter");
+  await chat.getByText(`You said "${text}". This reply came from the support Agent.`).waitFor({ timeout: 60_000 });
+}
+
 async function waitForApp(page) {
   await page.locator(".vh-ws-preview-frame").waitFor({ timeout: bootTimeout });
   await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: bootTimeout });
@@ -102,7 +118,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     await shot(page, "desktop-booting");
 
@@ -156,6 +172,20 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.match(await readPreview(page, /"ok"/), /"ok":\s*true/);
     await shot(page, "desktop-agent");
 
+    // The Channels template shares the Agent snapshot. Its preview opens the simulated Slack page of the Agent, and
+    // a message sent there streams the reply of the Agent back into the page.
+    await page.getByRole("button", { name: /^Template:/ }).click();
+    await page.getByRole("menuitem", { name: /^Channels/ }).click();
+    await page.getByRole("treeitem", { name: "support.ts" }).waitFor();
+    await page.waitForURL(/\/playground\?template=channels$/);
+    await waitForApp(page);
+    await chatInPreview(page, /Slack simulator/, "Hello from Slack");
+    await shot(page, "desktop-channels");
+    // Another Channel is another path on the same Agent.
+    await page.getByLabel("Preview path").fill("/api/_vitehub/agents/support/webhooks/discord");
+    await page.getByLabel("Preview path").press("Enter");
+    await chatInPreview(page, /Discord simulator/, "Hello from Discord");
+
     // Back to KV without edits: no question.
     await page.getByRole("button", { name: /^Template:/ }).click();
     await page.getByRole("menuitem", { name: /^KV/ }).click();
@@ -188,17 +218,17 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await page.getByRole("button", { name: "Open playground" }).click();
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.close();
   });
 
   await t.test("phone: a card, never a WebContainer", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, acceptDownloads: true });
     await page.goto(playground);
-    await page.getByText("The playground runs a ViteHub app in a desktop browser.").waitFor();
+    await page.getByText("The live playground runs in a desktop browser.").waitFor();
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
-    assert.equal(await page.locator(".vh-playground-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "mobile");
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download files" }).click();
@@ -223,7 +253,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.goto(playground);
     await page.getByText("The live workspace does not run in Safari").waitFor();
     await page.getByRole("button", { name: "Download files" }).waitFor();
-    assert.equal(await page.locator(".vh-playground-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "safari");
     await context.close();
   });
@@ -238,7 +268,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(home?.headers()["cross-origin-opener-policy"], undefined);
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Playground" }).click();
     await page.waitForURL(/\/playground$/);
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the playground loaded as a new isolated document");
     // Playground to docs, through the header.
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Docs" }).click();

@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
+import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
-import { tutorialWorkspaceFiles } from "../modules/tutorials/steps";
-import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
+import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
+import { frameworkNodes, parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
@@ -26,7 +26,7 @@ function codeBlocks(source: string, label: string) {
 }
 
 async function expectPageToUseFixture(pagePath: string, fixture: string, labels: string[]) {
-  const page = await readFile(resolve(docsRoot, pagePath), "utf8");
+  const page = frameworkView(await readFile(resolve(docsRoot, pagePath), "utf8"), "Vite");
 
   for (const label of labels) {
     const expected = normalize(await readFile(resolve(fixturesRoot, fixture, label), "utf8"));
@@ -36,7 +36,16 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 
 describe("documentation tutorials", () => {
   it("adds only the owner packages of opt-in features next to the framework distribution", async () => {
-    for (const [fixture, owners] of [["agents", ["@vite-hub/agent"]], ["first-agent", ["@vite-hub/agent"]], ["server-primitives", []], ["decisions", []]] as const) {
+    for (const [fixture, owners] of [
+      ["agents", ["@vite-hub/agent", "@vite-hub/workflow"]],
+      ["first-agent", ["@vite-hub/agent"]],
+      ["server-primitives", ["@vite-hub/kv"]],
+      ["decisions", ["@vite-hub/decisions", "@vite-hub/gateways"]],
+      ["playground-blob", ["@vite-hub/blob"]],
+      ["playground-cache", []],
+      ["playground-queue", ["@vite-hub/queue"]],
+      ["playground-rate-limit", ["@vite-hub/rate-limit"]],
+    ] as const) {
       const manifest = JSON.parse(
         await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"),
       );
@@ -204,7 +213,7 @@ describe("runnable tutorials", () => {
   it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
     const tutorial = await build(index);
     const lesson = await readFile(resolve(docsRoot, `content${tutorial.page}.md`), "utf8");
-    const installation = await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8");
+    const installation = frameworkView(await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8"), "Vite");
 
     // The docs page links to this copy, and the steps are the page's steps.
     expect(lesson).toContain(`::run-tutorial{to="/learn/${slug}"}`);
@@ -255,6 +264,19 @@ describe("runnable tutorials", () => {
     expect(tutorialWorkspaceFiles(tutorial, current, target)).toEqual({ ...target, "reader-notes.txt": "Keep these notes" });
   });
 
+  it("restarts the dev server when a step adds or removes the page, not for config edits", async () => {
+    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "decisions"));
+    const pageStep = tutorial.steps.findIndex(step => "index.html" in step.files);
+    const before = tutorialStepFiles(tutorial, pageStep, "start");
+    const after = tutorialStepFiles(tutorial, pageStep, "solution");
+
+    // Nitro finds `index.html` only when its process starts. Vite restarts on its own for `vite.config.ts`.
+    expect(restartsDevServer(before, after)).toBe(true);
+    expect(restartsDevServer(after, before)).toBe(true);
+    expect(restartsDevServer(after, { ...after, "index.html": "<!doctype html>" })).toBe(false);
+    expect(restartsDevServer(before, { ...before, "vite.config.ts": after["vite.config.ts"]! })).toBe(false);
+  });
+
   it("installs from npm, not from this repository", async () => {
     const manifest = JSON.parse((await build(1)).files["package.json"]!);
     const specifiers = Object.values({ ...manifest.dependencies, ...manifest.devDependencies }) as string[];
@@ -263,17 +285,20 @@ describe("runnable tutorials", () => {
     expect(() => resolveManifest(JSON.stringify({ dependencies: { missing: "catalog:none" } }), { catalogs: {}, packages: {} })).toThrow(/pnpm catalog/);
   });
 
-  it("zips the starter with the files of step 1", async () => {
-    const tutorial = await build(0);
-    const zip = Buffer.from(createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
-    expect(zip.subarray(0, 4).readUInt32LE(0)).toBe(0x04034B50);
-    expect(zip.toString("latin1")).toContain("first-server-primitive/vite.config.ts");
-    expect(zip.toString("latin1")).not.toContain("server/api/settings.post.ts");
-  });
-
   it("splits the lesson into its steps", () => {
     const parts = splitTutorialDocument(["intro", ["tutorial-step", { title: "One" }], "between", ["tutorial-step", { title: "Two" }], "outro"]);
     expect(parts).toEqual({ intro: ["intro"], steps: [["tutorial-step", { title: "One" }], ["tutorial-step", { title: "Two" }]], outro: ["outro"] });
+  });
+
+  it("shows the Vite tab of a framework tabs block in a runnable lesson", () => {
+    expect(frameworkNodes([["tutorial-step", { title: "One" },
+      ["tabs", { sync: "framework" },
+        ["tabs-item", { label: "Nuxt" }, ["pre", { filename: "nuxt.config.ts" }]],
+        ["tabs-item", { label: "Nitro" }, ["pre", { filename: "vite.config.ts" }, "nitro"]],
+        ["tabs-item", { label: "Vite" }, ["pre", { filename: "vite.config.ts" }, "vite"]]],
+      ["tabs", { sync: "os" }, ["tabs-item", { label: "macOS" }, "mac"]]]], "Vite")).toEqual([
+      ["tutorial-step", { title: "One" }, ["pre", { filename: "vite.config.ts" }, "vite"], ["tabs", { sync: "os" }, ["tabs-item", { label: "macOS" }, "mac"]]],
+    ]);
   });
 
   it("runs the request blocks of a lesson, and nothing else", () => {

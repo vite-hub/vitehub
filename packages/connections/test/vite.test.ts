@@ -1,12 +1,11 @@
 import { fork } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
-import { stripTypeScriptTypes } from "node:module";
-import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
+import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -53,6 +52,15 @@ describe("discoverConnectionDefinitions", () => {
 });
 
 describe("hubConnections", () => {
+  it("filters resolveId and load to the Connections registry", () => {
+    const plugin = hubConnections();
+    const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id;
+    const loadFilter = (plugin.load as { filter: { id: RegExp } }).filter.id;
+
+    expect([CONNECTIONS_REGISTRY_ID, `${CONNECTIONS_REGISTRY_ID}.ts`, "@vite-hub/connections"].map(id => resolveFilter.test(id))).toEqual([true, false, false]);
+    expect([`\0${CONNECTIONS_REGISTRY_ID}`, CONNECTIONS_REGISTRY_ID].map(id => loadFilter.test(id))).toEqual([true, false]);
+  });
+
   it("asks @vite-hub/database for the default SQLite Database when it has a Database module", () => {
     expect(hubConnections({ database: "vite-hub/database/drizzle" }).vitehub.databases()).toEqual([
       { database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
@@ -157,6 +165,22 @@ describe("hubConnections", () => {
     await expect(registryFor(false)).resolves.toContain("export const activityRetention = false");
   });
 
+  it("writes the Markdown next to each definition file into the registry", async () => {
+    const root = await createTempProject();
+    await writeConnection(root, "server/connections/github.ts");
+    await writeConnection(root, "server/connections/slack.ts");
+    await writeConnection(root, "src/linear.connection.ts");
+    await writeFile(join(root, "server/connections/github.md"), "Connect the **bot** account.\n");
+    await writeFile(join(root, "src/linear.connection.md"), "Use the team workspace.\n");
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections().config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
+    const registry = await readFile((config.nitro as { alias: Record<string, string> }).alias[CONNECTIONS_REGISTRY_ID]!, "utf8");
+    expect(registry).toContain(`docs["github"] = () => import(${JSON.stringify(join(root, "server/connections/github.md?raw"))}).then(module => module.default)`);
+    expect(registry).toContain(`docs["linear"] = () => import(${JSON.stringify(join(root, "src/linear.connection.md?raw"))}).then(module => module.default)`);
+    expect(registry).not.toContain('docs["slack"]');
+    expect(discoverConnectionDefinitions({ rootDir: root }).map(definition => definition.name).sort()).toEqual(["github", "linear", "slack"]);
+  });
+
   it.each([{ maxRecords: 0 }, { maxAgeMs: -1 }, { maxRecords: 1.5 }, { maxAgeMs: Number.MAX_SAFE_INTEGER + 1 }])("rejects activity retention %j when the plugin is created", (activityRetention) => {
     expect(() => hubConnections({ activityRetention })).toThrow(/activityRetention\.max(AgeMs|Records) must be a positive integer/);
   });
@@ -249,6 +273,20 @@ describe("hubConnections", () => {
     ]);
   });
 
+  it("generates management output during Nuxt prepare without a production actor", async () => {
+    const root = await createTempProject();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true, [VITEHUB_PREPARE]: true };
+    await (hubConnections({ management: true }).config as unknown as ConfigHook)(config, {
+      command: "build",
+      mode: "production",
+    });
+    const handlers = (config.nitro as { handlers: Array<{ handler: string }> }).handlers;
+    expect(handlers).toHaveLength(3);
+    await expect(readFile(handlers[0]!.handler, "utf8")).resolves.toContain(
+      'createConnectionsHandler({ actor: "development", basePath: "/_vitehub/connections" })',
+    );
+  });
+
   it("requires authenticated management configuration in production", async () => {
     const root = await createTempProject();
     const build = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
@@ -262,7 +300,7 @@ describe("hubConnections", () => {
         { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true },
         { command: "build", mode: "production" },
       ),
-    ).rejects.toThrow("requires management");
+    ).rejects.toMatchObject({ code: "CONNECTIONS_AUTH_REQUIRED", fix: expect.stringContaining("management: { actor") });
     const managed = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (
       hubConnections({ management: { actor: "./server/connections-auth.ts" } })
@@ -274,116 +312,19 @@ describe("hubConnections", () => {
     expect(handler).toContain(
       `import actor from ${JSON.stringify(join(root, "server/connections-auth.ts"))}`,
     );
-    expect(handler).toContain('createConnectionsHandler({ actor, basePath: "/_vitehub/connections" })');
-    expect(handler).toContain("handle(request, event)");
+    expect(handler).toContain('export default createConnectionsHandler({ actor, basePath: "/_vitehub/connections" })');
     expect(handler).not.toContain("user:local");
   });
 
-  it("preserves H3 request bodies, external origins, and the original event", async () => {
+  it("exports the Fetchable handler and imports nothing from h3 or nitro", async () => {
     const root = await createTempProject();
     const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
     const handlers = (config.nitro as { handlers: Array<{ handler: string }> }).handlers;
     const source = await readFile(handlers[0]!.handler, "utf8");
-    expect(source).not.toContain('from "node:stream"');
-    // Execute the generated adapter with a recording handler at its Web Request boundary.
-    const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
-    const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("Readable", "handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(Readable, handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
-    const body = JSON.stringify({ action: "list" });
-    const raw = Object.assign(Readable.from([Buffer.from(body.slice(0, 8)), Buffer.from(body.slice(8))]), {
-      headers: { host: "internal:3000", "x-forwarded-host": "public.example:8443, proxy", "x-forwarded-proto": "https, http", "content-type": "application/json" },
-      method: "POST", url: "/_vitehub/connections?test=1", socket: {},
-    });
-    const event = { node: { req: raw } };
-    const result = await adapt(event);
-    expect(result.event).toBe(event);
-    expect(result.request.url).toBe("https://public.example:8443/_vitehub/connections?test=1");
-    expect(result.request.headers.get("content-type")).toBe("application/json");
-    expect(await result.request.text()).toBe(body);
-
-    for (const method of ["GET", "HEAD"]) {
-      const { request } = await adapt({ node: { req: { headers: { host: "secure.example" }, method, url: "/callback", socket: { encrypted: true } } } });
-      expect(request.url).toBe("https://secure.example/callback");
-      expect(request.body).toBeNull();
-    }
-    // Nitro 2 on Cloudflare Workers, which Nuxt 4 builds, gives a mock that holds the body and cannot be iterated.
-    const workerRequest = {
-      body: Buffer.from(body), headers: { host: "docs.example", "x-forwarded-proto": "https" }, method: "POST", url: "/_vitehub/connections", socket: {},
-      [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") },
-    }
-    expect(await (await adapt({ node: { req: workerRequest } })).request.text()).toBe(body)
-    const web = new Request("https://public.example/_vitehub/connections", { method: "POST", body });
-    const webEvent = { req: web };
-    expect(await adapt(webEvent)).toEqual({ request: web, event: webEvent });
-    expect(handle).toHaveBeenLastCalledWith(web, webEvent);
-  });
-
-  it.each(["node-server", "cloudflare-module"])("preserves the Nuxt app base in production H3 requests on %s", async (preset) => {
-    const root = await createTempProject();
-    const config = { nitro: { preset, handlers: [] as Array<{ handler: string }> }, root, base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/portal/", [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
-    await (hubConnections({ management: { actor: "#app/connections-actor" } }).config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
-    const handlers = config.nitro.handlers;
-    const source = await readFile(handlers[0]!.handler, "utf8");
-    expect(source).toContain('basePath: "/portal/_vitehub/connections"');
-    const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
-    const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
-    for (const [method, url] of [
-      ["POST", "/_vitehub/connections?test=1"],
-      ["GET", "/_vitehub/connections/connect/mail?return=%2Fportal%2F"],
-      ["GET", "/_vitehub/connections/callback?code=test&state=test"],
-    ]) {
-      const body = method === "POST" ? JSON.stringify({ action: "list" }) : "";
-      const raw = {
-        headers: { host: "docs.example", "x-forwarded-proto": "https" },
-        method, url, originalUrl: `/portal${url}`, socket: {},
-      };
-      const req = preset === "node-server"
-        ? Object.assign(Readable.from([Buffer.from(body)]), raw)
-        : { ...raw, body: Buffer.from(body), [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") } };
-      const event = { node: { req } };
-      const result = await adapt(event);
-      expect(result.request.url).toBe(`https://docs.example/portal${url}`);
-      expect(result.event).toBe(event);
-      expect(await result.request.text()).toBe(body);
-    }
-    for (const prefix of ["//", "\\\\", "/\\"]) {
-      const { request } = await adapt({ node: { req: {
-        headers: { host: "docs.example", "x-forwarded-proto": "https" }, method: "GET", socket: {},
-        originalUrl: `${prefix}other.example/portal/_vitehub/connections`, url: "/_vitehub/connections",
-      } } });
-      expect(request.url).toBe("https://docs.example/other.example/portal/_vitehub/connections");
-    }
-  });
-
-  it.each(["node-server", "cloudflare-module"])("reuses H3 body caches after middleware consumes the stream on %s", async (preset) => {
-    const root = await createTempProject();
-    const config = { nitro: { preset, handlers: [] as Array<{ handler: string }> }, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
-    await (hubConnections({ management: { actor: "#app/connections-actor" } }).config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
-    const source = await readFile(config.nitro.handlers[0]!.handler, "utf8");
-    const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
-    const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
-    const body = JSON.stringify({ action: "list" });
-    for (const [key, stored] of [
-      ["_requestBody", Promise.resolve(Buffer.from(body))],
-      ["_requestBody", { action: "list" }],
-      [Symbol.for("h3RawBody"), Buffer.from(body)],
-      ["rawBody", body],
-    ] as const) {
-      const stream = Readable.from([Buffer.from(body)]);
-      for await (const _chunk of stream) { /* middleware has already read the raw body */ }
-      const raw = { headers: { host: "docs.example", "content-type": "application/json" }, method: "POST", url: "/_vitehub/connections", socket: {} };
-      const req = preset === "node-server"
-        ? Object.assign(stream, raw)
-        : { ...raw, [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") } };
-      const event = { node: { req } };
-      Reflect.set(key === "_requestBody" ? event : req, key, stored);
-      const result = await adapt(event);
-      expect(result.event).toBe(event);
-      expect(await result.request.json()).toEqual({ action: "list" });
-    }
+    expect(source).toContain('export default createConnectionsHandler({ actor: "development", basePath: "/_vitehub/connections" })');
+    expect(source).not.toMatch(/from "(h3|nitro)/);
+    expect(source).not.toContain("event");
   });
 
   it("checks every development request with the actor module, or the development policy without one", async () => {
@@ -428,6 +369,50 @@ describe("hubConnections", () => {
       "/_vitehub/connections/connect/**",
       "/_vitehub/connections/callback",
     ]);
+  });
+
+  it.each(["server/connections/github.ts", "src/github.connection.ts"])("refreshes docs when Markdown next to %s is added and deleted", async (definitionPath) => {
+    const root = await createTempProject();
+    const definition = await writeConnection(root, definitionPath);
+    const docsFile = definition.replace(/\.ts$/, ".md");
+    const plugin = hubConnections();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (plugin.config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
+    await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root });
+    const registryFile = (config.nitro as { alias: Record<string, string> }).alias[CONNECTIONS_REGISTRY_ID]!;
+    const watcher = Object.assign(new EventEmitter(), { add: vi.fn() });
+    const httpServer = new EventEmitter();
+    const module = {};
+    const invalidateModule = vi.fn();
+    const logger = { error: vi.fn() };
+    const server = {
+      config: { root, logger },
+      httpServer,
+      moduleGraph: { getModuleById: () => module, invalidateModule },
+      watcher,
+    };
+    await (plugin.configureServer as (server: unknown) => void)(server);
+    await expect(readFile(registryFile, "utf8")).resolves.not.toContain('docs["github"]');
+
+    await writeFile(docsFile, "Connect the team account.\n");
+    watcher.emit("add", docsFile);
+    await vi.waitFor(async () => {
+      expect(invalidateModule).toHaveBeenCalledWith(module);
+      await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(`${docsFile}?raw`));
+    });
+
+    invalidateModule.mockClear();
+    await rm(docsFile);
+    watcher.emit("unlink", docsFile);
+    await vi.waitFor(async () => {
+      expect(invalidateModule).toHaveBeenCalledWith(module);
+      await expect(readFile(registryFile, "utf8")).resolves.not.toContain('docs["github"]');
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+
+    httpServer.emit("close");
+    expect(watcher.listenerCount("add")).toBe(0);
+    expect(watcher.listenerCount("unlink")).toBe(0);
   });
 
   it.each(["ts", "tsx", "jsx"])("writes registry types and refreshes on %s hot update", async (extension) => {

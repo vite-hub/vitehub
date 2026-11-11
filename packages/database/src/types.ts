@@ -72,7 +72,7 @@ export interface DatabaseIntegrationOptions {
   }
   /**
    * Applies pending migrations of local SQLite databases when a Node server build starts, before it handles requests.
-   * It uses the ledger and data loss check of `vitehub db migrate`. Run one server process per database file.
+   * It uses the ledger and data loss check of `vitehub database migrate`. Run one server process per database file.
    */
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */
@@ -91,6 +91,12 @@ export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknow
   dialect?: "sqlite"
   drizzle?: DatabaseDrizzleOptions
   name?: string
+  /**
+   * In `vite dev`, query the real D1 database over HTTP instead of local SQLite. Writes change real data. It uses the
+   * D1 HTTP path of `cloudflare.http` with the same credentials, so `true` means `cloudflare.http: true` in development.
+   * Builds ignore it.
+   */
+  remote?: boolean
   schema: TSchema
 }
 
@@ -111,6 +117,8 @@ export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string
   dialect: "postgresql"
   drizzle?: DatabaseDrizzleOptions
   name?: string
+  /** Only D1 has a remote development mode. */
+  remote?: never
   schema: TSchema
 }
 
@@ -130,6 +138,7 @@ export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Re
   connection?: DatabaseConnectionConfig
   drizzle: DatabaseDrizzleOptions
   name: string
+  remote?: boolean
   schema: TSchema
 }
 
@@ -180,7 +189,11 @@ export interface RuntimeDrizzleDatabaseConfig {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   drizzle: DatabaseDrizzleOptions
+  /** Set by the dev server when the build targets Cloudflare: local SQLite then checks the D1 limits. */
+  localLimits?: "d1"
   name: string
+  /** Set only in `vite dev`: the database queries its real D1 database over HTTP, even when a local binding exists. */
+  remote?: true
 }
 
 export interface CloudflareD1Projection {
@@ -224,7 +237,7 @@ export interface ResolvedDBViteConfig {
   tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
 }
 
-export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+export type DatabaseOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
   connection?: DatabaseConnectionConfig
 }
 

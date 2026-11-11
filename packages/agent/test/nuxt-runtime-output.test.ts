@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
@@ -53,7 +52,7 @@ async function availablePort(): Promise<number> {
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const address = server.address()
-  if (!address || hasRuntimeType(address, "string")) throw new Error("Could not allocate a test port")
+  if (!address || typeof address === "string") throw new Error("Could not allocate a test port")
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
   return address.port
 }
@@ -97,7 +96,7 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
-import { codexDriver, defineAgent, runAgentInline } from "@vite-hub/agent"
+import { codexDriver, defineAgent, runAgent } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
 const agent = defineAgent({ driver: codexDriver({ env: { PATH: "" } }), runtime: false })
@@ -121,12 +120,10 @@ export default defineEventHandler(async () => {
     if (message.includes("Cannot find") && message.includes("@ai-sdk/mcp")) throw error
     mcp = "loaded-before-transport-error"
   }
-  try {
-    await runAgentInline(agent, { memo: (_key, create) => create(), runtime: "vite", waitUntil() {} }, { prompt: "runtime proof" })
-  }
-  catch (error) {
-    const message = String(error)
-    if (message.includes("Cannot find") && message.includes("@t3tools/provider-runtime")) throw error
+  const [error] = await runAgent(agent, { prompt: "runtime proof" })
+  if (error) {
+    const message = String(error.cause)
+    if (message.includes("Cannot find") && message.includes("@t3tools/provider-runtime")) throw error.cause
     provider = "loaded-before-cli-error"
   }
   return { gmail: gmailCapability.id, mcp, provider }

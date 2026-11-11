@@ -56,6 +56,21 @@ describe("hubKv", () => {
     expect(await resolveId("unstorage/drivers/upstash", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
   })
 
+  it("filters the resolveId and load hooks to the ids that they handle", async () => {
+    const { hubKv, hubKvOptionalPeerResolver } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite" })
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const matches = (pattern: RegExp, ids: string[]) => ids.filter(id => pattern.test(id))
+
+    const nearMisses = ["@vite-hub/kv/runtime", "@vite-hub/kv/vite", "@vite-hub/kvx", "#vitehub/kv/config.mjs", "cloudflare:sockets", "/app/server/api/kv.ts"]
+    expect(matches(idFilter(plugin.resolveId), ["@vite-hub/kv", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config", ...nearMisses]))
+      .toEqual(["@vite-hub/kv", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config"])
+    expect(matches(idFilter(plugin.load), ["\0#vitehub/kv/runtime", "\0#vitehub/kv/config", "#vitehub/kv/config", "\0#vitehub/kv/config.mjs"]))
+      .toEqual(["\0#vitehub/kv/runtime", "\0#vitehub/kv/config"])
+    expect(matches(idFilter(hubKvOptionalPeerResolver().resolveId), ["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "@vite-hub/kv", ...nearMisses]))
+      .toEqual(["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers"])
+  })
+
   it("resolves KV config from the Vite layer", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite", base: ".cache/kv" })
@@ -70,7 +85,7 @@ describe("hubKv", () => {
     })
   })
 
-  it("lets top-level Vite config override inline plugin options", async () => {
+  it("reads only the plugin options, not a top-level Vite key", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite", base: ".inline/kv" })
     const configResolved = testHook(plugin.configResolved, (_config: unknown): void | Promise<void> => undefined)
@@ -86,7 +101,7 @@ describe("hubKv", () => {
     expect(plugin.api.getConfig()).toEqual({
       kv: {
         store: {
-          base: ".top-level/kv",
+          base: ".inline/kv",
           driver: "fs-lite",
         },
       },
@@ -167,6 +182,54 @@ describe("hubKv", () => {
     })
   })
 
+  it("registers the Cloudflare request env middleware once, before other middleware", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const middleware = resolve(import.meta.dirname, "../dist/runtime/cloudflare-request-env.js")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const config = { nitro: { handlers: [{ handler: "server/middleware/auth.ts", middleware: true }] } }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+    await configure(config)
+
+    expect(config.nitro.handlers).toEqual([
+      { handler: middleware, middleware: true },
+      { handler: "server/middleware/auth.ts", middleware: true },
+    ])
+    expect(existsSync(middleware)).toBe(true)
+  })
+
+  it("does not register the Cloudflare request env middleware for a local store", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite" })
+    const config: { nitro: { handlers?: unknown[] } } = { nitro: {} }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+
+    expect(config.nitro.handlers).toBeUndefined()
+  })
+
+  it.each(["before", "after"])("reconciles the request env middleware when Nitro setup runs %s config resolution", async (setupOrder) => {
+    const { hubKv } = await import("../src/vite.ts")
+    const middleware = resolve(import.meta.dirname, "../dist/runtime/cloudflare-request-env.js")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const auth = { handler: "server/middleware/auth.ts", middleware: true }
+    const options = { handlers: [auth] }
+    const config = { plugins: [{ name: "nitro:main" }], root: "/app" }
+    const configureResolved = testHook(plugin.configResolved, (_value: typeof config): void | Promise<void> => undefined)
+
+    if (setupOrder === "before") plugin.nitro.setup({ options })
+    await configureResolved(config)
+    if (setupOrder === "after") plugin.nitro.setup({ options })
+
+    expect(options).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV" }])
+    expect(options.handlers).toEqual([{ handler: middleware, middleware: true }, auth])
+
+    await configureResolved(config)
+    expect(options.handlers).toEqual([{ handler: middleware, middleware: true }, auth])
+  })
+
   it("reads provisioned Cloudflare KV namespace ids into Nitro-owned output", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-provision-"))
@@ -188,8 +251,8 @@ describe("hubKv", () => {
 
   it("contributes the Cloudflare KV provision step with the configured KV options", async () => {
     const { hubKv } = await import("../src/vite.ts")
-    const plugin = hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })
-    const config = { kv: { driver: "cloudflare-kv-binding" as const, namespaceName: "app-cache" }, root: "/app" }
+    const plugin = hubKv({ driver: "cloudflare-kv-binding", namespaceName: "app-cache" })
+    const config = { root: "/app" }
     const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
     await configure(config)
 
@@ -208,73 +271,14 @@ describe("hubKv", () => {
     expect(warnings).toEqual(["kv: skipping Cloudflare KV, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN."])
   })
 
-  it("reconciles a later KV plugin override into Nitro-owned output", async () => {
-    const { hubKv } = await import("../src/vite.ts")
-    const nitro = {
-      cloudflare: {
-        wrangler: {
-          kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
-          observability: { enabled: true },
-        },
-      },
-    }
-
-    const resolved = await resolveConfigWithNitro({
-      kv: { binding: "INITIAL", driver: "cloudflare-kv-binding" },
-      nitro,
-      plugins: [
-        hubKv(),
-        { name: "nitro:main" },
-        {
-          name: "later-kv-override",
-          config: () => ({
-            kv: {
-              binding: "RESOLVED",
-              driver: "cloudflare-kv-binding" as const,
-              namespaceId: "resolved-namespace",
-            },
-          }),
-        },
-      ],
-    })
-
-    expect(resolved.nitro.cloudflare.wrangler).toEqual({
-      kv_namespaces: [
-        { binding: "MANUAL", id: "manual-namespace" },
-        { binding: "RESOLVED", id: "resolved-namespace" },
-      ],
-      observability: { enabled: true },
-    })
-  })
-
-  it("reconciles KV added by a later plugin into Nitro-owned output", async () => {
-    const { hubKv } = await import("../src/vite.ts")
-    const nitro = {}
-
-    const resolved = await resolveConfigWithNitro({
-      nitro,
-      plugins: [
-        hubKv(),
-        { name: "nitro:main" },
-        {
-          name: "later-kv-config",
-          config: () => ({ kv: { binding: "LATE", driver: "cloudflare-kv-binding" as const } }),
-        },
-      ],
-    })
-
-    expect(resolved.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "LATE" }])
-  })
-
   it("preserves a later manual namespace with the same binding", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const nitro = {}
 
     const resolved = await resolveConfigWithNitro({
-      kv: { binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "generated-id" },
       nitro,
       plugins: [
-        hubKv(),
+        hubKv({ binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "generated-id" }),
         { name: "nitro:main" },
         // SAFETY: Vite accepts config hooks that add framework-owned Nitro fields outside its core config type.
         {
@@ -308,11 +312,10 @@ describe("hubKv", () => {
       await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
       // SAFETY: the fixture supplies the Vite builder fields used by Nitro and hubKv.
       const builder = await createBuilder({
-        kv: { binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "generated-id" },
         logLevel: "silent",
         nitro: { preset: "cloudflare-module" },
         plugins: [
-          hubKv(),
+          hubKv({ binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "generated-id" }),
           // SAFETY: Vite accepts config hooks that add Nitro-owned configuration fields.
           {
             name: "later-manual-namespace",
@@ -336,46 +339,6 @@ describe("hubKv", () => {
 
       await expect(readFile(join(root, ".output", "server", "wrangler.json"), "utf8").then(JSON.parse))
         .resolves.toHaveProperty("kv_namespaces", [{ binding: "KV", id: "user-id" }])
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }, 30_000)
-
-  it("preserves a later KV option override in Nitro output", async () => {
-    const { hubKv } = await import("../src/vite.ts")
-    // SAFETY: Nitro publishes this Vite plugin at the runtime-resolved `nitro/vite` entry.
-    const { nitro }: { nitro: () => unknown } = await import("nitro/vite" as string)
-    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-option-override-"))
-
-    try {
-      await mkdir(join(root, "server", "routes"), { recursive: true })
-      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
-      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
-      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
-      // SAFETY: the fixture supplies the Vite builder fields used by Nitro and hubKv.
-      const builder = await createBuilder({
-        kv: { binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "initial-id" },
-        logLevel: "silent",
-        nitro: { preset: "cloudflare-module" },
-        plugins: [
-          hubKv(),
-          {
-            name: "later-kv-override",
-            config: () => ({
-              kv: { binding: "KV", driver: "cloudflare-kv-binding" as const, namespaceId: "resolved-id" },
-            }),
-          },
-          // SAFETY: Nitro's runtime-loaded plugin conforms to Vite's plugin contract.
-          nitro() as never,
-        ],
-        root,
-      } as Parameters<typeof createBuilder>[0])
-
-      await builder.buildApp()
-
-      await expect(readFile(join(root, ".output", "server", "wrangler.json"), "utf8").then(JSON.parse))
-        .resolves.toHaveProperty("kv_namespaces", [{ binding: "KV", id: "resolved-id" }])
     }
     finally {
       await rm(root, { force: true, recursive: true })

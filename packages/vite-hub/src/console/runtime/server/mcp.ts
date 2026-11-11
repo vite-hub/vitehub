@@ -1,23 +1,22 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationListed, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { Validator } from "@cfworker/json-schema"
+import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
+import { getStandardContext } from "@vite-hub/runtime/h3"
+import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
-import { consoleAccessAllows, consoleAccessWrites, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
-import { consoleMcpReadScope, consoleMcpWriteScope, isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
+import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
+import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
-import { serveMcp } from "./mcp-protocol.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { isConsoleDevelopmentRuntime } from "./request.ts"
+import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
+import type { Schema } from "@cfworker/json-schema"
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
+import type { McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import type { ConsoleAccess } from "./access.ts"
-import type { McpTool, McpToolResult } from "./mcp-protocol.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const serverInfo = { name: "vitehub", title: "ViteHub MCP", version: "1" }
 
@@ -26,17 +25,24 @@ const instructions = "ViteHub MCP gives Agents the operations and server primiti
 
 const registeredToolRequestBytes = 256 * 1_024
 const inputSchemas = new WeakMap<AnyOperation, Record<string, unknown>>()
+const validators = new WeakMap<object, Validator>()
+
+/** The schema errors of `input`, or nothing when it is valid. Each schema compiles once. */
+function invalidInput(tool: ViteHubMcpTool, input: Record<string, unknown>): string | undefined {
+  let validator = validators.get(tool.inputSchema)
+  // SAFETY: The owner of a tool declares its arguments as a JSON Schema.
+  if (!validator) validators.set(tool.inputSchema, validator = new Validator(tool.inputSchema as Schema, "2020-12"))
+  const validation = validator.validate(input)
+  return validation.valid ? undefined : `Invalid arguments for ${tool.name}: ${validation.errors.map(error => error.error).join("; ")}`
+}
 
 interface ToolContext {
   access: ConsoleAccess
-  event: H3Event
+  event: ConsoleRequestEvent
   request: Request
 }
 
-/** A read-only tool needs `vitehub:read`. Every other tool changes state, so it needs `vitehub:write`. */
-function scopesFor(readOnly: boolean): string[] {
-  return [readOnly ? consoleMcpReadScope : consoleMcpWriteScope]
-}
+
 
 function operationResult(value: unknown): McpToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value ?? null) }], isError: false, ...(value instanceof Object && !Array.isArray(value) ? { structuredContent: { ...value } } : {}) }
@@ -63,8 +69,9 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
   return consoleOperationRegistry().list()
     .filter(operation => operation.mcp !== false
       && !registeredNames.has(operationToolName(operation.name))
-      // An operation that reads its section or scope from the input is checked again when it runs.
-      && operationListed(access, operation, operation.readOnlyWhen ? undefined : operation))
+      // An operation that reads its section or scope from the input is checked again when it runs. `serveMcp()` checks
+      // the scopes, so a call that lacks one gets the `insufficient_scope` challenge.
+      && consoleOperationGranted(access, operation))
     .map((operation) => {
       let inputSchema = inputSchemas.get(operation)
       if (!inputSchema) inputSchemas.set(operation, inputSchema = { ...operationInputJsonSchema(operation), type: "object" })
@@ -74,9 +81,8 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
         description: operation.description,
         inputSchema,
         annotations: { readOnlyHint: operation.kind === "read", destructiveHint: operation.kind === "destructive", openWorldHint: false },
-        checksInput: true,
         maxRequestBytes: operation.maxRequestBytes ?? defaultRequestBytes,
-        scopes: scopesFor(operation.kind === "read"),
+        scopes: [consoleOperationScope(operation)],
         async handler(arguments_) {
           try {
             const input = await parseOperationInput(operation, arguments_)
@@ -88,6 +94,7 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
               return toolFailure({ code: "CONSOLE_ACCESS_DENIED", ...denial, status: 403 })
             }
             const user = operation.user === false ? undefined : await readConsoleOperationUser(access)
+            const standard = getStandardContext(context.event)
             const operationContext: OperationContext = {
               access,
               development: isConsoleDevelopmentBuild(),
@@ -97,8 +104,8 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
               surface: "mcp",
               // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
               user: user ? user as OperationContext["user"] : null,
-              env: getCloudflareEnv(context.event, { fallback: false }),
-              waitUntil: resolveWaitUntil(context.event, { preferHost: true }),
+              env: standard.runtime?.cloudflare?.env,
+              waitUntil: standard.waitUntil,
             }
             return operationResult(await (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext))
           }
@@ -124,8 +131,9 @@ function registeredTools({ access, event }: ToolContext, tools: readonly ViteHub
       description: tool.description,
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,
+      validate: input => invalidInput(tool, input),
       maxRequestBytes: registeredToolRequestBytes,
-      scopes: scopesFor(tool.annotations?.readOnlyHint === true),
+      scopes: [consoleOperationScope({ kind: tool.annotations?.readOnlyHint === true ? "read" : "write" })],
       async handler(input) {
         try {
           const user = await readConsoleAccessUser(access)
@@ -168,16 +176,8 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
   }, { headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(await oauthState(event)) }, status: 401 })
 }
 
-const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
-  // Nuxt 4's H3 1 events carry Node's request, which `toEventRequest` reads as a web Request.
-  const request = toEventRequest(event)
-  try {
-    assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: eventRemoteAddress(event) })
-  }
-  catch (error) {
-    const { code, fix, message } = toOperationFailure(error)
-    return Response.json({ code, ...(fix ? { fix } : {}), message }, { headers: { "cache-control": "no-store" }, status: 403 })
-  }
+const guarded = withConsoleAccess(async (event: ConsoleRequestEvent, access: ConsoleAccess) => {
+  const request = getStandardContext(event).req
   const context = { access, event, request }
   const installed = getConsoleSections()
   const registered = getViteHubMcpTools().filter(tool => installed.includes(tool.section))
@@ -197,12 +197,11 @@ const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) 
  * `/_vitehub/mcp`: ViteHub MCP, a stateless Streamable HTTP MCP server. It runs with the Console access of the request,
  * a session or an OAuth access token, and lists the operations and registered tools that the person may use.
  */
-// A plain handler also loads when Nuxt 4 resolves h3 to h3 1, which has no defineHandler().
-const handler: (event: H3Event) => Promise<Response> = async (event) => {
+const consoleMcpRoute: ConsoleRoute = consoleRoute(async (event) => {
   const response = await guarded(event)
   if (isBearerRejection(response)) return response
   // A sign-in that is missing is a 401 for the client, even where the Console would redirect a browser.
   if (response.status === 401 || (response.status >= 300 && response.status < 400)) return mcpUnauthorized(event)
   return response
-}
-export default handler
+})
+export default consoleMcpRoute

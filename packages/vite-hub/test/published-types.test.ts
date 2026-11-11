@@ -11,6 +11,53 @@ const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
+it("keeps the installed test facade independent of optional Primitives", async () => {
+  const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-test-types-"))
+  const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
+  try {
+    await mkdir(installedRoot, { recursive: true })
+    await copyFile(resolve(packageRoot, "package.json"), resolve(installedRoot, "package.json"))
+    await cp(resolve(packageRoot, "dist"), resolve(installedRoot, "dist"), { recursive: true })
+    // SAFETY: The checked-in manifest defines the required dependencies; no optional Primitive is installed.
+    const manifest = JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>
+    }
+    for (const name of Object.keys(manifest.dependencies)) {
+      const target = resolve(consumerRoot, "node_modules", name)
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
+    }
+    await writeFile(resolve(consumerRoot, "consumer.ts"), `
+      import { setupViteHubTest, type DeliverChannelOptions } from "vite-hub/test"
+      const hub = setupViteHubTest()
+      hub.setEnv({ TEST_VALUE: "local" })
+      const options: DeliverChannelOptions = { headers: { "x-secret": "secret" } }
+      const subject: string | undefined = hub.emails[0]?.subject
+      void [options, subject, hub.jobs, hub.workflows]
+      await hub.reset()
+    `)
+    await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", noEmit: true, strict: true, skipLibCheck: false, types: [] },
+      files: ["consumer.ts"],
+    }))
+    const result = await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", consumerRoot]).catch((error: unknown) => {
+      if (error instanceof Error && "stdout" in error) return { stdout: String(error.stdout) }
+      throw error
+    })
+    expect(result.stdout).toBe("")
+    await execFileAsync(process.execPath, ["--input-type=module", "-e", `
+      import { setupViteHubTest } from "vite-hub/test"
+      const hub = setupViteHubTest()
+      hub.setEnv({ TEST_VALUE: "local" })
+      await hub.reset()
+    `], { cwd: consumerRoot })
+  }
+  finally {
+    await rm(consumerRoot, { recursive: true, force: true })
+  }
+}, 60_000)
+
 it("keeps installed Console sections independent of optional Auth packages", async () => {
   const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-console-types-"))
   const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
@@ -30,7 +77,7 @@ it("keeps installed Console sections independent of optional Auth packages", asy
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
     }
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { createConsoleAppAuthPages, installConsoleSections } from "vite-hub/console/sections"
+      import { createConsoleAppAuthPages, installConsoleSections } from "./node_modules/vite-hub/dist/console/runtime/server/sections.js"
       installConsoleSections("/consumer", [])
       createConsoleAppAuthPages(async () => ({
         api: { getSession: async () => null },
@@ -70,15 +117,16 @@ it("publishes Env's Vite config augmentation from the framework root", async () 
 it("keeps the installed Database runtime facade declaration self-contained", async () => {
   const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-database-types-"))
   const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
-  const installedState = resolve(installedRoot, "dist/_internal/database/runtime/state")
+  // Nuxt aliases `@vite-hub/database/runtime/state` to this file. It is not a package export.
+  const installedState = resolve(installedRoot, "dist/internal/database-runtime-state")
 
   try {
     await mkdir(dirname(installedState), { recursive: true })
     await copyFile(resolve(packageRoot, "package.json"), resolve(installedRoot, "package.json"))
-    await copyFile(resolve(packageRoot, "dist/_internal/database/runtime/state.js"), `${installedState}.js`)
-    await copyFile(resolve(packageRoot, "dist/_internal/database/runtime/state.d.ts"), `${installedState}.d.ts`)
+    await copyFile(resolve(packageRoot, "dist/internal/database-runtime-state.js"), `${installedState}.js`)
+    await copyFile(resolve(packageRoot, "dist/internal/database-runtime-state.d.ts"), `${installedState}.d.ts`)
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { setActiveCloudflareEnv } from "vite-hub/_internal/database/runtime/state"
+      import { setActiveCloudflareEnv } from "./node_modules/vite-hub/dist/internal/database-runtime-state.js"
       setActiveCloudflareEnv({ DB: {} })
     `)
     await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
@@ -100,7 +148,7 @@ it("keeps the installed Database runtime facade declaration self-contained", asy
   }
 }, 10_000)
 
-it("keeps installed framework declarations independent of optional evlog", async () => {
+it.each(["evlog", "ai"])("keeps installed framework declarations independent of optional %s", async (optionalPeer) => {
   const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-root-types-"))
   const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
   try {
@@ -113,7 +161,7 @@ it("keeps installed framework declarations independent of optional evlog", async
       peerDependencies: Record<string, string>
     }
     for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
-      if (name === "evlog") continue
+      if (name === optionalPeer) continue
       const target = resolve(consumerRoot, "node_modules", name)
       await mkdir(dirname(target), { recursive: true })
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")

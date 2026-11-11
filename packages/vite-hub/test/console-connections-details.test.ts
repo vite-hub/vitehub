@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { Window } from "happy-dom"
+import type { HTMLElement, HTMLInputElement, Window } from "happy-dom"
 import { createApp, defineComponent, h, type Component } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -10,18 +10,21 @@ vi.mock("../src/console/runtime/client/connections-management", async importOrig
   ...await importOriginal<typeof import("../src/console/runtime/client/connections-management")>(),
   requestConnectionsManagement: mocks.request,
 }))
-vi.mock("../src/console/runtime/components/console-connections-activity.vue", () => ({ default: { render: () => null } }))
+vi.mock("../src/console/runtime/components/console-credential-activity.vue", () => ({ default: { render: () => null } }))
 vi.mock("../src/console/runtime/components/console-connections-approvals.vue", async () => {
   const { h } = await import("vue")
   return { default: { render: () => h("div", { "data-approvals": "" }) } }
 })
 
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import Details from "../src/console/runtime/components/console-connections-details.vue"
 
-type TestPage = Pick<Window, "document" | "history" | "MouseEvent">
+const pageProject = consoleProject()
+
+type TestPage = Pick<Window, "document" | "Event" | "history" | "MouseEvent">
 
 function isTestPage(value: unknown): value is TestPage {
-  return value instanceof Object && "document" in value && "history" in value && "MouseEvent" in value
+  return value instanceof Object && "document" in value && "Event" in value && "history" in value && "MouseEvent" in value
 }
 
 /** The happy-dom globals of this test environment. The Console reads their location. */
@@ -41,8 +44,14 @@ const UButton = defineComponent({
   },
 })
 const UInput = defineComponent({
-  props: { autofocus: Boolean, type: String },
-  setup: props => () => h("input", { "data-autofocus": String(props.autofocus), type: props.type }),
+  props: { autofocus: Boolean, modelValue: String, type: String },
+  emits: ["update:modelValue"],
+  setup: (props, { emit }) => () => h("input", {
+    "data-autofocus": String(props.autofocus),
+    onInput: (event: Event) => emit("update:modelValue", String(Reflect.get(Object(event.target), "value"))),
+    type: props.type,
+    value: props.modelValue,
+  }),
 })
 const Passthrough = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() })
 
@@ -58,6 +67,7 @@ const connection = (overrides: Partial<ConnectionInspection>): ConnectionInspect
 
 const mounted: Array<() => void> = []
 afterEach(() => {
+  setConsoleProject(pageProject)
   for (const unmount of mounted.splice(0)) unmount()
   page().document.body.replaceChildren()
 })
@@ -77,6 +87,22 @@ async function render(props: Record<string, unknown>, inspected: ConnectionInspe
 }
 
 describe("Console Connection details", () => {
+  it("renders the Connection's docs as Markdown before the connect button", async () => {
+    const docs = "Run `t3 connect status` first.\n\n1. Choose **full access**."
+    const root = await render({ connection: connection({}) }, connection({ docs }))
+    const section = root.querySelector("section[aria-labelledby='connection-docs']")
+    expect(section?.querySelector("h3")?.textContent).toBe("Setup")
+    expect(section?.querySelector("code")?.textContent).toBe("t3 connect status")
+    expect(section?.querySelector("ol strong")?.textContent).toBe("full access")
+    const connect = root.querySelector("[data-button='Connect']")!
+    expect(section!.compareDocumentPosition(connect as never) & 4).toBe(4)
+  })
+
+  it("shows no setup section without docs", async () => {
+    const root = await render({ connection: connection({}) }, connection({}))
+    expect(root.querySelector("section[aria-labelledby='connection-docs']")).toBeNull()
+  })
+
   it("shows ChatGPT plan details and a CLI command instead of a website sign-in", async () => {
     const plan = connection({
       credential: "chatgpt", name: "chatgpt", provider: "chatgpt", status: "connected",
@@ -108,6 +134,31 @@ describe("Console Connection details", () => {
     const root = await render({ connection: key }, key)
     expect(root.querySelector("input[type=password]")).toBeNull()
     expect(root.querySelector("[data-button='Set key']")).not.toBeNull()
+  })
+
+  it("does not open the key form for a project on plain HTTP", async () => {
+    expect(new URL(page().document.location.href).hostname).toBe("localhost")
+    setConsoleProject({ origin: "http://agents.example.com", base: "" })
+    const key = connection({ credential: "api-key", name: "posthog", provider: "posthog" })
+    const root = await render({ connection: key }, key)
+    root.querySelector<HTMLElement>("[data-button='Set key']")!.click()
+    await new Promise(resolve => setTimeout(resolve))
+    expect(root.querySelector("input[type=password]")).toBeNull()
+    expect(root.querySelector("[role=alert]")?.textContent).toBe("The Console sends an API key only over HTTPS or to a local development server.")
+  })
+
+  it("checks the project again before it sends the key", async () => {
+    const key = connection({ credential: "api-key", name: "posthog", provider: "posthog" })
+    const root = await render({ connection: key, keyForm: true }, key)
+    const input = root.querySelector<HTMLInputElement>("input[type=password]")!
+    input.value = "secret"
+    input.dispatchEvent(new (page().Event)("input"))
+    await new Promise(resolve => setTimeout(resolve))
+    setConsoleProject({ origin: "http://agents.example.com", base: "" })
+    root.querySelector("form")!.dispatchEvent(new (page().Event)("submit"))
+    await new Promise(resolve => setTimeout(resolve))
+    expect(mocks.request).not.toHaveBeenCalledWith(expect.anything(), "set-key", expect.anything(), expect.anything(), expect.anything())
+    expect(root.querySelector("[role=alert]")?.textContent).toBe("The Console sends an API key only over HTTPS or to a local development server.")
   })
 
   it("connects OAuth in the same tab and returns to the Console page", async () => {

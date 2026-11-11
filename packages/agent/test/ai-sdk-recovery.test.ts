@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest"
 import { defineDiagnostics } from "nostics"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
-import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
 
 const outputSchema = {
@@ -18,7 +19,7 @@ const outputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return isRuntimeRecord(value) && hasRuntimeType(value.text, "string")
+      return isRuntimeRecord(value) && typeof value.text === "string"
         ? { value: { text: value.text } }
         : { issues: [{ message: "Expected text to be a string" }] }
     },
@@ -39,9 +40,9 @@ function model(responses: ModelResponse[]) {
       calls.push(options)
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
-      const resolved = hasRuntimeType(response, "function") ? await response(options) : response
+      const resolved = typeof response === "function" ? await response(options) : response
       return {
-        content: hasRuntimeType(resolved, "string") ? [{ text: resolved, type: "text" }] : resolved,
+        content: typeof resolved === "string" ? [{ text: resolved, type: "text" }] : resolved,
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -94,7 +95,7 @@ const toolInputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return isRuntimeRecord(value) && hasRuntimeType(value.query, "string")
+      return isRuntimeRecord(value) && typeof value.query === "string"
         ? { value: { query: value.query } }
         : { issues: [{ message: "Expected query to be a string" }] }
     },
@@ -109,7 +110,7 @@ function languageModel(fakeModel: ReturnType<typeof model>) {
 }
 
 function textResult(result: unknown): { text: string } {
-  if (!isRuntimeRecord(result) || !hasRuntimeType(result.text, "string")) {
+  if (!isRuntimeRecord(result) || typeof result.text !== "string") {
     throw new TypeError("Expected a text Agent result")
   }
   return { text: result.text }

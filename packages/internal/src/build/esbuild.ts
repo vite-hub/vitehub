@@ -1,10 +1,12 @@
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
 
 import { isPlainObject } from "../object.ts"
+import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
@@ -23,14 +25,10 @@ interface BundleEsmEntryOptions {
   plugins?: Plugin[]
   preserveSymlinks?: boolean
   rootDir?: string
+  /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
+  resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
   workingDir?: string
-}
-
-export interface ViteAlias {
-  customResolver?: boolean
-  find: string | RegExp
-  replacement: string
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
@@ -39,31 +37,7 @@ const markdownTemplateFileSuffix = ".template.md"
 const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const skipResolvedAlias = "vitehubSkipResolvedAlias"
-const encodedAliasPrefixMarker = "\0vitehub-prefix:"
-const encodedAliasExactMarker = "\0vitehub-exact:"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
-
-interface StringAlias {
-  find: string | RegExp
-  replacement: string
-}
-
-export function encodeProviderOutputAliases(configAliases: readonly StringAlias[]): Record<string, string> {
-  const aliases: Record<string, string> = Object.create(null)
-  for (const [index, alias] of configAliases.entries()) {
-    if (alias.find instanceof RegExp) continue
-    const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}${encodedAliasExactMarker}${index}` : alias.find
-    aliases[exactSpecifier] = alias.replacement
-    if (alias.find.endsWith("/")) {
-      const prefixSpecifier = `${alias.find}/${encodedAliasPrefixMarker}${index}`
-      aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
-    }
-    else {
-      aliases[`${alias.find}/${encodedAliasPrefixMarker}${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
-    }
-  }
-  return aliases
-}
 
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
@@ -112,7 +86,13 @@ function collectPackageExportCandidates(packageName: string, exportsValue: unkno
   return candidates
 }
 
-function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
+interface ResolvedBareAliasPaths {
+  canonical: string
+  normalized: string
+  publicSpecifier?: string
+}
+
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string, resolveEntryPackageAliases = true): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
   const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
@@ -139,9 +119,17 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
-      const resolvedBareAliasPaths = new Map<string, Promise<{ canonical: string, normalized: string, publicSpecifier?: string } | undefined>>()
+      const resolvedBareAliasPaths = new Map<string, Promise<ResolvedBareAliasPaths | undefined>>()
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
+        const resolveWithContext = (specifier: string) => build.resolve(specifier, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
         const aliases = await resolvedEntries
         let match = aliases.find(({ prefix, specifier }) => /^\.\.?[\\/]/.test(specifier) && (prefix
           ? args.path.startsWith(specifier)
@@ -166,7 +154,9 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             ? canonicalSpecifier.startsWith(canonicalAlias)
             : canonicalSpecifier === canonicalAlias)
         }
-        if (!match && isAbsolute(args.path)) {
+        if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) {
+          // Start every alias resolution at once. Awaiting them one by one costs one esbuild round trip per alias.
+          const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
             const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
@@ -211,14 +201,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   if (!isPlainObject(parsedPackageJson)) return
                   const packageJson = parsedPackageJson
                   if (packageJson.exports === undefined && !alias.prefix) {
-                    const resolvedCandidate = await build.resolve(alias.specifier, {
-                      importer: args.importer,
-                      kind: args.kind,
-                      namespace: args.namespace,
-                      pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-                      resolveDir: args.resolveDir,
-                      with: args.with,
-                    })
+                    const resolvedCandidate = await resolveWithContext(alias.specifier)
                     if (!resolvedCandidate.errors.length && !resolvedCandidate.external && resolvedCandidate.namespace === "file"
                       && normalizePathSeparators(resolve(resolvedCandidate.path)) === normalizedSpecifier) {
                       return { canonical: alias.specifier, normalized: alias.specifier, publicSpecifier: alias.specifier }
@@ -227,14 +210,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   }
                   const matchingPublicSpecifiers = new Set<string>()
                   for (const publicSpecifier of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
-                    const resolvedCandidate = await build.resolve(publicSpecifier, {
-                      importer: args.importer,
-                      kind: args.kind,
-                      namespace: args.namespace,
-                      pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-                      resolveDir: args.resolveDir,
-                      with: args.with,
-                    })
+                    const resolvedCandidate = await resolveWithContext(publicSpecifier)
                     if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
                     const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
                     if (candidatePath !== normalizedSpecifier) continue
@@ -249,14 +225,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   return
                 }
                 else {
-                  const resolvedAlias = await build.resolve(alias.specifier, {
-                    importer: args.importer,
-                    kind: args.kind,
-                    namespace: args.namespace,
-                    pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-                    resolveDir: args.resolveDir,
-                    with: args.with,
-                  })
+                  const resolvedAlias = await resolveWithContext(alias.specifier)
                   if (resolvedAlias.errors.length || resolvedAlias.external || resolvedAlias.namespace !== "file") return
                   resolvedAliasPath = normalizePathSeparators(resolve(resolvedAlias.path))
                 }
@@ -268,6 +237,11 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
               })()
               if (!args.pluginData) resolvedBareAliasPaths.set(cacheKey, resolution)
             }
+            candidates.push({ alias, resolution })
+          }
+          // The loop below stops at the first match, so settle every resolution before it reads them in order.
+          await Promise.allSettled(candidates.map(candidate => candidate.resolution))
+          for (const { alias, resolution } of candidates) {
             const paths = await resolution
             if (!paths) continue
             if (paths.publicSpecifier) {
@@ -304,14 +278,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           : matchedSpecifier.replace(matchedAlias!, match?.replacement ?? "")
         if (!target) return
         const resolvedTarget = /^\.\.?[\\/]/.test(target) ? resolve(aliasResolveDir, target) : target
-        return build.resolve(resolvedTarget, {
-          importer: args.importer,
-          kind: args.kind,
-          namespace: args.namespace,
-          pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-          resolveDir: args.resolveDir,
-          with: args.with,
-        })
+        return resolveWithContext(resolvedTarget)
       })
     },
   }
@@ -408,7 +375,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
     setup(build) {
       build.onResolve({ filter: /^@vite-hub\/markdown-template$/, namespace: viteMarkdownTemplateNamespace }, async (args) => {
         if (!frameworkRuntime) return { path: fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier)) }
-        return build.resolve("vite-hub/_internal/markdown-template", {
+        return build.resolve("vite-hub/markdown-template", {
           importer: args.importer,
           kind: args.kind,
           resolveDir: args.resolveDir,
@@ -478,21 +445,32 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
   }
 }
 
-/** Select the runtime constants from one resolved Vite configuration. */
-export function resolveViteHubBundleDefines(config: { define?: Record<string, unknown> }): Record<string, string> {
-  const defines: Record<string, string> = {}
-  for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__"]) {
-    const value = config.define?.[name]
-    if (typeof value === "string") defines[name] = value
-  }
-  return defines
-}
-
 function createFileUrlPlugin(): Plugin {
   return {
     name: "vitehub-file-url",
     setup(build) {
       build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
+    },
+  }
+}
+
+/**
+ * Copies a `.wasm?module` import next to the bundle and keeps it as a relative `.wasm` import. Wrangler and Nitro load
+ * such an import as a compiled WebAssembly module, which Workers need because they can't compile WebAssembly bytes.
+ */
+function createWasmModulePlugin(outdir: string): Plugin {
+  return {
+    name: "vitehub-wasm-module",
+    setup(build) {
+      build.onResolve({ filter: /\.wasm\?module$/ }, async (args) => {
+        const resolved = await build.resolve(args.path.slice(0, -"?module".length), { importer: args.importer, kind: args.kind, resolveDir: args.resolveDir })
+        if (resolved.errors.length) return { errors: resolved.errors }
+        const bytes = await readFile(resolved.path)
+        const name = `${basename(resolved.path, ".wasm")}-${createHash("sha256").update(bytes).digest("hex").slice(0, 8)}.wasm`
+        await mkdir(outdir, { recursive: true })
+        await copyFile(resolved.path, join(outdir, name))
+        return { external: true, path: `./${name}` }
+      })
     },
   }
 }
@@ -514,11 +492,14 @@ export async function bundleEsmEntry(
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
     options.workingDir ?? options.rootDir ?? process.cwd(),
+    options.resolveEntryPackageAliases,
   )
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())
   if (viteAliasPlugin) plugins.push(viteAliasPlugin)
   plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime))
+  // Node.js compiles WebAssembly bytes. Other targets, such as Workers, need the file as a compiled module.
+  if (platform !== "node") plugins.unshift(createWasmModulePlugin(dirname(outfile)))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,
@@ -544,6 +525,8 @@ export async function bundleEsmEntry(
     format,
     // Syntax and identifier minification can change function and class names.
     keepNames: options.minifySyntax || options.minifyIdentifiers,
+    // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
+    loader: platform === "node" ? { ".wasm": "binary" } : undefined,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     resolveExtensions: options.extensions,

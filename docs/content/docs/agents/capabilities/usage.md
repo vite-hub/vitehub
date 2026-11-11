@@ -1,16 +1,16 @@
 ---
 title: Usage
-description: Request provider usage metadata and expose normalized tokens and cost at finish.
+description: See how many tokens each Agent run used and what it cost, when the run finishes.
 navigation.title: Usage
 navigation.order: 325
 navigation.group: Capabilities
 icon: i-lucide-chart-no-axes-column
 ---
 
-`usage()` requests complete provider usage metadata and exposes ViteHub's normalized Agent Usage Record as a typed `usage` finish extension.
-It adds no model-facing tool. It reads usage metadata that the model provider or Agent Driver reports, and it estimates missing cost from the public [Models.dev](https://models.dev) catalog. No Server Primitive is involved.
+`usage()` reports the tokens and cost of each Agent run.
+It asks the provider for full usage data and, at the end, gives the Agent Usage Record (usage in one shape for all providers) as a typed `usage` finish extension, data attached to the finished run.
 
-Use [`budget()`](/docs/agents/capabilities/budget) when the same usage record should also drive per-invocation token or USD limits.
+It reads what the provider or Agent Driver reports and estimates missing cost from the public [Models.dev](https://models.dev) catalog. It adds no model tool and uses no Server Primitive. For token or USD limits from the same record, use [`budget()`](/docs/agents/capabilities/budget).
 
 ## Configure usage
 
@@ -24,7 +24,7 @@ export default defineAgent({
 })
 ```
 
-Read the record in a finish hook. The typed `usage` finish extension returns the same normalized record available at `event.invocation.usage`.
+Read it in a finish hook. The extension equals `event.invocation.usage`.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -45,11 +45,11 @@ export default defineAgent({
 
 ## How usage works
 
-For the AI SDK model calls of a model-backed Agent Driver, the Capability sets `providerOptions.openrouter.usage.include` to `true`. Existing provider options and OpenRouter usage settings are preserved.
+On AI SDK calls from a model-backed Driver, the Capability sets `providerOptions.openrouter.usage.include` to `true`, keeping your other provider options and OpenRouter usage settings.
 
-At finish, it reads `event.invocation.usage`. The record can contain normalized token usage, model, execution provider, transport, latency, and cost. Fields remain optional when the provider does not report enough data and ViteHub cannot derive them safely.
+At the end, it reads `event.invocation.usage`: token usage, model, execution provider, transport, latency, and cost. A field stays empty when the provider reports too little to calculate it safely.
 
-```ts
+```ts fragment
 {
   model: 'anthropic/claude-sonnet-4.5',
   provider: 'openrouter',
@@ -63,25 +63,25 @@ At finish, it reads `event.invocation.usage`. The record can contain normalized 
 }
 ```
 
-Use `cost.usd` for arithmetic or persistence. Use `cost.display` for UI. For streams, ViteHub resolves pricing when usage becomes available, before it emits usage to clients and before finish hooks run.
+Use `cost.usd` for math and storage, and `cost.display` in the UI. For streams, the price is calculated when usage arrives, before clients get usage and before finish hooks run.
 
-The finish extension is resolved eagerly, so it does not need a finish hook. The Capability id is always `usage`.
+The extension is ready without a finish hook. The Capability id is always `usage`.
 
 ## Control pricing
 
-Provider-reported cost remains authoritative. When a provider reports tokens without cost, `usage()` uses the Models.dev catalog to estimate regular input, cache-read, cache-write, context-tier, and output token cost. ViteHub caches a successful catalog response for one hour and bounds each request to ten seconds.
+A provider-reported cost is used as is. For tokens without cost, Models.dev estimates regular input, cache read, cache write, context tier, and output. Successful catalog responses are cached for one hour; each request times out after ten seconds.
 
-Pricing is best-effort. A missing provider or model match, unavailable catalog, timeout, invalid rate, or pricing callback error leaves the usage record and successful Agent Invocation unchanged.
+Pricing is best effort. A missing provider or model, an unavailable catalog, a timeout, an invalid rate, or a pricing callback error never changes the record or fails the run.
 
-Pass `pricing: false` when the application needs tokens without estimated cost.
+`pricing: false` gives tokens without estimates; provider-reported cost stays. `metadata.pricing` shows whether pricing is on, which the Console reads before the cost is recorded.
 
 ```ts
+import { usage } from 'vite-hub/agent/capabilities'
+
 capabilities: [usage({ pricing: false })]
 ```
 
-The Capability exposes whether pricing is configured in `metadata.pricing`. The Console uses this flag before recorded cost is available. Provider-recorded cost remains available when pricing is disabled.
-
-Pass `pricing` when the application owns its rates or provider mapping. Return exact USD as a decimal string. ViteHub derives the display value.
+For your own rates or provider mapping, pass a `pricing` function that returns the exact USD amount as a decimal string; ViteHub derives the display value.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -103,9 +103,9 @@ export default defineAgent({
 })
 ```
 
-Custom pricing receives the model, execution provider, transport, response metadata, Agent Run metadata, and token usage. Return `undefined` when pricing is unavailable. Keep the result deterministic for those inputs because ViteHub may call it while a stream is consumed.
+It gets the model, execution provider, transport, response metadata, Agent Run metadata, and token usage. Return `undefined` for no price. It must be deterministic, since it can run while a stream is read.
 
-Import `modelsDevPricing()` when application-owned work adds usage after the Capability runs and must apply the same catalog behavior.
+When your code adds usage later, `modelsDevPricing()` uses the same prices. Options: `catalogUrl` (default `https://models.dev/api.json`), `maxAge` (milliseconds, default one hour), `timeout` (milliseconds, default `10000`), and a custom `fetch`.
 
 ```ts
 import { modelsDevPricing } from 'vite-hub/agent/capabilities'
@@ -113,38 +113,36 @@ import { modelsDevPricing } from 'vite-hub/agent/capabilities'
 const pricing = modelsDevPricing()
 ```
 
-`modelsDevPricing()` accepts `catalogUrl` (default `https://models.dev/api.json`), `maxAge` in milliseconds (default one hour), `timeout` in milliseconds (default `10000`), and a custom `fetch`.
-
 ## Requirements
 
-- The model provider or Agent Driver must report token usage. Without usage, the record stays empty and no cost is estimated.
-- Models.dev pricing needs outbound network access to the catalog URL. Without it, pricing is skipped.
+- The provider or Driver reports token usage. Otherwise the record stays empty and no cost is estimated.
+- Models.dev pricing needs network access to the catalog, or it is skipped.
 
 ## Security and approval
 
-`usage()` adds no model-facing tool and has no `policy` option. The Agent gets no new authority.
-The default pricing fetches the public Models.dev catalog. ViteHub sends no prompt, output, or usage data in that request. Use `pricing: false` or custom `pricing` to avoid the outbound request.
+There is no model tool, `policy` option, or new authority.
+Default pricing downloads the public Models.dev catalog without sending prompts, output, or usage. `pricing: false` or your own function stops the request.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Requests OpenRouter usage metadata on AI SDK calls, then normalizes and prices the reported usage. |
-| Provider-backed | Normalizes and prices the usage that the provider Driver reports. The OpenRouter call setting does not apply. |
-| Custom-run-backed | Normalizes and prices the usage that the `driver.run` result reports. |
+| Model-backed | Requests OpenRouter usage on AI SDK calls, then normalizes and prices it. |
+| Provider-backed | Normalizes and prices the Driver's usage. The OpenRouter setting does not apply. |
+| Custom-run-backed | Normalizes and prices the `driver.run` usage. |
 
 ## Verify usage
 
-1. Invoke the Agent with a model that reports token usage. Confirm that the finish extension matches `event.invocation.usage`.
-2. If the provider does not report cost, confirm that a matching Models.dev entry adds estimated cost with `source: 'models.dev'`.
-3. Test missing and failing pricing. Both must preserve the successful Agent Invocation and raw usage.
-4. Run `vitehub agent info --agent support --json` and confirm that the `usage` Capability metadata has `pricing: true`, or `false` with `pricing: false`.
+1. With a model that reports tokens, the extension equals `event.invocation.usage`.
+2. Without provider cost, a matching Models.dev entry adds a cost with `source: 'models.dev'`.
+3. With missing or failing pricing, the run still succeeds with raw usage.
+4. `vitehub agent info --agent support --json` shows `pricing: true` in `usage` metadata, or `false` with `pricing: false`.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `pricing` | `AgentUsagePricing \| false` | `modelsDevPricing()` | Resolves estimated cost, or disables estimation when set to `false`. |
+| `pricing` | `AgentUsagePricing \| false` | `modelsDevPricing()` | Estimates cost, or `false` to turn estimates off. |
 
 ## Related pages
 

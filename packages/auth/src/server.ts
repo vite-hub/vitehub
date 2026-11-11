@@ -6,17 +6,18 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
-import { unwrapAuthRequest } from "./request.ts"
+import { authRequestEvent, unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions, trustsProxyHeaders } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
+import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
 import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
-import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, PublicUrlConfig, ViteHubContext } from "@vite-hub/runtime"
 import type {
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
@@ -67,6 +68,19 @@ function envResolverFor(definition: AuthDefinition): AuthRuntimeEnvResolver | un
 
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
+}
+
+function hasHappyDomRequestState(value: object): boolean {
+  const ownSymbols = Object.getOwnPropertySymbols(value)
+  const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+  // Happy DOM stores its Request state in a fixed set of private symbols.
+  // Partial lookalikes must stay on the normalization path.
+  return [
+    "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+    "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+    "contentType", "referrer", "url", "bodyBuffer",
+  ].every(name => ownSymbols.some(symbol => symbol.description === name))
+    && prototypeSymbols.some(symbol => symbol.description === "window")
 }
 
 function isRequestLike(value: AuthRequest): value is Request {
@@ -123,24 +137,7 @@ function isRequestLike(value: AuthRequest): value is Request {
             // an empty result lets a structural prototype spoof opt out of
             // the brand check and reach Better Auth unchanged.
             if (target !== value) return false
-            const ownSymbols = Object.getOwnPropertySymbols(value)
-            const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
-            // Happy DOM stores its Request state in a fixed set of private
-            // symbols. Require the complete state shape before accepting an
-            // implementation whose accessors do not expose a Web-IDL brand
-            // error. A caller-created lookalike with a few arbitrary symbols
-            // must stay on the normalization path.
-            const happyDomSymbols = [
-              "method", "body", "mode", "headers", "redirect", "referrerPolicy",
-              "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
-              "contentType", "referrer", "url", "bodyBuffer",
-            ]
-            const happyDomState = happyDomSymbols.every(name =>
-              ownSymbols.some(symbol => symbol.description === name),
-            )
-              && prototypeSymbols.some(symbol => symbol.description === "window")
-            if (!happyDomState) return false
-            return true
+            return hasHappyDomRequestState(value)
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
@@ -159,15 +156,7 @@ function isRequestLike(value: AuthRequest): value is Request {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
       return typeof Reflect.get(target, method) === "function"
     })
-    const ownSymbols = Object.getOwnPropertySymbols(value)
-    const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
-    const happyDomState = [
-      "method", "body", "mode", "headers", "redirect", "referrerPolicy",
-      "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
-      "contentType", "referrer", "url", "bodyBuffer",
-    ].every(name => ownSymbols.some(symbol => symbol.description === name))
-      && prototypeSymbols.some(symbol => symbol.description === "window")
-    if (happyDomState) {
+    if (hasHappyDomRequestState(value)) {
       // The private-symbol fingerprint identifies Happy DOM, but still verify
       // the interface Better Auth consumes before preserving the value.
       if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
@@ -221,6 +210,9 @@ function isAbortSignalLike(value: unknown): value is AbortSignal {
 
 type HeadersInput = ConstructorParameters<typeof Headers>[0]
 
+/** Where Better Auth returns after one sign-in that a guard starts. */
+type AuthSignInURLs = Pick<AuthSignInConfiguration, "callbackURL" | "errorCallbackURL">
+
 /**
  * The Headers init of a host request. A Headers-like object without `Symbol.iterator`, from another
  * Fetch implementation, gives its fields through `entries()`, not through its own properties.
@@ -254,7 +246,7 @@ export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
   runtimeOptions: AuthRuntimeOptions = {},
-  event?: unknown,
+  event?: ViteHubContext,
 ): AuthRuntimeOptions {
 
 
@@ -278,7 +270,7 @@ export function createBetterAuthOptions(
 function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
   try {
     // SAFETY: callers pass the options of the Auth Definition that TAuth is inferred from.
-    return withSessionMarker(betterAuth(options)) as TAuth
+    return withSessionMarker(withClientAddress(betterAuth(options))) as TAuth
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-auth-for-request")
@@ -289,39 +281,44 @@ export function createAuth(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth {
-  return withSessionMarker(betterAuth(createBetterAuthOptions(definition, runtimeOptions))) as ViteHubAuth
+  return withSessionMarker(withClientAddress(betterAuth(createBetterAuthOptions(definition, runtimeOptions)))) as ViteHubAuth
 }
 
 export function createAuthForRequest(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event?: ViteHubContext,
 ): ViteHubAuth {
 
 
-  return withSessionMarker(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)) as ViteHubAuth}
+  return withSessionMarker(withClientAddress(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions))) as ViteHubAuth}
 
 export function handleAuthRequest(
   definition: AuthDefinition,
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event: unknown = input,
+  event: ViteHubContext = authRequestEvent(input),
 ): Promise<Response> {
   const request = unwrapAuthRequest(input)
-  return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+  // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
+  const address = eventClientAddress(event)
+  return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
 }
 
-/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+/** Return a Web Request itself, or the request in the Standard Context of a request event. */
 export function toAuthRequest(input: AuthRequestInput): AuthRequest {
   return unwrapAuthRequest(input)
 }
 
+/** Create a handler whose optional host context supplies the peer address, never a client-sent header. */
 export function createAuthHandler(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth["handler"] {
-  return createAuth(definition, runtimeOptions).handler
+) {
+  const auth = createAuth(definition, runtimeOptions)
+  return (request: Request, host?: { clientAddress?: string }): Promise<Response> =>
+    auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
 export function getAuthForDefinition<TDefinition extends AuthDefinition>(
@@ -353,7 +350,7 @@ export function getAuth(runtimeOptions?: AuthRuntimeOptions): RegisteredAuth {
 export function getAuthForRequest(
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event?: ViteHubContext,
 ): RegisteredAuth {
   const definition = resolveDefaultDefinition()
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
@@ -365,7 +362,7 @@ export function getAuthForRequest(
 
 export async function assertAuthOrigin(
   request: Pick<Request, "headers" | "url">,
-  event?: unknown,
+  event?: ViteHubContext,
 ): Promise<RegisteredAuth> {
   const origin = request.headers.get("origin")
   if (!origin) throw authErrorDiagnostics.AUTH_R0006({ message: "The request origin is required." })
@@ -380,7 +377,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -452,7 +449,7 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   const request = unwrapAuthRequest(input)
 
 
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: envResolverFor(definition) })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -688,6 +685,7 @@ async function checkAuthRequest(
   requiredAuthorizeRouteIndexes: number[] = [],
   redirectToSignIn = true,
   resolveIdentity?: AuthAccessIdentityResolver,
+  signInURLs?: AuthSignInURLs,
 ): Promise<AuthCheck> {
   const { auth, options, request, session } = await readRequestSession(input, definition)
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
@@ -731,7 +729,7 @@ async function checkAuthRequest(
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return reject(signIn
-    ? await createSignInResponse(auth, options, signIn)
+    ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
     : Response.json({ error: "Unauthorized." }, { status: 401 }))
 }
 
@@ -867,7 +865,8 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
   return authorizationGrant.verify(grant)
 }
 
-// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
+// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check. The key is
+// the Request of the Standard Context, so an H3 middleware and the Fetchable route of one request share the check.
 const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
 
 async function checkAuthAccessRequest(
@@ -875,16 +874,17 @@ async function checkAuthAccessRequest(
   definition: AuthDefinition,
   routeIndexes: number[],
   requiredAuthorizeRouteIndexes: number[],
-  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean } = {},
+  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean, signIn?: AuthSignInURLs } = {},
 ): Promise<Response | undefined> {
   const key = JSON.stringify([routeIndexes, requiredAuthorizeRouteIndexes])
-  let definitions = reusableAccessChecks.get(input)
+  const request = unwrapAuthRequest(input)
+  let definitions = reusableAccessChecks.get(request)
   let accepted = definitions?.get(definition)
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(unwrapAuthRequest(input).url).pathname))
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(request.url).pathname), options.signIn)
   if (!response && (options.reuse || options.remember)) {
-    if (!definitions) reusableAccessChecks.set(input, definitions = new WeakMap())
+    if (!definitions) reusableAccessChecks.set(request, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
     accepted.set(key, options.reuse === true)
   }
@@ -919,6 +919,8 @@ export async function requireAuthAccessRoutes(
   requiredAuthorizeRouteIndexes: number[] = [],
   options: {
     redirectToSignIn?: boolean
+    /** Where Better Auth returns after this sign-in, replacing `access.signIn.callbackURL` and `errorCallbackURL`. */
+    signIn?: AuthSignInURLs
     /** Reuse successful checks of these exact rules and Definition on this request, including in app Auth middleware. */
     reuse?: boolean
   } = {},
@@ -932,7 +934,17 @@ export async function requireAuthAccessRoutes(
   return await checkAuthAccessRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options)
 }
 
-export default handleAuth
+/**
+ * The Auth route that ViteHub mounts at `/api/auth/**`, as a Fetchable. It reads the client address and the
+ * Cloudflare bindings from the Standard Context of the Request.
+ */
+const authRoute = {
+  fetch(request: Request): Promise<Response> {
+    return handleAuth(request)
+  },
+}
+
+export default authRoute
 
 export const auth = new Proxy({}, {
   get(_target, property, receiver) {
@@ -971,7 +983,7 @@ export async function aggregateAuthEvents(window: AuthEventWindow, definition?: 
  * Resolve the primary Definition once, with the same request context for the provider and Console policy.
  * `host.impersonation` lets the Console start impersonation. It is off by default.
  */
-export function getAuthConsoleForRequest(request: Request, event?: unknown, host?: AuthConsoleHostOptions): AuthConsole {
+export function getAuthConsoleForRequest(request: Request, event?: ViteHubContext, host?: AuthConsoleHostOptions): AuthConsole {
   const definition = resolveDefaultDefinition()
   const resolved = resolveAuthOptions(definition, {
     request,

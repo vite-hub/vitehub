@@ -17,6 +17,20 @@ describe("toRawMarkdown", () => {
     expect(raw.includes("You write each connector. Use Agent Channels for built-in chat integrations.")).toBe(mode === "custom")
   })
 
+  it("gives agents the hero screenshot as an image and drops the hero animation", () => {
+    const raw = convert([
+      '::product-hero{tagline="Connect an account."}',
+      '  :::product-screenshot{src="/images/console.webp" dark="/images/console-dark.webp" alt="The Console lists Connections." width="1520" height="840"}',
+      '  :::',
+      '  :::cms-console-demo',
+      '  :::',
+      '::',
+    ].join('\n'))
+    expect(raw).toContain("![The Console lists Connections.](https://vitehub.dev/images/console.webp)")
+    expect(raw).not.toContain(":::")
+    expect(raw).not.toContain("console-dark")
+  })
+
   it("renders product landings as text and preserves component syntax in code examples", () => {
     const example = ':::product-feature-item{title="Example" to="/docs/example"}\nExample description.\n:::'
     const raw = convert([
@@ -24,7 +38,7 @@ describe("toRawMarkdown", () => {
       'title: Storage',
       '---',
       '::product-hero{tagline="Save values by key." hosts="Node, Cloudflare"}',
-      '  :::product-files',
+      '  :::code-tree{feature="kv"}',
       '  ```ts [server/api/value.ts]',
       '  const value = "::literal"',
       '  ```',
@@ -80,6 +94,20 @@ describe("toRawMarkdown", () => {
       '    :::product-feature-item{title="Indented example"}',
       '',
     ].join('\n'))
+  })
+
+  it("keeps a Markdown example's source and marks a Vue example's preview", () => {
+    const raw = convert(["::examples", ":::example{label=\"Bold\"}", "```md", "Some **bold** text.", "```", ":::", "::", "", "::example{name=\"ButtonExample\"}", "::"].join("\n"))
+
+    expect(raw).toContain("**Bold**")
+    expect(raw).toContain("```md\nSome **bold** text.\n```")
+    expect(raw).toContain("_Interactive preview available on the rendered documentation page._")
+    expect(raw).not.toContain("::example")
+  })
+
+  it("marks existing component previews in raw Markdown", () => {
+    const raw = convert("::component-preview{name=\"ButtonExample\"}\n::")
+    expect(raw).toBe("_Interactive preview available on the rendered documentation page._\n")
   })
 
   it("keeps site-relative links relative without a site URL", () => {

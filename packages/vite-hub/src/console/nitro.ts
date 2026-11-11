@@ -1,5 +1,4 @@
 import { join } from "node:path"
-import { addViteHubPageToolRoutes, viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -9,74 +8,32 @@ export function mountPath(base: string | undefined, path: string): string {
 }
 
 type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route?: string }
-const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
+// Nitro 3 resolves handler paths against rootDir unless they start with `#`, so a `virtual:` id would become a missing file.
+const configuredMcpDiscovery = "#vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
-type NitroPrerenderConfig = { baseURL?: string, prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
-
-/** Keep linked Console pages, which need a signed-in request, out of Nitro's prerender crawler. */
-export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: string): void {
-  const prerender = nitro.prerender ??= {}
-  const { mount } = viteHubPageToolsBase({ base, nitro })
-  // Nitro can match crawled links with its base intact or removed. Keep both forms excluded.
-  for (const prefix of [base, mount]) {
-    const consolePath = mountPath(prefix, "/_vitehub")
-    if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
-  }
-}
 
 /**
- * Serves the standalone Console: its HTML page at `/_vitehub/**`, its hashed script, style, and font assets at
- * `/_vitehub/assets`, and the ViteHub skill at `/_vitehub/.well-known/skills`. The page loads its own Vue app, Nuxt UI
- * theme, and styles, so a host app that renders around it, such as Nuxt, cannot change how the Console looks. Nitro
- * adds the application base to these routes.
+ * Serves the routes next to the Operations endpoint that are not data routes: the ViteHub skill at
+ * `/_vitehub/.well-known/skills`, and with `auth: "app"`, the built-in sign-in page at `/_vitehub/sign-in`, which is the
+ * login and consent page of MCP OAuth. Nitro adds the application base to these routes.
  */
-export function addConsolePageHandlers(
-  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
+export function addConsoleAppRoutes(
+  nitro: { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
-  signInPage?: string,
+  appSignIn = false,
 ): void {
-  const page = join(consoleRuntimeRoot, "server/page.get.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
-  const assets = join(consoleRuntimeRoot, "public/console")
   const skills = join(consoleRuntimeRoot, "public/skills")
-  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
-  if (signInPage) {
-    // Run before primary app Auth can reject an HTML page visit, including after Nitro config replay.
-    for (const suffix of ["/_vitehub", "/_vitehub/**"]) {
-      handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, suffix) })
-    }
-  }
-  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, lazy: true, route: mountPath(base, suffix) })
+  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== signIn)
+  // Run before primary app Auth, which would reject the signed-out visit to its own sign-in page.
+  if (appSignIn) handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, "/_vitehub/sign-in") })
   nitro.handlers = handlers
-  ignoreConsolePrerender(nitro, base)
   nitro.publicAssets = [
-    // Every Console asset name contains a content hash.
-    { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
     // The ViteHub skill for `npx skills add <app>/_vitehub`. Static files need no Console sign-in.
     { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
-    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
+    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== skills),
   ]
-  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, viteHubBasePath(base))
-}
-
-/**
- * Serves the page tools session `GET <mount>/_vitehub/page/session` and the loader at `<mount>/_vitehub/page/assets`, so
- * the `console` page tool works in an app without Comments. When Comments added them first, they stay as they are.
- * `mount` is the route prefix from `viteHubPageToolsBase()`, or the Nuxt `app.baseURL` without its trailing slash,
- * like the other Console routes.
- */
-export function addConsolePageToolRoutes(
-  nitro: { handlers?: Array<{ handler: string; route?: string }>, publicAssets?: NitroPublicAsset[] },
-  consoleRuntimeRoot: string,
-  mount = "",
-): void {
-  const kit = createNitroServerKit(nitro)
-  addViteHubPageToolRoutes(kit, { handler: join(consoleRuntimeRoot, "server/page-session.js"), loader: join(consoleRuntimeRoot, "page"), mount })
-  // SAFETY: The kit keeps the caller's Nitro handler and public asset entries, and the page tools add entries of the same shape.
-  nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
-  // SAFETY: As above.
-  nitro.publicAssets = kit.config.publicAssets as NitroPublicAsset[]
 }
 
 export function addConsoleRpcHandler(
@@ -85,8 +42,10 @@ export function addConsoleRpcHandler(
   base?: string,
   sections: readonly string[] = [],
   oauth = false,
+  crossOrigin = false,
 ): void {
   const kit = createNitroServerKit(nitro)
+  const preflight = join(consoleRuntimeRoot, "server/console-preflight.js")
   // Nitro 2 resolves plugin names against srcDir, so this virtual plugin needs an absolute filename.
   const nitro2McpDiscovery = join(consoleRuntimeRoot, "server/mcp-discovery-nitro2.js")
   // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
@@ -129,8 +88,11 @@ export function addConsoleRpcHandler(
   }
   // SAFETY: The kit preserves the caller's Nitro plugin registrations.
   const plugins = kit.config.plugins as string[]
-  const retainedPlugins = plugins.filter(plugin => plugin !== nitro2McpDiscovery)
+  const retainedPlugins = plugins.filter(plugin => plugin !== nitro2McpDiscovery && plugin !== preflight)
   plugins.splice(0, plugins.length, ...retainedPlugins)
+  // CORS preflights carry no credentials, so the plugin answers them before every app middleware and app Auth. Only
+  // `console.origins` with `auth: "token"` accepts cross-origin calls.
+  if (crossOrigin) kit.addPlugin(preflight, "start")
   if (oauth) {
     // Nitro 2 mounts even route-less middleware below app.baseURL. Its request hook runs at the origin root,
     // before app middleware, and H3 1's respondWith() completes the response without entering the mounted stack.
@@ -166,6 +128,8 @@ export function addConsoleRpcHandler(
     if (registration.absolute && !oauth) continue
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
     if (registration.suffix === "/_vitehub/channels/replay" && !sections.includes("agents")) continue;
+    // Only the Schedules section installs the manual Schedules that this route runs.
+    if (registration.suffix === "/_vitehub/schedules/run" && !sections.includes("schedules")) continue;
     const route = registration.absolute ? registration.suffix : mountPath(base, registration.suffix)
     const conflict = !registration.middleware && retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
     // Discovery middleware serves Console-owned URLs first and delegates the rest to the app.

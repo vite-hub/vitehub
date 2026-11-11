@@ -5,24 +5,6 @@ import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
 export { runtimeErrorDiagnostics }
 
-export {
-  runRuntimePreflight,
-  startRuntimePreflight,
-  type RuntimePreflightCheck,
-  type RuntimePreflightCheckContext,
-  type RuntimePreflightCheckResult,
-  type RuntimePreflightCheckSummary,
-  type RuntimePreflightDetails,
-  type RuntimePreflightDiagnosticData,
-  type RuntimePreflightHandle,
-  type RuntimePreflightIssue,
-  type RuntimePreflightKind,
-  type RuntimePreflightManifest,
-  type RuntimePreflightOptions,
-  type RuntimePreflightState,
-  type RuntimePreflightValue,
-} from "./preflight.ts"
-
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export {
@@ -37,6 +19,7 @@ export {
 } from "./execution-budget.ts"
 
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
+export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
 export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
 export {
@@ -77,17 +60,21 @@ export {
 
 export type MaybePromise<T> = T | Promise<T>
 
-// Capture platform methods before application callbacks run. As with the other
-// platform brand checks, the host must supply intact intrinsics at import time.
-const webAssemblyModuleConstructor = (() => {
+function captureWebAssemblyModule(): { constructor: unknown, exports: unknown } {
   const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
-  return hasRuntimeType(namespace, "object")
+  const constructor: unknown = hasRuntimeType(namespace, "object")
     ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
     : undefined
-})()
-const webAssemblyModuleExports = hasRuntimeType(webAssemblyModuleConstructor, "function")
-  ? Object.getOwnPropertyDescriptor(webAssemblyModuleConstructor, "exports")?.value
-  : undefined
+  const exports: unknown = hasRuntimeType(constructor, "function")
+    ? Object.getOwnPropertyDescriptor(constructor, "exports")?.value
+    : undefined
+  return { constructor, exports }
+}
+
+// Capture platform methods before application callbacks run. As with the other
+// platform brand checks, the host must supply intact intrinsics at import time.
+// Each capture is pure, so a bundle that never checks trace values drops it.
+const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
 export interface AccessAuthorizationContext {
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
@@ -476,11 +463,12 @@ function isCryptoKey(value: unknown): boolean {
 
 function isWebAssemblyModule(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  if (!hasRuntimeType(webAssemblyModuleConstructor, "function")) return false
-  if (value instanceof webAssemblyModuleConstructor) return true
+  const { constructor, exports } = webAssemblyModule
+  if (!hasRuntimeType(constructor, "function")) return false
+  if (value instanceof constructor) return true
   try {
-    if (!hasRuntimeType(webAssemblyModuleExports, "function")) return false
-    Reflect.apply(webAssemblyModuleExports, webAssemblyModuleConstructor, [value])
+    if (!hasRuntimeType(exports, "function")) return false
+    Reflect.apply(exports, constructor, [value])
     return true
   }
   catch {
@@ -490,8 +478,13 @@ function isWebAssemblyModule(value: unknown): boolean {
 
 // Exact native source signatures reject user functions, bound functions and proxies.
 // This boundary uses the host Function intrinsic rather than a payload-owned method.
-const intrinsicFunctionToString = Function.prototype.toString
-const nativeFunctionToString = (() => {
+function captureFunctionToString() {
+  return Function.prototype.toString
+}
+
+const intrinsicFunctionToString = /* @__PURE__ */ captureFunctionToString()
+
+function checkNativeFunctionToString(): boolean {
   try {
     // Built-in functions have no own `prototype` property. Keep this check
     // independent of the formatter's reported source.
@@ -534,7 +527,9 @@ const nativeFunctionToString = (() => {
   catch {
     return false
   }
-})()
+}
+
+const nativeFunctionToString = /* @__PURE__ */ checkNativeFunctionToString()
 
 function isNativeBufferOperation(value: unknown, name: string): value is (...args: never[]) => unknown {
   if (!nativeFunctionToString || !hasRuntimeType(value, "function")) return false
@@ -615,8 +610,8 @@ function captureOrdinaryBufferOperations(): {
   }
 }
 
-const sharedBufferByteLength = captureSharedBufferByteLength()
-const ordinaryBufferOperations = captureOrdinaryBufferOperations()
+const sharedBufferByteLength = /* @__PURE__ */ captureSharedBufferByteLength()
+const ordinaryBufferOperations = /* @__PURE__ */ captureOrdinaryBufferOperations()
 
 function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
@@ -1546,8 +1541,8 @@ export async function resolveCapabilityPolicy(
   return hasRuntimeType(policy, "function") ? await policy(context) : policy
 }
 
-export { createWorkTracker } from "./work.ts"
-export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"
+export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
+export { getRuntimeContext, getStandardContext, installRequestStandardContext, type RequestRuntimeContext, type RuntimeContextOptions, type RuntimeName } from "./request-context.ts"
 
 export {
   deserializeResponse,
@@ -1556,3 +1551,5 @@ export {
   toResponse,
   type SerializedResponse,
 } from "./response.ts"
+
+export { detectHost, getHostBinding, type HostBindingErrorCode, type ViteHubHost } from "./host.ts"

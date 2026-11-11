@@ -17,13 +17,10 @@ export interface ConsoleMcpResults {
   "mcp-client.reconnect": ConsoleMcpConnectResult
 }
 
-/**
- * Call one operation of the MCP client section. `base` is any Console API path of the app and only locates the application
- * mount, as in `requestConsoleOperation()`.
- */
-export async function requestConsoleMcp<Operation extends keyof ConsoleMcpResults>(base: string, operation: Operation, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ConsoleMcpResults[Operation]> {
+/** Call one operation of the MCP client section. */
+export async function requestConsoleMcp<Operation extends keyof ConsoleMcpResults>(operation: Operation, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ConsoleMcpResults[Operation]> {
   // SAFETY: The server operation of this name returns this shape. Console and server ship in one build.
-  return await requestConsoleOperation(base, operation, input, signal ? { signal } : {}) as ConsoleMcpResults[Operation]
+  return await requestConsoleOperation(operation, input, signal ? { signal } : {}) as ConsoleMcpResults[Operation]
 }
 
 /** Status words and colors. The word always comes with the color, so the status never depends on color alone. */
@@ -50,12 +47,6 @@ export function consoleMcpAccount(connection: ConsoleMcpConnection): { primary: 
   if (connection.auth === "bearer") return { primary: connection.label, secondary: `Token ••••${connection.grant?.hint ?? ""}` }
   if (identity?.subject) return { primary: connection.label, secondary: `Subject ${identity.subject}` }
   return { primary: connection.label, ...(connection.auth === "none" || connection.auth === "console" ? { secondary: consoleMcpAuthLabels[connection.auth] } : {}) }
-}
-
-/** Up to two initials of a name or an email, for an avatar. */
-export function consoleMcpInitials(value: string): string {
-  const words = value.replace(/@.*$/, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  return (words.length > 1 ? `${words[0]![0]}${words[1]![0]}` : (words[0] ?? "?").slice(0, 2)).toUpperCase()
 }
 
 /** A host and path without the scheme, such as `example.com/mcp`. */

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { describe, expect, it } from "vitest"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -10,6 +11,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { cloudflareOptions, mergeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 import { d1BookmarkCookieName, runWithDatabaseRequest } from "../src/runtime/d1-sessions.ts"
+import { createDatabaseBindingLookup } from "../src/runtime/agent.ts"
 
 const schema = {
   notes: sqliteTable("notes", {
@@ -66,10 +68,12 @@ function createDb(readReplication: boolean | undefined) {
 }
 
 function createEvent(method: string, cookie?: string, url = "https://app.example/api/notes") {
-  return {
+  const event = {
     req: new Request(url, { method, headers: cookie ? { cookie } : {} }),
     res: { headers: new Headers() },
   }
+  installStandardContext(event)
+  return event
 }
 
 async function inRequest<T>(binding: object, event: ReturnType<typeof createEvent>, callback: () => Promise<T>) {
@@ -119,6 +123,30 @@ describe("D1 read replication", () => {
     })
     expect(constraints).toEqual(["first-unconstrained"])
     expect(queries).toEqual(["session 1: select 1"])
+  })
+
+  it("returns the current request's session from the binding lookup", async () => {
+    const { binding, constraints, queries } = createReplicatedD1()
+    const lookup = createDatabaseBindingLookup({ default: { db: createDb(true) } })
+    const sessions: object[] = []
+
+    await runWithActiveCloudflareEnv({ DB: binding }, async () => {
+      expect(lookup("default")).toBe(binding)
+      for (let request = 0; request < 2; request++) {
+        await inRequest(binding, createEvent("GET"), async () => {
+          const session = lookup("default")
+          sessions.push(session)
+          expect(session).toBe(lookup("default"))
+          expect(session).not.toBe(binding)
+          expect(session).not.toHaveProperty("exec")
+          await session.prepare("select 1").bind().all()
+          await expect(session.batch([])).resolves.toEqual([])
+        })
+      }
+    })
+    expect(sessions[0]).not.toBe(sessions[1])
+    expect(constraints).toEqual(["first-unconstrained", "first-unconstrained"])
+    expect(queries).toEqual(["session 1: select 1", "session 2: select 1"])
   })
 
   it("leaves Secure off over plain HTTP", async () => {

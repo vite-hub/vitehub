@@ -240,21 +240,20 @@ function createVercelSession(
   workspace: string,
 ): RuntimeSession {
   let destroyPromise: Promise<void> | undefined;
-  const run = async (options: {
-    abortSignal?: AbortSignal;
-    command: string;
-    env?: Record<string, string>;
-    workingDirectory?: string;
-  }) => {
+  const startCommand = (options: Parameters<RuntimeSession["run"]>[0]) => {
     options.abortSignal?.throwIfAborted();
-    const process = await instance.runCommand({
+    return instance.runCommand({
       args: ["-lc", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
       detached: true,
       env: { ...baseEnv, ...options.env },
       signal: options.abortSignal,
+      ...(options.stdin ? { stdin: true } : {}),
     });
+  };
+  const run = async (options: Parameters<RuntimeSession["run"]>[0]) => {
+    const process = await startCommand(options);
     let abort: (() => void) | undefined;
     const aborted = new Promise<never>((_, reject) => {
       abort = () => {
@@ -385,16 +384,7 @@ function createVercelSession(
     },
     run,
     async spawn(options) {
-      options.abortSignal?.throwIfAborted();
-      const process = await instance.runCommand({
-        args: ["-lc", options.command],
-        cmd: "sh",
-        cwd: options.workingDirectory ?? workspace,
-        detached: true,
-        env: { ...baseEnv, ...options.env },
-        signal: options.abortSignal,
-        ...(options.stdin ? { stdin: true } : {}),
-      });
+      const process = await startCommand(options);
       return vercelProcess(process, options.stdin);
     },
     async stop() {},

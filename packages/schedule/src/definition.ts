@@ -1,4 +1,5 @@
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
@@ -6,10 +7,6 @@ import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 const cronFieldPattern = /^[^\s]+$/
 const scheduleDefinitionKeys = new Set(["manual", "cron", "handler", "timeZone"])
 const scheduleOptionsKeys = new Set(["manual", "timeZone"])
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
 
 function isCronString(value: unknown): value is string {
   return value !== null && value !== undefined && String(value) === value
@@ -22,7 +19,7 @@ function assertOwnDefinitionFields(input: Record<string, unknown>, keys: Readonl
   }
 }
 
-function validateCron(cron: string): void {
+function validateCron(cron: unknown): asserts cron is string {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0001({ message: "`defineSchedule()` requires a cron string." })
   }
@@ -33,7 +30,8 @@ function validateCron(cron: string): void {
   }
 }
 
-export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult>
+export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult> & { cron: string }
+export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult> & { cron: string }): ScheduleDefinition<TResult> & { cron: string }
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
 export function defineSchedule<TResult = unknown>(cronOrInput: string | ScheduleDefinitionInput<TResult>, handler?: ScheduleHandler<TResult>, options: ScheduleDefinitionOptions = {}): ScheduleDefinition<TResult> {
   if (!isPlainObject(options)) {
@@ -48,8 +46,8 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }
 
-  if (!Object.hasOwn(input, "cron") || !Object.hasOwn(input, "handler")) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
+  if (!Object.hasOwn(input, "handler")) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `handler`, and `cron` unless code starts the Schedule with `startSchedule()`." })
   }
   assertOwnDefinitionFields(input, scheduleDefinitionKeys, "`defineSchedule()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0004)
 
@@ -58,7 +56,12 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: `\`defineSchedule()\` does not support the "${unknownKey}" option.` })
   }
 
-  validateCron(input.cron)
+  // Without `cron`, the Schedule runs only when code starts it with `startSchedule()`.
+  const hasCron = Object.hasOwn(input, "cron")
+  if (hasCron) validateCron(input.cron)
+  else if (input.timeZone !== undefined) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` timeZone needs a cron. A Schedule without cron takes its time zone from `startSchedule()`." })
+  }
 
   if (typeof input.handler !== "function") {
     throw scheduleErrorDiagnostics.SCHEDULE_C0005({ message: "`defineSchedule()` requires a schedule handler." })
@@ -72,10 +75,9 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` timeZone must be an IANA time zone, such as \"Europe/Madrid\"." })
   }
 
-  const definition: ScheduleDefinition<TResult> = {
-    cron: input.cron,
-    handler: input.handler,
-  }
+  const definition: ScheduleDefinition<TResult> = hasCron
+    ? { cron: input.cron, handler: input.handler }
+    : { handler: input.handler }
   if (input.timeZone !== undefined) {
     definition.timeZone = input.timeZone
   }

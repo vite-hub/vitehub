@@ -17,7 +17,7 @@ Keep the three pieces separate:
 ## Install
 
 ```sh
-pnpm add @vite-hub/agent @vite-hub/workspace ai
+pnpm add @vite-hub/agent @vite-hub/env @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
@@ -25,14 +25,6 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 `driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
 
 Add the AI SDK model provider you pass to `model`.
-
-Eve extensions are optional and require Node.js 24 or newer. Install the compatible pair before mounting one in a static Capability list:
-
-```sh
-pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
-```
-
-For the accepted manifest contracts, the bridge supports one `session.started`, `turn.started`, or `step.started` handler per dynamic tool during Invocation preparation. Reading an unavailable session sequence, `stepIndex`, step model, or `modelId` throws `AGENT_R0415`. It does not provide real per-step lifecycle hooks, Eve sandbox, token, auth, or dynamic-skill adapters. Approval definitions may use `{ request }`; response authorizers are rejected. See [Eve extension capabilities](https://vitehub.dev/docs/agents/capabilities#use-an-eve-extension).
 
 The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 provider runtime. Install only the provider packages an Agent uses:
 
@@ -84,7 +76,7 @@ Each `channels` value is a Channel definition, such as `webChat()`, or a factory
 
 ## Typed questions
 
-`driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers their type from the questions:
+`driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers the type of `result.output` from the questions:
 
 ```ts
 // server/agents/labeller.ts
@@ -111,23 +103,35 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option, through their `gateway` option or `typesafe()`. Their decisions include `probabilities` and no `reason`.
+See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` ask one `@vite-hub/decisions` group with `infer: true`. `model`, or the Agent model, answers it. With `gateway`, or on an ask Driver Agent through `typesafe()`, Jev answers it. Their decisions have `confidence` and `probabilities`, and no `reason`.
 
 ## Direct invocations
 
-Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, null]`. ViteHub creates an isolated memo cache and run ID, then drains background work before returning. Results retain their inline output or Workflow Run shape. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. Non-Error failures are wrapped with their original value as the cause.
+`runAgent(agent, input, options?)` runs the Agent in the calling process and returns `[error, result]`. It does not throw for a failed run. `result.text` has the final text, and `result.output` has the typed Agent output: the `driver.output` schema value, the `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns. `runAgent()` consumes streamed output and `Response` bodies before it returns. `error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure.
 
-Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it at server startup, and the generated Deno server and Netlify function are that module, so the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+```ts fragment
+const [error, result] = await runAgent(agent, { prompt: "Summarize the policy." }, {
+  runtimeContext: getRuntimeContext(event),
+})
+if (error) throw error
+console.log(result.text)
+```
 
-`runAgent(agent, runtimeContext, input)` keeps the host context, returns the result directly, and throws failures. The context needs `runtime` and `waitUntil`. When it has no `memo`, ViteHub creates a fresh memo cache for the Invocation. Use this form for request metadata, runtime configuration, and streams that require a host background lifetime. Errors during later stream or Response-body consumption are outside the two-argument tuple. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
+`runtimeContext` is the host Runtime Context, such as `getRuntimeContext(event)` from `@vite-hub/runtime/h3`. It is not `input.context`, which holds the Invocation context values. Without `runtimeContext`, ViteHub creates an isolated memo cache and run ID and waits for background work before it returns. When `runtimeContext.waitUntil` is set, the host keeps background work alive.
 
-Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, output: 'drained' })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. Both options select inline execution. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
+Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it on its first request. An Invocation that starts before any request, such as a Schedule on a new Worker, loads it before the Invocation starts. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+
+`runAgent()` and `streamAgent()` run the Agent inline, whatever its `runtime`. The generated routes and Channels start Workflow runs. Use `startAgentInvocation()` to start a run that you inspect or cancel later.
+
+`streamAgent(agent, input, options?)` returns `[error, events]`, where `events` is an `AsyncIterable<StreamEvent>`. With `output: "ui-message-stream"`, it returns `[error, response]` with an AI SDK UI message stream `Response`. Errors during stream consumption reach the reader. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
+
+Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, schedule })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
 
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.
 
-Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs. Return `undefined` to continue, or a value to use as the Invocation output. `runAgent()` types its output as the union of the `intercept` return type and the `driver.output` schema output. `agent:finish` hooks receive the intercepted value, and the finish trace event records `agent.intercepted: true`. See [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions#finish-before-the-driver).
+Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs. Return `undefined` to continue, or a value to use as the Invocation output. `runAgent()` types `result.output` as the union of the `intercept` return type and the `driver.output` schema output. `agent:finish` hooks receive the intercepted value, and the finish trace event records `agent.intercepted: true`. See [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions#finish-before-the-driver).
 
 ## Custom Capability tools
 
@@ -142,6 +146,28 @@ To run Codex on a user's ChatGPT plan, set `driver: codexDriver({ gateway: chatg
 Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, including approval-required provider actions. The factory options expose shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options. Only these factories import the provider runtime, so an app that does not call one does not bundle it. A string such as `driver: "codex"` or a plain `{ kind: "codex" }` object fails with `AGENT_R0490` or `AGENT_R0492`.
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
+
+The Agent reads the Codex `auth.json` from a Server Env secret:
+
+```ts
+// vite.config.ts
+import { hubAgent } from "@vite-hub/agent/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    hubEnv({
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+      },
+    }),
+    hubWorkspace(),
+    hubAgent(),
+  ],
+});
+```
 
 ```ts
 // server/agents/codex/agent.ts
@@ -173,8 +199,6 @@ export default defineAgent({
 The resolver remains the external source of truth, but ViteHub does not write Codex refreshes back to it. A persisted profile is a complete Codex Home, including auth, configuration, session state, and logs, so treat the whole volume as sensitive. Give each Kubernetes replica its own persistent volume; profiles do not coordinate a shared multi-writer volume across processes or pods. Agent inspection reports only that a credential source is configured and never resolves, checks, or prints it.
 
 Provider Drivers require a local Node.js host; Cloudflare Agents and Deno fail explicitly. Set `sandbox` on the Agent Definition to start the provider command inside an [`@vite-hub/sandbox`](../sandbox/README.md) session. Each invocation opens a new Sandbox with its checkout, environment, Home files, and requirements resolved for that invocation. ViteHub adds the provider command to the requirements and writes Driver instructions and Skills to the Sandbox Home. The Sandbox runtime must forward process input, and Capability tools need a runtime that shares the ViteHub network. `sandbox` rejects model and custom `run` Drivers, `driver.launch`, `driver.credentials`, `driver.credentialProfile`, and `workspace` when the Agent is defined. Sandbox invocations do not resume provider sessions, fail explicitly on Windows hosts, and fail when the Sandbox session cannot close. Set `driver.cwd` to an existing directory, or a resolver that returns one, to run the provider in an application-owned checkout. ViteHub then materializes Workspace Sources but starts no Workspace session: it does not copy files, create a Git baseline, write changes back, or remove the directory. Title and progress summary runs ignore `cwd`. Cloudflare Worker builds exclude the provider Driver runtime through the `workerd` and `worker` package conditions and fail with `AGENT_B0019` when the Worker output contains a provider Driver. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` for Codex or a literal prompt file for Claude Code, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active. Set `sessionStorePath` to keep opaque provider cursors in SQLite across restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Dedicate each file to one provider Agent Definition on one persistent process host; it does not coordinate concurrent ownership of one thread across workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
-Codex never removes its sessions, logs, or thread history, so its Home grows without a limit. Set `driver.retention: { maxAge, maxRecords, maxSize }` on the Codex Driver, for example `{ maxSize: '45%' }`, to remove the oldest data in the background until every limit holds. `maxSize` counts the Home's files, SQLite live pages, and WAL files; a percent is a share of the volume. Retention runs on the first Codex invocation, then at most every 10 minutes, and never removes a running thread or a file changed in the last 10 minutes. Sessions that a resume cursor references go last; the next invocation of that conversation then sends the full message history. It needs a persistent Home (`credentialProfile`, `providerSettings.homePath`, or `CODEX_HOME`); plain `credentials` without a profile fail with `AGENT_R1006`. `vitehub agent codex-home status|prune --home <path>` measures and prunes a Home with the same rules. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#limit-the-codex-home-size).
-
 When all selected Workspace Sources materialize successfully before the provider session starts, ViteHub appends source evidence for each ready GitHub Source with an immutable commit revision. Direct, inferred shorthand, and resolved GitHub Sources are supported. If session startup must retry materialization, ViteHub omits source evidence because the mounted revision may change. The evidence gives the canonical repository URL, commit revision, configured source root, and Workspace mount so the provider can cite the mounted files without rediscovering their origin. ViteHub omits mutable or unavailable revisions, custom Sources, invalid repository metadata, and Source credentials.
 
 Process hosts can call `failInterruptedAgentInvocations(store, { recover })` at startup. `recover` must identify records owned by the stopped process host. Exclude durable Workflows and other provider-owned work because their active records may not hold a store claim while suspended. Recovery first respects an existing claim, waits up to `recoveryTimeoutMs`, and asks `recover` again before taking over the stopped host's claim. The timeout defaults to `claimLeaseMs`.
@@ -212,7 +236,7 @@ The `output` token limit is passed to AI SDK model calls as `maxOutputTokens` wh
 
 Set `driver.capacity` when one Agent Definition must bound concurrent Driver work inside a process:
 
-```ts
+```ts fragment
 export default defineAgent({
   driver: {
     capacity: {
@@ -243,24 +267,11 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits and events, host `MemAvailable`, and the greater of host and cgroup CPU or memory pressure when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. The sampler reserves `memory.perInvocationBytes` of additional growth for each active invocation before admitting new work. This is conservative because current usage is already deducted from available memory. Admission does not enforce worker limits or stop active work. Tune `memory.perInvocationBytes`, `memory.reserveBytes` for the host, `memory.serviceReserveBytes` for the process or cgroup (1 GiB by default), and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
-
-```ts
-await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
-  await runAgent({ cwd: path, env, signal })
-  await push()
-}, { signal: invocation.abortSignal, timeout: 60_000 })
-```
-
-For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. The standalone `prepareGitHubPullRequestWorkspace(checkoutPath, cwd, { signal })` export performs the same preparation. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
-
-`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
-
 The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocations()`, `readAgentInvocationWorkload()`, and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. `readAgentInvocationWorkload()` combines the latest 100 invocation summaries with every active invocation. Its `total` counts that de-duplicated union, not all historical invocations. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 
 On a persistent server, ViteHub drains Agent work on `SIGTERM` and `SIGINT`, then exits. The application writes no shutdown code. The generated webhook queue plugin registers two drains with the shared [ViteHub shutdown](../runtime/README.md): `agent.chat` for inline Chat invocations and `agent.webhook-queues` for the webhook queues. Process hosts and other packages register their own drains, and all drains run in parallel with one budget from `VITEHUB_SHUTDOWN_DRAIN_MS`. `vitehub({ agent: { shutdown: { drainMs } } })` sets the default for that variable, and the variable wins when it is set. The default is 0, which interrupts the work at once. Set `agent.shutdown: false` to not drain inline Chat invocations. The Chat drain does not run in development, during prerender, or on ephemeral hosts. HTTP stays up during the drains. Then the server closes HTTP, Nitro runs its `close` hooks for up to 10 seconds, and the process exits once. `process.__vitehubShutdown` shows the registered drains and their results. Give the host a termination grace period longer than the drain budget plus 25 seconds: 15 seconds for interrupted Chat invocations to post their notice and 10 seconds for the close hooks. The Chat drain waits up to the budget for inline Chat invocations to finish. It then aborts the rest with a `HOST_RESTARTED` error, which replaces the thinking placeholder with a restart notice. Each inline Chat invocation stores its inbound message in Chat state under `vitehub:interrupted-chat` until it finishes. When the webhook route resumes with `recoverInterruptedBefore`, it posts the notice for each stored message that did not complete and runs the message once more with a note that asks the Agent to check for work that the first attempt already did. Recovery requires State with atomic lease-fenced cache mutations (`mutateWithLock`). It durably reserves the single retry before dispatch, so an expired lease cannot cause a second dispatch. If the host stops after reservation but before dispatch is confirmed, the next startup treats that attempt as exhausted. A message that was already retried is not retried again; the thread gets "Please send your message again." The queue drain resolves when every stopping webhook queue has settled. A stopping queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for active deliveries before it aborts them, and the persisted queue replays aborted deliveries after the restart. Workflow-backed Agents do not need this path, because their runs continue across restarts.
 
-`defineAgent({ invocations })` accepts the journal that `defineAgentInvocations()` returns. A host can add more settings through the `AgentInvocationsHostSettings` interface and must resolve them before it calls this package's `defineAgent()`; this package rejects a journal name, `false`, or an options object. `defineAgent` from `vite-hub/agent` accepts `"database"`, `"memory"`, `false`, and `{ store, ...options }`. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#store-invocation-history).
+`defineAgent({ invocations })` accepts the journal that `defineAgentInvocations()` returns, `"database"`, `"memory"`, `false`, and `{ store, ...options }`. Without `invocations`, the Agent records in the app-wide journal that the ViteHub server installs, and `getAgentInvocations()` returns that journal. `false` records no journal. `vite-hub/agent` re-exports this package unchanged. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#store-invocation-history).
 
 `defineAgentInvocations({ observations, store })` configures retained observation count, content string length, encoded byte budget, and finish drain time. Defaults retain up to 32,768 observations, 65,536 UTF-16 code units of content strings, and a one-second drain, with a 16 MiB aggregate storage limit. Explicit limits support longer traces without removing bounds; records keep those limits across restarts. See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for the limits and privacy policy.
 
@@ -270,20 +281,9 @@ On a persistent server, ViteHub drains Agent work on `SIGTERM` and `SIGINT`, the
 
 Capability setup and close callbacks emit `agent.capability.<phase>` timing events through the invocation trace. They include capability ID, measured duration, outcome, and available correlation IDs, without callback payloads or thrown messages. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#observe-the-outcome) for the event contract.
 
-`title()` accepts message input or a plain `prompt`. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
+`title()` accepts message input or a plain `prompt`. It selects the prepared user message matching `run.messageId`, or the latest prepared user message when no ID is available. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Each journaled invocation generates its own title even when Channel thread-title delivery has already succeeded. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
-
-```ts
-// vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
-});
-```
 
 ## CLI inspection
 
@@ -296,15 +296,15 @@ Pass `--json` for the structured inspection contract.
 - A `webChat()` Channel exposes the Agent through the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher. Use `webChat({ route: false })` when an Agent should not answer it, or `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
 - `ignored(reason)` from `vite-hub/agent/channels` answers a webhook that a Channel trigger does not handle with HTTP 200 `{ accepted: false, ok: true, reason }`. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
 - `retryLater(reason)` answers HTTP 503 and `rejected(reason)` answers HTTP 400, both with `{ accepted: false, ok: false, reason }`. The sender and the webhook queue retry `retryLater()`; a `rejected()` delivery is not retried. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
-- `defineChannel(kind, { instructions })`, and the same option on built-in Channels such as `github()` and `teams()`, adds trusted Markdown after the Agent instructions for each Invocation that the Channel starts. Agent inspection lists it. See [Add instructions to one Channel](https://vitehub.dev/docs/agents/channels#add-instructions-to-one-channel).
-- `defineChannel(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
+- `instructions` on `defineChannel()` from `vite-hub/channels`, on `channelAdapter(kind, options)`, and on built-in adapters such as `github()` and `teams()`, adds trusted Markdown after the Agent instructions for each Invocation that the Channel starts. Agent inspection lists it. See [Add instructions to one Channel](https://vitehub.dev/docs/agents/channels#add-instructions-to-one-channel).
+- `channelAdapter(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
 - Built-in GitHub `webhook` and `dev` Triggers supply `{ repository, pullRequest, run, trigger }` as Channel message data. Custom `message.data` schemas must accept this pull request context.
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
 - `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe); `openRouterTranscriptionModel()` provides OpenRouter transcription without consumer-owned HTTP handling.
 - `createTranscription()` composes remote asynchronous submission and completion through a provider-neutral driver; `elevenLabsScribe()` is the built-in Scribe v2 adapter.
-- `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. Transient transport failures skip the affected server and record `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Authentication, configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. A server entry can name a `connection`. Without `transport.url`, it connects to the provider's `mcp` endpoint. `optional: true` skips the server until the Connection is connected, and `tools` limits the exposed tools. A server's `skill://` Skills are installed in the Invocation's Workspace at `.agents/skills/<name>/` for that Invocation only; the Agent's own Skill of the same name wins, and `skills: false` turns this off. In an Agent that `extends` another, a child `mcp()` merges its servers into the parent's by name; `inherit: false` replaces them. Outside an Invocation, `callMcpTool(server, name, args, { retries })` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`. A `connection` entry runs as the `server` actor.
+- `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. A server that fails, including an HTTP error such as an expired credential or a Connection that cannot authorize, is skipped and recorded in `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. A server entry can name a `connection`. Without `transport.url`, it connects to the provider's `mcp` endpoint. `optional: true` skips the server until the Connection is connected, and `tools` limits the exposed tools. A server's `skill://` Skills are installed in the Invocation's Workspace at `.agents/skills/<name>/` for that Invocation only; the Agent's own Skill of the same name wins, and `skills: false` turns this off. In an Agent that `extends` another, a child `mcp()` merges its servers into the parent's by name; `inherit: false` replaces them. Outside an Invocation, `callMcpTool(server, name, args, { retries })` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`. A `connection` entry runs as the `server` actor.
 - `kv()`, `blob()`, `db()`, and `email()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), [`@vite-hub/database`](../database/README.md), and [`@vite-hub/email`](../email/README.md).
 - `channelDelivery({ channel, options })` adds one `send_message` tool that sends through a Channel client from `useChannel()` to an application-selected recipient. Its name must be unique among Capability tools. It limits calls with `maxCalls` (default `1`) and can fail the Invocation with `required: true` when the Agent never sends. `options` can be a function of the Capability context that resolves once per Invocation, before the Driver runs and also in a dry run; a throw fails the Invocation with `CHANNEL_DELIVERY_OPTIONS`. `onDelivered(message, receipt, context)` runs after each successful or dry-run send with a `ChannelDeliveryReceipt` (`{ deliveryId, dryRun, text }`). When it throws, the delivery still counts, the model still receives the receipt, and the Invocation fails with `CHANNEL_DELIVERY_HOOK_FAILED` when it finishes.
 - `sandbox()` runs allowlisted executables through the configured Sandbox primitive. See [`@vite-hub/sandbox`](../sandbox/README.md).
@@ -314,7 +314,14 @@ Pass `--json` for the structured inspection contract.
 ```ts
 import { openapi } from "@vite-hub/agent/capabilities";
 
-openapi({
+// The application sets this Invocation context value for each tenant.
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    billing: { tenantId: string; token: string };
+  }
+}
+
+export const billing = openapi({
   spec: "https://api.example.com/openapi.json",
   cli: {
     name: "billing",
@@ -329,11 +336,11 @@ openapi({
       handler({ context, request }) {
         request.body = {
           ...(request.body as Record<string, unknown> | undefined),
-          tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+          tenantId: context.get("billing")?.tenantId,
         };
         request.headers.set(
           "authorization",
-          `Bearer ${context.get<{ token: string }>("billing")?.token}`,
+          `Bearer ${context.get("billing")?.token}`,
         );
       },
     },
@@ -349,6 +356,15 @@ openapi({
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 `operations` can also be a record of names to `operationId`s, such as `{ "invoice": "billing_get_invoice_invoices__id__get" }`. Each name becomes the tool name and the CLI command name. ViteHub reads only the selected operations, so other operations in the spec can have any `operationId`.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
+
+## Channel task Agents
+
+A trigger task can use an Agent Definition or a resolver such as
+`agent: () => import('../agents/triage')`. The resolver returns the definition or
+its default-export module. ViteHub resolves it before binding task callbacks and
+stores the resolved Agent name in queued deliveries. Use a lazy import when the
+target Agent lists the Channel. Keep static imports of the owning Agent out of
+the Channel and its helpers. ViteHub reports cycles through local imports at build time.
 
 ## Channel Env
 
@@ -386,7 +402,7 @@ for the code format and an application catalog example.
 
 `teams()` builds its Chat SDK adapter from `env.server.teams` (`TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, `TEAMS_API_URL`) and needs `@chat-adapter/teams`. `adapter` options such as `{ userName }` take precedence over Env; an adapter or factory is used as given.
 
-`teams.connector()`, `slack.connector({ adapter })`, `discord.connector()`, and `telegram.connector()` are outbound connectors for `defineOutboundChannel()` with one contract: `send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their adapter from Server Env like their Agent Channel; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
+`teams()`, `slack({ adapter })`, `discord()`, and `telegram()` also send, as the adapter of a `defineChannel()` from `vite-hub/channels`, with one contract: `useChannel(name).send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their Chat SDK adapter for sends from Server Env; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
 
 To replace a temporary message in a channel thread, set `thread.root` on the first send so the temporary message is a reply. Replacing the root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
 
@@ -408,15 +424,18 @@ Chat History and the Concurrent Invocation Guard need an Agent State Provider wh
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite"
+import { hubAgent } from "@vite-hub/agent/vite"
+
 export default defineConfig({
-  agent: {
+  plugins: [hubAgent({
     providers: {
       state: {
         provider: "sqlite",
         url: process.env.VITEHUB_AGENT_STATE_URL,
       },
     },
-  },
+  })],
 });
 ```
 
@@ -446,6 +465,7 @@ A queued delivery gets three execution attempts. When the queue stops retrying i
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
 
 ```ts
+import { chat } from "@vite-hub/agent/capabilities"
 import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite";
 
 chat({
@@ -468,6 +488,8 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 `defineAgentInvocations()` returns `getSummary(id)` for metadata reads without observations. Every store must implement this method. Use `get(id)` for the full record or `get(id, { observationNames: ["agent.invocation.finish"] })` to read only observations with those exact names. An empty list returns no observations. The built-in SQL stores filter observation payloads inside the database. Custom stores can apply the same option to avoid loading unrelated payloads; the Invocations wrapper also filters their returned records. Both methods return `undefined` when the Invocation does not exist.
 
+A store that connects on first use can implement `open()`. The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`. Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried. `createLibsqlAgentInvocationStore()` implements it with its table setup.
+
 ## Invocation cancel
 
 `invocations.cancel(id)` records `cancelRequestedAt` on a pending or running Invocation and returns an `AgentInvocationCancelResult`. A run in the same process aborts its Invocation abort signal at once. The `requested` outcome confirms a recorded or locally sent request, not that execution stopped. If the journal record is missing but a local run received the request, the result still reports `requested` with `delivery: "local"` and any Driver warning. Before setup, active runs check the flag. With `enforcement: "strict"`, a rejected or missing read, or a check that exceeds `storeTimeoutMs`, fails startup with `AGENT_R0973`; in best-effort mode the run starts and reads the flag again at the next poll. After startup, active runs read the flag every 10 seconds, including after a lost lease stops claim renewal. Orphaned records remain pending or running until an execution owner recovers and observes the request. Cancellation does not take over expired leases or recover orphaned work. Read the final journal status to confirm cancellation. Model-backed and provider-backed Drivers stop on cancel. Cancellation before Driver dispatch stops startup without a warning. `cancelWarningPending` and its `cancelWarningOwnerId` are persisted when a custom Driver record is created and identifies dispatch that is not yet verified; warning writes retry after dispatch. A remote caller waits up to five seconds to verify a pending state, then throws `AGENT_R0974` if verification fails, while keeping the recorded request. A custom `run` Driver that has started receives the aborted signal but ViteHub cannot stop it, so the result reports `notEnforcedBy: "run"` and the record stays `running`. A terminal journal does not prove every stale local Driver stopped; cancelling it still signals local runs and returns durable or local `notEnforcedBy` warnings without changing the terminal record. Durable warnings describe Driver enforcement and do not prove work is still active. Custom stores keep the new fields through `applyAgentInvocationStoreUpdate()`. `vitehub agent invocations cancel <id>` sends the same request into the Nitro runtime of a Vite + Nitro Development Server, so it reaches the application's own journal and abort handles. Nuxt and plain Vite return `501`. With `--url https://app.example.com`, the command sends the request to the deployed Console instead, with the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#cancel-an-invocation).
@@ -478,13 +500,21 @@ GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repo
 
 Provider Drivers get the mount as a real Git checkout of the exact head SHA, with `origin`, the fetched base branch, and a local head branch that tracks the pull request branch. A declared GitHub Source of the same repository and scope at the same mount is replaced for the Invocation; a different repository or scope fails with an error that names the Source. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
 
-An Agent with one github() Channel that sets `app` gets forge access from that Channel. The Channel resolves a token for each repository: the `app.token` callback when it is set, otherwise an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository. Every Invocation of the Agent gets this access, including streamed runs. The pull request checkout, `git()`, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`. The Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, scoped to the pull request base and head repositories, and never in process arguments. A run without a pull request, such as a Teams or chat run, gets Git credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. To use a host-managed credential, set `github({ app: { token } })` or use `host.channel()`.
+An Agent with one github() Channel that sets `app` gets forge access from that Channel. The Channel resolves a token for each repository: the `app.token` callback when it is set, otherwise an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository. Every Invocation of the Agent gets this access, including streamed runs. The pull request checkout, `git()`, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`. The Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, scoped to the pull request base and head repositories, and never in process arguments. A run without a pull request, such as a Teams or chat run, gets Git credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. To use a host-managed credential, set `github({ app: { token } })`.
 
-Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. `webhooks.aliases` adds more paths. A Channel module in `server/channels`, such as `server/channels/tickets/index.ts`, that default-exports `defineChannel()` with a literal `webhooks.path` serves that path without an Agent Definition; its trigger selects the Agent with a task. See [Give a Channel its own route](../../docs/content/docs/agents/channels.md#give-a-channel-its-own-route). `webhooks.stateScope` replaces the `webhook:<agent>:<origin>:<registration>:` scope of the webhook State and queue. Set it to the old scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner. Give each registration its own scope; ViteHub does not check this. See [Keep webhook State when a Channel moves](../../docs/content/docs/agents/channels.md#keep-webhook-state-when-a-channel-moves). See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
+Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. `webhooks.aliases` adds more paths. A Channel module in `server/channels`, such as `server/channels/tickets/index.ts`, that default-exports `defineChannel()` with a `webhook()` or `stripe()` adapter serves `/api/_vitehub/channels/<name>` and the adapter's literal `path` without an Agent Definition; its trigger selects the Agent with a task. `defineAgent({ channels: ['slack'] })` lists Channels of `server/channels` by name; ViteHub registers each listed module before the Agent module runs, and the Agent then serves the Channel's routes. See [Give a Channel its own route](../../docs/content/docs/agents/channels.md#give-a-channel-its-own-route). `webhooks.stateScope` replaces the `webhook:<agent>:<origin>:<registration>:` scope of the webhook State and queue. Set it to the old scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner. Give each registration its own scope; ViteHub does not check this. See [Keep webhook State when a Channel moves](../../docs/content/docs/agents/channels.md#keep-webhook-state-when-a-channel-moves). See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
 
 For GitHub Channels, `activity: true` links pull request webhook activity to its ViteHub Console invocation when `vitehub({ publicUrl })` is set. `activity: { publicUrl }` overrides the origin for one Channel. Without a public URL, the application supplies its own links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
 
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
+
+## Default invocation journal
+
+`@vite-hub/agent/invocations/default` exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
+
+A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
+
+`@vite-hub/agent/invocations/default-core` exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/invocations/default-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
 
 ## D1 invocation storage
 
@@ -503,7 +533,7 @@ See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for bindi
 
 Use `extends` to make one Agent Definition the default for another:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 
@@ -518,11 +548,11 @@ export default defineAgent({
 
 The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
 
-Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+Child configuration overrides parent defaults. Channels, Sources, and Skills merge by key, replacing each matching definition as a whole. Hooks merge by name: when both layers define a hook, the parent's hook runs first, then the child's. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
 Three options compose with the parent, so the child does not restate it:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import bot from '../bot/agent'
@@ -541,7 +571,7 @@ export default defineAgent({
 - `driver.requirements` can be a function of the inherited list. Without a parent, it receives `[]`.
 - A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` by server name into the parent's `mcp()` Capability. The child's entry for a server wins as a whole, and options that the child leaves unset, such as `unavailableNotice`, are inherited. Set `inherit: false` to replace the parent's `mcp()` Capability.
 - `workspace.materialize` is the default [`materialize` mode](https://vitehub.dev/docs/workspace/configure) for every Source in `workspace.sources` that does not set its own. Sources that Capabilities contribute keep their own mode.
-Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+Child configuration overrides parent defaults. Channels, Sources, and Skills merge by key, replacing each matching definition as a whole. Hooks merge by name: when both layers define a hook, the parent's hook runs first, then the child's. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Compose shared instruction strings in TypeScript, or import Markdown with `?raw` and assign the composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
 
@@ -564,7 +594,7 @@ Each key is a Skill name, and each value is its `SKILL.md` content. The result k
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
 
-```ts
+```ts fragment
 import { defineAgent } from "@vite-hub/agent"
 import { notetaker } from "@example/agents"
 
@@ -583,6 +613,8 @@ Preset packages must declare `@vite-hub/agent` as a peer dependency so their def
 A preset can expose typed options with the same `defineAgent()` function:
 
 ```ts
+import { codexDriver, defineAgent } from "@vite-hub/agent"
+
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
@@ -593,7 +625,7 @@ export const notetaker = defineAgent({
 
 Consumers select the definition and override only the options they need:
 
-```ts
+```ts fragment
 const notes = defineAgent({
   preset: "notetaker",
   presets: { notetaker },
@@ -614,9 +646,29 @@ Discovery reads first-party Channel helper calls, such as `github({ pullRequest:
 
 Discovery rejects Channel option bindings that are mutated or passed to opaque calls, including local callbacks and built-in mutators such as `Object.assign`. It does not execute those calls to inspect their effects. Use unmodified local options, or add `workspace: {}` when the Channel owns a Workspace.
 
-Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
+Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook. Option callbacks are values and are also replaced, never invoked by merging.
 
 Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+
+### Build an Agent from another Agent in code
+
+A package that derives a second Agent at runtime, such as the Babysitter worker in `@vite-hub/presets`, uses three functions from `@vite-hub/agent`:
+
+- `agentSettings(agent)` returns the resolved settings of an Agent Definition, with its `extends` layers applied, in a new object. Nested values, such as `driver` or `channels`, still belong to the Agent: replace a field instead of changing it in place, then pass the result to `defineAgent()`.
+- `withoutForgeAccess(channel)` returns a copy of a Channel without the GitHub access of `github({ app })`. Use it when the new Agent must not receive the host's GitHub token.
+- `activeProviderSandbox(context)` returns the Sandbox that the provider Driver of the current Invocation runs in, or `undefined` when the Driver runs on the host. A Capability uses it to copy files between the host and that Sandbox.
+
+```ts fragment
+import { agentSettings, defineAgent, withoutForgeAccess } from '@vite-hub/agent'
+
+const settings = agentSettings(base)
+if (!settings) throw new TypeError('Expected an Agent Definition.')
+const worker = defineAgent({
+  ...settings,
+  driver: { ...settings.driver, model: 'worker-model' },
+  channels: { github: withoutForgeAccess(settings.channels!.github!) },
+})
+```
 
 
 
@@ -635,7 +687,7 @@ from `@vite-hub/agent/runtime/process` combines capacity, invocation storage and
 recovery, provider-session storage, and a draining reconciler. Its data directory
 must belong exclusively to this host. It is not a distributed lease.
 
-```ts
+```ts fragment
 export default await createProcessAgentHost({
   name: 'reviewer',
   dataDir: '.vitehub',
@@ -657,6 +709,8 @@ The host can also live beside an Agent Definition as a named export. Keep the
 Agent Definition as the module's default export and select the host in Vite:
 
 ```ts
+import { processAgentHost } from "@vite-hub/agent/vite"
+
 processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' })
 ```
 
@@ -671,44 +725,14 @@ starts a drain. On SIGTERM and SIGINT, ViteHub closes the host with the other
 shutdown drains while HTTP stays up, then lets the server close HTTP and exits once.
 Use the runtime drain CLI before replacing the process.
 
-`createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR
-snapshots with paginated feedback and required checks through the host's `forge()`.
-An explicit `activityAuthors` list excludes only those authors' managed activity
-comments from feedback fingerprints. `feedback.hasDiscussion` is conservative;
-consumers must still check failures and conflicts before deciding to wait.
-`publishAgentActivity()` updates a channel without starting an invocation.
-
-`createGitHubPullRequestOperations(host, { repository, number, expectedHeadOid,
-autoMerge, eligible, push })` binds repair operations to one PR. Expose its
-comment, metadata, thread resolution, failure log, and push methods as selected
-Capabilities. Keep `host`, its credentials, and Git credential configuration out
-of the worker. `eligible` receives current PR fields and all labels, so the host
-can recheck the channel filter before each operation. The host-owned `push`
-callback returns the verified commit SHA; subsequent operations follow that head
-and reject external changes.
-
-`requestAutoMerge()` is disabled by default. When enabled, it checks repository
-settings, required checks or workflows in active branch rules or required checks in classic protection, and
-outstanding human change requests, then requests GitHub native auto-merge with
-an atomic expected-head check. It returns `enabled`, `already-enabled`, `merged`,
-or `blocked` with a reason. GitHub remains responsible for required checks and
-reviews. The operation never approves, merges directly, or deletes a branch.
-If automatic repository branch deletion could affect open child PRs, it blocks.
-API failures propagate without a direct-merge fallback.
-
-`host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
-A provider `env` resolver can call `host.environment()` inside
-`withPullRequestCheckout()`. The environment binds to that callback's checkout,
-including concurrent callbacks. Await the entire agent run before returning.
-Use `defineAgent({ extends: agent, name, workspace })` to bind the workspace
-without rebuilding driver configuration.
-
 ### Host inspection routes
 
 Keep host inspection configuration beside an Agent Definition. `agentHostRoutes`
 from `vite-hub/agent/vite` generates GET/HEAD routes from named function exports:
 
 ```ts
+import { agentHostRoutes } from "@vite-hub/agent/vite"
+
 agentHostRoutes({
   entry: './server/agents/support/agent.ts',
   health: 'health',
@@ -717,10 +741,9 @@ agentHostRoutes({
 ```
 
 The defaults are `/api/health` and
-`/api/_vitehub/console/invocations/:id/workspace`. Each option also accepts
+`/_vitehub/api/invocations/:id/workspace`. Each option also accepts
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
-`(invocationId, path?)` and return a Response; for GitHub checkouts, use
-`createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
+`(invocationId, path?)` and return a Response.
 The default Workspace route also serves Console RPC inspection, so retained GitHub
 snapshots remain available after disposable checkouts are removed. A custom route
 keeps its own URL and does not replace the default Console inspector.
@@ -750,7 +773,7 @@ The generated host code creates the Chat and webhook route handlers when the ser
 
 For a Nitro host, set `agent.preparation` in `vitehub()` to start Workspace preparation with the server and stop it on shutdown:
 
-```ts
+```ts fragment
 agent: {
   preparation: {
     workspace: "support",
@@ -780,6 +803,8 @@ Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an 
 For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
 
 ```ts
+import { hubAgent } from "@vite-hub/agent/vite"
+
 hubAgent({
   routes: {
     aliases: {
@@ -810,6 +835,8 @@ An Agent can reserve one place for extending instructions. Define a template in
 `driver.instructions` with exactly one `{{{ instructions }}}` marker outside code:
 
 ```ts
+import { codexDriver, defineAgent } from "@vite-hub/agent"
+
 const base = defineAgent({
   driver: codexDriver({
     instructions: {
@@ -866,48 +893,3 @@ lets a running host receive verified webhook deliveries for its Agent.
 A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.
 
 The callback is skipped when provider shutdown fails or exceeds the cleanup deadline, and during provider inspection. Missing evidence must remain unknown. This callback does not verify model claims, grant push authority, or make closure state durable across host crashes. Validate the checkout in host code and persist the result before returning when durability is required.
-
-### Required GitHub checks
-
-Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
-from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
-Supply a reader `(repository, branch) => Promise<BranchRules>`. Use
-`provider.repos.branchRules()` from a GitHub provider: it combines active branch
-rules with classic branch protection, follows every rules page, and preserves
-required GitHub App identities. The policy is unknown when the read fails, when
-the rules are not complete (`FORGE_R0007`), or when a ruleset requires workflows.
-A credential without admin access still reads the required checks from the branch
-summary; the policy then has `classicSource: "branch-summary"`.
-
-```ts
-import { repoRef } from '@vite-hub/forge'
-
-const policies = createGitHubRequiredCheckPolicyReader(async (repository, branch) => {
-  const provider = await github.forge({ repository })
-  return await provider.repos.branchRules(repoRef(provider, repository), branch)
-})
-const policy = await policies.read('acme/app', 'main')
-const result = evaluateGitHubRequiredChecks(policy, {
-  repository: 'acme/app', branch: 'main', headSha,
-  checkRuns, statuses,
-})
-policies.invalidate('acme/app', 'main') // after a protection or ruleset event
-```
-
-Pass complete REST check-run records and commit statuses fetched for the exact
-head. Add the requested SHA as `sha` on each status because GitHub omits it from
-individual status records. The evaluator selects the
-latest matching records on the exact head. A successful same-context commit status
-for an App-bound requirement returns `unknown` because REST statuses do not identify
-the source App, unless a matching check run already proves failure. Failing and
-pending statuses retain their blocking states. Missing requirements return `pending`
-and appear in `missing`; malformed or unavailable policy returns `unknown`, never
-an empty passing policy. Required workflow rules return `unknown` because they
-cannot be represented as check contexts. Policy reads use a five-minute cache,
-with a two-minute cache for unknown results. Set `ttlMs`, `failureTtlMs`, and
-`clock` in the reader options to change this behavior. Invalidation also prevents
-older in-flight reads from restoring stale cache entries.
-
-These results describe scheduling evidence. They do not grant merge authority or
-replace fresh GitHub merge checks. Repository selection, approvals, merge methods,
-and review-provider policy remain application decisions.

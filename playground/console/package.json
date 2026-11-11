@@ -9,7 +9,7 @@
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
-    "@iconify-json/ph": "catalog:ui",
+    "@types/node": "catalog:tooling",
     "@vitejs/plugin-vue": "^6.0.10",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"

@@ -2,9 +2,11 @@ import { memoryAdapter } from "better-auth/adapters/memory"
 import { createAuthMiddleware } from "better-auth/api"
 import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
-import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
+import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
+import { createAdminsPlugin, readAdmins } from "./admins.ts"
 import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
 import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
@@ -14,11 +16,13 @@ import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type { BetterAuthOptions } from "better-auth"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type {
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
@@ -28,10 +32,6 @@ import type {
   AuthRuntimeOptionsResolver,
   AuthSessionOptions,
 } from "./types.ts"
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function isAuthDatabaseMetadata(value: unknown): boolean {
   return value === true
@@ -68,13 +68,52 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
   }
 }
 
+declare const __VITEHUB_AUTH_DEV__: boolean | undefined
+
+/**
+ * True on a development server. The Auth Vite plugin sets `__VITEHUB_AUTH_DEV__` in the server bundle: `true` for
+ * `vite dev` and a Nitro dev server, `false` for a build. A Cloudflare Worker has no `NODE_ENV`, so the flag decides there.
+ */
+function isDevelopmentServer(): boolean {
+  if (typeof __VITEHUB_AUTH_DEV__ === "boolean") return __VITEHUB_AUTH_DEV__
+  // Code that a ViteHub build did not bundle, such as a test runner, has no flag.
+  const mode = globalThis.process?.env?.NODE_ENV
+  return mode === "development" || mode === "test"
+}
+
+/**
+ * Better Auth turns its limiter on only when `NODE_ENV` is `production`, and keeps its counters in the memory of the
+ * process unless a `secondaryStorage` is set. Auth turns it on outside a development server, and keeps the counters in
+ * the app Database of `authDatabase()`, where every instance and every Auth built for a request sees them.
+ */
+function withRateLimitDefaults(
+  options: Pick<BetterAuthOptions, "rateLimit" | "secondaryStorage">,
+  ownsDatabase: boolean,
+): NonNullable<BetterAuthOptions["rateLimit"]> {
+  const rateLimit = options.rateLimit
+  const database = ownsDatabase && !rateLimit?.storage && !rateLimit?.customStorage && !options.secondaryStorage
+  return { ...rateLimit, enabled: rateLimit?.enabled ?? !isDevelopmentServer(), ...(database ? { storage: "database" } : {}) }
+}
+
+/**
+ * Better Auth reads the client IP from `X-Forwarded-For` by default, which a client can set and Cloudflare does not
+ * send. Auth gives it the address that the host reports instead. With `trustedProxyHeaders`, the proxy address is the
+ * peer, so `X-Forwarded-For` comes first.
+ */
+function withClientAddressHeaders(advanced: BetterAuthOptions["advanced"]): NonNullable<BetterAuthOptions["advanced"]> {
+  if (advanced?.ipAddress?.ipAddressHeaders) return advanced
+  const ipAddressHeaders = advanced?.trustedProxyHeaders ? ["x-forwarded-for", clientAddressHeader] : [clientAddressHeader]
+  return { ...advanced, ipAddress: { ...advanced?.ipAddress, ipAddressHeaders } }
+}
+
 function stripViteHubOptions(
   definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
-  event?: unknown,
+  event?: ViteHubContext,
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
+    adminClaim: adminClaimEnabled,
     console: _console,
     database,
     events,
@@ -100,15 +139,19 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const adminEmails = readAdminEmails(event)
-  const adminEmailsPlugin = adminEmails.length ? createAdminEmailsPlugin(adminEmails, declaredPlugins) : undefined
+  const admins = readAdmins(event)
+  const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
+  const adminClaim = adminClaimEnabled === false ? undefined : readAdminClaim(event)
+  const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
   const plugins = [
     ...declaredPlugins,
     ...(impersonation ? [createImpersonationPlugin()] : []),
-    ...(adminEmailsPlugin ? [adminEmailsPlugin] : []),
+    ...(adminsPlugin ? [adminsPlugin] : []),
+    ...(adminClaimPlugin ? [adminClaimPlugin] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
+  const rateLimit = withRateLimitDefaults({ rateLimit: rest.rateLimit, secondaryStorage: storage.secondaryStorage }, authDatabaseName(database) !== undefined)
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
@@ -116,8 +159,12 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
-    ...(databaseHooks ? { databaseHooks: adminEmailsPlugin ? withAdminEmails(databaseHooks, adminEmailsPlugin) : databaseHooks } : {}),
+    // Claim reservations need the database's primary key, including when sessions use secondary storage.
+    ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
+    ...(databaseHooks ? { databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
+    advanced: withClientAddressHeaders(rest.advanced),
+    rateLimit,
     ...(eventPlugin ? {
       hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
         // Capture the endpoint outcome before application/plugin after-hooks replace it.
@@ -148,7 +195,7 @@ function withSessionRefresh(options: Pick<AuthRuntimeOptions, "plugins" | "sessi
 }
 
 /** Without a configured secret, Better Auth signs with the secret derived from `VITEHUB_SECRET`. */
-function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: unknown): AuthBetterAuthRuntimeOptions {
+function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: ViteHubContext | undefined): AuthBetterAuthRuntimeOptions {
   // Presence is significant here: Better Auth must validate an explicitly empty secret
   // instead of silently replacing it with the ViteHub-derived fallback.
   if (Object.hasOwn(options, "secret") || Object.hasOwn(options, "secrets")) return options
@@ -164,8 +211,8 @@ export function trustsProxyHeaders(options: unknown): boolean {
 export function resolveAuthOptions(
   definition: AuthDefinition,
   input: {
-    env?: (event?: unknown) => Record<string, unknown>
-    event?: unknown
+    env?: (event?: ViteHubContext) => Record<string, unknown>
+    event?: ViteHubContext
     request?: Pick<Request, "headers" | "url">
     runtimeOptions?: AuthRuntimeOptions
   } = {},
@@ -174,7 +221,7 @@ export function resolveAuthOptions(
   const callback = typeof definition.options === "function"
   const staticRequestRuntime = request && typeof definition.options !== "function" ? definition.options.runtime : undefined
   const usesContext = !request || callback || Boolean(staticRequestRuntime)
-  const env = usesContext ? input.env?.(input.event ?? request) ?? {} : {}
+  const env = usesContext ? input.env?.(input.event) ?? {} : {}
   const requestUrlOrigin = request ? new URL(request.url).origin : undefined
   const proxiedOrigin = request ? forwardedRequestOrigin(request) : undefined
   const contextFor = (origin: string | undefined): AuthRuntimeContext => ({
@@ -243,7 +290,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request)), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, resolveSnapshot(), input.event)), input.event) },
     requestRuntimeOptions,
   }
 }
