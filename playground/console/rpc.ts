@@ -53,7 +53,7 @@ const fixtureRoutes: Record<string, string> = {
 // Map one Console call to the synthetic HTTP route that serves its fixture data.
 export async function callConsoleFixture(origin: string, payload: { input?: Record<string, unknown>; operation: string }, cookie?: string): Promise<ConsoleRpcResult> {
   // The MCP client keeps its connections in this process, so its fixture answers here, not over HTTP.
-  if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload, cookie)
+  if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload)
   const input = payload.input ?? {}
   const auth = authOperationFixture(payload.operation, input)
   if (auth) return auth
