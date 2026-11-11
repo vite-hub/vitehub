@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
-import { defineAgent, startAgentInvocation, workflow } from "@vite-hub/agent"
+import { agentWorkflow, defineAgent, startAgentInvocation } from "@vite-hub/agent"
 import { startWorkflow } from "@vite-hub/workflow"
 import { blob } from "../../blob/src/runtime/storage.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
@@ -68,7 +68,7 @@ it("keeps Console images when an Agent Workflow executes inline on OpenWorkflow"
   setOpenWorkflowImporter(importer)
   setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
   const run = vi.fn(() => "done")
-  const agent = defineAgent({ name: "console-inline-upload", driver: { run }, runtime: workflow("console-inline-upload") })
+  const agent = defineAgent({ name: "console-inline-upload", driver: { run }, runtime: agentWorkflow("console-inline-upload") })
   const controller = await withConsoleInputMessage("", { files: [{ url: "data:image/png;base64,YQ==", filename: "test.png" }] }, (message, onInputHandoff) => startAgentInvocation(
     agent,
     { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },

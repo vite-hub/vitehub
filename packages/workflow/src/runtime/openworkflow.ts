@@ -230,7 +230,7 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
       })
       if (result) return result.value
       if (Date.now() >= deadline) {
-        throw new Error(`Another server held the OpenWorkflow schema setup lock for ${postgresSetupWaitMs / 1000} seconds.`)
+        throw workflowErrorDiagnostics.WORKFLOW_R0039({ seconds: postgresSetupWaitMs / 1000 })
       }
       await sleep(Math.min(250 * attempt, 2_000))
     }

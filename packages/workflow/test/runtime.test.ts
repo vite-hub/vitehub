@@ -1605,6 +1605,27 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.postgres).toHaveBeenCalledWith("postgres://localhost/wait", expect.objectContaining({ idle_timeout: 1, max: 1 }))
   })
 
+  it("reports WORKFLOW_R0039 and releases the connection when another server keeps the setup lock", async () => {
+    vi.useFakeTimers()
+    try {
+      openWorkflowMock.lockResults.push(...Array<boolean>(100).fill(false))
+      const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/locked" }, provider: "openworkflow" })!)
+      const failure = acquired.catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(122_000)
+
+      await expect(failure).resolves.toMatchObject({
+        code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+        cause: { code: "WORKFLOW_R0039" },
+      })
+      expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+      expect(openWorkflowMock.lockQueries.at(-1)).toBe("commit")
+      expect(openWorkflowMock.postgres.mock.results[0]!.value.end).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("holds the setup lock until the setup ends, however long it takes", async () => {
     vi.useFakeTimers()
     let finishSetup!: () => void
