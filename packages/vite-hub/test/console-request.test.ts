@@ -343,7 +343,7 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps why navigation failed, so a signed-out Console asks to sign in", async () => {
+  it("keeps why navigation failed, so the Console says that the app refused it", async () => {
     const base = "/sign-in-test/_vitehub/api/sections"
     mocks.call.mockResolvedValueOnce({ ok: false, status: 401, message: "Sign in to use the Console." })
     await expect(loadConsoleNavigation(base)).resolves.toBeUndefined()
@@ -364,7 +364,6 @@ describe("Console requests", () => {
     await expect(
       loadConsoleNavigation("/navigation-test/_vitehub/api/sections"),
     ).resolves.toEqual({
-      auth: false,
       contributions: {},
       operations: [],
       projectName: "console-host",
@@ -392,20 +391,12 @@ describe("Console requests", () => {
     ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"], readOnly: ["kv"] })
   })
 
-  it("loads independent auth availability in the navigation response", async () => {
-    mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
-
-    await expect(
-      loadConsoleNavigation("/auth-navigation-test/_vitehub/api/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
-  })
-
-  it("preserves Cloudflare Access auth mode in the navigation response", async () => {
+  it("ignores an auth field of an older app in the navigation response", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { auth: "cloudflare-access", sections: ["kv"] } })
 
     await expect(
-      loadConsoleNavigation("/cloudflare-navigation-test/_vitehub/api/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
+      loadConsoleNavigation("/auth-navigation-test/_vitehub/api/sections"),
+    ).resolves.toEqual({ contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -426,7 +417,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/contributions-navigation-test/_vitehub/api/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
+    ).resolves.toEqual({ contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
   it.each(["", "/admin"])("loads navigation without a page session under the app mount %s", async (mount) => {

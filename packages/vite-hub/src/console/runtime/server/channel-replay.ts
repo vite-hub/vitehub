@@ -44,7 +44,7 @@ export async function replayConsoleChannel(
 ): Promise<unknown> {
   const agent = getConsoleAgentDefinition(name)
   if (!agent) throw consoleRequestError(404, "Channel replay is not available. Enable Console invocation for this Agent.")
-  const actor = consoleAccessActor(await readConsoleAccessUser(context.access))
+  const actor = consoleAccessActor(readConsoleAccessUser(context.access))
   const tasks = createRuntimeWaitUntilController({ forward: context.waitUntil })
   const runtime = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
