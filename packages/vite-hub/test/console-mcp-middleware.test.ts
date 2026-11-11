@@ -185,7 +185,7 @@ it.each([
       setup(plugin) {
         plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
         plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
-        plugin.onResolve({ filter: /^vite-hub\/_internal\/auth\/runtime\/console$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
+        plugin.onResolve({ filter: /^@vite-hub\/auth\/runtime\/console$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
         plugin.onResolve({ filter: /^@vite-hub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/server"), external: true }))
         plugin.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
           import * as auth from "@vite-hub/auth/server";

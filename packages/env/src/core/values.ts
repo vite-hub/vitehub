@@ -1,5 +1,4 @@
 import { isEnvSchemaValue } from "./json-value.ts";
-import { hasRuntimeType } from "../internal/runtime-type.ts";
 
 import type { EnvValueSchema } from "../types.ts";
 
@@ -27,7 +26,7 @@ export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueP
         : { success: false, message: "JSON value does not match the declared type." };
     }
     case "string":
-      return hasRuntimeType(input, "string") &&
+      return typeof input === "string" &&
         (schema.minLength === undefined || input.length >= schema.minLength) &&
         (schema.maxLength === undefined || input.length <= schema.maxLength)
         ? { data: input, success: true }
@@ -45,7 +44,7 @@ export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueP
     case "url":
       return parseUrl(input);
     case "enum":
-      return hasRuntimeType(input, "string") && schema.values.includes(input)
+      return typeof input === "string" && schema.values.includes(input)
         ? { data: input, success: true }
         : {
             message: `Expected one of ${schema.values.map((value) => JSON.stringify(value)).join(", ")}.`,
@@ -78,8 +77,8 @@ export function envValueTypeName(schema: EnvValueSchema): string {
 }
 
 function parseBoolean(input: unknown): EnvValueParseResult {
-  if (hasRuntimeType(input, "boolean")) return { data: input, success: true };
-  const normalized = hasRuntimeType(input, "string") ? input.trim().toLowerCase() : undefined;
+  if (typeof input === "boolean") return { data: input, success: true };
+  const normalized = typeof input === "string" ? input.trim().toLowerCase() : undefined;
   if (normalized === "true" || normalized === "1") return { data: true, success: true };
   if (normalized === "false" || normalized === "0") return { data: false, success: true };
   return { message: "Expected a boolean: true, false, 1, or 0.", success: false };
@@ -91,13 +90,13 @@ function parseNumber(
 ): EnvValueParseResult {
   if (
     schema.decimal &&
-    hasRuntimeType(input, "string") &&
+    typeof input === "string" &&
     !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(input.trim())
   ) {
     return { message: "Expected a finite decimal number.", success: false };
   }
-  const value = hasRuntimeType(input, "string") && input.trim() ? Number(input) : input;
-  if (!hasRuntimeType(value, "number") || !Number.isFinite(value))
+  const value = typeof input === "string" && input.trim() ? Number(input) : input;
+  if (typeof value !== "number" || !Number.isFinite(value))
     return { message: "Expected a finite number.", success: false };
   if (
     (schema.isInt && !Number.isSafeInteger(value)) ||
@@ -110,7 +109,7 @@ function parseNumber(
 }
 
 function parseUrl(input: unknown): EnvValueParseResult {
-  if (hasRuntimeType(input, "string")) {
+  if (typeof input === "string") {
     try {
       if (new URL(input).protocol) return { data: input, success: true };
     } catch {}

@@ -18,3 +18,8 @@ export function isPlainRecord(value: unknown): value is Record<string, unknown> 
     && Object.hasOwn(prototype, "constructor")
     && prototype.constructor?.name === "Object"
 }
+
+/** A shallow copy of a non-array object, or an empty object for any other value. */
+export function cloneRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+}
