@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { promisify } from "node:util"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { eq, sql } from "drizzle-orm"
+import { defineRelations, eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { build } from "esbuild"
@@ -67,13 +67,12 @@ async function createHostedAnalyticsDb(http: true | { authToken: string, url: st
       migrationsDir: "server/databases/analytics/migrations",
     },
     dialect: "sqlite",
-    drizzle: {},
     generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
     migrationsDir: "server/databases/analytics/migrations",
     mode: "named",
     name: "analytics",
     orm: "drizzle",
-  }, analyticsSchema)
+  }, defineRelations(analyticsSchema))
   return { db }
 }
 
@@ -85,8 +84,8 @@ async function createLocalAnalyticsDb(http: true | { authToken: string, url: str
       databaseId: "analytics-d1-id",
       http,
     },
-    drizzle: {},
     name: "analytics",
+    relations: defineRelations(analyticsSchema),
     schema: analyticsSchema,
   })
   return { db }
@@ -129,7 +128,6 @@ function createRuntimeDatabaseEntries() {
           },
         },
         dialect: "sqlite",
-        drizzle: {},
         generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
         migrationsDir: "src/database/analytics/migrations",
         mode: "named",
@@ -146,7 +144,6 @@ function createRuntimeDatabaseEntries() {
           },
         },
         dialect: "sqlite",
-        drizzle: {},
         generatedSchemaFile: ".vitehub/database/schema/default.ts",
         migrationsDir: "src/database/migrations",
         mode: "default",
@@ -328,7 +325,6 @@ describe("drizzle runtime", () => {
             migrationsDir: "src/database/analytics/migrations",
           },
           dialect: "sqlite",
-          drizzle: {},
           generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
           migrationsDir: "src/database/analytics/migrations",
           mode: "named",
@@ -435,8 +431,8 @@ describe("database definition runtime", () => {
     const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
     const db = createDefinitionRuntime({
       cloudflare: { binding: "ANALYTICS_DB" },
-      drizzle: {},
       name: "analytics",
+      relations: defineRelations(analyticsSchema),
       schema: analyticsSchema,
     }, {
       cloudflare: {
@@ -465,8 +461,8 @@ describe("database definition runtime", () => {
         },
       },
       connection: { url: "file:.data/analytics.sqlite" },
-      drizzle: {},
       name: "analytics",
+      relations: defineRelations(analyticsSchema),
       schema: analyticsSchema,
     })
 
@@ -493,8 +489,8 @@ describe("database definition runtime", () => {
     const { createDefinitionRuntime } = await import("../src/runtime/definition-hosted.ts")
     const database = createDefinitionRuntime({
       cloudflare: { binding: "DB_ANALYTICS" },
-      drizzle: {},
       name: "analytics",
+      relations: defineRelations(analyticsSchema),
       schema: analyticsSchema,
     })
 
@@ -547,13 +543,12 @@ describe("hosted drizzle runtime", () => {
         url: "file:.data/database.sqlite",
       },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/default.ts",
       migrationsDir: "src/database/migrations",
       mode: "default",
       name: "default",
       orm: "drizzle",
-    }, defaultSchema)
+    }, defineRelations(defaultSchema))
 
     expect(() => db.run).toThrow("The database \"default\" has no connection. It needs an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL")
   })
@@ -566,13 +561,12 @@ describe("hosted drizzle runtime", () => {
         url: "postgres://database.example.com/app",
       },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/default.ts",
       migrationsDir: "src/database/migrations",
       mode: "default",
       name: "default",
       orm: "drizzle",
-    }, defaultSchema)
+    }, defineRelations(defaultSchema))
 
     expect(() => db.run).toThrow("The database \"default\" has no connection. It needs an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL")
   })
@@ -590,13 +584,12 @@ describe("hosted drizzle runtime", () => {
         migrationsDir: "src/database/analytics/migrations",
       },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
       migrationsDir: "src/database/analytics/migrations",
       mode: "named",
       name: "analytics",
       orm: "drizzle",
-    }, analyticsSchema)
+    }, defineRelations(analyticsSchema))
 
     expect((db as { $client?: unknown }).$client).toBe(binding)
   })
@@ -667,13 +660,12 @@ describe("hosted drizzle runtime", () => {
       },
       connection: { url: "libsql://analytics.example.turso.io" },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
       migrationsDir: "server/databases/analytics/migrations",
       mode: "named",
       name: "analytics",
       orm: "drizzle",
-    }, analyticsSchema)
+    }, defineRelations(analyticsSchema))
 
     expect((db as { $client?: unknown }).$client).toBeDefined()
     expect(fetchMock).not.toHaveBeenCalled()

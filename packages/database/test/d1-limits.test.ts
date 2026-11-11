@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { inArray, sql } from "drizzle-orm"
+import { defineRelations, inArray, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -24,7 +24,7 @@ const schema = {
 const ids = (count: number) => Array.from({ length: count }, (_, index) => index + 1)
 
 function localDb(config: Partial<RuntimeDrizzleDatabaseConfig>) {
-  return createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, drizzle: {}, name: "default", ...config }, schema, {
+  return createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, name: "default", ...config }, defineRelations(schema), {
     libsql: localLibsql,
     missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
@@ -93,7 +93,7 @@ describe("D1 limits on a D1 binding", () => {
       run: async () => ({}),
     }
     const binding = { batch: async () => [], prepare: (query: string) => { prepared.push(query); return statement } }
-    const db = createDrizzleSqliteAdapter({ cloudflare: { binding: "DB" }, drizzle: {}, name: "default" }, schema, { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    const db = createDrizzleSqliteAdapter({ cloudflare: { binding: "DB" }, name: "default" }, defineRelations(schema), { missingConnection: "a D1 binding", requireRemoteUrl: true })
 
     const error = await runWithActiveCloudflareEnv({ DB: binding }, () => rejection(db.select().from(schema.notes).where(inArray(schema.notes.id, ids(101)))))
 
@@ -107,9 +107,8 @@ describe("D1 limits on D1 HTTP", () => {
     const request = vi.fn(async () => Response.json({ success: true, result: [{ success: true, results: { rows: [] } }] }))
     const getDatabase = createCloudflareD1HttpResolver({
       cloudflare: { databaseId: "notes-id", http: { authToken: "token", url: "https://d1.example.com/raw" } },
-      drizzle: {},
       name: "default",
-    }, schema, request)
+    }, defineRelations(schema), request)
 
     expect(await rejection(getDatabase().select().from(schema.notes).where(inArray(schema.notes.id, ids(101))))).toMatchObject({ code: "DATABASE_D1_TOO_MANY_PARAMETERS" })
     expect(request).not.toHaveBeenCalled()

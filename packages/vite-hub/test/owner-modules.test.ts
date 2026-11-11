@@ -77,7 +77,7 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     ["vite-hub/channels", "channels"],
     ["vite-hub/connections/google", "connections"],
     ["vite-hub/decisions/vue", "decisions"],
-    ["vite-hub/email/server", "email"],
+    ["vite-hub/email", "email"],
     ["vite-hub/gateways/ai-sdk", "gateways"],
     ["vite-hub/kv", "kv"],
     ["vite-hub/markdown-template", "markdown-template"],

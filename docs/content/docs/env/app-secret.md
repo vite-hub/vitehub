@@ -109,20 +109,18 @@ export async function readCredentials(stored: string, secret: string) {
 | --- | --- | --- |
 | `vitehub:seal:<purpose>` | The key of each [`seal()`](#seal-a-value) purpose | Hand-written AES-GCM keys |
 | `vitehub:auth` | [Auth](/docs/auth/configure#secret) session signing when the app sets no Better Auth secret | `BETTER_AUTH_SECRET`, which still wins when it is set, as do `secret` and `secrets` in the Auth Definition |
-| `vitehub:console-auth` | Inline [Console Auth](/docs/development/console) session signing | `BETTER_AUTH_SECRET`, which still wins when it is set |
-| `vitehub:dispatch` | [Signed dispatch](/docs/development/cli#run-a-schedule-on-demand) from the CLI to a deployment | A pasted Console session cookie |
 
 ## Development
 
-When the Vite dev server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and inline Console Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
+When the Vite dev server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
 
 Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at the first derivation, not at build.
 
 ## Rotation and storage
 
-When you rotate `VITEHUB_SECRET`, every Console session and every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
+When you rotate `VITEHUB_SECRET`, every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
 
 Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`. Give `seal()` a separate `secret` for stored values for the same reason.
 
 > [!WARNING]
-> Anyone with the root secret can derive every secret above, including Console session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.
+> Anyone with the root secret can derive every secret above, including Auth session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.

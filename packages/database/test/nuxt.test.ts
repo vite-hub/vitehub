@@ -311,7 +311,7 @@ describe("Database Nuxt integration", () => {
         },
       })
       const runtime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
+      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -747,6 +747,10 @@ describe("Database Nuxt integration", () => {
       await writeFile(definition, "export default defineDatabase({ schema: {} })")
       ;(nuxt.options.vite as { plugins: unknown[] }).plugins.push({ name: "late-module", vitehub: { databases: [{ name: "default", definition }] } })
       await writeFile(join(directory, "migrations/0001.sql"), "SELECT 1;")
+      // Drizzle Kit 1.0 writes a folder per migration. Wrangler reads flat files, so the build writes `0000_init.sql`, the name that Drizzle Kit 0.x gave it.
+      await mkdir(join(directory, "migrations/20261109120000_init"), { recursive: true })
+      await writeFile(join(directory, "migrations/20261109120000_init/migration.sql"), "CREATE TABLE notes (id integer);")
+      await writeFile(join(directory, "migrations/20261109120000_init/snapshot.json"), "{}")
       const binding = { binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: migrationsDir }
       const config: Record<string, unknown> = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [binding, { binding: "HOST_A", database_id: "a", database_name: "a" }, { binding: "HOST_B", database_id: "b", database_name: "b" }] } } }
       await callHook(hooks, "nitro:config", config)
@@ -759,6 +763,8 @@ describe("Database Nuxt integration", () => {
       const finalBinding = (config.cloudflare as { wrangler: { d1_databases: Array<{ migrations_dir: string }> } }).wrangler.d1_databases[0]!
       expect(finalBinding.migrations_dir).toBe(migrationsDir ?? ".vitehub/database/migrations/DB")
       await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
+      expect((await readdir(join(rootDir, ".output/server", finalBinding.migrations_dir))).toSorted()).toEqual(["0000_init.sql", "0001.sql"])
+      await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0000_init.sql"), "utf8")).resolves.toBe("CREATE TABLE notes (id integer);")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -1124,7 +1130,8 @@ describe("Database Nuxt integration", () => {
 
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
-      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
+      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1143,9 +1150,10 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "mergeDatabaseRelations", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
+        () => ({ marker: "relations" }),
         () => ({}),
         () => () => undefined,
         () => new Error("missing"),
@@ -1153,7 +1161,7 @@ describe("Database Nuxt integration", () => {
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
-      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, relations: { marker: "relations" }, schema: { marker: "schema" } })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1178,18 +1186,20 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
-      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
-        { name: "default", schema: { notes: "notes" } },
+      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "mergeDatabaseRelations", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+        { name: "default", relations: { marker: "own" }, schema: { notes: "notes" } },
         { historyRefs: "refs" },
         (input: unknown) => created.push(input),
+        (database: string, schema: unknown, parts: unknown[]) => ({ database, parts, schema }),
         () => ({}),
         () => () => undefined,
         () => new Error("missing"),
         createUseDatabase,
       ) as { useDatabase: (name: string) => { schema: unknown } }
 
+      const relations = { database: "default", parts: [{ marker: "own" }], schema: { historyRefs: "refs", notes: "notes" } }
       expect(runtime.useDatabase("default").schema).toEqual({ historyRefs: "refs", notes: "notes" })
-      expect(created).toEqual([{ name: "default", schema: { historyRefs: "refs", notes: "notes" } }])
+      expect(created).toEqual([{ name: "default", relations, schema: { historyRefs: "refs", notes: "notes" } }])
     }
     finally {
       await callHook(hooks, "close", {})
@@ -1365,7 +1375,7 @@ describe("Database Nuxt integration", () => {
         "@vite-hub/database/runtime/registry": runtimeFile,
         "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
       })
-      const inherited = { drizzle: {}, name: "default", schema: {} }
+      const inherited = { name: "default", schema: {} }
       const initial = runtimeConfig(inherited, await readDefaults()).cloudflare
       expect(initial?.binding).toBe("HOST_DB")
       expect(resolveConfigValue(initial?.databaseId)).toBe("host-provisioned-id")
@@ -1648,9 +1658,9 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
 
       const module = await readFile(join(rootDir, ".vitehub/database/vercel-runtime.mjs"), "utf8")
-      const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), schema_0\)/.exec(module)?.[1]
+      const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), relations_0\)/.exec(module)?.[1]
       expect(expression).toBeDefined()
-      const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+      const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ schema: {} }, resolveRuntimeCloudflareConfig)
       expect(resolveConfigValue(config.cloudflare.databaseId)).toBe("provisioned-id")
       expect(config.cloudflare.databaseName).toBe("content-db")
       const viteOptions = getResolvedFeatureOptions<{ databaseId: Parameters<typeof resolveConfigValue>[0] }>(nuxt.options.vite as object, "database")!

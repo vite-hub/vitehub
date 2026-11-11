@@ -15,7 +15,6 @@ export type {
   DatabaseDefinition,
   DatabaseDefinitionOptions,
   DatabaseDialect,
-  DatabaseDrizzleOptions,
   DatabaseIntegrationOptions,
   DatabaseLocalRuntimeOptions,
   DatabaseNuxtIntegrationOptions,
@@ -23,7 +22,7 @@ export type {
   DatabaseSchemaSource,
   DatabaseOptions,
   DiscoveredDatabaseDefinition,
-  DrizzleCasing,
+  MergeDatabaseRelations,
   PostgresConnectionConfig,
   PostgresDatabaseDefinition,
   PostgresDatabaseDefinitionOptions,
@@ -35,4 +34,5 @@ export type {
   RuntimeDrizzleDatabaseConfig,
   RuntimeEnvDeclarationLike,
   RuntimePostgresDatabase,
+  SchemaRelations,
 } from "./types.ts"
