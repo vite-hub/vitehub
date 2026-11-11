@@ -4,11 +4,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text, unique, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-import {
-  consoleDatabaseKey,
-  consoleDatabaseRegistryKey,
-  consoleDatabaseRootKey,
-} from "../src/console/internal.ts";
+import { consoleState } from "../src/console/internal.ts";
 import {
   consoleDatabaseRequestQuery,
   parseConsoleDatabase,
@@ -53,11 +49,7 @@ async function database(name = "default") {
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();
-  Reflect.deleteProperty(globalThis, consoleDatabaseKey);
-  Reflect.deleteProperty(globalThis, consoleDatabaseRootKey);
-  Reflect.deleteProperty(process, consoleDatabaseKey);
-  Reflect.deleteProperty(process, consoleDatabaseRootKey);
-  Reflect.deleteProperty(process, consoleDatabaseRegistryKey);
+  delete consoleState().database;
 });
 
 describe("Console database inspection", () => {

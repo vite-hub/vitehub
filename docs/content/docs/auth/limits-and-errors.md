@@ -11,7 +11,7 @@ icon: i-lucide-circle-alert
 - Read a strong Better Auth secret from Server Env at request time. Never put it in Public Env, client code, Agent input, logs, or traces.
 - Set a request-aware `baseURL`, use `requestOrigin`, or set `vitehub({ publicUrl })`, so callback and cookie origins match the deployed host. Behind a proxy that ends TLS, also set [`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
 - Store users and sessions: use [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) and apply its migration, use another Better Auth database adapter, or use [`stateless()`](/docs/auth/configure#sessions-without-a-database) for social sign-in without a database.
-- Protect app and Console pages and APIs yourself. A session proves who the user is. Your `authorize` callbacks define roles and permissions.
+- Protect app pages, APIs, and the Console endpoint yourself. A session proves who the user is. Your `authorize` callbacks define roles and permissions.
 - Keep the automatic `/api/auth/**` route unless the host mounts the handler itself. Use the same `basePath` on server and client.
 - A stateless session (no Better Auth `database` or `secondaryStorage` adapter) cannot use [`session.onRefresh`](/docs/auth/configure#session-refresh). Better Auth refreshes its cookie cache without a hook, so a banned user keeps the session until it expires.
 
@@ -20,7 +20,7 @@ icon: i-lucide-circle-alert
 When a required session is missing, `authenticated()` throws `ViteHubError` with code `AUTHENTICATION_REQUIRED`. HTTP adapters turn it into `401`. The error serializes only its public message, without cause or stack.
 
 ```ts
-import { ViteHubError } from '@vite-hub/runtime'
+import { ViteHubError } from 'vite-hub/runtime'
 
 const error = new ViteHubError('AUTHENTICATION_REQUIRED', 'Sign in to use this Agent.')
 

@@ -42,7 +42,8 @@ describe("renderFormsHandler", () => {
     const full = renderFormsHandler(forms, { imports, database: true, email: true, auth: true })
     expect(full).toContain("import { databases } from \"vite-hub/database/drizzle\"")
     expect(full).toContain("sendEmail: message => email.send(message),")
-    expect(full).toContain("getAuthForRequest(request)")
+    expect(full).toContain("import { useAuth } from \"vite-hub/auth/server\"")
+    expect(full).toContain("useAuth(request).api.getSession({ headers: request.headers })")
   })
 })
 
@@ -65,6 +66,7 @@ describe("createFormsHandler", () => {
     let address = "1.1.1.1"
     const handler = createFormsHandler({ forms: { contact }, context: () => ({ runtime: { clientAddress: address } }) })
     expect((await handler.fetch(post("missing").request)).status).toBe(404)
+    expect((await handler.fetch(post("%E0").request)).status).toBe(404)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
     expect((await handler.fetch(post("contact").request)).status).toBe(429)

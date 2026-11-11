@@ -1,6 +1,9 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { isBuiltin, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, vi } from "vitest"
 
@@ -10,10 +13,26 @@ import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
 
 const directories: string[] = []
+const packageResolvers: ReturnType<typeof registerHooks>[] = []
 
 afterEach(async () => {
+  for (const hooks of packageResolvers.splice(0)) hooks.deregister()
   await Promise.all(directories.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
+
+/** Keep pnpm's NODE_PATH from lending packages to an isolated project. */
+export function isolateProjectPackages(root: string): void {
+  const issuer = pathToFileURL(join(root, "package.json")).href
+  packageResolvers.push(registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const name = specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/")
+      if (context.parentURL === issuer && !isBuiltin(specifier) && !existsSync(join(root, "node_modules", name))) {
+        throw Object.assign(new Error(`Cannot find module '${specifier}' in the test project`), { code: "MODULE_NOT_FOUND" })
+      }
+      return nextResolve(specifier, context)
+    },
+  }))
+}
 
 /** A temp folder with `files`, keyed by relative path. */
 export async function createProject(files: Record<string, string> = {}): Promise<string> {

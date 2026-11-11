@@ -96,18 +96,18 @@ Workspace paths cannot use `.git` at any depth or `.vitehub` at the root, in any
 
 This Store keeps fixed versions of a folder on any host that [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts) support. Add its schema to a Database Definition, then generate and apply migrations with the Database integration.
 
-```ts [server/databases/history/config.ts]
-import { defineDatabase } from '@vite-hub/database'
-import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
 ```ts [server/workspaces/drop.ts]
-import { blob } from '@vite-hub/blob'
-import { defineWorkspace } from '@vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
-import historyDatabase from '../databases/history/config'
+import { blob } from 'vite-hub/blob'
+import { defineWorkspace } from 'vite-hub/workspace'
+import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
+import historyDatabase from '../databases/history/index'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
@@ -318,6 +318,10 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
+to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
+have it. See [Source configuration](/docs/source/configure) for the loader options.
+
 | Option | Type | Description |
 | --- | --- | --- |
 | `source` | `Source` | The Source definition to bind. Required in this form. |
@@ -333,7 +337,7 @@ binding behavior.
 Use `createWorkspacePreparation()` when a process must copy in required Sources before it reports ready:
 
 ```ts
-import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+import { createWorkspacePreparation } from 'vite-hub/workspace/runtime'
 
 export const preparation = createWorkspacePreparation({
   retryDelayMs: 10_000,
@@ -384,7 +388,7 @@ Use `custom({ files })` when a Custom Source knows its paths before it loads con
 Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `fetch(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
 
 ```ts [server/workspaces/support.ts]
-import { custom, defineWorkspace } from '@vite-hub/workspace'
+import { custom, defineWorkspace } from 'vite-hub/workspace'
 
 const guideSlugs = ['getting-started', 'inventory-planning']
 
@@ -413,24 +417,29 @@ A Custom Source can read files already in the Workspace through `ctx.workspaceFi
 
 A Source can pick its origin and mount per invocation from trusted runtime context. Use this when one Source key needs a narrower origin after Access selects a Workspace Scope.
 
-```ts
+```ts [server/workspaces/support/config.ts]
+import { defineWorkspace, github } from 'vite-hub/workspace'
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: { meta?: { customer?: string } }
+    'support.customerScope': { customers: string[] }
   }
 }
 
-github(({ channel, invocation }) => {
-  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-  const customer = channel?.meta?.customer ?? scope?.customers[0]
-  if (!customer)
-    return false
+export default defineWorkspace({
+  sources: {
+    ingestion: github(({ invocation }) => {
+      const customer = invocation.context.get('support.customerScope')?.customers[0]
+      if (!customer)
+        return false
 
-  return {
-    repo: 'quiverdk/ingestion',
-    root: `dbt/${customer}`,
-    mount: `ingestion/${customer}`,
-  }
+      return {
+        repo: 'quiverdk/ingestion',
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+      }
+    }),
+  },
 })
 ```
 

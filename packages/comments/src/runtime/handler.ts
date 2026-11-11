@@ -235,15 +235,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     session: async request => await options.session?.(request) ?? await options.githubLogin?.user(request),
   }
 
-  /** The user of the request for `action`, or `false` when the Console refused them. See `resolveCommentsIdentity()`. */
-  async function identityOf(request: CommentsRequest, action: CommentAction = "read"): Promise<CommentsIdentity | false> {
-    return resolveCommentsIdentity(comments, request, sessionOptions, action)
+  /** The user of the request. See `resolveCommentsIdentity()`. */
+  async function identityOf(request: CommentsRequest): Promise<CommentsIdentity> {
+    return resolveCommentsIdentity(comments, request, sessionOptions)
   }
 
   async function access(request: CommentsRequest, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<CommentsIdentity & { author: CommentUser | undefined }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
-    const identity = await identityOf(request, action)
-    if (identity === false) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
-    const { user, gate } = identity
+    const { user, gate } = await identityOf(request)
     if (!await comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, gate)) {
       return [deniedForMissingPolicy(comments.options, user, { ...gate, development: (await resolveCommentsRuntime(comments))?.development === true }) ? commentsErrors.COMMENTS_POLICY_MISSING() : commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     }
@@ -252,19 +250,18 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     return [undefined, { user, gate, author }]
   }
 
-  /** The caller of a comment action: the user of the request. A person that the Console refuses is denied before the policy runs. */
-  async function callerOf(request: CommentsRequest, action: CommentAction): Promise<{ who: CommentsCaller } | { denied: Response }> {
+  /** The caller of a comment action: the user of the request. */
+  async function callerOf(request: CommentsRequest): Promise<{ who: CommentsCaller } | { denied: Response }> {
     const runtime = await resolveCommentsRuntime(comments)
     if (!runtime) return { denied: failure(commentsErrors.COMMENTS_NOT_INSTALLED()) }
-    const identity = await identityOf(request, action)
-    if (identity === false) return { denied: failure(commentsErrors.COMMENTS_FORBIDDEN({ action })) }
+    const identity = await identityOf(request)
     const waitUntil = request["~standard"].waitUntil
     return { who: { gate: { ...identity.gate, development: runtime.development === true }, request, runtime, user: identity.user, ...(waitUntil ? { waitUntil } : {}) } }
   }
 
   /** Runs a comment action for the request, and answers its diagnostics as the API's error objects. */
   async function act<T>(request: CommentsRequest, action: CommentAction, run: (who: CommentsCaller) => Promise<T>, answer: (value: T, who: CommentsCaller) => Promise<Response> | Response): Promise<Response> {
-    const called = await callerOf(request, action)
+    const called = await callerOf(request)
     if ("denied" in called) return called.denied
     let value: T
     try {
@@ -311,13 +308,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
   /** Who the overlay's person is, what they may do, and the subject of the page. The page tools session decides whether the overlay loads. */
   async function session(request: CommentsRequest, subject?: CommentSubject, revision?: number): Promise<Response> {
     const identity = await identityOf(request)
-    const user = identity === false ? false : identity.user
-    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(request, identity, action, undefined, subject)))
+    const { user } = identity
+    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(identity, action, undefined, subject)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
     const pathname = new URL(request.url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
     // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
-    const signIn = user !== false && !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
+    const signIn = !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
     return json({
       data: {
@@ -334,15 +331,12 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     })
   }
 
-  async function can(request: CommentsRequest, identity: CommentsIdentity | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
-    if (identity === false) return false
-    // The Console grants reading and writing separately, so a person it admitted to read checks again to write.
-    if (identity.gate.console && action !== "read" && await identityOf(request, action) === false) return false
+  async function can(identity: CommentsIdentity, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
     return comments.can({ user: identity.user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, identity.gate)
   }
 
-  async function permissions(request: CommentsRequest, who: CommentsCaller, thread: CommentThread) {
-    const [comment, resolve, remove] = await Promise.all((["write", "resolve", "delete"] as const).map(action => can(request, who, action, thread)))
+  async function permissions(who: CommentsCaller, thread: CommentThread) {
+    const [comment, resolve, remove] = await Promise.all((["write", "resolve", "delete"] as const).map(action => can(who, action, thread)))
     return { ...thread, can: { comment, resolve, delete: remove } }
   }
 
@@ -352,9 +346,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
   }
 
   /** A thread with what the reader may do with it, and the people that it mentions. */
-  async function threadResponse(request: CommentsRequest, who: CommentsCaller, thread: CommentThread | null, extra: Record<string, unknown> = {}): Promise<Response> {
+  async function threadResponse(who: CommentsCaller, thread: CommentThread | null, extra: Record<string, unknown> = {}): Promise<Response> {
     if (!thread) return json({ data: null, ...extra })
-    return json({ data: await permissions(request, who, thread), people: await people(who, [thread]), ...extra })
+    return json({ data: await permissions(who, thread), people: await people(who, [thread]), ...extra })
   }
 
   /** Lists check `read` on the filter first, so a person who may not read gets `403`, not an empty list. */
@@ -526,7 +520,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         return await act(request, "read", async (who) => {
           await mayRead(who, query.subject)
           return await commentActions.list(query, who)
-        }, async (threads, who) => json({ data: await Promise.all(threads.map(thread => permissions(request, who, thread))), people: await people(who, threads) }))
+        }, async (threads, who) => json({ data: await Promise.all(threads.map(thread => permissions(who, thread))), people: await people(who, threads) }))
       }
       if (method === "POST") {
         const parsed = v.safeParse(createBody, await readJson(request))
@@ -542,42 +536,42 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         // That revision, or an older one, stays. A missing or newer one becomes the revision of the page subject.
         const mapped = checked?.revision ?? mappedPage?.revision
         const revision = mapped === undefined ? input.revision : input.revision !== undefined && input.revision <= mapped ? input.revision : mapped
-        return await act(request, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked.context } : {}), ...(revision === undefined ? {} : { revision }) }, who), (thread, who) => threadResponse(request, who, thread))
+        return await act(request, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked.context } : {}), ...(revision === undefined ? {} : { revision }) }, who), (thread, who) => threadResponse(who, thread))
       }
     }
 
     if (parts[0] === "scopes" && parts[1] && parts[2] === "threads" && parts[3] && !parts[4] && method === "GET") {
       const parsed = v.safeParse(commentInputSchemas.get, { scope: decodeURIComponent(parts[1]), n: Number(parts[3]) })
       if (!parsed.success) return invalid(parsed.issues)
-      return await act(request, "read", who => commentActions.get(parsed.output, who), (thread, who) => threadResponse(request, who, thread))
+      return await act(request, "read", who => commentActions.get(parsed.output, who), (thread, who) => threadResponse(who, thread))
     }
 
     if (parts[0] === "threads" && parts[1]) {
       const threadId = decodeURIComponent(parts[1])
       const action = parts[2]
       const messageId = parts[3] ? decodeURIComponent(parts[3]) : undefined
-      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(request, who, thread))
+      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(who, thread))
       if (method === "POST" && action === "comments" && !messageId) {
         const parsed = v.safeParse(replyBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
         // The overlay reads the message as `data`; other clients read the thread as `thread`.
         return await act(request, "write", who => commentActions.reply({ ...parsed.output, threadId }, who), async ({ message, thread }, who) => json({
           data: message,
-          thread: await permissions(request, who, thread),
+          thread: await permissions(who, thread),
           people: await people(who, [thread]),
         }))
       }
       if (method === "PATCH" && action === "comments" && messageId) {
         const parsed = v.safeParse(editBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
-        return await act(request, "write", who => commentActions.edit({ ...parsed.output, threadId, messageId }, who), (thread, who) => threadResponse(request, who, thread))
+        return await act(request, "write", who => commentActions.edit({ ...parsed.output, threadId, messageId }, who), (thread, who) => threadResponse(who, thread))
       }
       if (method === "POST" && (action === "resolve" || action === "reopen") && !messageId) {
-        return await act(request, "resolve", who => commentActions.setStatus({ threadId }, who, action === "resolve" ? "resolved" : "open"), (thread, who) => threadResponse(request, who, thread))
+        return await act(request, "resolve", who => commentActions.setStatus({ threadId }, who, action === "resolve" ? "resolved" : "open"), (thread, who) => threadResponse(who, thread))
       }
       if (method === "DELETE" && (action === "comments" ? messageId : !action)) {
         // Authors delete their own messages with `write`; deleting anything else needs `delete`, which the action checks.
-        return await act(request, "delete", who => commentActions.delete({ threadId, ...(messageId ? { messageId } : {}) }, who), (thread, who) => threadResponse(request, who, thread))
+        return await act(request, "delete", who => commentActions.delete({ threadId, ...(messageId ? { messageId } : {}) }, who), (thread, who) => threadResponse(who, thread))
       }
     }
 

@@ -1,20 +1,16 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
-import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
+import { authForRequest as appAuthForRequest } from "../../auth/src/runtime/console.ts"
+import { resetAuth } from "../../auth/src/server.ts"
 import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/console/auth-pages.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
-import consolePage from "../src/console/runtime/server/page.get.ts"
-import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { requestEvent } from "./console-event.ts"
 import { installStandardContext } from "../src/runtime/h3.ts"
-
-// Generated Console output installs the entry names of @vite-hub/console-client.
-installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const origin = "https://app.example.com"
 vi.mock("../../auth/dist/runtime/empty-definition.js", () => ({
@@ -52,10 +48,9 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
   await (await authForRequest(new Request(origin)).$context).runMigrations()
   installConsoleAccess({
     mode: "auth",
-    signInPage: "/_vitehub/sign-in",
     ...createConsoleAppAuthPages(authForRequest),
     ...createConsoleAppAuthAccess({
-      getAuthForRequest: authForRequest,
+      authForRequest,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
       },
@@ -67,9 +62,11 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
     authorize: access.consoleAuthorize,
   })
   const app = new H3()
-    .use(`${mount}/_vitehub/**`, signInMiddleware)
+    // Generated output registers the sign-in middleware only at its own page.
+    .use(`${mount}/_vitehub/sign-in`, signInMiddleware)
     .use(createAuthAccessHandler(routes, definition))
-    .get(`${mount}/_vitehub/**`, consolePage)
+    // Stands in for a Console data route that app Auth protects.
+    .get(`${mount}/_vitehub/**`, () => new Response("protected"))
   return { authForRequest, visit: (path: string, init: RequestInit = {}) => app.fetch(new Request(`${origin}${mount}${path}`, init)) }
 }
 
@@ -93,25 +90,31 @@ function nodeEvent<T extends object>(event: T) {
 }
 
 describe("Console reuses app Auth sign-in", () => {
-  it.each([undefined, "text/html"])("checks app and Console authorization once for an accepted page (Accept: %s)", async (accept) => {
-    const authorize = vi.fn(() => true)
-    const consoleAuthorize = vi.fn(() => true)
-    const { authForRequest, visit } = await setup("/portal", true, { authorize, consoleAuthorize })
-    const auth = authForRequest(new Request(origin))
-    const signedIn = await auth.handler(new Request(`${origin}/portal/api/auth/sign-up/email`, {
+  it.each([true, false])("shows the sign-in page state for each visitor (Console access: %s)", async (allowed) => {
+    const { authForRequest, visit } = await setup("/portal", true, { consoleAuthorize: () => allowed })
+    const signedOut = await visit("/_vitehub/sign-in")
+    expect(signedOut.status).toBe(200)
+    expect(await signedOut.text()).toContain("Sign in with GitHub")
+
+    const signedUp = await authForRequest(new Request(origin)).handler(new Request(`${origin}/portal/api/auth/sign-up/email`, {
       method: "POST",
       headers: { "content-type": "application/json", origin },
       body: JSON.stringify({ name: "Console User", email: "console@example.com", password: "test-password-123" }),
     }))
-    expect(signedIn.status).toBe(200)
-    const cookie = signedIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
-    const headers = new Headers({ cookie })
-    if (accept) headers.set("accept", accept)
-    const response = await visit("/_vitehub/content", { headers })
-    expect(response.status).toBe(200)
-    expect(await response.text()).toContain("<title>ViteHub Console</title>")
-    expect(authorize).toHaveBeenCalledOnce()
-    expect(consoleAuthorize).toHaveBeenCalledOnce()
+    expect(signedUp.status).toBe(200)
+    const cookie = signedUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const page = await visit("/_vitehub/sign-in", { headers: { accept: "text/html", cookie } })
+    const html = await page.text()
+    if (allowed) {
+      expect(page.status).toBe(200)
+      expect(html).toContain("Signed in")
+      expect(html).toContain(`https://console.vitehub.dev/open?project=${encodeURIComponent(`${origin}/portal`)}`)
+    }
+    else {
+      expect(page.status).toBe(403)
+      expect(html).toContain("Switch account")
+      expect(html).not.toContain("console.vitehub.dev")
+    }
   })
 
   it("rejects a distinct resolved Auth origin before rendering or starting sign-in", async () => {
@@ -127,7 +130,7 @@ describe("Console reuses app Auth sign-in", () => {
   })
 
   it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
-    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(appAuthForRequest)
     const event = requestEvent(new Request(`${origin}/portal/_vitehub/sign-in`))
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)
@@ -141,7 +144,7 @@ describe("Console reuses app Auth sign-in", () => {
   it.each(["request", "request-only", "h3"] as const)("provides Standard Context to app Auth for %s inputs", async (host) => {
     const request = new Request(`${origin}/portal/_vitehub/sign-in`)
     const event = host === "request" ? request : host === "request-only" ? { req: request } : new H3Event(request)
-    const resolveAuth = vi.fn(getAuthForRequest)
+    const resolveAuth = vi.fn(appAuthForRequest)
     const pages = createConsoleAppAuthPages(resolveAuth)
 
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
@@ -155,7 +158,7 @@ describe("Console reuses app Auth sign-in", () => {
   })
 
   it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
-    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(appAuthForRequest)
     const event = proxySignInEvent(host)
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)
@@ -184,10 +187,7 @@ describe("Console reuses app Auth sign-in", () => {
 
   it.each(["", "/portal"])("provides social sign-in before app Auth at %s", async (mount) => {
     const { visit, authForRequest } = await setup(mount)
-    const redirect = await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html" } })
-    expect(redirect.status).toBe(302)
-    const pageURL = redirect.headers.get("location")!
-    expect(pageURL).toBe(`${mount}/_vitehub/sign-in?redirect=${encodeURIComponent(`${mount}/_vitehub/content?file=home.md`)}`)
+    const pageURL = `${mount}/_vitehub/sign-in?redirect=${encodeURIComponent(`${mount}/_vitehub/content?file=home.md`)}`
     const page = await visit(pageURL.slice(mount.length))
     const html = await page.text()
     expect(page.status).toBe(200)
@@ -226,14 +226,7 @@ describe("Console reuses app Auth sign-in", () => {
     const start = await visit(`/_vitehub/sign-in?provider=github&redirect=${encodeURIComponent(redirect)}`, { method: "POST", headers: { origin } })
     const state = new URL(start.headers.get("location")!).searchParams.get("state")!
     const context = await authForRequest(new Request(origin)).$context
-    expect(JSON.parse((await context.internalAdapter.findVerificationValue(`auth-state:${state}`))!.value).callbackURL).toBe(`${origin}/_vitehub`)
-  })
-
-  it("supplies the app Auth base path to the Console account menu", async () => {
-    const { authForRequest } = await setup("/portal")
-    installConsoleAccess({ mode: "auth", check: async () => undefined, ...createConsoleAppAuthPages(authForRequest) })
-    const page = await consolePage.fetch(new Request(`${origin}/portal/_vitehub`))
-    expect(await page.text()).toContain('<meta name="vitehub-console-auth-base" content="/portal/api/auth">')
+    expect(JSON.parse((await context.internalAdapter.findVerificationValue(`auth-state:${state}`))!.value).callbackURL).toBe(`${origin}/_vitehub/sign-in`)
   })
 
   it("rejects cross-origin login attempts", async () => {
@@ -258,7 +251,7 @@ describe("Console reuses app Auth sign-in", () => {
     const { visit } = await setup("", false, { password: false })
     const page = await visit("/_vitehub/sign-in")
     expect(page.status).toBe(503)
-    expect(await page.text()).toContain("console.signInPage")
+    expect(await page.text()).toContain("No sign-in method is configured.")
   })
 
   it.each(["", "/portal"])("signs in with email and password before app Auth at %s", async (mount) => {
@@ -269,7 +262,7 @@ describe("Console reuses app Auth sign-in", () => {
       body: JSON.stringify({ name: "Console User", email: "console@example.com", password: "test-password-123" }),
     }))
     expect(signedUp.status).toBe(200)
-    const pageURL = (await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html" } })).headers.get("location")!
+    const pageURL = `${mount}/_vitehub/sign-in?redirect=${encodeURIComponent(`${mount}/_vitehub/content?file=home.md`)}`
     const page = await visit(pageURL.slice(mount.length))
     expect(page.status).toBe(200)
     const html = await page.text()
@@ -294,7 +287,7 @@ describe("Console reuses app Auth sign-in", () => {
 
   it.each(["", "/portal"])("creates an account on the sign-in page at %s", async (mount) => {
     const { visit } = await setup(mount, false)
-    const pageURL = (await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html" } })).headers.get("location")!
+    const pageURL = `${mount}/_vitehub/sign-in?redirect=${encodeURIComponent(`${mount}/_vitehub/content?file=home.md`)}`
     const page = await visit(pageURL.slice(mount.length))
     // A form POST from a `no-referrer` page carries `Origin: null`, and the sign-in check refuses it.
     expect(page.headers.get("referrer-policy")).toBe("same-origin")
@@ -335,8 +328,8 @@ describe("Console reuses app Auth sign-in", () => {
 
   it("offers account switching when console.authorize rejects the signed-in account", async () => {
     const { authForRequest } = await setup()
-    installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => false, signInPage: "/_vitehub/sign-in", ...createConsoleAppAuthPages(authForRequest) })
-    const page = await signInMiddleware(requestEvent(new Request(`${origin}/_vitehub`, { headers: { accept: "text/html" } })))
+    installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => false, ...createConsoleAppAuthPages(authForRequest) })
+    const page = await signInMiddleware(requestEvent(new Request(`${origin}/_vitehub/sign-in`, { headers: { accept: "text/html" } })))
     expect(page?.status).toBe(403)
     expect(await page?.text()).toContain("Switch account")
   })

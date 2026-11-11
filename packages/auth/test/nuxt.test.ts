@@ -94,8 +94,6 @@ describe("Auth Nuxt integration", () => {
       { from: "app/composables", name: "useSession" },
       { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
-      { from: "vite-hub/auth/vue", name: "useSignIn" },
-      { from: "vite-hub/auth/vue", name: "useSignUp" },
       { from: "vite-hub/auth/vue", name: "useUserSession" },
     ])
     expect(nuxt.options.alias).toEqual({
@@ -180,7 +178,7 @@ describe("Auth Nuxt integration", () => {
     expect(options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     )
-    expect(options.imports.imports).toHaveLength(6)
+    expect(options.imports.imports).toHaveLength(4)
     expect(options).not.toHaveProperty("alias")
     expect(options).not.toHaveProperty("nitro")
   })

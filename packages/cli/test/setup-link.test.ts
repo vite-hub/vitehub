@@ -260,10 +260,10 @@ describe("vitehub link", () => {
     expect(requests).toEqual(["GET 1", "GET 2", "POST "])
   })
 
-  it("stores an unverified Deno link without calling an API", async () => {
+  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno", name: "my-app" }`) })
 
-    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root)
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, env)
 
     expect(exitCode).toBe(0)
     expect(json).toMatchObject({ credentials: null, link: { host: "deno", project: { name: "my-app" }, verified: false } })

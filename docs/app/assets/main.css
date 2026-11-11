@@ -39,7 +39,7 @@
 
   [data-path="/docs/reference"] .docs-content tbody tr {
     border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
+    border-radius: calc(var(--ui-radius) * 2);
     padding: 0.75rem;
   }
 

@@ -98,4 +98,4 @@ In Nuxt, the server reads the session for the page, so server rendering shows th
 
 ## Abilities and route guards
 
-[`requireAuthorization(authorize)` and `withAuthorization()`](/docs/auth/server-api) check a request before the handler runs. Use them when the decision needs only the user, such as an admin area. Use an ability when the decision needs data that the handler loads, such as the post, or when the page must show the same decision.
+[`requireAuthorization(event, authorize)` and `withAuthorization()`](/docs/auth/server-api) check the caller with an `authorize` callback. `requireAuthorization()` runs inside the handler; `withAuthorization()` wraps it. Use them when the decision needs only the user, such as an admin area. Use an ability when the decision needs data that the handler loads, such as the post, or when the page must show the same decision.

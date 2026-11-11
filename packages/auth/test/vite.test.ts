@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import ts from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
@@ -10,6 +11,7 @@ import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { AUTH_ABILITIES_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
 const tempDirs: string[] = []
+const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 
 async function createTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-vite-"))
@@ -227,6 +229,46 @@ describe("hubAuth", () => {
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default }")
   })
+
+  it("types useAuth(event).api with the plugins of server/auth.ts through the generated declarations", async () => {
+    // Inside the package, so `better-auth/plugins` resolves for the app's Auth Definition.
+    await mkdir(join(packageRoot, ".vitest-tmp"), { recursive: true })
+    const root = await mkdtemp(join(packageRoot, ".vitest-tmp", "use-auth-"))
+    tempDirs.push(root)
+    // The project root of the generated declarations is the nearest package.json.
+    await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }))
+    await writeAuth(root, "server/auth.ts", ["  appName: 'ViteHub',", "  plugins: [admin(), organization()],"])
+    const definitionFile = join(root, "server/auth.ts")
+    await writeFile(definitionFile, `import { admin, organization } from 'better-auth/plugins'\n${await readFile(definitionFile, "utf8")}`)
+    await writeFile(join(root, "server/route.ts"), [
+      "import { useAuth } from '@vite-hub/auth/server'",
+      "import type { H3Event } from 'h3'",
+      "export async function handler(event: H3Event) {",
+      "  const auth = useAuth(event)",
+      "  await auth.api.banUser({ body: { userId: 'user-1' }, headers: event.req.headers })",
+      "  await auth.api.createOrganization({ body: { name: 'Acme', slug: 'acme' }, headers: event.req.headers })",
+      "  // @ts-expect-error The Definition has no such plugin endpoint.",
+      "  void auth.api.notAnEndpoint",
+      "}",
+      "",
+    ].join("\n"))
+
+    const diagnosticsFor = (files: string[]) => {
+      const { config } = ts.readConfigFile(join(packageRoot, "tsconfig.json"), ts.sys.readFile)
+      const { options } = ts.parseJsonConfigFileContent(config, ts.sys, packageRoot)
+      options.paths = { ...options.paths, "@vite-hub/auth": [join(packageRoot, "src/index.ts")] }
+      const program = ts.createProgram(files, { ...options, noEmit: true, rootDir: undefined, skipLibCheck: true })
+      return ts.getPreEmitDiagnostics(program)
+        .filter(diagnostic => diagnostic.file?.fileName.startsWith(root))
+        .map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
+    }
+
+    // Without the generated registry, the instance has no plugin endpoints.
+    expect(diagnosticsFor([join(root, "server/route.ts")]).join("\n")).toMatch(/banUser/)
+
+    await resolvePluginConfig(hubAuth(), root)
+    expect(diagnosticsFor([join(root, ".vitehub/types/auth.d.ts"), join(root, "server/route.ts")])).toEqual([])
+  }, 120_000)
 
   it("connects the virtual Auth Definition to ViteHub Env when available", async () => {
     const root = await createTempProject()
@@ -531,7 +573,7 @@ describe("Auth tables in the app Database", () => {
     const root = await createTempProject()
     await writeAuthDatabase(root, "authDatabase('accounts')")
     await mkdir(join(root, "server", "databases", "accounts"), { recursive: true })
-    await writeFile(join(root, "server", "databases", "accounts", "config.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
+    await writeFile(join(root, "server", "databases", "accounts", "index.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
     expect((await contributions(root)).tables).toMatchObject([{ database: "accounts", definition: { export: "authPostgresSchema" }, dialect: "postgresql" }])
   })
 

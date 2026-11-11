@@ -1,5 +1,6 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+import { isRecordOrFunction as isPlainObject } from "@vite-hub/internal/object"
 import { parseCronExpression } from "cron-schedule"
 
 import { parseScheduledAt } from "./runtime/date.ts"
@@ -13,16 +14,11 @@ import type { StartedSchedule, StartScheduleOptions } from "./types.ts"
 
 const optionKeys = new Set(["at", "cron", "payload", "timeZone"])
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function isString(value: unknown): value is string {
   return String(value) === value
 }
 
 function isJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON validation must distinguish primitive values without coercion.
   switch (typeof value) {
     case "string":
     case "boolean": return true

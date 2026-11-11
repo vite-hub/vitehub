@@ -19,7 +19,7 @@ ViteHub errors have `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` link
 
 This route reads the `notes` table of the default Database:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -35,7 +35,7 @@ export default defineDatabase({
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')
@@ -55,7 +55,8 @@ export default defineEventHandler(async () => {
 | --- | --- |
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
-| `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
+| `DATABASE_NAME_REQUIRED`, `DATABASE_NOT_FOUND` | By `useDatabase()`, when the name does not select one Database |
+| `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
@@ -124,11 +125,19 @@ The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseI
 
 `connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet. A `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
 
+### DATABASE_NAME_REQUIRED
+
+`useDatabase()` was called without a name, and the app has several Named Databases and none is named `default`. `error.why` lists the names. Pass one, for example `useDatabase('analytics')`.
+
+### DATABASE_NO_D1_BINDING
+
+`useDatabaseBinding(name)` found no Cloudflare D1 binding for the database. The database runs on local SQLite, libSQL, D1 HTTP, or Postgres here. Call it only where the database runs on a D1 binding, such as a Cloudflare Worker. Elsewhere, query the database with `useDatabase(name).db`.
+
 ### DATABASE_NOT_FOUND
 
-`agentDb.database(name)` got a name with no Definition, or a query ran on a named database with no runtime config.
+`useDatabase(name)`, `agentDb.database(name)`, or `useDatabaseBinding(name)` received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
 
-`useDatabase(name)` does not throw it. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no default database.
+The `db` export and `databases.default` exist in every app. When the app has no Default Database, a query on them throws `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`.
 
 Run `vitehub inspect definitions --kind database` to see the database names.
 
@@ -206,7 +215,7 @@ A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins used
 
 ### DATABASE_INVALID_CONTRIBUTION_TARGET
 
-Contributed tables or data have no database to go to. The app has several Definitions and none is `default`, the contribution names a missing database or uses another dialect, or contributions to the implicit default database need different dialects. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the contribution's `database`.
+Contributed tables or data have no database to go to. The app has several Definitions and none is `default`, the contribution names a missing database or uses another dialect, or contributions to the implicit default database need different dialects. Add `server/databases/default.ts` with `defineDatabase({ schema: {} })`, or set the contribution's `database`.
 
 ### DATABASE_INVALID_SCHEMA_EXPORT
 
@@ -220,13 +229,17 @@ The options of one database come from more than one Nuxt layer, or the app Defin
 
 Two Nuxt layers declare the same table in one database. Rename one, or declare the table in the app Definition to replace both.
 
+### DATABASE_LEGACY_CONFIG_FILE
+
+A Database Definition still uses `config.ts`. The Database `<name>` is now `server/databases/<name>.ts` or `server/databases/<name>/index.ts`, and its migrations are in `server/databases/<name>/migrations/`. The former `server/databases/config.ts` is the `default` Database: move it to `server/databases/default/index.ts` with the files beside it, and move `server/databases/migrations/` to `server/databases/default/migrations/`. Run `npx @vite-hub/codemods define-forms` to do these moves and update the imports.
+
 ### DATABASE_MISSING_D1_RESOURCE
 
-D1 output needs the database id and name at build time. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. For values known only at runtime, use D1 HTTP or a remote libSQL connection.
+D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 
-The app has a default Definition and named ones. Use one default database, or only named ones.
+`src/database.ts` defines the default Database beside named Databases. Move the Databases to `server/databases/<name>.ts`, with `server/databases/default.ts` for the default one.
 
 ### DATABASE_NAME_MISMATCH
 

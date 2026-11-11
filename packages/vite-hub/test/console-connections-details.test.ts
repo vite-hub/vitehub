@@ -10,7 +10,7 @@ vi.mock("../src/console/runtime/client/connections-management", async importOrig
   ...await importOriginal<typeof import("../src/console/runtime/client/connections-management")>(),
   requestConnectionsManagement: mocks.request,
 }))
-vi.mock("../src/console/runtime/components/console-connections-activity.vue", () => ({ default: { render: () => null } }))
+vi.mock("../src/console/runtime/components/console-credential-activity.vue", () => ({ default: { render: () => null } }))
 vi.mock("../src/console/runtime/components/console-connections-approvals.vue", async () => {
   const { h } = await import("vue")
   return { default: { render: () => h("div", { "data-approvals": "" }) } }
@@ -90,6 +90,7 @@ describe("Console Connection details", () => {
   it("renders the Connection's docs as Markdown before the connect button", async () => {
     const docs = "Run `t3 connect status` first.\n\n1. Choose **full access**."
     const root = await render({ connection: connection({}) }, connection({ docs }))
+    await vi.dynamicImportSettled()
     const section = root.querySelector("section[aria-labelledby='connection-docs']")
     expect(section?.querySelector("h3")?.textContent).toBe("Setup")
     expect(section?.querySelector("code")?.textContent).toBe("t3 connect status")
