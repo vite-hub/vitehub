@@ -23,6 +23,11 @@ const menu = defineComponent({
   setup: (props, { slots }) => () => h("div", [slots.default?.(), ...props.items.flat().map((item: { label: string }) => h("span", item.label))]),
 })
 
+const tabs = defineComponent({
+  props: ["items"],
+  setup: (props, { slots }) => () => h("div", { role: "tablist" }, props.items.map((item: { label: string }) => h("button", { role: "tab" }, slots.default?.({ item }) ?? item.label))),
+})
+
 let cleanup: (() => void) | undefined
 afterEach(() => { cleanup?.(); mocks.request.mockReset() })
 
@@ -40,6 +45,7 @@ it.each([
   const app = createApp(ConsoleMediaBrowser, { client, mode: "page", selected: ["one.txt"] })
   for (const name of ["UAlert", "UCheckbox", "UEmpty", "UIcon", "UInput", "UModal", "UPopover", "USelect", "USkeleton", "UTooltip"]) app.component(name, slot)
   app.component("UButton", button)
+  app.component("UTabs", tabs)
   app.component("UDropdownMenu", menu)
   // SAFETY: This test runs in happy-dom, whose window is the global scope.
   const { document } = globalThis as unknown as Pick<Window, "document">
@@ -65,6 +71,7 @@ it("shows the grid as a list of controls and exposes the picked file", async () 
   const app = createApp(ConsoleMediaBrowser, { client, defaultView: "grid", mode: "picker", selected: ["one.png"] })
   for (const name of ["UAlert", "UCheckbox", "UEmpty", "UIcon", "UInput", "UModal", "UPopover", "USelect", "USkeleton", "UTooltip"]) app.component(name, slot)
   app.component("UButton", button)
+  app.component("UTabs", tabs)
   app.component("UDropdownMenu", menu)
   // SAFETY: This test runs in happy-dom, whose window is the global scope.
   const { document } = globalThis as unknown as Pick<Window, "document">

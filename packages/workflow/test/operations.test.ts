@@ -21,7 +21,7 @@ beforeEach(() => {
   resetWorkflowRuntime()
   setWorkflowRuntimeConfig({ provider: "vercel" })
   setWorkflowRuntimeRegistry({
-    welcome: async () => ({ default: { handler: async ({ payload }) => ({ reply: String((payload as { name?: string } | undefined)?.name ?? "nobody").toUpperCase() }) } }),
+    welcome: async () => ({ default: { handler: async (payload) => ({ reply: String((payload as { name?: string } | undefined)?.name ?? "nobody").toUpperCase() }) } }),
   })
 })
 
@@ -52,7 +52,7 @@ describe("workflow operations", () => {
   it("are contributed by the Workflow Vite plugin, which no longer adds a dev endpoint", async () => {
     const plugin = hubWorkflow()
     const [entry] = plugin.vitehub?.operations ?? []
-    expect(entry).toMatchObject({ export: "workflowOperations", module: "@vite-hub/workflow/operations" })
+    expect(entry).toMatchObject({ export: "workflowOperations", module: expect.stringMatching(/[\\/]workflow[\\/](?:src|dist)[\\/]operations\.(?:ts|js)$/) })
     expect(await entry?.load?.()).toBe(workflowOperations)
     expect(plugin.vitehub).not.toHaveProperty("cli")
     const nitro: Record<string, unknown> = {}
@@ -90,7 +90,7 @@ describe("workflow operations", () => {
     // A folder Workflow: each step file runs through the step runner.
     const folder = (fail: boolean) => async () => ({
       default: {
-        handler: async (context: WorkflowExecutionContext) => {
+        handler: async (_payload: unknown, context: WorkflowExecutionContext) => {
           const steps = createWorkflowSteps(context, [
             { name: "01-load.ts", run: async () => ({ user: "ada" }) },
             { name: "02-send.ts", run: async () => { if (fail) throw new Error("SMTP rejected Bearer abc.def.ghi"); return { sent: true } } },

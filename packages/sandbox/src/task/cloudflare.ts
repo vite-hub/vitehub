@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
+import { mergeNitroExternal as mergeRollupExternal } from '@vite-hub/internal/nitro-kit'
 import { resolvePathSync } from 'mlly'
 import { dirname, join, relative, resolve } from 'pathe'
 import type { Plugin } from 'rollup'
@@ -59,20 +60,6 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
     migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
     name: options.name || undefined,
   }
-}
-
-function mergeRollupExternal(value: unknown, addition: string): unknown {
-  if (typeof value === 'undefined')
-    return [addition]
-  if (Array.isArray(value))
-    return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === 'string' || value instanceof RegExp)
-    return [value, addition]
-  if (typeof value === 'function') {
-    return (source: string, importer?: string, isResolved?: boolean) =>
-      source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
@@ -147,25 +134,31 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
         fileName: 'sandbox-task-cloudflare-exports.mjs',
       })
     },
-    resolveId(id) {
-      if (id === moduleId)
-        return resolvedModuleId
-      if (id === '@cloudflare/sandbox')
-        return cloudflareSandboxEntrypoint
-      if (id === durableObjectModule)
-        return durableObjectEntrypoint
+    resolveId: {
+      filter: { id: /^(?:virtual:vitehub-sandbox-task-cloudflare-exports|@cloudflare\/sandbox|@vite-hub\/sandbox\/_internal\/cloudflare)$/ },
+      handler(id) {
+        if (id === moduleId)
+          return resolvedModuleId
+        if (id === '@cloudflare/sandbox')
+          return cloudflareSandboxEntrypoint
+        if (id === durableObjectModule)
+          return durableObjectEntrypoint
+      },
     },
-    load(id) {
-      if (id === resolvedModuleId) {
-        return [
-          `import { DurableObject } from 'cloudflare:workers'`,
-          `import { Files, SandboxFileError } from '@cloudflare/sandbox'`,
-          `import { createCloudflareSandboxDurableObject } from '${durableObjectModule}'`,
-          ``,
-          `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError }) {}`,
-          ``,
-        ].join('\n')
-      }
+    load: {
+      filter: { id: /^\0virtual:vitehub-sandbox-task-cloudflare-exports$/ },
+      handler(id) {
+        if (id === resolvedModuleId) {
+          return [
+            `import { DurableObject } from 'cloudflare:workers'`,
+            `import { Files, SandboxFileError } from '@cloudflare/sandbox'`,
+            `import { createCloudflareSandboxDurableObject } from '${durableObjectModule}'`,
+            ``,
+            `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError }) {}`,
+            ``,
+          ].join('\n')
+        }
+      },
     },
     renderChunk(code, chunk) {
       if (!chunk.isEntry)

@@ -38,7 +38,7 @@
   "scripts": {
     "build": "node scripts/build.ts",
     "typecheck": "vp run --cache -t @vite-hub/icons#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/icons#build && vp test"
+    "test": "vp run --cache -t @vite-hub/icons#build && vp test"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

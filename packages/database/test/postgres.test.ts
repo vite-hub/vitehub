@@ -132,7 +132,7 @@ describe("Postgres Database Definitions", () => {
 describe("Postgres build configuration", () => {
   it("resolves Hyperdrive bindings and connection URLs without SQLite or D1 defaults", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  cloudflare: { hyperdriveId: process.env.CLOUDFLARE_HYPERDRIVE_ID || 'hyperdrive-id' },",
       "  connection: { url: process.env.DATABASE_URL },",
@@ -162,12 +162,12 @@ describe("Postgres build configuration", () => {
 
   it("names Hyperdrive bindings per Named Database and rejects conflicting bindings", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/analytics/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/analytics/index.ts", [
       "  name: 'analytics',",
       "  dialect: 'postgresql',",
       "  cloudflare: { hyperdriveId: 'analytics-id' },",
     ])
-    await writePostgresDefinition(rootDir, "server/databases/billing/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/billing/index.ts", [
       "  name: 'billing',",
       "  dialect: \"postgresql\",",
       "  cloudflare: { binding: 'HYPERDRIVE_ANALYTICS', hyperdriveId: 'billing-id' },",
@@ -180,14 +180,14 @@ describe("Postgres build configuration", () => {
 
   it("requires a literal dialect", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: process.env.DATABASE_DIALECT,"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: process.env.DATABASE_DIALECT,"])
 
     expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
 
   it("generates a postgresql Drizzle Kit config and a typed registry", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  connection: { url: process.env.DATABASE_URL },",
     ])
@@ -198,7 +198,7 @@ describe("Postgres build configuration", () => {
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
     expect(drizzleConfig).toContain("dialect: \"postgresql\"")
     expect(drizzleConfig).toContain("  dbCredentials: (process.env[\"DATABASE_URL\"])?.trim() ? { url: (process.env[\"DATABASE_URL\"]).trim() } : { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
-    expect(drizzleConfig).toContain("out: \"server/databases/migrations\"")
+    expect(drizzleConfig).toContain("out: \"server/databases/default/migrations\"")
     await expect(readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")).resolves.toContain("export { table_0 as notes }")
     const types = await readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")
     expect(types).toContain("dialect: \"postgresql\"")
@@ -206,7 +206,7 @@ describe("Postgres build configuration", () => {
 
   it("gives Drizzle Kit the PG* environment variables when a Postgres Definition has no URL", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
     const config = resolveDBViteConfig(undefined, rootDir)!
 
     await writeGeneratedDatabaseArtifacts(config)
@@ -217,7 +217,7 @@ describe("Postgres build configuration", () => {
 
   it("gives Drizzle Kit the PG* environment variables for an empty literal URL", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  connection: { url: '   ' },",
     ])
@@ -231,14 +231,14 @@ describe("Postgres build configuration", () => {
 
   it("keeps the libSQL runtime out of the Vite databases module of a Postgres-only app", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
     const plugin = hubDb()
     // SAFETY: These are Vite hook handlers returned by hubDb.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: rootDir })
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
 
     const code = await load((await resolveId("#vitehub/database/databases"))!)
     expect(code).toContain("runtime/postgres")
@@ -249,7 +249,7 @@ describe("Postgres build configuration", () => {
 
   it("rejects a contribution with another dialect in Definition inspection, as the build does", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
     const plugins = [{ name: "history-owner/vite", vitehub: { databases: [{ definition: { module: "history-tables/schema" }, dialect: "sqlite", name: "history" }] } }]
 
     await expect(inspectDatabaseDefinitions({ plugins, projectRoot: rootDir, rootDir })).rejects.toMatchObject({
@@ -260,7 +260,7 @@ describe("Postgres build configuration", () => {
 
   it("lists the Postgres dialect in Definition inspection", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
 
     expect((await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir }))[0]?.fields).toEqual([
       { label: "Mode", value: "Default" },
@@ -271,7 +271,7 @@ describe("Postgres build configuration", () => {
 
   it("writes hosted runtime modules that create Postgres clients without the SQLite runtime", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  cloudflare: { hyperdriveId: 'hyperdrive-id' },",
       "  connection: { url: process.env.DATABASE_URL },",

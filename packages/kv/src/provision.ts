@@ -10,7 +10,7 @@ import { KV_CLOUDFLARE_PROVISION_CATEGORY } from "./integrations/cloudflare.ts"
 import { resolveKVViteConfig } from "./vite-config.ts"
 
 import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
-import type { KVModuleOptions } from "./types.ts"
+import type { KVOptions } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareKVNamespace {
@@ -72,7 +72,7 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
 }
 
 // Groups Cloudflare KV Stores without a configured namespace id by namespace name.
-function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record<string, string | undefined>): Map<string, string[]> {
+function planStoresByNamespace(options: KVOptions | undefined, env: Record<string, string | undefined>): Map<string, string[]> {
   const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
   const storesByNamespace = new Map<string, string[]>()
   if (!kv) return storesByNamespace
@@ -85,13 +85,13 @@ function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record
   return storesByNamespace
 }
 
-function cloudflareStoreNames(options: KVModuleOptions | undefined, env: Record<string, string | undefined>): string[] {
+function cloudflareStoreNames(options: KVOptions | undefined, env: Record<string, string | undefined>): string[] {
   const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
   if (!kv) return []
   return Object.entries(kv.stores || { default: kv.store }).filter(([, store]) => store.driver === "cloudflare-kv-binding").map(([name]) => name)
 }
 
-export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOptions | undefined): ProvisionStep {
+export function createKVCloudflareProvisionStep(resolveOptions: () => KVOptions | undefined): ProvisionStep {
   return {
     id: "kv:cloudflare-kv",
     provider: "cloudflare",

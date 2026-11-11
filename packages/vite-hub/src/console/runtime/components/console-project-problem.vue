@@ -10,12 +10,10 @@ defineProps<{ problem: ConsoleProjectProblem }>();
 </script>
 
 <template>
-  <div role="alert" class="flex gap-2 text-sm">
-    <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0 text-error" aria-hidden="true" />
-    <div class="grid min-w-0 gap-0.5 [overflow-wrap:anywhere]">
-      <p class="text-pretty font-medium text-highlighted">{{ problem.title }}</p>
-      <p v-if="problem.message" class="text-pretty text-muted"><ConsoleCodeText :text="problem.message" /></p>
-      <p v-if="problem.fix" class="mt-1 text-pretty text-default"><ConsoleCodeText :text="problem.fix" /></p>
-    </div>
-  </div>
+  <UAlert role="alert" color="error" icon="i-lucide-circle-alert" :title="problem.title" class="[overflow-wrap:anywhere]">
+    <template v-if="problem.message || problem.fix" #description>
+      <p v-if="problem.message" class="text-pretty"><ConsoleCodeText :text="problem.message" /></p>
+      <p v-if="problem.fix" class="mt-1 text-pretty"><ConsoleCodeText :text="problem.fix" /></p>
+    </template>
+  </UAlert>
 </template>

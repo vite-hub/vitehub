@@ -160,15 +160,17 @@ so keep an Eval for tool choice.
 
 Provider-backed Agents need a provider executable and an authentication path:
 local credentials, or a `gateway` that replaces them. `vitehub agent info` does
-not call the provider. To run the readiness probe, call the authenticated
-Console status endpoint for the Agent:
+not call the provider. To run the readiness probe, call the `status.get`
+operation of the Console endpoint for the Agent:
 
 ```bash
-curl -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
-  'http://localhost:5173/_vitehub/api/status?agent=support'
+curl -X POST -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
+  -H 'Content-Type: application/json' -H 'x-vitehub-console: 1' \
+  --data '{"operation":"status.get","input":{"agent":"support"}}' \
+  'http://localhost:5173/_vitehub/rpc/__call'
 ```
 
-`VITEHUB_CONSOLE_COOKIE` is the cookie from a signed-in Console session
+`VITEHUB_CONSOLE_COOKIE` is a session cookie of the app Auth or Console Auth
 (`vitehub_console.session_token`, with a `__Secure-` prefix over HTTPS). If the
 host uses a separate bearer policy, send its header instead:
 `curl -H "Authorization: $VITEHUB_CONSOLE_AUTHORIZATION" ...`. These are shell

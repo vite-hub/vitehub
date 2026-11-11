@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsHomePath, docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
+import { docsHomePath, docsPanelOf, docsRailEntries, docsRailTarget, docsStartPage, normalizeDocsPath } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
 import type { DocsAppPage, DocsRailEntry, DocsSection } from "@vite-hub/docs"
@@ -11,9 +11,17 @@ defineProps<{
   labeled?: boolean
   /** Shows the brand at the top, for the sidebar of wide screens, which have no site header beside it. */
   brand?: boolean
+  /**
+   * Shows a button under the brand that opens or collapses the sidebar, on a page with a collapsible sidebar. Collapsed,
+   * the rail is the whole sidebar, so it also shows search and the site links.
+   */
+  toggle?: "show" | "hide"
 }>()
 
 const { categories, railExclude, groups: docsGroups, site, start } = useDocsConfig()
+const { toggle: toggleSidebar, focusMounted } = useDocsSidebarToggle()
+const search = reactive(useContentSearch())
+onMounted(focusMounted)
 const currentSection = useDocsSection()
 const icons = useDocsIcons()
 // One rail group for each catalog category. Sections without a category stay reachable in a last group. The sections
@@ -31,11 +39,14 @@ const currentPanel = computed(() => {
   const page = section?.pages.find(candidate => candidate.path === normalizeDocsPath(route.path))
   return section && page ? docsPanelOf(section, page) : null
 })
+// The item of the start section opens the start link that leads it, such as an Introduction outside every section.
+const startPage = docsStartPage(useDocsManifest(), start)
 function target(entry: DocsRailEntry<DocsAppPage>) {
-  return docsRailTarget(entry.sections[0]!, currentPanel.value)
+  const opensStart = startPage && !currentPanel.value && entry.sections.some(section => section.id === start?.section)
+  return opensStart ? startPage : docsRailTarget(entry.sections[0]!, currentPanel.value)
 }
 const brandLabel = site.badge ? `${site.name} ${site.badge.label}` : site.name
-const docsHome = docsHomePath(useDocsManifest())
+const docsHome = docsHomePath(useDocsManifest(), start)
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
@@ -83,8 +94,9 @@ onBeforeUnmount(() => {
   <!-- The expanded rail shows each label, so the tooltips turn off while it is open. -->
   <PrimitiveRail ref="rail" :label="`${site.name} navigation`" class="vh-docs-rail" :class="{ 'vh-docs-rail-labeled': labeled }">
     <!-- Like the header brand on other pages, it opens the docs home. -->
-    <template v-if="brand" #header="{ expanded }">
+    <template v-if="brand || toggle" #header="{ expanded }">
       <UTooltip
+        v-if="brand"
         :text="site.badge?.tooltip || brandLabel"
         :content="{ side: 'right', sideOffset: 6 }"
         :delay-duration="150"
@@ -99,6 +111,23 @@ onBeforeUnmount(() => {
             <span class="vh-docs-rail-brand-name">{{ site.name }}</span>
             <span v-if="site.badge" class="vh-docs-rail-brand-badge">{{ site.badge.label }}</span>
           </template>
+        </PrimitiveRailItem>
+      </UTooltip>
+      <!-- The open and collapsed sidebars put this button in the same place, so the pointer can toggle in place. -->
+      <UTooltip v-if="toggle" :text="toggle === 'show' ? 'Show navigation' : 'Hide navigation'" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" :disabled="expanded" ignore-non-keyboard-focus>
+        <PrimitiveRailItem
+          :id="docsSidebarToggleIds[toggle]"
+          as="button"
+          type="button"
+          :label="toggle === 'show' ? 'Show navigation' : 'Hide navigation'"
+          @click="toggleSidebar(toggle === 'show')"
+        >
+          <UIcon :name="toggle === 'show' ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" class="size-4" />
+        </PrimitiveRailItem>
+      </UTooltip>
+      <UTooltip v-if="toggle === 'show'" text="Search docs" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" :disabled="expanded">
+        <PrimitiveRailItem as="button" type="button" label="Search docs" @click="search.open = true">
+          <UIcon name="i-lucide-search" class="size-4" />
         </PrimitiveRailItem>
       </UTooltip>
     </template>
@@ -127,6 +156,9 @@ onBeforeUnmount(() => {
         </UTooltip>
       </PrimitiveRailGroup>
     </template>
+    <template v-if="toggle === 'show'" #footer>
+      <DocsAsideFooter stacked />
+    </template>
   </PrimitiveRail>
 </template>
 
@@ -149,7 +181,8 @@ onBeforeUnmount(() => {
 .vh-docs-rail :deep(.vh-primitive-rail__body[data-fade-bottom]) {
   --vh-docs-rail-fade-top: 0px;
   --vh-docs-rail-fade-bottom: 0px;
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--vh-docs-rail-fade-top), #000 calc(100% - var(--vh-docs-rail-fade-bottom)), transparent);
+  /* A mask reads only alpha, so any opaque color works. */
+  mask-image: linear-gradient(to bottom, transparent, black var(--vh-docs-rail-fade-top), black calc(100% - var(--vh-docs-rail-fade-bottom)), transparent);
 }
 
 .vh-docs-rail :deep(.vh-primitive-rail__body[data-fade-top]) {
