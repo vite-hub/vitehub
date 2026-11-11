@@ -1161,7 +1161,7 @@ function inspectorMcpServers(servers: readonly { name: string; status?: string }
 /** Recorded entries with a string `name`. The configuration is untrusted JSON. */
 function namedEntries<T extends { name: string }>(value: unknown): T[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is T => entry instanceof Object && hasRuntimeType(Reflect.get(entry, "name"), "string") && Reflect.get(entry, "name") !== "");
+  return value.filter((entry): entry is T => entry instanceof Object && typeof Reflect.get(entry, "name") === "string" && Reflect.get(entry, "name") !== "");
 }
 
 function inspectorSection(title: string, body: ReturnType<typeof h>) {
