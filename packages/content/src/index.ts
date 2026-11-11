@@ -30,7 +30,7 @@ import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefiniti
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview, createRequestScope } from "./preview.ts"
-import { parseContentPreviewPath, previewResponse, rewriteContentLinks } from "./ref-routes.ts"
+import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
@@ -482,7 +482,11 @@ export function defineContent<
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   /** The preview of the current request: the ref of its URL, and the commit that `allow()` checked. */
-  const refScope = createRequestScope<{ target: ContentSourceRef, preview: ContentSourcePreview }>(previews !== false)
+  /**
+   * The ref of a preview request, its commit view, held open for the whole request, and the query that internal links
+   * keep, such as a signed-link token.
+   */
+  const refScope = createRequestScope<{ target: ContentSourceRef, preview: ContentSourcePreview, view: ComarkContent, query?: string }>(previews !== false)
   const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
   const documentsRuntime: ContentCollectionsRuntime | undefined = createCollections
     ? createCollections({
@@ -574,7 +578,7 @@ export function defineContent<
    * Run a read on the hub of the current request's ref after refreshing stale instances. In a preview request, the
    * `github()` Source reads the commit of the ref, and `rewrite` puts internal links of the result under the prefix.
    */
-  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, rewrite?: (result: TResult, prefix: string) => TResult | Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, rewrite?: (result: TResult, prefix: string, query: string | undefined) => TResult | Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
       // Comark can serve cached artifacts and shared indexes without calling guarded instance methods.
       await heads.sync()
@@ -587,8 +591,13 @@ export function defineContent<
       const active = refScope.getStore()
       if (!active) return await method(base, ...args)
       const result = await heads.read(active.target, view => method(viewHub(base, view), ...args))
-      return rewrite ? await rewrite(result, active.preview.prefix) : result
+      return rewrite ? await rewrite(result, active.preview.prefix, active.query) : result
     }
+  }
+  /** The hub of a synchronous read: the commit view of a preview request, else the published hub. */
+  function previewHub(): ContentHub<ComarkContent[]> {
+    const view = refScope.getStore()?.view
+    return view ? viewHub(hub, view) : hub
   }
   function requireDocuments(): ContentCollectionsRuntime {
     if (!documentsRuntime) {
@@ -755,7 +764,9 @@ export function defineContent<
       }
       const page = new URL(url)
       page.pathname = parsed.path
-      const response = await refScope.run({ target, preview: current }, () => next(new Request(page, request)))
+      const query = previewLinkQuery(request.url, access.reason)
+      // The commit view stays open for the whole request, so synchronous reads such as `from()` and `query()` use it.
+      const response = await heads.read(target, async view => await refScope.run({ target, preview: current, view, ...(query ? { query } : {}) }, async () => await next(requestWithUrl(request, page.href))))
       return previewResponse(response, current, access.reason, request.url)
     },
   }
@@ -771,12 +782,21 @@ export function defineContent<
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat())) as ContentRuntimeList,
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
+    manifest: fresh(target => target.manifest()),
+    // The synchronous reads of a preview request use the commit view of its ref, as `get()` and `list()` do.
+    stat: (key: string) => previewHub().stat(key),
+    // SAFETY: Each wrapper forwards the name unchanged, so the generic builder and instance types of the hub hold.
+    query: ((name: string) => previewHub().query(name)) as ContentRuntime["query"],
+    from: ((name: string) => previewHub().from(name)) as ContentRuntime["from"],
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
       await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
-    getSource: (name = "default") => byName.get(name)?.getSource(name),
+    getSource: (name = "default") => {
+      const view = refScope.getStore()?.view
+      return (view?.name === name ? view : byName.get(name))?.getSource(name)
+    },
     cache: {
       get: <T = ContentFile>(key: string) => cacheForKey(key).get<T>(key),
       set: <T = ContentFile>(key: string, value: T) => cacheForKey(key).set(key, value),
@@ -893,10 +913,10 @@ function isComarkParsePlugin(plugin: unknown): plugin is { name?: unknown } {
 }
 
 /** The JSON of `/api/content` with internal links under the preview prefix. Other responses stay as they are. */
-async function rewriteJsonLinks(response: Response, prefix: string): Promise<Response> {
+async function rewriteJsonLinks(response: Response, prefix: string, query: string | undefined): Promise<Response> {
   if (!response.headers.get("content-type")?.includes("json")) return response
   const headers = new Headers(response.headers)
   headers.delete("content-length")
   headers.delete("etag")
-  return new Response(JSON.stringify(rewriteContentLinks(await response.json(), prefix)), { status: response.status, statusText: response.statusText, headers })
+  return new Response(JSON.stringify(rewriteContentLinks(await response.json(), prefix, query)), { status: response.status, statusText: response.statusText, headers })
 }
