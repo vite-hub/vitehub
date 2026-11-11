@@ -3,6 +3,7 @@ import { getConsoleBlob } from "./blob.ts"
 import { consoleActionError, consoleDocumentActionContext, loadConsoleDocumentActions, runConsoleDocumentAction, type ConsoleMediaAccess } from "./documents.ts"
 import { consoleRequestError } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { BlobErrorCode, BlobStorage, MediaFocalPoint, MediaRecord, MediaUpdate } from "@vite-hub/blob"
 import type { Result } from "@vite-hub/runtime"
@@ -78,10 +79,6 @@ interface MediaContext {
 
 function failure(status: 400 | 403 | 404 | 409 | 413 | 422, code: string, message: string): Error {
   return consoleActionError({ code, message, status })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 function text(value: unknown, name: string): string {

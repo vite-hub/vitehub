@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { useIntersectionObserver } from "@vueuse/core";
 import { docsCatalog } from "@vite-hub/docs/navigation";
 
 type CatalogTile = {
   description: string | null;
   icon: string;
   key: string;
-  /** Landing scene name when the product has a looping micro-animation. */
-  scene: string | null;
   title: string;
   to: string;
 };
@@ -17,32 +14,7 @@ type CatalogRow = {
   tiles: CatalogTile[];
 };
 
-/** Products that share a looping scene with the landing page grid. */
-const scenes = new Map([
-  ["agents", "agent"],
-  ["auth", "auth"],
-  ["blob", "blob"],
-  ["browser", "browser"],
-  ["cms", "cms"],
-  ["comments", "comments"],
-  ["connections", "connections"],
-  ["content", "content"],
-  ["database", "database"],
-  ["env", "env"],
-  ["email", "email"],
-  ["channels", "channels"],
-  ["kv", "kv"],
-  ["queue", "queue"],
-  ["rate-limit", "rate-limit"],
-  ["realtime", "realtime"],
-  ["sandbox", "sandbox"],
-  ["schedule", "schedule"],
-  ["shell", "shell"],
-  ["source", "source"],
-  ["workspace", "workspace"],
-  ["workflows", "workflow"],
-]);
-
+// A tile shows the section's icon, the same one as the rail, the sidebar, and the Console.
 const icons = useDocsIcons();
 const groups = docsCatalog(useDocsManifest(), useDocsConfig().categories);
 const rows = computed<CatalogRow[]>(() => {
@@ -54,197 +26,36 @@ const rows = computed<CatalogRow[]>(() => {
           description: section.description,
           icon: icons.section(section),
           key: section.id,
-          scene: scenes.get(section.id) ?? null,
           title: section.title,
           to: section.path,
         })),
     }));
 });
-
-const catalog = useTemplateRef<HTMLElement>("catalog");
-const visible = ref(false);
-
-// Scenes loop only while the catalog is on screen.
-useIntersectionObserver(
-  catalog,
-  ([entry]) => {
-    visible.value = entry?.isIntersecting ?? false;
-  },
-  { threshold: 0.05 },
-);
-
-// Spread start points across the loop so neighboring tiles do not move together.
-function offset(index: number) {
-  return (index * 0.37) % 1;
-}
 </script>
 
 <template>
-  <div ref="catalog" class="not-prose vh-docs-wide vh-docs-catalog">
-    <section v-for="row in rows" :key="row.category" class="vh-docs-catalog-row">
-      <h2 class="vh-docs-catalog-heading">{{ row.category === "Start" ? "Get started" : row.category }}</h2>
-      <ul class="vh-docs-catalog-grid" role="list">
-        <li v-for="(tile, index) in row.tiles" :key="tile.key" class="min-w-0">
-          <NuxtLink :to="tile.to" class="vh-docs-catalog-tile group">
-            <div class="vh-docs-catalog-tile-visual">
-              <LandingPrimitiveMotion
-                v-if="tile.scene"
-                :name="tile.scene"
-                :play="visible"
-                :offset="offset(index)"
-              />
-              <UIcon v-else :name="tile.icon" class="size-5" />
+  <div class="not-prose vh-docs-wide mt-8 flex flex-col gap-9">
+    <section v-for="row in rows" :key="row.category">
+      <h2 class="mb-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.06em] text-muted after:flex-1 after:border-b after:border-default after:content-['']">
+        {{ row.category }}
+      </h2>
+      <UPageGrid>
+        <UPageCard
+          v-for="tile in row.tiles"
+          :key="tile.key"
+          :to="tile.to"
+          :title="tile.title"
+        >
+          <template #header>
+            <div class="flex h-10 items-center text-muted">
+              <UIcon :name="tile.icon" class="size-5" />
             </div>
-            <div class="min-w-0">
-              <h3 class="vh-docs-catalog-tile-title">
-                <span>{{ tile.title }}</span>
-                <UIcon name="i-lucide-arrow-right" class="vh-docs-catalog-tile-arrow size-3.5 shrink-0" aria-hidden="true" />
-              </h3>
-              <p v-if="tile.description" class="vh-docs-catalog-tile-description">{{ tile.description }}</p>
-            </div>
-          </NuxtLink>
-        </li>
-      </ul>
+          </template>
+          <template v-if="tile.description" #description>
+            <span class="line-clamp-2">{{ tile.description }}</span>
+          </template>
+        </UPageCard>
+      </UPageGrid>
     </section>
   </div>
 </template>
-
-<style scoped>
-.vh-docs-catalog {
-  display: flex;
-  flex-direction: column;
-  gap: 2.25rem;
-  margin-top: 2rem;
-}
-
-.vh-docs-catalog-heading {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 0 0 0.75rem;
-  color: var(--ui-text-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.vh-docs-catalog-heading::after {
-  content: "";
-  flex: 1;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-/* Each tile draws its right and bottom line, so a short last row leaves no filler cells. */
-.vh-docs-catalog-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--ui-border);
-  border-left: 1px solid var(--ui-border);
-  list-style: none;
-}
-
-.vh-docs-catalog-grid > li {
-  border-right: 1px solid var(--ui-border);
-  border-bottom: 1px solid var(--ui-border);
-}
-
-@media (min-width: 40rem) {
-  .vh-docs-catalog-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 64rem) {
-  .vh-docs-catalog-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.vh-docs-catalog-tile {
-  --tile-bg: var(--ui-bg);
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem;
-  background: var(--tile-bg);
-  transition: background-color 200ms ease;
-}
-
-.vh-docs-catalog-tile:focus-visible {
-  position: relative;
-  z-index: 1;
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
-}
-
-.vh-docs-catalog-tile-visual {
-  display: flex;
-  height: 2.5rem;
-  width: 100%;
-  align-items: center;
-  color: var(--ui-text-muted);
-  transition: color 200ms ease;
-}
-
-.vh-docs-catalog-tile-title {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin: 0;
-  color: var(--ui-text-highlighted);
-  font-size: 0.875rem;
-  font-weight: 500;
-  line-height: 1.25rem;
-}
-
-.vh-docs-catalog-tile-arrow {
-  opacity: 0;
-  transform: translateX(-0.25rem);
-  transition: opacity 200ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.vh-docs-catalog-tile-description {
-  display: -webkit-box;
-  margin: 0.125rem 0 0;
-  overflow: hidden;
-  color: var(--ui-text-muted);
-  font-size: 0.75rem;
-  line-height: 1.125rem;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .vh-docs-catalog-tile:hover {
-    --tile-bg: color-mix(in srgb, var(--ui-bg-muted) 35%, var(--ui-bg));
-  }
-
-  .vh-docs-catalog-tile:hover .vh-docs-catalog-tile-visual {
-    color: var(--ui-text-highlighted);
-  }
-
-  .vh-docs-catalog-tile:hover .vh-docs-catalog-tile-arrow,
-  .vh-docs-catalog-tile:focus-visible .vh-docs-catalog-tile-arrow {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.vh-docs-catalog-tile:active {
-  transition-duration: 80ms;
-  --tile-bg: color-mix(in srgb, var(--ui-bg-muted) 60%, var(--ui-bg));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-docs-catalog-tile,
-  .vh-docs-catalog-tile-visual,
-  .vh-docs-catalog-tile-arrow {
-    transition: none;
-    transform: none;
-  }
-}
-</style>

@@ -46,6 +46,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 <template>
   <div class="vh-example" :data-view="view">
     <div class="vh-example-bar">
+      <p v-if="$slots.title" class="vh-example-title"><slot name="title" /></p>
       <a v-if="play" :href="play" class="vh-example-play">
         <UIcon name="i-lucide-flask-conical" class="size-3.5" />
         Playground
@@ -56,8 +57,8 @@ onBeforeUnmount(() => resizes?.disconnect())
       </button>
       <div ref="seg" class="vh-seg" role="group" aria-label="View">
         <span v-if="thumb" class="vh-seg-thumb" :class="{ 'is-still': !thumb.slide }" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
-        <button type="button" data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
-        <button type="button" data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
+        <button type="button" data-focus-inset data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
+        <button type="button" data-focus-inset data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
       </div>
     </div>
     <div class="vh-example-body">
@@ -93,6 +94,17 @@ onBeforeUnmount(() => resizes?.disconnect())
   margin-bottom: 0.5rem;
 }
 
+/* A title, such as Correct or Incorrect on a lint rule's examples, leads the bar. */
+.vh-example-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 auto 0 0;
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
 .vh-example-play {
   display: inline-flex;
   align-items: center;
@@ -113,7 +125,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 .vh-seg {
   position: relative;
   display: inline-flex;
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-elevated);
   padding: 3px;
 }
@@ -125,7 +137,7 @@ onBeforeUnmount(() => resizes?.disconnect())
   left: 3px;
   border-radius: 6px;
   background: var(--vh-raised);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
+  box-shadow: 0 0 0 1px var(--ui-border);
   transition: transform 200ms var(--vh-ease-out), width 200ms var(--vh-ease-out);
 }
 
@@ -143,7 +155,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 /* Before the thumb is measured, the pressed button carries the raised surface itself. */
 .vh-seg button.is-unmeasured[aria-pressed="true"] {
   background: var(--vh-raised);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
+  box-shadow: 0 0 0 1px var(--ui-border);
 }
 
 .vh-seg button[aria-pressed="true"] {
@@ -156,10 +168,6 @@ onBeforeUnmount(() => resizes?.disconnect())
   }
 }
 
-.vh-seg button:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
 
 /* Touch screens get 44px targets. */
 @media (pointer: coarse) {
@@ -190,7 +198,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 }
 
 .vh-example-body > :deep(.docs-example-preview) {
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   box-shadow: 0 0 0 1px var(--ui-border);
   padding: 1.25rem 1.5rem;
 }

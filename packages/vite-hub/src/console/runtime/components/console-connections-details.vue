@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { Markdown, Status } from "@vite-hub/ui";
 import type { ConnectionInspection } from "@vite-hub/connections";
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import {
   canSendConnectionKeyTo,
+  connectionActivityLabel,
+  connectionActivitySchema,
   connectionKeyTransportMessage,
   connectionConnectURL,
   connectionCredentialLabel,
@@ -12,12 +15,14 @@ import {
   connectionStatusLabel,
   requestConnectionsManagement,
 } from "../client/connections-management";
-import ConsoleConnectionsActivity from "./console-connections-activity.vue";
+import ConsoleCredentialActivity from "./console-credential-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
-import { consoleDateTime } from "../client/time";
+import { consoleDateTime } from "../client/format";
 import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
+import type { ConsoleProperty } from "./console-facts";
+import ConsolePropertyList from "./console-property-list.vue";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{
   connection: ConnectionInspection;
@@ -28,7 +33,7 @@ const props = defineProps<{
   returnTo?: string;
 }>();
 
-// The connect flow needs the app session, so a Console on another origin sends it to the app's own Console.
+// The connect flow needs the app session, so it runs on the app origin.
 const remote = isRemoteProject();
 const emit = defineEmits<{ changed: [] }>();
 const current = ref<ConnectionInspection>(props.connection);
@@ -48,6 +53,38 @@ const revoking = ref(false);
 const confirmation = ref("");
 const settingKey = ref(false);
 const key = ref("");
+
+/** The facts of the Connection. Times are absolute, and each scope takes its own line. */
+const properties = computed<Array<ConsoleProperty & { datetime?: string }>>(() => {
+  const connection = current.value;
+  const scopes = (list: string[]) => (list.length ? { mono: true, value: list.join("\n") } : { value: "None" });
+  return [
+    { label: "Status", value: connectionStatusLabel(connection.status) },
+    { label: "Type", value: connectionCredentialLabel(connection.credential) },
+    { label: "Provider", value: connection.provider },
+    ...(connection.account ? [{ label: "Account", value: connection.account.email ?? connection.account.id }] : []),
+    ...(connection.connectedAt ? [{ datetime: connection.connectedAt, label: "Connected", value: consoleDateTime(connection.connectedAt) }] : []),
+    ...(connection.refreshedAt ? [{ datetime: connection.refreshedAt, label: "Refreshed", value: consoleDateTime(connection.refreshedAt) }] : []),
+    ...(connection.chatgpt
+      ? [
+          { label: "Plan usage", value: connection.chatgpt.plan === "enabled" ? "Enabled" : "Not enabled" },
+          { label: "Host ID", mono: true, value: connection.chatgpt.hostId },
+        ]
+      : []),
+    ...(connection.expiresAt ? [{ datetime: connection.expiresAt, label: "Token expires", value: consoleDateTime(connection.expiresAt) }] : []),
+    ...(connection.credential === "api-key"
+      ? []
+      : [
+          { label: "Granted scopes", ...scopes(connection.scopes.granted) },
+          { label: "Missing scopes", ...scopes(connection.scopes.missing) },
+        ]),
+  ];
+});
+
+async function loadActivity(before?: string) {
+  const input = { name: current.value.name, ...(before ? { before } : {}) };
+  return (await requestConnectionsManagement(props.endpoint, "activity", connectionActivitySchema, input)).activity;
+}
 
 async function run(action: () => Promise<void>) {
   busy.value = true;
@@ -123,78 +160,28 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-5">
-    <div class="flex gap-2" aria-label="Connection views">
-      <UButton
-        v-for="item in [
-          { value: 'details', label: 'Details' },
-          { value: 'activity', label: 'Activity' },
-          { value: 'approvals', label: 'Approvals' },
-        ]"
-        :key="item.value"
-        :label="item.label"
-        color="neutral"
-        :variant="tab === item.value ? 'soft' : 'ghost'"
-        :aria-pressed="tab === item.value"
-        @click="tab = item.value"
-      />
-    </div>
+    <UTabs
+      v-model="tab"
+      :items="[
+        { value: 'details', label: 'Details' },
+        { value: 'activity', label: 'Activity' },
+        { value: 'approvals', label: 'Approvals' },
+      ]"
+      :content="false"
+      aria-label="Connection views"
+    />
     <template v-if="tab === 'details'">
-      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-4 text-sm">
-        <dt class="text-muted">Status</dt>
-        <dd>
-          <ConsoleStatus :label="connectionStatusLabel(current.status)" :tone="connectionStatusTone(current.status)" />
-        </dd>
-        <dt class="text-muted">Type</dt>
-        <dd>{{ connectionCredentialLabel(current.credential) }}</dd>
-        <dt class="text-muted">Provider</dt>
-        <dd class="break-words text-highlighted">{{ current.provider }}</dd>
-        <template v-if="current.account">
-          <dt class="text-muted">Account</dt>
-          <dd class="break-all">{{ current.account.email ?? current.account.id }}</dd>
+      <ConsolePropertyList :items="properties">
+        <template #value="{ item }">
+          <Status v-if="item.label === 'Status'" :label="connectionStatusLabel(current.status)" :tone="connectionStatusTone(current.status)" />
+          <span v-else-if="item.label === 'Missing scopes' && current.scopes.missing.length" class="text-error">{{ item.value }}</span>
+          <time v-else-if="item.datetime" :datetime="item.datetime" class="tabular-nums">{{ item.value }}</time>
+          <template v-else>{{ item.value }}</template>
         </template>
-        <template v-if="current.connectedAt">
-          <dt class="text-muted">Connected</dt>
-          <dd>
-            <time :datetime="current.connectedAt" class="tabular-nums">{{
-              consoleDateTime(current.connectedAt)
-            }}</time>
-          </dd>
-        </template>
-        <template v-if="current.refreshedAt">
-          <dt class="text-muted">Refreshed</dt>
-          <dd>
-            <time :datetime="current.refreshedAt" class="tabular-nums">{{
-              consoleDateTime(current.refreshedAt)
-            }}</time>
-          </dd>
-        </template>
-        <template v-if="current.chatgpt">
-          <dt class="text-muted">Plan usage</dt>
-          <dd>{{ current.chatgpt.plan === 'enabled' ? 'Enabled' : 'Not enabled' }}</dd>
-          <dt class="text-muted">Host ID</dt>
-          <dd class="break-all font-mono text-xs">{{ current.chatgpt.hostId }}</dd>
-        </template>
-        <template v-if="current.expiresAt">
-          <dt class="text-muted">Token expires</dt>
-          <dd><time :datetime="current.expiresAt" class="tabular-nums">{{ consoleDateTime(current.expiresAt) }}</time></dd>
-        </template>
-        <template v-if="current.credential !== 'api-key'">
-          <dt class="text-muted">Granted scopes</dt>
-          <dd>
-            <ul v-if="current.scopes.granted.length" class="grid gap-1 font-mono text-xs [overflow-wrap:anywhere]">
-              <li v-for="scope in current.scopes.granted" :key="scope">{{ scope }}</li>
-            </ul>
-            <span v-else>None</span>
-          </dd>
-          <dt class="text-muted">Missing scopes</dt>
-          <dd>
-            <ul v-if="current.scopes.missing.length" class="grid gap-1 font-mono text-xs text-error [overflow-wrap:anywhere]">
-              <li v-for="scope in current.scopes.missing" :key="scope">{{ scope }}</li>
-            </ul>
-            <span v-else>None</span>
-          </dd>
-        </template>
-      </dl>
+      </ConsolePropertyList>
+      <ConsoleSection v-if="current.docs" heading-id="connection-docs" :level="3" title="Setup">
+        <Markdown class="max-w-[75ch] break-words text-sm [--comark-grain:none] **:text-sm" :value="current.docs" />
+      </ConsoleSection>
       <p v-if="current.credential === 'chatgpt'" class="text-sm text-muted">
         Sign in from the app directory with
         <code class="break-all">vitehub connections connect {{ current.name }}</code>, then reload.
@@ -204,7 +191,6 @@ onMounted(async () => {
         <UButton
           v-if="current.credential === 'api-key'"
           :label="current.status === 'connected' ? 'Replace key' : 'Set key'"
-          color="neutral"
           variant="outline"
           :disabled="busy"
           :aria-expanded="settingKey"
@@ -221,7 +207,6 @@ onMounted(async () => {
           "
           :to="connectionConnectURL(endpoint, current.name, returnTo)"
           external
-          color="neutral"
           variant="outline"
           trailing-icon="i-lucide-arrow-up-right"
           :disabled="busy"
@@ -234,7 +219,7 @@ onMounted(async () => {
           :disabled="busy"
           @click="revoking = !revoking"
         />
-        <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="reload" />
+        <UButton label="Reload" variant="ghost" :loading="busy" @click="reload" />
       </div>
       <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
       <p v-if="keyBlocked" role="alert" class="text-sm text-error">{{ connectionKeyTransportMessage }}</p>
@@ -277,8 +262,7 @@ onMounted(async () => {
           :disabled="confirmation !== current.name"
         />
       </form>
-      <section v-if="current.actions.length" class="space-y-2">
-        <h3 class="text-sm text-muted">Allowed actions</h3>
+      <ConsoleSection v-if="current.actions.length" :level="3" title="Allowed actions" :count="current.actions.length">
         <ul role="list" class="divide-y divide-default">
           <li
             v-for="action in current.actions"
@@ -291,12 +275,16 @@ onMounted(async () => {
             }}</span>
           </li>
         </ul>
-      </section>
+      </ConsoleSection>
     </template>
-    <ConsoleConnectionsActivity
+    <ConsoleCredentialActivity
       v-else-if="tab === 'activity'"
-      :endpoint="endpoint"
-      :name="current.name"
+      :key="current.name"
+      description="Persisted operations. Call inputs are not recorded."
+      empty-title="No activity yet"
+      empty-description="Calls, writes, and account changes show here."
+      :label="connectionActivityLabel"
+      :load="loadActivity"
     />
     <ConsoleConnectionsApprovals
       v-else-if="tab === 'approvals'"
