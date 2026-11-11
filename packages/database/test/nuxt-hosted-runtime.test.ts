@@ -17,7 +17,7 @@ describe("Nuxt hosted Database module preparation", () => {
   ])("creates a resolvable %s runtime for the %s provider and %s definition before Vite builds", async (preset, provider, name) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-nuxt-hosted-runtime-"))
     const projectRoot = join(root, "service")
-    const definition = join(projectRoot, "server/databases", ...(name === "default" ? [] : [name!]), "config.ts")
+    const definition = join(projectRoot, "server/databases", name!, "index.ts")
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await mkdir(dirname(definition), { recursive: true })

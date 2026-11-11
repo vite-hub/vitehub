@@ -22,7 +22,7 @@ export interface DocsCollectionOptions {
  *
  * @example
  * // server/content.ts
- * export const content = defineContent({ extends: cms, collections: { docs: docsCollection() } })
+ * export default defineContent({ extends: cms, collections: { docs: docsCollection() } })
  */
 export function docsCollection(options: DocsCollectionOptions = {}): DocumentsDefinition<typeof docsPageFields> {
   return documents({

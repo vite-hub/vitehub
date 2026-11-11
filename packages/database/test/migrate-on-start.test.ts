@@ -35,7 +35,7 @@ async function createProject() {
   roots.push(root)
   await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
   await mkdir(join(root, "server/databases"), { recursive: true })
-  await writeFile(join(root, "server/databases/config.ts"), [
+  await writeFile(join(root, "server/databases/default.ts"), [
     'import { defineDatabase } from "@vite-hub/database"',
     'import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"',
     'export default defineDatabase({ schema: { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) } })',
@@ -44,7 +44,7 @@ async function createProject() {
 }
 
 async function writeMigrations(root: string, migrations: Array<{ sql: string, tag: string, when: number }>) {
-  const dir = join(root, "server/databases/migrations")
+  const dir = join(root, "server/databases/default/migrations")
   await mkdir(join(dir, "meta"), { recursive: true })
   await writeFile(join(dir, "meta/_journal.json"), JSON.stringify({
     dialect: "sqlite",
@@ -139,7 +139,7 @@ describe("database.migrateOnStart", () => {
 
   it("migrates the implicit default Database with contributed tables before serving requests", { timeout: 60_000 }, async () => {
     const root = await createProject()
-    await rm(join(root, "server/databases/config.ts"))
+    await rm(join(root, "server/databases/default.ts"))
     const tables = join(root, "tables.mjs")
     await writeFile(tables, [
       'import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"',

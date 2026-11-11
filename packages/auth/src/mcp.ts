@@ -4,7 +4,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api"
 import { verifyJwsAccessToken } from "better-auth/oauth2"
 import { jwt } from "better-auth/plugins"
 
-import { getAuthForRequest } from "./server.ts"
+import { authForRequest } from "./auth-instance.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { Result } from "@vite-hub/runtime"
@@ -176,7 +176,7 @@ export function mcpOAuth(options: McpOAuthOptions): McpOAuthPlugins {
   ]
 }
 
-/** What the MCP helpers read from a Better Auth instance. `getAuthForRequest()` returns one. */
+/** What the MCP helpers read from a Better Auth instance. `useAuth()` returns one. */
 export interface McpOAuthAuth {
   $context: Promise<{
     baseURL: string
@@ -218,8 +218,8 @@ async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 
 const pathOf = (url: string) => new URL(url).pathname.replace(/\/+$/, "")
 
-// SAFETY: `getAuthForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-const appAuth = (request: Pick<Request, "headers" | "url">) => getAuthForRequest(request) as unknown as McpOAuthAuth
+// SAFETY: `authForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
+const appAuth = (request: Pick<Request, "headers" | "url">) => authForRequest(request) as unknown as McpOAuthAuth
 
 /** Options of {@link serveMcpOAuthDiscovery}. */
 export interface McpOAuthDiscoveryOptions {

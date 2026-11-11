@@ -31,7 +31,7 @@ function deferred() {
 async function createProject() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-db-generation-"))
   tempDirs.push(root)
-  const definition = join(root, "server/databases/config.ts")
+  const definition = join(root, "server/databases/default.ts")
   await mkdir(dirname(definition), { recursive: true })
   await writeFile(definition, "export default { schema: { notes: {} } }\n")
   return { definition, root }
@@ -117,7 +117,7 @@ it.each(["schema", "config"] as const)("finishes sibling %s writes before reject
   const { definition, root } = await createProject()
   await rm(definition)
   for (const name of ["first", "second"]) {
-    const file = join(root, `server/databases/${name}/config.ts`)
+    const file = join(root, `server/databases/${name}/index.ts`)
     await mkdir(dirname(file), { recursive: true })
     await writeFile(file, `function defineDatabase(value) { return value }\nexport default defineDatabase({ name: '${name}', schema: {} })\n`)
   }

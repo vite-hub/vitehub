@@ -457,9 +457,9 @@ describe("Manual Schedule runs", () => {
   it("returns a failed run for an unprintable handler rejection", async () => {
     const run = await runSchedule("sync", {
       registry: {
-        sync: async () => defineSchedule("0 9 * * *", () => {
+        sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
           throw Object.create(null)
-        }, { manual: true }),
+        } }),
       },
     })
     expect(run).toMatchObject({ error: { message: "[unprintable thrown value]" }, status: "failed" })
@@ -470,10 +470,10 @@ describe("Manual Schedule runs", () => {
     const run = await runSchedule("sync", {
       registry: {
         sync: async () => ({
-          default: defineSchedule("*/5 * * * *", (context) => {
+          default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler: (context) => {
             calls.push(context.id)
             return { synced: 3 }
-          }, { manual: true }),
+          } }),
         }),
       },
     })
@@ -491,7 +491,7 @@ describe("Manual Schedule runs", () => {
 
   it("runs a manual Definition as if its cron fired at a given Date or ISO 8601 string", async () => {
     const seen: string[] = []
-    const registry = { close: async () => defineSchedule("0 0 1 * *", ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) }, { manual: true }) }
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler: ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) } }) }
 
     const fromString = await runSchedule("close", { registry, scheduledAt: "2026-03-01T00:00:00-05:00" })
     const fromDate = await runSchedule("close", { registry, scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
@@ -508,7 +508,7 @@ describe("Manual Schedule runs", () => {
     ["2026-01-31T23:59:00.123456789+01:00", "2026-01-31T22:59:00.123Z"],
   ])("normalizes fractional seconds in %s to milliseconds", async (scheduledAt, expected) => {
     const handler = vi.fn()
-    const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
     const run = await runSchedule("close", { registry, scheduledAt })
     expect(run.scheduledAt.toISOString()).toBe(expected)
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date(expected) }))
@@ -517,7 +517,7 @@ describe("Manual Schedule runs", () => {
 
   it("accepts a year-zero leap day and rejects invalid calendar days in early years", async () => {
     const handler = vi.fn()
-    const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
     const run = await runSchedule("close", { registry, scheduledAt: "0000-02-29T00:00:00Z" })
     expect(run.scheduledAt.toISOString()).toBe("0000-02-29T00:00:00.000Z")
     for (const scheduledAt of ["0000-02-30T00:00:00Z", "0001-02-29T00:00:00Z", "0100-02-29T00:00:00Z"]) {
@@ -531,10 +531,10 @@ describe("Manual Schedule runs", () => {
     vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"))
     let calls = 0
     const registry = {
-      sync: async () => defineSchedule("*/5 * * * *", () => {
+      sync: async () => defineSchedule({ cron: "*/5 * * * *", manual: true, handler: () => {
         calls++
         return { synced: calls }
-      }, { manual: true }),
+      } }),
     }
 
     const runs = await Promise.all([runSchedule("sync", { registry }), runSchedule("sync", { registry })])
@@ -567,7 +567,7 @@ describe("Manual Schedule runs", () => {
 
   it("rejects inherited definitions from the installed runtime registry", async () => {
     const inherited = {
-      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+      default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
     setScheduleRuntimeRegistry({
       inherited: async () => Object.create(inherited),
@@ -579,7 +579,7 @@ describe("Manual Schedule runs", () => {
 
   it("rejects inherited manual schedule definitions", async () => {
     const inherited = {
-      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+      default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
     const registry = {
       inherited: async () => Object.create(inherited),
@@ -591,8 +591,8 @@ describe("Manual Schedule runs", () => {
 
   it("rejects definitions that do not allow manual runs", async () => {
     const registry = {
-      cron: async () => defineSchedule("0 9 * * *", () => {}),
-      disabled: async () => defineSchedule("0 9 * * *", () => {}, { manual: false }),
+      cron: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {} }),
+      disabled: async () => defineSchedule({ cron: "0 9 * * *", manual: false, handler: () => {} }),
       cronless: async () => ({ handler: () => {} }) as unknown as ScheduleDefinition,
     }
 
@@ -608,9 +608,9 @@ describe("Manual Schedule runs", () => {
   it("resolves with the failed run when the handler fails", async () => {
     const run = await runSchedule("sync", {
       registry: {
-        sync: async () => defineSchedule("0 9 * * *", () => {
+        sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
           throw new TypeError("mailbox unavailable")
-        }, { manual: true }),
+        } }),
       },
     })
 
@@ -705,7 +705,7 @@ describe("KV Schedule Run Store", () => {
     const reopened = createKVScheduleRunStore({ kvStore })
     const controller = await installProcessScheduleRuntime({
       now: () => new Date("2026-01-01T16:41:20.000Z"),
-      registry: { reconcile: async () => defineSchedule("0 0 * * *", vi.fn()) },
+      registry: { reconcile: async () => defineSchedule({ cron: "0 0 * * *", handler: vi.fn() }) },
       scheduleRunStore: reopened,
     })
     await controller.close()

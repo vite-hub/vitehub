@@ -21,7 +21,7 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
     await mkdir(join(root, "node_modules"), { recursive: true })
     await symlink(dirname(nuxtPackage), join(root, "node_modules/nuxt"), "dir")
     await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
-    const definition = join(root, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+    const definition = join(root, "server/databases", name, "index.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, `export default defineDatabase({ name: ${JSON.stringify(name)}, schema: {} })\n`)
     await writeFile(join(root, "nuxt.config.ts"), [

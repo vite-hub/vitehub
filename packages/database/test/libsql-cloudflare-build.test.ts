@@ -20,7 +20,7 @@ const d1 = "cloudflare: { databaseId: 'database-id', databaseName: 'app' },"
 async function createProject(definition: string) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-db-libsql-build-"))
   tempDirs.push(root)
-  const file = join(root, "server/databases/config.ts")
+  const file = join(root, "server/databases/default.ts")
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vite-hub/database'",

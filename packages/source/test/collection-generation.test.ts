@@ -137,7 +137,7 @@ it("skips the Content route for defineContent({ route: false, ... })", async () 
       "const fields = { ...guideFields, icon: image({ store: 'media' }), hero: optional(image({ store: 'media' })) }",
       "const components = { note: { label: 'Wedding note' } } satisfies Record<string, DocumentComponent>",
       "",
-      "export const content = defineContent({",
+      "export default defineContent({",
       "  route: false,",
       "  extends: cms,",
       "  collections: {",

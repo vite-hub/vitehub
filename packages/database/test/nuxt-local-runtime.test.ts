@@ -47,7 +47,7 @@ describe("Nuxt production Node Database runtime", () => {
 
   it.each(["default", "orders"])("queries the configured %s SQLite database through the generated host alias", async (name) => {
     const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-node-"))
-    const definition = join(root, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+    const definition = join(root, "server/databases", name, "index.ts")
     const databaseUrl = `file:${join(root, "data", `${name}.sqlite`)}`
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
