@@ -99,7 +99,7 @@ await content.sources.unpin("docs")
 - When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
 - When GitHub answers 403 or 429 to the branch lookup, as it does when the rate limit is hit, the head stays where it is. Content logs `CONTENT_R0035` once, and `head()` on that server instance returns it in `diagnostic` until a lookup succeeds.
 - `diagnostic` is `{ code, message, fix }` when the head does not follow the branch: `CONTENT_R0020`, `CONTENT_R0021`, `CONTENT_R0035`, or `CONTENT_R0019`. `vitehub content head` prints it.
-- Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. The head key gets one write per check, with the new `checkedAt`, and a failed check is tried again after the lease.
+- Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. Completed checks store `checkedAt` under `content:checked:<source>`. An unchanged branch needs no head write unless a stored rejection becomes history; a changed branch needs one. A failed check is tried again after the lease.
 
 ### GitHub push webhook
 
