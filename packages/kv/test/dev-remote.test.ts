@@ -11,7 +11,7 @@ import { normalizeKVOptions } from "../src/config.ts"
 import { disposeKVStores, kv } from "../src/index.ts"
 import { hubKv } from "../src/vite.ts"
 
-import type { KVModuleOptions, ResolvedKVModuleOptions } from "../src/types.ts"
+import type { KVOptions, ResolvedKVModuleOptions } from "../src/types.ts"
 
 const fixture = vi.hoisted(() => ({ kv: false as false | ResolvedKVModuleOptions }))
 vi.mock("#vitehub/kv/config", () => ({
@@ -27,7 +27,7 @@ function hook<T>(value: unknown): T {
 }
 
 /** Runs the hooks that `vite dev` or `vite build` runs, and returns the resolved KV config and Nitro options. */
-async function resolvePlugin(command: "build" | "serve", options?: KVModuleOptions, hosting?: string, nitro: { cloudflare?: { wrangler?: { kv_namespaces?: unknown[] } } } = {}) {
+async function resolvePlugin(command: "build" | "serve", options?: KVOptions, hosting?: string, nitro: { cloudflare?: { wrangler?: { kv_namespaces?: unknown[] } } } = {}) {
   const plugin = hubKv(options, { hosting })
   await hook<(config: object, env: { command: string }) => unknown>(plugin.config)({ nitro, root: directory }, { command })
   await hook<(config: object) => unknown>(plugin.configResolved)({ build: { outDir: "dist" }, command, nitro, root: directory })
@@ -93,7 +93,7 @@ describe("KV in vite dev", () => {
     fixture.kv = inDirectory(config)
     expect(await kv.set("theme", "dark")).toEqual([undefined, undefined])
     expect(await kv.get("theme")).toEqual([undefined, "dark"])
-    expect(existsSync(join(directory, ".vitehub/data/kv/theme"))).toBe(true)
+    expect(existsSync(join(directory, ".vitehub/data/kv/key-theme"))).toBe(true)
     expect(fetch).not.toHaveBeenCalled()
     expect(warn).not.toHaveBeenCalled()
   })
@@ -138,7 +138,7 @@ describe("KV in vite dev", () => {
     fixture.kv = inDirectory(config)
     expect(await kv.set("theme", "dark")).toEqual([undefined, undefined])
     expect(await kv.get("theme")).toEqual([undefined, "dark"])
-    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/theme"))).toBe(true)
+    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/key-theme"))).toBe(true)
     expect((await kv.set("k".repeat(513), "value"))[0]).toMatchObject({ code: "KV_KEY_TOO_LONG" })
     expect((await kv.setIfAbsent("ticket", "1"))[0]).toMatchObject({ code: "KV_UNSUPPORTED_OPERATION" })
   })
@@ -156,7 +156,7 @@ describe("KV in vite dev", () => {
 
     expect(await runWithActiveCloudflareEnv({ KV: binding }, () => kv.set("theme", "dark"))).toEqual([undefined, undefined])
     expect(values.get("theme")).toBe("dark")
-    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/theme"))).toBe(false)
+    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/key-theme"))).toBe(false)
   })
 
   it("writes `remote: true` on the Wrangler binding of a remote Cloudflare store", async () => {
@@ -232,7 +232,7 @@ describe("KV in a Vite dev server", () => {
       `  return store.get("theme")`,
       `}`,
     ].join("\n"))
-    const options: KVModuleOptions = kind === "inferred" ? { remote: true }
+    const options: KVOptions = kind === "inferred" ? { remote: true }
       : kind === "explicit" ? { driver: "upstash" }
         : { stores: { default: { driver: "fs-lite" }, remote: { driver: "upstash" } } }
     const plugin = hubKv(options)
@@ -262,7 +262,7 @@ describe("KV in a Vite dev server", () => {
 
   it.each([
     ["the Cloudflare preset", undefined, "cloudflare-module"],
-    ["an explicit Cloudflare store", { driver: "cloudflare-kv-binding" } satisfies KVModuleOptions, undefined],
+    ["an explicit Cloudflare store", { driver: "cloudflare-kv-binding" } satisfies KVOptions, undefined],
   ])("serves %s from the local store when the runtime has no binding", async (_name, options, hosting) => {
     // A Vite SSR dev server runs in Node, like Nitro's default `node-worker` dev runner: no request has a KV binding.
     await mkdir(join(directory, "node_modules/@vite-hub"), { recursive: true })
@@ -287,7 +287,7 @@ describe("KV in a Vite dev server", () => {
       // SAFETY: The fixture module above exports `handle()`.
       const worker = await server.ssrLoadModule("/src/worker.ts") as { handle: () => Promise<unknown> }
       await expect(worker.handle()).resolves.toEqual({ ok: true })
-      expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/settings"))).toBe(true)
+      expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/key-settings"))).toBe(true)
     }
     finally {
       const { disposeKVStores: disposeServerStores } = await server.ssrLoadModule("@vite-hub/kv") as { disposeKVStores: () => Promise<void> }
@@ -312,9 +312,9 @@ describe("KV in a build", () => {
     const namedBaseline = normalizeKVOptions({ stores: { default: { driver } } }, { env: {} })
     for (const remote of [true, false]) {
       // SAFETY: JavaScript config can contain driver/remote combinations rejected by the public types.
-      const store = { driver, remote } as KVModuleOptions
+      const store = { driver, remote } as KVOptions
       expect(normalizeKVOptions(store, { env: {} })).toEqual(baseline)
-      expect(normalizeKVOptions({ stores: { default: { driver, remote } } } as KVModuleOptions, { env: {} })).toEqual(namedBaseline)
+      expect(normalizeKVOptions({ stores: { default: { driver, remote } } } as KVOptions, { env: {} })).toEqual(namedBaseline)
     }
   })
 
@@ -335,7 +335,7 @@ describe("KV in a build", () => {
 describe("KV `remote` errors", () => {
   it("rejects a value that is not a boolean", () => {
     // SAFETY: The test passes an invalid value that JavaScript config can contain.
-    const options = { remote: "yes" } as unknown as KVModuleOptions
+    const options = { remote: "yes" } as unknown as KVOptions
     expect(() => normalizeKVOptions(options, { env: {} })).toThrow(expect.objectContaining({ code: "KV_INVALID_REMOTE" }))
   })
 
@@ -347,6 +347,6 @@ describe("KV `remote` errors", () => {
     [{ remote: true }, { dev: true, hosting: "deno" }],
   ])("rejects %j", (options, input) => {
     // SAFETY: The cases include configs that the types reject.
-    expect(() => normalizeKVOptions(options as unknown as KVModuleOptions, { env: {}, ...input })).toThrow(expect.objectContaining({ code: "KV_REMOTE_CONFLICT" }))
+    expect(() => normalizeKVOptions(options as unknown as KVOptions, { env: {}, ...input })).toThrow(expect.objectContaining({ code: "KV_REMOTE_CONFLICT" }))
   })
 })

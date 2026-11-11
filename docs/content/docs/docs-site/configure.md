@@ -245,7 +245,19 @@ toc: false
 ---
 ```
 
-A tutorial with `codePanel: true` starts with the navigation closed, so text and code get the width. The reader opens it with the top-left button, and a cookie keeps the choice.
+### Collapsed navigation
+
+A page that needs the width, such as a playground, can start with the navigation collapsed. Set `sidebar: collapsed` in the frontmatter. On wide screens the navigation becomes a narrow column with the logo, an open button, search, and the site links. A site with a rail keeps the rail in that column. The reader opens and collapses the navigation with the same button, and a cookie keeps the choice on every page that starts collapsed. A tutorial with `codePanel: true` starts collapsed too.
+
+An app page in the docs layout sets the same in its page meta:
+
+```vue [app/pages/playground.vue]
+<script setup lang="ts">
+definePageMeta({ layout: "docs", sidebar: "collapsed" })
+</script>
+```
+
+Pages with a collapsible navigation fill the viewport, so they leave out the `banner`.
 
 ## Site options
 
@@ -292,7 +304,7 @@ The design follows the comark-ui site: Geist, neutral grays, hairline rings, sma
 
 ### Icons
 
-The shell uses Lucide, Phosphor, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/ph`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Otherwise `@nuxt/icon` fetches them from the Iconify API.
+The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
 The ViteHub icon set is registered: write `i-vitehub-<name>`, such as `icon: i-vitehub-kv` in a `.navigation.yml` file. The rail draws these icons inline and animates them on hover. The [`@vite-hub/icons`](https://github.com/vite-hub/vitehub/tree/main/packages/icons) README lists every name.
 
@@ -303,8 +315,9 @@ The ViteHub icon set is registered: write `i-vitehub-<name>`, such as `icon: i-v
 | `rail` | Rail icon per section id, such as `i-vitehub-reference`. Replaces the section icon in the rail only. |
 | `sections`, `pages` | Sidebar icon per section id or page path. Replaces the icon in the file. |
 | `aliases` | Replacement per icon name, so the sidebar keeps one icon style. |
-| `family` | Sidebar icon prefix, such as `i-ph-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
+| `family` | Icon prefix of the sidebar, such as `i-lucide-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
 | `page`, `section` | Fallback icons. |
+| `stroke` | Stroke width of Lucide icons. The default `1.5` matches the ViteHub set. `false` keeps Lucide's 2px. |
 
 ## Replace a component
 
@@ -347,7 +360,7 @@ Components read the site through auto-imported composables:
 | Composable | Returns |
 | --- | --- |
 | `useDocsConfig()` | The `docs` options, with every default filled. |
-| `useDocsManifest()` | Every section and page. |
+| `useDocsManifest()` | Every section and page. A page has its navigation fields, `title`, `sourceTitle`, `description`, and `layout`. The page route returns the rest, such as `seo` and `credits`. |
 | `useDocsPage()` | The current route's page and section, or `null`. |
 | `useDocsSection()` | The current route's section. |
 | `useDocsIcons()` | The icon of a page, section, or rail entry, after the `icons` option. |
@@ -376,23 +389,34 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example` (rendered Markdown next to its source). Put an `md`, `markdown`, `mdc`, or `comark` code fence in each example; the default parser adds its preview. A site parser can supply its own `example-preview` node. Every page also renders [comark-ui](https://comark-ui.onmax.me) blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, annotated screenshots, diffs, quizzes, and comments.
 
-### Add Comark plugins
+An example shows the first fenced block inside it, rendered with the page's plugins, and its source behind a Code switch:
 
-The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. To add more, such as `comark-chips` (web links as chips with their favicon), put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts`.
-
-Install the plugin in your app first:
-
-```sh
-pnpm add comark-chips
+````md [content/docs/guide/callouts.md]
+::examples
+:::example{label="Note"}
+```md
+> [!NOTE]
+> Lumen caches every page for an hour.
 ```
+:::
+::
+````
+
+### Configure the parser
+
+The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. Plugins are functions, so the parser options go in a module that `parser` names, not in `nuxt.config.ts` itself:
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
-import chips from 'comark-chips'
+import emoji from 'comark/plugins/emoji'
 
-export default { plugins: [chips()] } satisfies DocsParserOptions
+export default {
+  plugins: [emoji()],
+  comarkUi: { chips: true },
+  examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
+} satisfies DocsParserOptions
 ```
 
 ```ts [nuxt.config.ts]
@@ -402,7 +426,11 @@ export default defineNuxtConfig({
 })
 ```
 
-The page route, search, and Console drafts run these plugins after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. The browser gets the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
+The page route, search, and Console drafts parse with these options:
+
+- `comarkUi` sets comark-ui's options, merged over the built-in ones: typeset, chips, and badge downloads are off. `{ chips: true }` turns every web link into a chip with its favicon. With `docs.github` set, `#123` in a page links to an issue in that repository.
+- `examples.tags` names the blocks that get a preview, `['example', 'correct', 'incorrect']` by default. `examples.play(source, tag)` returns a playground URL for an example's Markdown, and the example links to it. Return `undefined` for no link.
+- `plugins` adds more Comark plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert` or `comark-tabs`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
 
 ## Agent resources
 
@@ -463,12 +491,12 @@ export default defineNuxtConfig({
 })
 ```
 
-The docs module turns on `vite-hub/nuxt`'s `comments` option, which turns on the Database. Create the tables once with `vitehub db generate` and `vitehub db migrate`. `server/comments.ts` is optional; add it to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
+The docs module turns on `vite-hub/nuxt`'s `comments` option, which turns on the Database. Create the tables once with `vitehub database generate` and `vitehub database migrate`. `server/comments.ts` is optional; add it to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
 
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A deploy keeps threads on their page. A renamed page starts with none.
-- **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people `authorize` lets read. Without `authorize`, a production build admits the people the Console admits to Comments, plus GitHub users who can push to the repository. Signed-out readers get no toolbar. With no Console and no Auth, but GitHub sign-in set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
+- **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people `authorize` lets read. Without `authorize`, a production build admits GitHub users who can push to the repository. Signed-out readers get no toolbar. With no Console and no Auth, but GitHub sign-in set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests Auth users who may read the thread. Without Auth, it suggests people who wrote in threads you can read.
-- **The Console lists the threads.** Open `/_vitehub` and select **Comments** to see and open every thread with its page.
+- **The Console lists the threads.** Open the app in the [Console](/docs/development/console) and select **Comments** to see every thread with its page.
 
 `comments: false` turns Comments off, and sets `comments: false` on `vite-hub/nuxt`. To change the Database or leave the overlay out of the pages, pass `vite-hub/nuxt`'s `comments` options:
 
@@ -485,7 +513,7 @@ A site without `vite-hub/nuxt` has no server for threads, so it has no Comments.
 
 ## Edit in the Console
 
-The ViteHub Console edits, previews, and publishes docs pages through the [CMS](/docs/cms). The site still renders the Markdown files. The CMS stores and publishes drafts, and the Console preview shows a draft in the docs UI.
+The ViteHub Console edits and publishes docs pages through the [CMS](/docs/cms). The site still renders the Markdown files. The CMS stores and publishes drafts.
 
 Install `vite-hub/nuxt` next to `@vite-hub/docs/nuxt` and add one file:
 
@@ -494,13 +522,13 @@ import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
 import { docsCollection } from '@vite-hub/docs'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
   collections: { docs: docsCollection() },
 })
 ```
 
-Open `/_vitehub/content` and select **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
+Open the app in the [Console](/docs/development/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 
@@ -510,8 +538,8 @@ Open `/_vitehub/content` and select **Docs**. The build reads this file without 
 
 With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A save commits to the `vitehub/content` branch, and `publish: 'pr'` opens a pull request into `main`. The site shows the change after the pull request merges and the site rebuilds.
 
-Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files the site renders, so use it only to try the editor. Run `vitehub db generate` and `vitehub db migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
+Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files the site renders, so use it only to try the editor. Run `vitehub database generate` and `vitehub database migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
 
 `access: 'roles'` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
 
-The preview pane opens the page URL with the draft. The page route reads the draft from the collection and parses it like a published page, with `Cache-Control: private, no-store`. Draft-only pages preview too. The sidebar, search, and previous and next links stay published. The preview needs a server that renders the page; a prerendered page on a static host shows the published file. Without `server/content.ts`, the page route reads only the files and bundles nothing from Content.
+The page route can render a draft: it reads the draft from the collection and parses it like a published page, with `Cache-Control: private, no-store`. Draft-only pages preview too. The sidebar, search, and previous and next links stay published. The preview needs a server that renders the page; a prerendered page on a static host shows the published file. Without `server/content.ts`, the page route reads only the files and bundles nothing from Content.

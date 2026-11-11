@@ -1,138 +1,50 @@
-import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
-
-// Use the host Fetch implementation's intrinsic, not properties supplied by the
-// invocation. This supports realms sharing that implementation without accepting
-// tags, copied methods, or objects inheriting Response.prototype. Unrelated Fetch
-// implementations must be converted to the host Response at their adapter boundary.
-const runtimeResponseConstructor = Response
-const trustedResponseConstructors = new WeakSet<Function>([runtimeResponseConstructor])
-
-/** Register an independently implemented Fetch Response constructor at an adapter boundary. */
-export function registerResponseConstructor(constructor: Function): void {
-  trustedResponseConstructors.add(constructor)
-}
-
-export function isTrustedResponseConstructor(constructor: unknown): constructor is Function {
-  return typeof constructor === "function" && trustedResponseConstructors.has(constructor)
-}
-
-/** Return the registered Fetch constructor in a candidate's inheritance chain. */
-export function findTrustedResponseConstructor(constructor: unknown): Function | undefined {
-  let candidate = typeof constructor === "function" ? constructor : undefined
-  const visited = new Set<Function>()
-  while (candidate && !visited.has(candidate)) {
-    visited.add(candidate)
-    if (isTrustedResponseConstructor(candidate)) return candidate
-    let parent: unknown
-    try {
-      parent = Object.getPrototypeOf(candidate)
-    }
-    catch {
-      return undefined
-    }
-    candidate = typeof parent === "function" ? parent : undefined
-  }
-}
-
+/**
+ * Checks the Fetch Response fields, not one realm's constructor, so a Response from another Fetch implementation, such
+ * as a bundled undici, `@whatwg-node/fetch` or the srvx Response in Nitro, also matches. `status` and `headers` alone
+ * also match Driver output or an HTTP client result, such as an Axios response, so the body fields are checked too.
+ * The Workflow package has the same check.
+ */
 export function isResponse(value: unknown): value is Response {
-  if (isRuntimeResponse(value)) return true
-  // A Node server such as srvx in Nitro replaces the global Response after this module loads. Code that runs later,
-  // such as `ignored()` in a trigger, creates that host Response, so trust it like the intrinsic one.
-  const hostResponse: unknown = globalThis.Response
-  if (typeof hostResponse === "function" && hostResponse !== runtimeResponseConstructor) trustedResponseConstructors.add(hostResponse)
-  try {
-    const constructor = (value as { constructor?: unknown }).constructor
-    if (typeof constructor !== "function") return false
-    // Walk the constructor inheritance chain so subclasses of a registered
-    // Fetch implementation retain its intrinsic internal-state brand check.
-    // `instanceof` alone accepts Object.create(Response.prototype), which
-    // has none of the implementation's internal state.
-    const registeredConstructor = findTrustedResponseConstructor(constructor)
-    if (!registeredConstructor) return false
-    // The host intrinsic already rejected this value; only foreign implementations need a fallback.
-    if (registeredConstructor === runtimeResponseConstructor) return false
-    // Some registered Fetch implementations (including node-fetch) expose
-    // `headers` as an own instance field rather than a prototype accessor.
-    // The registered constructor identity is the provenance check in this
-    // case; still require a concrete headers value before accepting it.
-    const ownHeaders = Object.getOwnPropertyDescriptor(value as object, "headers")
-    if (ownHeaders && !ownHeaders.get && "value" in ownHeaders) {
-      if (!ownHeaders.value || (typeof ownHeaders.value !== "object" && typeof ownHeaders.value !== "function")) return false
-      // Implementations with own `headers` fields do not expose a headers
-      // accessor we can brand-check. Use their inherited body accessor,
-      // which reaches the implementation's internal body state and throws
-      // for objects fabricated solely from the registered prototype.
-      let body: (() => unknown) | undefined
-      let bodyPrototype: object | null = registeredConstructor.prototype
-      const visitedBodyPrototypes = new Set<object>()
-      while (bodyPrototype && !visitedBodyPrototypes.has(bodyPrototype)) {
-        visitedBodyPrototypes.add(bodyPrototype)
-        const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
-        if (descriptor) {
-          body = descriptor.get
-          break
+  if (typeof value !== "object" || value === null) return false
+  // SAFETY: each field is checked before the value is narrowed.
+  const response = value as { bodyUsed?: unknown, clone?: unknown, headers?: { get?: unknown } | null, status?: unknown, text?: unknown }
+  return typeof response.status === "number"
+    && typeof response.headers?.get === "function"
+    && typeof response.bodyUsed === "boolean"
+    && typeof response.clone === "function"
+    && typeof response.text === "function"
+}
+
+/**
+ * Returns a body that host stream operations accept. A body from another stream implementation is read through its
+ * own reader.
+ */
+export function hostReadableStream<T>(body: ReadableStream<T>): ReadableStream<T> {
+  if (body instanceof ReadableStream) return body
+  // SAFETY: a stream from another implementation has the same reader API, but `instanceof` narrows it to `never`.
+  const reader = (body as ReadableStream<T>).getReader()
+  return new ReadableStream<T>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          reader.releaseLock()
+          controller.close()
         }
-        bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
+        else controller.enqueue(result.value)
       }
-      if (typeof body !== "function") return false
-      // A fabricated registered prototype can copy the public body factory
-      // and make the accessor return null without ever running the foreign
-      // Response constructor. Bodyless instances still carry the
-      // implementation's own initialization state, so require that state
-      // before accepting a null body.
-      if (body.call(value) == null) {
-        const candidate = value as object
-        const ownBody = Object.getOwnPropertyDescriptor(candidate, "body")
-        if (ownBody) return false
-        const bodyInit = Object.getOwnPropertyDescriptor(candidate, "bodyInit")
-        const options = Object.getOwnPropertyDescriptor(candidate, "options")
-        const bodyFactory = Object.getOwnPropertyDescriptor(candidate, "_bodyFactory")
-        const generatedBody = Object.getOwnPropertyDescriptor(candidate, "_generatedBody")
-        const signal = Object.getOwnPropertyDescriptor(candidate, "_signal")
-        const bodyUsed = Object.getOwnPropertyDescriptor(candidate, "bodyUsed")
-        if (!bodyInit || bodyInit.get || bodyInit.value != null
-          || !options || options.get || !options.value || typeof options.value !== "object"
-          || !bodyFactory || bodyFactory.get || typeof bodyFactory.value !== "function"
-          || !generatedBody || generatedBody.get || generatedBody.value !== null
-          || !signal || signal.get
-          || !bodyUsed || bodyUsed.get || bodyUsed.value !== false) return false
-        if (!Object.prototype.hasOwnProperty.call(candidate, "bodyInit")
-          || !Object.prototype.hasOwnProperty.call(candidate, "options")
-          // The ponyfill initializes these implementation-owned state
-          // slots on every instance. Requiring the complete initialized
-          // state keeps a prototype copy with only the public body fields
-          // from being accepted as a bodyless Response.
-          || !Object.prototype.hasOwnProperty.call(candidate, "_generatedBody")
-          || !Object.prototype.hasOwnProperty.call(candidate, "_signal")
-          || !Object.prototype.hasOwnProperty.call(candidate, "bodyUsed")) return false
-        // The registered constructor is the trusted integration boundary.
-        // Its initialized state, together with the intrinsic body accessor,
-        // authenticates bodyless instances even though the host brand getter
-        // cannot run across implementations.
-        return true
+      catch (error) {
+        reader.releaseLock()
+        controller.error(error)
       }
-      return true
-    }
-    // A subclass may inherit the implementation's intrinsic accessor from
-    // its registered base prototype. Resolve that accessor through the full
-    // prototype chain while retaining the brand check on the candidate.
-    let headers: ((this: unknown) => unknown) | undefined
-    let prototype: object | null = registeredConstructor.prototype
-    const visitedPrototypes = new Set<object>()
-    while (prototype && !visitedPrototypes.has(prototype)) {
-      visitedPrototypes.add(prototype)
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "headers")
-      if (descriptor) {
-        headers = descriptor.get
-        break
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
       }
-      prototype = Object.getPrototypeOf(prototype) as object | null
-    }
-    if (typeof headers !== "function") return false
-    // Node.js 22 returns undefined for an object without Response state. Node.js 24 throws.
-    return headers.call(value) != null
-  }
-  catch {
-    return false
-  }
+      finally {
+        reader.releaseLock()
+      }
+    },
+  }, { highWaterMark: 0 })
 }

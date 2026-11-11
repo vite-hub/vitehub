@@ -72,13 +72,13 @@ onBeforeUnmount(() => clearInterval(interval));
         </MessageScrollerContent>
       </MessageScrollerViewport>
       <MessageScrollerButton aria-label="Follow output">
-        <UIcon name="i-ph-arrow-down-light" />
+        <UIcon name="i-lucide-arrow-down" />
       </MessageScrollerButton>
     </MessageScroller>
     <UButton
       :label="running ? 'Running' : 'Run pnpm build'"
       :disabled="running"
-      icon="i-ph-play-light"
+      icon="i-lucide-play"
       color="neutral"
       variant="outline"
       class="self-start"

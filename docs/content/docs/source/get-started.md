@@ -62,7 +62,7 @@ export default defineConfig({
 Create `server/sources/docs.ts`. A glob Source reads the files in a folder that match a pattern.
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```

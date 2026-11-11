@@ -37,15 +37,15 @@ provider. Without it, ViteHub detects the host in this order:
 4. `node` when none of them is set
 
 Cloudflare Pages is not detected, because the `cloudflare` preset builds a
-Worker. To set host-specific options, use `detectPreset()` from
-`vite-hub/deployment`:
+Worker. Use `detectHost()` from `vite-hub/runtime` to choose
+host-specific options in your own config:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import { detectPreset } from "vite-hub/deployment";
+import { detectHost } from "vite-hub/runtime";
 
-const preset = detectPreset() ?? "node";
+const preset = detectHost() ?? "node";
 
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
@@ -58,11 +58,11 @@ export default defineNuxtConfig({
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { vitehub } from "vite-hub";
-import { detectPreset } from "vite-hub/deployment";
+import { detectHost } from "vite-hub/runtime";
 import { defineConfig } from "vite";
 import { nitro } from "nitro/vite";
 
-const preset = detectPreset() ?? "node";
+const preset = detectHost() ?? "node";
 
 export default defineConfig({
   // The deno preset rejects Schedule.
@@ -74,10 +74,10 @@ export default defineConfig({
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from "vite-hub";
-import { detectPreset } from "vite-hub/deployment";
+import { detectHost } from "vite-hub/runtime";
 import { defineConfig } from "vite";
 
-const preset = detectPreset() ?? "node";
+const preset = detectHost() ?? "node";
 
 export default defineConfig({
   // The deno preset rejects Schedule.
@@ -87,8 +87,9 @@ export default defineConfig({
 :::
 ::
 
-`detectPreset()` returns `undefined` when no variable names a host, so your
-app picks the default.
+`detectHost()` returns `undefined` when no variable names a host, so the
+app picks its own default. Inside a Cloudflare Worker, it returns
+`"cloudflare"`.
 
 | Preset | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |
@@ -134,7 +135,7 @@ the output for the preset. List the generated host files with the CLI:
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 ## Next steps

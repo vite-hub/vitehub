@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
@@ -40,11 +40,6 @@ const send = defineQueueOperation<QueueSendOperationInput, QueueSendOperationRes
 
 const queueName = v.pipe(v.string(), v.minLength(1))
 const jobId = v.pipe(v.string(), v.minLength(1))
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 function nextTime(job: LocalQueueJob): string {
   if (job.state === "dead") return job.failedAt ?? "-"

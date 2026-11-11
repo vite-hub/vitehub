@@ -8,7 +8,7 @@ icon: i-lucide-scale
 navigation.group: Server work
 ---
 
-An AI sandbox runs code that a model or a user wrote, away from your server and its secrets. ViteHub has four built-in Sandbox runtimes. Vercel Sandbox and Cloudflare Sandbox isolate the code in the cloud. `trusted-host` and Crabbox run it on your own machine, without isolation.
+An AI sandbox runs code that a model or a user wrote, away from your server and its secrets. ViteHub has five built-in Sandbox runtimes. Vercel Sandbox and Cloudflare Sandbox isolate the code in the cloud. The `container` runtime isolates it in a Docker container on a machine that you own, behind a network broker. `trusted-host` and Crabbox run it on a machine that you own, without isolation.
 
 Vendor facts below come from vendor docs on 2026-10-29. Limits and prices change, so check the linked pages before you decide.
 
@@ -28,15 +28,15 @@ Approvals, tool policy, and Capabilities decide what the agent may do. The sandb
 
 ## Compare sandbox providers
 
-| | Vercel Sandbox | Cloudflare Sandbox | `trusted-host` | Crabbox |
-| --- | --- | --- | --- | --- |
-| Isolation | A Firecracker microVM with its own filesystem and network. | A container, run as a microVM with its own kernel and network. | None. Only the Home and environment are private. | None on the target host. |
-| ViteHub reports | `isolation: 'microvm'` | `isolation: 'container'` | `isolation: 'none'` | `isolation: 'none'` |
-| Where it runs | Vercel infrastructure. | Cloudflare Containers, behind a Durable Object of your Worker. | The ViteHub process's machine. | Your Linux host, over SSH. |
-| Startup | Vercel says milliseconds. | Cloudflare says cold starts are often 1 to 3 seconds. | A local process. | Depends on your host. |
-| Limits | Sessions up to 45 minutes on Hobby, 24 hours on Pro. Up to 8 vCPUs and 16 GB memory on Pro. | From 1/16 vCPU and 256 MiB to 4 vCPUs and 12 GiB. Stops after 10 idle minutes by default. | Your machine's. An optional memory cap on Linux. | Your host's. |
-| Pricing model | Usage based: active CPU, provisioned memory, creations, and data transfer. Hobby includes a monthly allowance. | Workers Paid plan. Billed per 10 ms of active vCPU, memory, and disk, plus Workers and Durable Objects usage. | Your server's cost. | Crabbox is free. You pay for the host. |
-| Select it | `runtime: 'vercel'`, or the `vercel` preset for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` preset for Sandbox Tasks | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
+| | Vercel Sandbox | Cloudflare Sandbox | `container` | `trusted-host` | Crabbox |
+| --- | --- | --- | --- | --- | --- |
+| Isolation | A Firecracker microVM with its own filesystem and network. | A container, run as a microVM with its own kernel and network. | A Docker container on an internal network. Its only network exit is a broker that you configure. | None. Only the Home and environment are private. | None on the target host. |
+| ViteHub reports | `isolation: 'microvm'` | `isolation: 'container'` | `isolation: 'container'` | `isolation: 'none'` | `isolation: 'none'` |
+| Where it runs | Vercel infrastructure. | Cloudflare Containers, behind a Durable Object of your Worker. | The Docker daemon of the ViteHub process. | The ViteHub process's machine. | Your Linux host, over SSH. |
+| Startup | Vercel says milliseconds. | Cloudflare says cold starts are often 1 to 3 seconds. | About 1 to 3 seconds with a pulled image in our tests, plus the broker when egress is on. | A local process. | Depends on your host. |
+| Limits | Sessions up to 45 minutes on Hobby, 24 hours on Pro. Up to 8 vCPUs and 16 GB memory on Pro. | From 1/16 vCPU and 256 MiB to 4 vCPUs and 12 GiB. Stops after 10 idle minutes by default. | The limits of your Docker host. Optional `cpus`, `memoryBytes`, and `pidsLimit`. | Your machine's. An optional memory cap on Linux. | Your host's. |
+| Pricing model | Usage based: active CPU, provisioned memory, creations, and data transfer. Hobby includes a monthly allowance. | Workers Paid plan. Billed per 10 ms of active vCPU, memory, and disk, plus Workers and Durable Objects usage. | The cost of your server. | Your server's cost. | Crabbox is free. You pay for the host. |
+| Select it | `runtime: 'vercel'`, or the `vercel` preset for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` preset for Sandbox Tasks | `runtime: { kind: 'container', image }` | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
 
 Startup and limit values are vendor claims, not our measurements. Sources: [Vercel Sandbox](https://vercel.com/docs/sandbox), [Vercel Sandbox pricing and quotas](https://vercel.com/docs/sandbox/pricing), [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/), [Cloudflare Containers limits](https://developers.cloudflare.com/containers/platform/limits/), [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/), [Cloudflare container lifecycle](https://developers.cloudflare.com/containers/platform-details/architecture/), and [Crabbox](https://crabbox.sh/).
 
@@ -45,10 +45,10 @@ Startup and limit values are vendor claims, not our measurements. Sources: [Verc
 | Feature | Runtimes |
 | --- | --- |
 | [Sandbox Tasks](/docs/sandbox) with `runSandboxTask()` | Vercel Sandbox and Cloudflare Sandbox. |
-| [Agent Sandboxes](/docs/agents/sandboxes) for Codex and Claude Code | `trusted-host`, Crabbox, or a custom runtime that forwards process input. |
-| `resolveSandbox()` from `vite-hub/sandbox` | All four, or a custom runtime. |
+| [Agent Sandboxes](/docs/agents/sandboxes) for Codex and Claude Code | `container`, `trusted-host`, Crabbox, or a custom runtime that forwards process input. |
+| `resolveSandbox()` from `vite-hub/sandbox` | All five, or a custom runtime. |
 
-An Agent Sandbox starts the Codex or Claude Code process and sends it input while it runs. Only `trusted-host` and Crabbox forward process input today, so a provider Driver cannot use Vercel Sandbox or Cloudflare Sandbox through the Agent `sandbox` option.
+An Agent Sandbox starts the Codex or Claude Code process and sends it input while it runs. `container`, `trusted-host`, and Crabbox forward process input, so a provider Driver can use them through the Agent `sandbox` option. Vercel Sandbox and Cloudflare Sandbox do not forward process input.
 
 ## Vercel Sandbox for AI agents
 
@@ -180,13 +180,52 @@ Limits:
 - There is no network policy option, and ViteHub reports `network: 'unknown'`.
 - The generated Durable Object has no preview URLs, so `session.ports` is unavailable. Spawned process output lives in the Durable Object's memory and ends with the Container.
 
+## Caged containers with the container runtime
+
+The `container` runtime runs each session in a new Docker container on the Docker daemon of the ViteHub process. The container is on an internal Docker network with no route out. By default, it has no network access at all.
+
+When you set `egress`, ViteHub also starts a broker container. It is a [mitmproxy](https://mitmproxy.org) process and the only network exit of the Sandbox. The broker allows only the hosts that you list. It also holds the real values of `credentials`. The Sandbox sees a random placeholder in each credential variable. The broker replaces the placeholder with the real value only in HTTPS request headers to the hosts of that credential. Any other use of a placeholder gets a `403`.
+
+```ts [server/agents/review/agent.ts]
+import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  sandbox: {
+    runtime: {
+      kind: 'container',
+      image: 'ghcr.io/acme/agent-image:2026-11',
+      egress: { allow: ['registry.npmjs.org', 'api.anthropic.com'] },
+      credentials: {
+        GH_TOKEN: {
+          hosts: ['api.github.com', 'github.com', 'codeload.github.com'],
+          value: () => process.env.GITHUB_BOT_TOKEN!,
+        },
+      },
+    },
+  },
+  driver: claudeCodeDriver(),
+})
+```
+
+The runtime reports `isolation: 'container'`. It reports `network: 'none'` without egress, `'restricted'` with an allowlist, and `'unrestricted'` for `egress: 'open'`. It reports `credentials: 'provisioned'` when it brokers credentials. The Sandbox trusts the broker certificate through `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE`, and `REQUESTS_CA_BUNDLE`, and finds the broker through `HTTPS_PROXY` and `NODE_USE_ENV_PROXY`. Nothing is installed into the image.
+
+Plan for these limits:
+
+- The ViteHub process needs the Docker CLI and rootful Docker Engine 28 or newer on native Linux. The isolated bridge has no host address, and the Sandbox cannot connect directly to host services. Docker Desktop, OrbStack, WSL, and rootless Docker have additional host routes outside this boundary and are rejected before resources are created. Serverless hosts cannot run it.
+- Egress and credential host patterns without a port allow only port 443. Use `host:port` for another HTTP or HTTPS port.
+- The image needs `sh`, coreutils, GNU `find`, and `git` for a `checkout`. Debian-based images such as `node:24-bookworm` work. BusyBox `find` does not.
+- Git over SSH and other non-HTTP protocols cannot leave the Sandbox. Use HTTPS remotes.
+- The runtime has no ports, no `cwd` mount, and no durable Home state. Use `checkout` and Workspace.
+- The Sandbox cannot reach the ViteHub process, so an Agent in it cannot use Capability tools.
+- Every process in the Sandbox can use a credential placeholder against its hosts. The broker keeps the value secret. It does not limit what a request does with it.
+
 ## Self-hosted sandboxes with trusted-host and Crabbox
 
-`trusted-host` runs commands as the ViteHub process's user, on the same machine. Each session gets a private Home and only the declared environment variables. It does not isolate the filesystem, the network, processes, or installed programs. On Linux, `runtime.resources` puts a session's commands in one cgroup v2 group with a memory limit.
+`trusted-host` runs commands as the ViteHub process's user, on the same machine. Each session gets a private Home and only the declared environment variables. It does not isolate the filesystem, the network, processes, or installed programs.
 
 [Crabbox](https://crabbox.sh/) is an MIT-licensed tool that runs commands on remote machines. ViteHub uses its Static SSH provider to run the same Sandbox declaration on a Linux host. Crabbox needs `cwd` or `checkout`, and keeps the private Home on the target host.
 
-Use these two for Codex and Claude Code Agents:
+Use these two runtimes for Codex and Claude Code Agents that may control the host:
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -212,8 +251,9 @@ Neither runtime protects the host from the Agent. Run the Agent only on a host t
 - Untrusted code: Vercel Sandbox or Cloudflare Sandbox. Never `trusted-host`.
 - An app on Cloudflare Workers: Cloudflare Sandbox. The preset generates the bindings, and an idle container stops billing.
 - Long jobs or more CPU: Vercel Sandbox. A Pro session runs up to 24 hours with up to 8 vCPUs. The largest Cloudflare instance has 4.
-- Limited network access: Vercel Sandbox. ViteHub passes `networkPolicy` and reports the result.
-- Codex or Claude Code as the Agent Driver in a Sandbox: `trusted-host` or Crabbox.
+- Limited network access: Vercel Sandbox or the `container` runtime. ViteHub passes `networkPolicy` and reports the result.
+- Codex or Claude Code with restricted credentials and network access on native Linux: the `container` runtime.
+- Codex or Claude Code with the host user's full authority: `trusted-host` or Crabbox.
 
 ## Other AI sandbox platforms
 

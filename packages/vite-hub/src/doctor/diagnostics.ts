@@ -30,7 +30,6 @@ const entries = [
   { code: "VHUB0025", ruleId: "vitehub/realtime-persistence" },
   { code: "VHUB0026", ruleId: "vitehub/forge-error-imports" },
   { code: "VHUB0027", ruleId: "vitehub/sandbox-runtime-options" },
-  { code: "VHUB0028", ruleId: "vitehub/define-agent-from-vite-hub" },
   { code: "VHUB0029", ruleId: "vitehub/rate-limit-capability-limiter" },
   { code: "VHUB0030", ruleId: "vitehub/no-vitehub-plugin-in-nuxt" },
   { code: "VHUB0031", ruleId: "vitehub/valid-vitehub-options" },
@@ -38,6 +37,7 @@ const entries = [
   { code: "VHUB0033", ruleId: "vitehub/no-removed-apis" },
   { code: "VHUB0034", ruleId: "vitehub/markdown-file-path" },
   { code: "VHUB0035", ruleId: "vitehub/comments-entry" },
+  { code: "VHUB0036", ruleId: "vitehub/prefer-vite-hub-imports" },
 ] as const
 
 type Entry = typeof entries[number]

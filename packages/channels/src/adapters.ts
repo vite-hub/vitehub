@@ -7,7 +7,7 @@ import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter
  * @example
  * export default defineChannel({
  *   adapter: webhook({ signature: 'bearer', secret: () => useServerEnv().prefect.webhookSecret }),
- *   on: { webhook: event => runQueue('triage', event.data) },
+ *   on: { webhook: event => sendQueue('triage', event.data) },
  * })
  */
 export function webhook<TData = unknown>(options: WebhookAdapterOptions<TData> = {}): WebhookChannelAdapter<TData> {
@@ -36,6 +36,8 @@ export interface StripeAdapterOptions {
   secret?: ChannelWebhookSecret
   /** Another route next to `/api/_vitehub/channels/<name>`. A string literal. */
   path?: string
+  /** The old webhook State and queue scope to keep when this Channel moves. */
+  stateScope?: WebhookAdapterOptions<StripeEvent>["stateScope"]
   /** Maximum age of the signed timestamp in seconds. Defaults to 300. */
   toleranceSeconds?: number
 }
@@ -50,13 +52,14 @@ function stripeWebhookSecret(): string | undefined {
  * @example
  * export default defineChannel({
  *   adapter: stripe(),
- *   on: { 'checkout.session.completed': event => runQueue('fulfil', event.data) },
+ *   on: { 'checkout.session.completed': event => sendQueue('fulfil', event.data) },
  * })
  */
 export function stripe(options: StripeAdapterOptions = {}): WebhookChannelAdapter<StripeEvent> {
   return webhook<StripeEvent>({
     kind: "stripe",
     ...(options.path === undefined ? {} : { path: options.path }),
+    ...(options.stateScope === undefined ? {} : { stateScope: options.stateScope }),
     signature: options.toleranceSeconds === undefined ? "stripe-sha256" : { preset: "stripe-sha256", toleranceSeconds: options.toleranceSeconds },
     secret: options.secret ?? stripeWebhookSecret,
     event: payload => typeof payload?.type === "string" ? payload.type : undefined,

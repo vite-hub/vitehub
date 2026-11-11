@@ -12,7 +12,7 @@ The `cms` preset works without options. Pass a tuple to pick another Database, B
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { database: 'content', blob: 'media', workspace: 'site' }],
   collections: { posts },
 })
@@ -48,7 +48,7 @@ A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `wo
 | Piece | Value | Inspect it |
 | --- | --- | --- |
 | Workspace | `content`, on the [Blob + Database Store](/docs/workspace/configure#blob-database-store) with workspace identity `content` | `vitehub inspect definitions` and the Console Workspaces section list it as added by `@vite-hub/cms/vite`. The generated module is `.vitehub/content/workspace.mjs`. |
-| Database | Only when the app has no Database Definition: the implicit `default` Database. Its migrations go to `server/databases/migrations/`, where `server/databases/config.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Definition: Implicit` and names `@vite-hub/cms/vite` as a plugin that needs it. |
+| Database | Only when the app has no Database Definition: the implicit `default` Database. Its migrations go to `server/databases/default/migrations/`, where `server/databases/default.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Definition: Implicit` and names `@vite-hub/cms/vite` as a plugin that needs it. |
 | Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the `default` Database or the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
 | Features | `workspace`, `database`, and `blob`, when the ViteHub options leave them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files live under `vitehub/workspace-history/` in that store. |
@@ -63,7 +63,7 @@ Turn on CMS roles with `extends: [cms, { access: 'roles' }]`. Install the Better
 The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) check access through `content.can()`. To use your own policy instead, set `authorize` in `defineContent()`:
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   // Editors do everything. Other signed-in users read drafts.
@@ -83,9 +83,10 @@ Set `repo` to keep documents in a Git repository instead of Blob and the Databas
 ```ts [server/content.ts]
 import { z } from 'zod'
 import { cms } from 'vite-hub/cms'
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, {
     repo: 'onmax/docs',
     branch: 'main',
@@ -151,9 +152,9 @@ It is a normal pull request: review it, wait for checks, and merge it any way. M
 
 ## Take over the Database
 
-To set the Database yourself, for example its connection URL or Cloudflare D1 options, add `server/databases/config.ts`. The preset's tables then go to your Definition instead of the implicit `default` Database. It keeps `server/databases/migrations/`, so existing migrations still apply.
+To set the Database yourself, for example its connection URL or Cloudflare D1 options, add `server/databases/default.ts`. The preset's tables then go to your Definition instead of the implicit `default` Database. It keeps `server/databases/default/migrations/`, so existing migrations still apply.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ schema: {} })
@@ -185,7 +186,7 @@ With the earlier setup, the app has a Database Definition that lists `workspaceH
 
 1. Remove `workspaceHistorySchema` and `contentSessionsSchema` from the Database Definition. The preset adds them, and listing them twice fails with `DATABASE_DUPLICATE_TABLE`.
 
-   ```ts [server/databases/content/config.ts]
+   ```ts [server/databases/content/index.ts]
    import { defineDatabase } from 'vite-hub/database'
 
    export default defineDatabase({ name: 'content', schema: {} })
@@ -195,12 +196,12 @@ With the earlier setup, the app has a Database Definition that lists `workspaceH
 3. Use the preset with the old names. `workspace` must equal the old `createBlobDatabaseWorkspaceStore({ workspace })` identity, because the identity picks the stored history.
 
    ```ts [server/content.ts] fragment
-   export const content = defineContent({
+   export default defineContent({
      extends: [cms, { database: 'content', blob: 'content', workspace: 'site' }],
      collections: { posts },
    })
    ```
 
-4. Run `pnpm vitehub db generate`. The tables are unchanged, so it writes no new migration.
+4. Run `pnpm vitehub database generate`. The tables are unchanged, so it writes no new migration.
 
 If the old Workspace name and its store identity differ, the preset cannot use both. Keep the manual setup with `defineContent({ workspace })`.

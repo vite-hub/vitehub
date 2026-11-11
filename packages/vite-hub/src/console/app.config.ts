@@ -1,83 +1,14 @@
+import { vitehubTheme } from "@vite-hub/ui/theme";
+
+// The Console uses the ViteHub design system. Only the parts that the docs do not have get slots here.
 export const consoleAppConfig = {
-  colors: {
-    error: "red",
-    info: "sky",
-    neutral: "neutral",
-    primary: "neutral",
-    success: "emerald",
-    warning: "amber",
-  },
-  icons: {
-    arrowDown: "i-lucide-arrow-down",
-    arrowLeft: "i-lucide-arrow-left",
-    arrowRight: "i-lucide-arrow-right",
-    arrowUp: "i-lucide-arrow-up",
-    caution: "i-lucide-triangle-alert",
-    check: "i-lucide-check",
-    chevronDown: "i-lucide-chevron-down",
-    chevronLeft: "i-lucide-chevron-left",
-    chevronRight: "i-lucide-chevron-right",
-    chevronUp: "i-lucide-chevron-up",
-    close: "i-lucide-x",
-    copy: "i-lucide-copy",
-    copyCheck: "i-lucide-check",
-    dark: "i-lucide-moon",
-    drag: "i-lucide-grip-vertical",
-    ellipsis: "i-lucide-ellipsis",
-    error: "i-lucide-circle-alert",
-    external: "i-lucide-external-link",
-    eye: "i-lucide-eye",
-    eyeOff: "i-lucide-eye-off",
-    file: "i-lucide-file",
-    folder: "i-lucide-folder",
-    folderOpen: "i-lucide-folder-open",
-    hash: "i-lucide-hash",
-    info: "i-lucide-info",
-    light: "i-lucide-sun",
-    loading: "i-lucide-loader-circle",
-    menu: "i-lucide-menu",
-    minus: "i-lucide-minus",
-    panelClose: "i-lucide-panel-left-close",
-    panelOpen: "i-lucide-panel-left-open",
-    plus: "i-lucide-plus",
-    reload: "i-lucide-refresh-cw",
-    search: "i-lucide-search",
-    stop: "i-lucide-square",
-    star: "i-lucide-star",
-    success: "i-lucide-circle-check",
-    system: "i-lucide-monitor",
-    tip: "i-lucide-lightbulb",
-    upload: "i-lucide-upload",
-    warning: "i-lucide-triangle-alert",
-  },
-  // Geist's smallest text is 12px, so small badges and key caps use it too.
-  badge: {
-    variants: {
-      size: {
-        xs: { base: "px-1.5 py-0 text-xs/4" },
-        sm: { base: "px-1.5 py-0.5 text-xs/4" },
-      },
-    },
-  },
-  kbd: {
-    variants: {
-      size: {
-        sm: "text-xs",
-        md: "text-xs",
-      },
-    },
-  },
-  // Buttons are black and white (Geist). Blue is reserved for focus rings, links, selection, and the drop cursor.
-  // A press scales the button to 97% (Emil Kowalski); reduced motion keeps it still.
-  button: {
-    defaultVariants: {
-      color: "neutral",
-      size: "sm",
-    },
+  ...vitehubTheme,
+  // A Console page fills its panel edge to edge: its toolbar, lists, and splitters set their own padding, and a list
+  // scrolls inside itself. So the panel body has no padding and no gap. It keeps Nuxt UI's `overflow-y-auto`, so a page
+  // that is one long column, such as Usage, scrolls in the body.
+  dashboardPanel: {
     slots: {
-      base: "rounded-md font-medium disabled:opacity-50 aria-disabled:opacity-50 transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97] motion-reduce:transition-none",
-      leadingIcon: "size-4 opacity-80",
-      trailingIcon: "size-3.5 opacity-75",
+      body: "min-h-0 gap-0 p-0 sm:gap-0 sm:p-0",
     },
   },
   dashboardNavbar: {
@@ -99,14 +30,6 @@ export const consoleAppConfig = {
       trailing: "text-xs opacity-75",
     },
   },
-  // Menus open many times a day, so they appear at once (Rauno, Emil Kowalski). Floating surfaces use the 12px Geist
-  // menu radius and its layered shadow.
-  dropdownMenu: {
-    slots: {
-      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
-      label: "text-xs font-medium text-muted",
-    },
-  },
   // Body editor. The block handle follows the pointer at once, and the `/` menu, opened from the keyboard, appears
   // without animation (Rauno Freiberg, Emil Kowalski). Item descriptions show the Markdown shortcut on the right.
   editorDragHandle: {
@@ -120,7 +43,7 @@ export const consoleAppConfig = {
       size: "md",
     },
     slots: {
-      content: "w-72 max-w-72 rounded-xl ring-0 bg-(color:--vitehub-console-floating) shadow-[0_0_0_1px_var(--ui-border),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/8%)] backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
+      content: "w-72 max-w-72 rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
       viewport: "divide-y-0",
       group: "p-1.5",
       label: "px-2 pt-1.5 pb-1 text-xs font-medium text-muted",
@@ -134,111 +57,9 @@ export const consoleAppConfig = {
     variants: {
       layout: {
         bubble: {
-          base: "rounded-lg border-0 bg-(color:--vitehub-console-floating) p-1 shadow-[0_0_0_1px_var(--ui-border),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/8%)] backdrop-blur-md",
+          base: "rounded-lg border-0 bg-(--vh-floating) p-1 shadow-(--vh-shadow-floating) backdrop-blur-md",
         },
       },
-    },
-  },
-  empty: {
-    slots: {
-      root: "gap-3 p-5",
-      title: "text-sm font-medium",
-      description: "text-xs leading-5",
-      actions: "mt-1",
-    },
-  },
-  // A focused field shows one 2px ring in its own color, red with an error. Nuxt UI also draws a soft 3px outline around
-  // the ring, which reads as a second ring. iOS zooms the page into a field whose text is smaller than 16px, so fields
-  // use 16px on touch screens.
-  input: {
-    defaultVariants: {
-      size: "sm",
-    },
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
-      leadingIcon: "size-4 opacity-80",
-      trailingIcon: "size-3.5 opacity-75",
-    },
-  },
-  textarea: {
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
-    },
-  },
-  inputNumber: {
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
-    },
-  },
-  inputTags: {
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
-    },
-  },
-  inputMenu: {
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
-    },
-  },
-  // A focused card shows one 2px ring too: a 1px inset ring inside its border, instead of Nuxt UI's soft outline.
-  checkbox: {
-    compoundVariants: [{ variant: "card", class: { root: "has-focus-visible:outline-none has-focus-visible:ring-1 has-focus-visible:ring-inset has-focus-visible:ring-inverted" } }],
-  },
-  radioGroup: {
-    compoundVariants: [{ variant: "card", class: { item: "has-focus-visible:outline-none has-focus-visible:ring-1 has-focus-visible:ring-inset has-focus-visible:ring-inverted" } }],
-  },
-  pageCard: {
-    slots: {
-      container: "gap-0 p-4",
-      leading: "mb-3 size-8 rounded-md bg-elevated/60",
-      leadingIcon: "size-4 text-muted opacity-80",
-      title: "text-sm font-medium",
-      description: "mt-1 text-xs/5 text-muted",
-    },
-  },
-  // Geist modal material: 12px radius and a layered shadow.
-  modal: {
-    variants: {
-      fullscreen: {
-        false: {
-          content: "rounded-xl shadow-[0_1px_1px_rgb(0_0_0/2%),0_8px_16px_-4px_rgb(0_0_0/4%),0_24px_32px_-8px_rgb(0_0_0/6%)]",
-        },
-      },
-    },
-  },
-  popover: {
-    slots: {
-      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
-    },
-  },
-  select: {
-    defaultVariants: {
-      size: "sm",
-    },
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2",
-      leadingIcon: "size-4 opacity-80",
-      trailingIcon: "size-3.5 opacity-75",
-      itemLeadingIcon: "size-4 opacity-80",
-      itemTrailingIcon: "size-3.5 opacity-75",
-      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
-    },
-  },
-  selectMenu: {
-    slots: {
-      base: "focus-visible:outline-none focus-visible:ring-2",
-      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
-    },
-  },
-  table: {
-    slots: {
-      th: "h-9 px-2.5 py-2 text-xs font-medium text-muted",
-      td: "h-9 px-2.5 py-2 text-[13px] tabular-nums text-toned",
-    },
-  },
-  tooltip: {
-    slots: {
-      content: "bg-(color:--vitehub-console-floating) backdrop-blur-md",
     },
   },
 };

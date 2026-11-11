@@ -32,7 +32,7 @@ export { createAgentWebhookWarmup } from "./webhook-warmup.ts"
 export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent } from "./webhook-warmup.ts"
 export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from "../internal/discovered-agent-name.ts"
 export { resolvePublicUrl } from "@vite-hub/runtime"
-export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
+export { markDiscoveredWorkspaceAgentDefinitionRegistered, withDeclaredAgentWorkspace } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
@@ -79,3 +79,4 @@ type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R08
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {
   return agentDiagnostics[code]({ message })
 }
+export { agentChannelNames, namedChannelHosts, registerAgentChannels } from "../internal/named-channels.ts"
