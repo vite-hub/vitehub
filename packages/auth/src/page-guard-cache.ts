@@ -49,6 +49,11 @@ function isGuarded(auth: unknown): boolean {
   return auth !== undefined && auth !== false
 }
 
+/** A static page path has no parameter, no regular expression, no repeat modifier, and no catch-all. */
+function isStaticPath(path: string): boolean {
+  return !/[\\:()*?+]/.test(path)
+}
+
 /**
  * Nuxt renders the payload of a page at `<page>/_payload.json`. A catch-all pattern already matches the payload paths
  * below it.
@@ -98,7 +103,9 @@ function pageTargets(pages: readonly NuxtPageLike[], toPatterns: (path: string) 
  * `definePageMeta()` sets it to a literal value.
  *
  * A rule that caches does not count when it keeps no guarded response:
- * - every path of the rule is on a public page that Vue Router selects before the guarded page, or
+ * - the rule key is the static path of a public page, or the payload of that path. Vue Router selects a static page
+ *   before a dynamic page. A public page with a dynamic path does not exempt a rule, because rou3 can read its path
+ *   only as a wider pattern, or
  * - the server does not render the cached paths, because `ssr: false` applies on them for the request method.
  */
 export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], routeRules: RouteRules, options: PageGuardCacheOptions = {}): Promise<void> {
@@ -108,7 +115,7 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
   const targets = pageTargets(pages, path => vueRouterToRou3(path, { collapse: true }).patterns.map(fold))
   const guards = targets.filter(target => isGuarded(target.auth))
   if (!guards.length) return
-  const open = targets.filter(target => !isGuarded(target.auth))
+  const open = new Set(targets.filter(target => !isGuarded(target.auth) && isStaticPath(target.path)).map(target => target.pattern))
   // Page paths and rule keys are both below `app.baseURL`.
   const findCachingRule = await createCachingRouteRuleFinder(routeRules, fold)
   const covers = (pattern: string, other: string) => ["equal", "superset"].includes(compareRoutes(pattern, other))
@@ -120,8 +127,8 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
 
   for (const guard of guards) {
     const exempt = (entry: RouteRuleEntry, applied: readonly RouteRuleEntry[]): boolean => {
-      // Vue Router selects a more specific page first, so a public page inside the guarded pattern is not guarded.
-      if (open.some(page => covers(page.pattern, entry.pattern) && compareRoutes(page.pattern, guard.pattern) === "subset")) return true
+      // Vue Router selects a static page before a dynamic page. Two pages on one static path stay guarded.
+      if (open.has(entry.pattern) && entry.pattern !== guard.pattern) return true
       // With `ssr: false`, Nuxt sends an empty page shell and runs the page guard only in the browser. A cached shell
       // is the same for every visitor. The `ssr: false` rule must match every cached path: every path of the rule
       // that caches, or every guarded path. Nuxt adds `'/**': { ssr: true }`, so an `ssr: true` rule turns server

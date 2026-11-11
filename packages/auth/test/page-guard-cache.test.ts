@@ -138,6 +138,20 @@ describe("Nuxt page guard with cache route rules", () => {
     await expect(buildNuxt(staticPage, { "/users/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
   })
 
+  it("lets a public page keep a cache only on its own static path and payload", async () => {
+    const catchAll: Page[] = [{ path: "/:pathMatch(.*)*", meta: { auth: "user" } }, { path: "/users/user-:id", meta: { auth: false } }, { path: "/about", meta: { auth: false } }]
+    // Vue Router selects the guarded catch-all page for `/users/private`, because `/users/user-:id` does not match it.
+    await expect(buildNuxt(catchAll, { "/users/private": { swr: 60 } })).rejects.toMatchObject({
+      code: "AUTH_B0004",
+      message: expect.stringContaining("Route rule \"/users/private\""),
+      fix: expect.stringContaining("use that exact path as the route rule key"),
+    })
+    // A public page with a dynamic path does not exempt a rule, also on its own path.
+    await expect(buildNuxt(catchAll, { "/users/user-:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt(catchAll, { "/about": { swr: 60 }, "/about/_payload.json": { swr: 60 }, "/ABOUT": { isr: 60 } })).resolves.toBeDefined()
+    await expect(buildNuxt(catchAll, { "/about/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+  })
+
   it("reads `ssr` on the paths and methods that the rule caches", async () => {
     const account: Page[] = [{ path: "/account/:id()", meta: { auth: "user" } }]
     await expect(buildNuxt(account, { "/**": { ssr: true }, "/account/preview": { ssr: false, swr: 60 } })).resolves.toBeDefined()
