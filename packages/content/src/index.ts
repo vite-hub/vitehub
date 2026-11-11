@@ -635,8 +635,29 @@ export function defineContent<
     },
   } as ContentDocumentsRuntime<TCollections>
   const sourceNames = Object.keys(inputs)
+  /**
+   * The published document that readers get at an app path: a routed collection document, or a singleton with a `url`.
+   * A locale without a translation serves the source locale version, so its history is the history of that version.
+   */
+  async function publishedPage(documents: ContentCollectionsRuntime, path: string): Promise<ContentResolved | null> {
+    let found = await documents.resolve(path, { ref: "published" })
+    if (!found) {
+      const target = pagePath(path)
+      for (const collection of documents.collections.values()) {
+        if (collection.kind !== "singleton" || !collection.routable) continue
+        const document = await collection.get({ ref: "published" })
+        if (document && String(document.url) === document.url && pagePath(document.url) === target) {
+          found = { collection: collection.name, id: document.id }
+          break
+        }
+      }
+    }
+    if (!found || found.locale === undefined) return found
+    const served = await documents.collection(found.collection).get(found.id, { ref: "published", locale: found.locale })
+    return served?.locale === undefined ? found : { ...found, locale: served.locale }
+  }
   const history = createContentHistory({
-    ...(documentsRuntime ? { resolve: (path: string) => documentsRuntime.resolve(path, { ref: "published" }) } : {}),
+    ...(documentsRuntime ? { resolve: (path: string) => publishedPage(documentsRuntime, path) } : {}),
     revisions: (collection, id, revisionOptions) => requireDocuments().revisions(collection, id, revisionOptions),
     page: async (path) => {
       if (!sourceNames.length) return null

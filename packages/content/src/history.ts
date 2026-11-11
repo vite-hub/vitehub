@@ -1,5 +1,6 @@
 import { formatDiagnostic } from "nostics"
 
+import { parserHash } from "./commit-cache.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV } from "./source-heads.ts"
 
@@ -134,11 +135,13 @@ export function createContentHistory(runtime: ContentHistoryRuntime) {
     }
     const sha = await runtime.published(source)
     if (!sha) return { entries: [] }
+    // The Source options, such as `root`, decide which file a key is. Another origin gets other cache keys.
+    const origin = await parserHash(definition.fingerprint ?? null)
     const entries: ContentHistoryEntry[] = []
     let exhausted = false
     while (entries.length < limit && !exhausted) {
       const page = Math.floor(position / pageSize) + 1
-      const loaded = await commitPage(`content:history:${source}:${sha}:${key}:${page}`, () => definition.history!(key, { sha, page, perPage: pageSize }))
+      const loaded = await commitPage(`content:history:${source}:${origin}:${sha}:${key}:${page}`, () => definition.history!(key, { sha, page, perPage: pageSize }))
       const start = position % pageSize
       const taken = loaded.commits.slice(start, start + limit - entries.length)
       for (const commit of taken) entries.push({ id: commit.sha, at: commit.date, author: commit.author, message: commit.message, url: commit.url })

@@ -140,6 +140,15 @@ beforeEach(() => {
       if (ref === "c2") return json(page === 1 ? [commits.c2, commits.c1] : [])
       return new Response("missing", { status: 404 })
     }
+    if (url.pathname.includes("/compare/")) {
+      const [base = "", head = ""] = decodeURIComponent(url.pathname.split("/compare/")[1] || "").split("...")
+      const ancestors: Record<string, string[]> = { c1: ["c1"], c2: ["c2", "c1"], c3: ["c3", "c1"] }
+      const tip = (ref: string) => ({ "main": "c2", "feature/draft": "c3" } as Record<string, string>)[ref] ?? ref
+      const left = ancestors[tip(base)]
+      const right = ancestors[tip(head)]
+      const mergeBase = left && right?.find(id => left.includes(id))
+      return mergeBase ? json({ merge_base_commit: { sha: mergeBase } }) : new Response("missing", { status: 404 })
+    }
     const commitId = url.pathname.split("/commits/")[1]
     if (commitId && commits[commitId as keyof typeof commits]) return json(commits[commitId as keyof typeof commits])
     return new Response("missing", { status: 404 })
@@ -184,6 +193,9 @@ describe("GitHub Workspace history", () => {
     expect(first.cursor).toBe("main:after:c2")
     await expect(history.list({ ref: "feature/draft", cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
     await expect(history.list({ ref: "main", cursor: first.cursor, limit: 1 })).resolves.toMatchObject({ revisions: [{ id: "c1" }] })
+    // A cursor cannot list another branch from this one.
+    await expect(history.list({ ref: "main", cursor: "main:after:feature/draft", limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
+    await expect(history.list({ ref: "main", cursor: "main:after:c3", limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
 
     const view = await history.open("c2")
     await expect(view.readFile("guide.md")).resolves.toBe("updated\n\n")

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
-import { documents } from "../src/collections.ts"
+import { documents, singleton } from "../src/collections.ts"
 import { defineContent, registerContentKV } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
@@ -104,6 +104,17 @@ describe("content.history() for github() Sources", () => {
     expect(commitLists()).toHaveLength(before + 1)
   })
 
+  it("keeps the cache of another Source root apart", async () => {
+    fake.commit("main", { "en/guide.md": page("Guide"), "es/guide.md": page("Guía") }, { message: "Add both" })
+    fake.commit("main", { "es/guide.md": page("Guía v2") }, { message: "Edit the Spanish guide" })
+    const english = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "en" }) }, logger: false })
+    cleanup.push(() => english.dispose())
+    expect((await english.history("/guide"))!.entries.map(entry => entry.message)).toEqual(["Add both"])
+    const spanish = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "es" }) }, logger: false })
+    cleanup.push(() => spanish.dispose())
+    expect((await spanish.history("/guide"))!.entries.map(entry => entry.message)).toEqual(["Edit the Spanish guide", "Add both"])
+  })
+
   it("pages with limit and cursor", async () => {
     const shas = [1, 2, 3, 4, 5].map(day => fake.commit("main", { "content/guide.md": page(`Guide ${day}`) }, { author: { date: at(day), name: "Ada" } }))
     const content = server()
@@ -167,5 +178,24 @@ describe("content.history() for collections", () => {
     expect(page!.entries).toEqual([expect.objectContaining({ id: second.revision!.id, author: "grace" })])
     const next = await content.history("/hello", { limit: 1, cursor: page!.cursor })
     expect(next!.entries).toEqual([expect.objectContaining({ id: first.revision!.id })])
+  })
+  it("lists the history of a singleton page", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const content = defineContent({ workspace, collections: { home: singleton({ path: "home.md", url: "/", fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    await content.collection("home").save({ data: { title: "Home" }, body: "Hi\n" })
+    const published = await content.publish({ collection: "home", message: "Ship home" })
+    expect(await content.history("/")).toEqual({ entries: [expect.objectContaining({ id: published.revision!.id, message: "Ship home" })] })
+  })
+
+  it("lists the source locale history of a page that falls back to it", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const content = defineContent({ workspace, collections: { docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    await content.collection("docs").save("guide", { data: { title: "Guide" }, body: "One\n" })
+    const published = await content.publish({ collection: "docs", ids: ["guide"], message: "Ship guide" })
+    const english = await content.history("/guide")
+    expect(english!.entries).toEqual([expect.objectContaining({ id: published.revision!.id })])
+    expect(await content.history("/es/guide")).toEqual(english)
   })
 })
