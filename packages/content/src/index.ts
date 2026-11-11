@@ -25,6 +25,7 @@ import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import { createContentHistory } from "./history.ts"
 import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
 import { createContentSourceHeads } from "./source-heads.ts"
+import { createContentReadScope } from "./read-scope.ts"
 import type { ContentSourceHeads } from "./source-heads.ts"
 import type { ContentSourceRef } from "./source-refs.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
@@ -520,7 +521,9 @@ export function defineContent<
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
   const check: ContentCheckOptions = { ...checkOptions, ...(checkOptions.site ?? seo?.site ? { site: checkOptions.site ?? seo?.site } : {}) }
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [], check })
+  // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
+  const reuseParsed = !customPlugins.some(Boolean) && !options.plugins?.some(Boolean)
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [], check }, reuseParsed)
   /** How each `github()` Source reads its head commit, for the raw files of `content.page()`. */
   const sourceCommits = new Map<string, ContentSourceCommits>()
   const instances = Object.entries(inputs).map(([name, input]) => {
@@ -570,6 +573,7 @@ export function defineContent<
     collectionInstances.push({ instance, source: historySource })
   }
   const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
+  const readScope = createContentReadScope(hub.names, hub.basePath)
 
   // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
   let draft: { hub: ContentHub<ComarkContent[]>, instances: Array<{ instance: ComarkContent, source: ContentHistorySource }> } | undefined
@@ -632,10 +636,10 @@ export function defineContent<
    * Run a read on the hub of the current request's ref after refreshing stale instances. In a preview request, the
    * `github()` Source reads the commit of the ref, and `rewrite` puts internal links of the result under the prefix.
    */
-  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, rewrite?: (result: TResult, prefix: string, query: string | undefined) => TResult | Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, select: (...args: TArgs) => readonly string[] | undefined, rewrite?: (result: TResult, prefix: string, query: string | undefined) => TResult | Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
       // Comark can serve cached artifacts and shared indexes without calling guarded instance methods.
-      await heads.sync()
+      await heads.sync(select(...args))
       let base = hub
       if (documentsRuntime && preview.active()) {
         await sync("draft")
@@ -1028,13 +1032,13 @@ export function defineContent<
       return contentCheckResult(sources, findings)
     },
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), rewriteContentLinks) as ContentHub["get"],
-    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
-    handler: fresh((target, request: Request) => target.handler(request), rewriteJsonLinks),
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key, rewriteContentLinks) as ContentHub["get"],
+    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
+    handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
-    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat())) as ContentRuntimeList,
-    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
-    manifest: fresh(target => target.manifest()),
+    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
+    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names }), names => readScope.names(names)),
+    manifest: fresh(target => target.manifest(), () => undefined),
     // The synchronous reads of a preview request use the commit view of its ref, as `get()` and `list()` do.
     stat: (key: string) => previewHub().stat(key),
     // SAFETY: Each wrapper forwards the name unchanged, so the generic builder and instance types of the hub hold.

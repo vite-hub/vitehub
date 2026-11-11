@@ -247,6 +247,101 @@ describe("hourly check without a webhook", () => {
     })
     expect(await title(content, "/guide")).toBe("Guide v2")
     expect((await content.sources.head("docs")).sha).toBe(second)
+    // An immediate advance of the same commit stays a no-op under the same provider limit.
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: second })
+  })
+
+  it.each([
+    ["pin", false],
+    ["webhook", false],
+    ["pin", true],
+    ["webhook", true],
+  ] as const)("keeps a concurrent %s during an unchanged-branch lookup (rejected: %s)", async (operation, rejected) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const reader = await server()
+    const writer = await server()
+    if (rejected) {
+      fake.branch("last-valid", "main")
+      fake.commit("main", { "broken.md": "---\ntitle: [unclosed\n---\n" })
+      expect(await reader.content.sources.advance("docs")).toMatchObject({ diagnostic: { code: "CONTENT_R0019" } })
+      fake.branch("main", "last-valid")
+    }
+    vi.advanceTimersByTime(61 * 60 * 1000)
+
+    let resume!: () => void
+    let reached!: () => void
+    const atBranch = new Promise<void>((resolve) => { reached = resolve })
+    const paused = new Promise<void>((resolve) => { resume = resolve })
+    let waiting = true
+    vi.stubGlobal("fetch", vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      // Snapshot the old branch response, then let the other server complete its mutation.
+      const response = await fake.fetch(input, init)
+      if (waiting && String(input).endsWith("/commits/main")) {
+        waiting = false
+        reached()
+        await paused
+      }
+      return response
+    }))
+    const reading = reader.content.sources.head("docs")
+    await atBranch
+    const sha = operation === "pin" ? first : fake.commit("main", { "guide.md": page("Guide v2") })
+    if (operation === "pin") await writer.content.sources.pin(first, "docs")
+    else expect((await writer.route.fetch(fake.webhook(url, secret))).status).toBe(200)
+    const [, stored] = await kv.get("content:head:docs")
+    resume()
+
+    expect(await reading).toMatchObject({ sha, pinned: operation === "pin" })
+    expect((await kv.get("content:head:docs"))[1]).toEqual(stored)
+  })
+
+  it("records an unchanged check without writing the head, and waits an hour across server instances", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    const one = await server()
+    const two = await server()
+    const [, stored] = await kv.get("content:head:docs")
+    vi.advanceTimersByTime(61 * 60 * 1000)
+    const set = vi.fn((key: string, value: unknown) => kv.set(key, value))
+    registerContentKV({ get: key => kv.get(key), set })
+
+    const head = await one.content.sources.head("docs")
+    expect(Date.parse(head.checkedAt!)).toBe(Date.now())
+    expect(set.mock.calls.some(([key]) => key === "content:head:docs")).toBe(false)
+    expect((await kv.get("content:head:docs"))[1]).toEqual(stored)
+    const requests = fake.requests.length
+    vi.advanceTimersByTime(2 * 60 * 1000)
+    expect((await two.content.sources.head("docs")).checkedAt).toBe(head.checkedAt)
+    expect(fake.requests.length).toBe(requests)
+
+    vi.advanceTimersByTime(60 * 60 * 1000)
+    await two.content.sources.head("docs")
+    expect(fake.requests.length).toBeGreaterThan(requests)
+  })
+
+  it("retries a failed head write after the lease, without recording a completed check", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content } = await server()
+    const checkedAt = (await content.sources.head("docs")).checkedAt
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    vi.advanceTimersByTime(61 * 60 * 1000)
+    let failing = true
+    registerContentKV({
+      get: key => kv.get(key),
+      set: (key, value) => key === "content:head:docs" && failing
+        ? Promise.resolve([new Error("KV PUT failed"), undefined] as const)
+        : kv.set(key, value),
+    })
+    await expect(content.sources.head("docs")).rejects.toMatchObject({ code: "CONTENT_R0022" })
+    failing = false
+    expect(await content.sources.head("docs")).toMatchObject({ sha: first, checkedAt })
+
+    vi.advanceTimersByTime(61 * 1000)
+    const head = await content.sources.head("docs")
+    expect(head.sha).toBe(second)
+    expect(Date.parse(head.checkedAt!)).toBe(Date.now())
   })
 
   it("checks once per hour across server instances", async () => {

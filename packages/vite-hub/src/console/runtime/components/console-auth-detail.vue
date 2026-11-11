@@ -9,7 +9,7 @@ import type {
 import { computed, ref, shallowRef, watch } from "vue";
 import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
 import { consoleDurationWords } from "../client/format";
-import { isRemoteProject, projectUrl } from "../client/project";
+import { isRemoteProject, projectAppUrl } from "../client/project";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
 import type { ConsoleProperty } from "./console-facts";
@@ -44,7 +44,7 @@ async function refresh() {
   loading.value = true;
   error.value = undefined;
   try {
-    const value = await readAuthConsole(props.base, "user", { id: props.id });
+    const value = await readAuthConsole("user", { id: props.id });
     if (current === sequence) {
       detail.value = value;
       revision.value++;
@@ -78,7 +78,7 @@ async function changed(name: AuthConsoleAction) {
   emit("changed");
   if (name === "remove") emit("close");
   else if (name === "impersonate")
-    window.location.assign(projectUrl("/"));
+    window.location.assign(projectAppUrl("/"));
   else await refresh();
 }
 async function page(kind: "sessions" | "agents", direction: number) {
@@ -87,7 +87,7 @@ async function page(kind: "sessions" | "agents", direction: number) {
   paging.value = true;
   try {
     const current = detail.value[kind];
-    const next = await readAuthConsole(props.base, kind, {
+    const next = await readAuthConsole(kind, {
       query: { userId: props.id, offset: current.offset + direction * current.limit },
     });
     if (currentSequence !== sequence || !detail.value) return;
@@ -331,7 +331,6 @@ const impersonation = computed(() => {
         </ConsoleSection>
         <ConsoleAuthUserEvents
           v-if="description.events.enabled"
-          :base="base"
           :user-id="detail.user.id"
           :revision="revision"
         />

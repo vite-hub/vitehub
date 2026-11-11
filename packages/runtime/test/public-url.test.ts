@@ -13,6 +13,18 @@ describe("public URL", () => {
     expect(resolvePublicUrl({ agentName: "bot", request: { url: "http://localhost:3000/api" } })).toBe("http://localhost:3000")
   })
 
+  it("can require a configured origin without trusting the request authority", () => {
+    const resolve = (url: string) => resolvePublicUrl({ configuredOnly: true, request: { url } })
+    expect(resolve("https://preview.example.com/rpc")).toBeUndefined()
+    expect(resolve("http://10.0.0.1/rpc")).toBeUndefined()
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://production.example.com" })
+    expect(resolve("https://preview.example.com/rpc")).toBe("https://production.example.com")
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://production.example.com" } })
+    expect(resolve("http://production.example.com/rpc")).toBe("https://production.example.com")
+    expect(resolve("https://preview.example.com/rpc")).toBeUndefined()
+    expect(resolve("http://10.0.0.1/rpc")).toBe("https://production.example.com")
+  })
+
   it("prefers the Agent origin, then the deployment origin, then a configured origin for the request host", () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com", "bot-dev": "https://agent-dev.example.com" } })
     expect(resolvePublicUrl({ agentName: "bot" })).toBe("https://agent.example.com")

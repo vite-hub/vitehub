@@ -99,12 +99,12 @@ With [Comments](/docs/comments), you can ask an agent: "Read the open comments o
 
 | Tool | Needs | Does |
 | --- | --- | --- |
-| `comments_list_threads` | `read` | Lists threads, newest activity first. Filters: `page`, `status` (default `open`), `search`, `limit` (default 25, at most 100). |
-| `comments_get_thread` | `read` | Returns a thread's page, element, Vue components and source files, browser, build, and comments. |
-| `comments_reply` | `comment` | Replies to an open thread. |
-| `comments_resolve_thread` | `resolve` | Resolves a thread, or reopens it with `resolved: false`. |
+| `comments_threads` | `read` | Lists the threads on the app's pages, newest activity first, one line each. Filters: `page`, `status` (default `open`), `search`, `limit` (default 25, at most 100). |
+| `comments_get` | `read` | Returns a thread's page, element, Vue components and source files, browser, build, and comments. |
+| `comments_reply` | `comment` | Replies to a thread. |
+| `comments_resolve`, `comments_reopen` | `resolve` | Resolves a thread, or opens it again. |
 
-Needs is the `authorize` action of [`defineComments()`](/docs/comments/configure#decide-who-can-comment). The tools need the installed `comments` Console section. A `comments:read` grant allows only listing and reading. Replies and resolutions need the full `comments` grant. OAuth tokens also need `vitehub:read` for reads or `vitehub:write` for writes. The checked Comments user is the author of replies and resolutions. An app with its own MCP server can use `commentsMcpTools(comments)` from `vite-hub/comments/runtime`.
+Needs is the `authorize` action of [`defineComments()`](/docs/comments/configure#decide-who-can-comment). Each tool is a comment operation, such as `comments.threads`, so the CLI and the Console run the same code. A `comments:read` grant allows only listing and reading. Replies and resolutions need the full `comments` grant. OAuth tokens also need `vitehub:read` for reads or `vitehub:write` for writes. The checked Comments user is the author of replies and resolutions. An app with its own MCP server can use `commentsMcpTools(comments)` from `vite-hub/comments/runtime`.
 
 ## Sign-in
 
