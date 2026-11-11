@@ -23,7 +23,7 @@ it("registers no Usage HTTP endpoint, since the Usage operation serves the data,
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     for (let pass = 0; pass < 2; pass++) await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
     expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/api/usage")).toEqual([])
-    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/rpc/**")).toHaveLength(1)
+    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/rpc")).toHaveLength(1)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
