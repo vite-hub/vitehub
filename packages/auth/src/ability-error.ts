@@ -1,3 +1,5 @@
+import { HTTPError } from "h3"
+
 import type { AbilityCheckRefusal } from "./ability-check.ts"
 
 const statusTexts: Record<number, string> = {
@@ -25,19 +27,18 @@ export interface AbilityErrorData {
  * The error that `requireAbility()` throws when a rule refuses. H3 2 and Nitro answer it like their own `HTTPError`:
  * the rule's status, and `{ code, details }` in `data`. Other hosts can catch it and read `status` and `data`.
  */
-export class AbilityError extends Error {
-  readonly status: number
-  readonly statusText: string
-  readonly data: AbilityErrorData
+export class AbilityError extends HTTPError<AbilityErrorData> {
+  declare readonly statusText: string
+  declare readonly data: AbilityErrorData
 
   constructor(refusal: AbilityCheckRefusal) {
     const statusText = statusTexts[refusal.status] ?? "Forbidden"
-    super(`${statusText}.`)
-    // H3 2 sends an error with its own status only when the name is `HTTPError`.
-    this.name = "HTTPError"
-    this.status = refusal.status
-    this.statusText = statusText
-    this.data = { code: refusal.code, details: refusal.details }
+    super({
+      message: `${statusText}.`,
+      status: refusal.status,
+      statusText,
+      data: { code: refusal.code, details: refusal.details },
+    })
   }
 
   get statusCode(): number {
