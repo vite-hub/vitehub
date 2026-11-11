@@ -64,6 +64,10 @@ interface PackageManifest {
 
 async function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env) {
   console.log(`[consumer] ${command} ${args.join(" ")}`)
+  if (command === "pnpm") {
+    command = "corepack"
+    args = ["pnpm", ...args]
+  }
   try {
     const result = await execFileAsync(command, args, {
       cwd,
@@ -332,7 +336,20 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "  - .",
     "allowBuilds:",
     "  esbuild: true",
-    "  msgpackr-extract: false",
+    "  \"@mongodb-js/zstd\": false",
+    "  \"@nestjs/core\": false",
+    "  \"@parcel/watcher\": false",
+    "  \"@swc/core\": false",
+    "  \"better-sqlite3\": false",
+    "  \"cbor-extract\": false",
+    "  \"core-js-pure\": false",
+    "  \"cpu-features\": false",
+    "  \"msgpackr-extract\": false",
+    "  \"node-liblzma\": false",
+    "  \"sharp\": false",
+    "  \"ssh2\": false",
+    "  \"vue-demi\": false",
+    "  \"workerd\": false",
     "blockExoticSubdeps: false",
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
@@ -445,6 +462,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           // ssh2 is an optional peer of @vite-hub/sandbox, and Sandbox is an optional peer of `vite-hub`.
           dependencies: { "@vite-hub/sandbox": specs["@vite-hub/sandbox"], "ssh2": "1.17.0", "vite-hub": specs["vite-hub"] },
+          packageManager: "pnpm@10.33.0",
           private: true,
           type: "module",
         }, null, 2), "utf8"),
@@ -524,6 +542,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         ].join("\n"), "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: { "@vite-hub/blob": specs["@vite-hub/blob"], "@vite-hub/queue": specs["@vite-hub/queue"], h3: "2.0.8", nitro: "3.0.261102-rc", vite: "8.2.2", "vite-hub": specs["vite-hub"] },
+          packageManager: "pnpm@10.33.0",
           // AI SDK 7's provider declarations need app-visible types with pnpm's hoisting disabled.
           devDependencies: { "@types/json-schema": "7.0.15", "@types/node": "24.19.1", typescript: "6.0.3" },
           private: true,
@@ -582,6 +601,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
+          packageManager: "pnpm@10.33.0",
           private: true,
           type: "module",
         }, null, 2), "utf8"),
