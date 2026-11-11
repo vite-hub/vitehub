@@ -59,6 +59,7 @@ const runtimeEntries = [
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
+  "src/internal/disabled-redis-driver.ts",
   "src/task/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
