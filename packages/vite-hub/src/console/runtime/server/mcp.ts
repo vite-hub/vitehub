@@ -1,8 +1,7 @@
-import { Validator } from "@cfworker/json-schema"
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
-import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { checkViteHubMcpInput, getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
@@ -11,7 +10,6 @@ import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
-import type { Schema } from "@cfworker/json-schema"
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
 import type { McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
@@ -25,15 +23,11 @@ const instructions = "ViteHub MCP gives Agents the operations and server primiti
 
 const registeredToolRequestBytes = 256 * 1_024
 const inputSchemas = new WeakMap<AnyOperation, Record<string, unknown>>()
-const validators = new WeakMap<object, Validator>()
 
-/** The schema errors of `input`, or nothing when it is valid. Each schema compiles once. */
+/** What is wrong with the arguments, or nothing when they match the tool's schema. */
 function invalidInput(tool: ViteHubMcpTool, input: Record<string, unknown>): string | undefined {
-  let validator = validators.get(tool.inputSchema)
-  // SAFETY: The owner of a tool declares its arguments as a JSON Schema.
-  if (!validator) validators.set(tool.inputSchema, validator = new Validator(tool.inputSchema as Schema, "2020-12"))
-  const validation = validator.validate(input)
-  return validation.valid ? undefined : `Invalid arguments for ${tool.name}: ${validation.errors.map(error => error.error).join("; ")}`
+  const problem = checkViteHubMcpInput(tool.inputSchema, input)
+  return problem ? `Invalid arguments for ${tool.name}: ${problem}` : undefined
 }
 
 interface ToolContext {

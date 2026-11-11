@@ -1,5 +1,4 @@
 import { stringAttribute, type InvocationActivity } from "./invocation-activity.ts";
-import { hasRuntimeType } from "./runtime-type.ts";
 
 export type InvocationConversation = {
   deliveredAnswerCount: number;
@@ -131,7 +130,7 @@ const answerDeliveryKinds = new Set(["reply", "update"]);
 
 function deliveryContent(activity: InvocationActivity): string | undefined {
   const content = activity.attributes["channel.effect.content"];
-  return hasRuntimeType(content, "string") && content.trim() ? content : undefined;
+  return typeof content === "string" && content.trim() ? content : undefined;
 }
 
 function isDeliveredAnswer(activity: InvocationActivity): boolean {

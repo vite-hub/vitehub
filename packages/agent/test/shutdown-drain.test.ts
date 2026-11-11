@@ -3,7 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 import { agentRuntimeModule } from "../src/vite.ts"
 
 type Drain = (context: { signal: AbortSignal, timeoutMs: number }) => unknown
@@ -19,7 +18,7 @@ async function generateQueuePlugin(options: { preset?: string, shutdown?: false 
       providers: { state: { provider: "libsql", url: options.preset ? "libsql://state.example.com" : "file:agent-state.sqlite" } },
       ...(options.shutdown === undefined ? {} : { shutdown: options.shutdown }),
     })
-    if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+    if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
     // SAFETY: The hook reads only command, preset, and root from this test config.
     await plugin.configResolved.call({} as never, { command: "build", ...(options.preset ? { preset: options.preset } : {}), root } as never)
     return await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")

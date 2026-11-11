@@ -38,7 +38,6 @@ function hex(buffer: ArrayBuffer): string {
 export function readViteHubSecret(env: Readonly<Record<string, unknown>>): string | undefined {
   for (const name of ["VITEHUB_SECRET", "NUXT_APP_SECRET"]) {
     const value = env[name]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host env records are untrusted values.
     if (typeof value === "string" && value) return value
   }
   return undefined
