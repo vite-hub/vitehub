@@ -31,8 +31,8 @@ async function renderResult(selectedRun?: ConsoleScheduleRunView) {
       selectedRun,
     }),
   })
-  app.component("ConsoleStatus", defineComponent({
-    props: { label: String, pending: Boolean, tone: String },
+  app.component("Status", defineComponent({
+    props: { label: String, pulse: Boolean, tone: String },
     setup: props => () => h("span", { "data-tone": props.tone }, props.label),
   }))
   for (const name of ["ConsolePropertyList", "UButton"]) {

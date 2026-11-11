@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
 import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -2329,6 +2329,41 @@ describe("Agent Invocations", () => {
           errors: [{ message: "first", name: "Error" }],
           message: "outer",
           name: "AggregateError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("keeps the children of a foreign AggregateError subclass with its own name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-aggregate-subclass",
+      observations: [],
+      status: "running",
+      traceId: "foreign-aggregate-subclass-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('new (class ValidationError extends AggregateError { name = "ValidationError" })([new Error("field invalid")], "validation failed")')
+
+    await store.update("foreign-aggregate-subclass", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-aggregate-subclass"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          errors: [{ message: "field invalid", name: "Error" }],
+          message: "validation failed",
+          name: "ValidationError",
         },
       },
       visibility: "public",
@@ -6382,7 +6417,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("search_version < ?")) {
@@ -6482,7 +6517,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("WHERE summary IS NULL") && sql.includes("ORDER BY sequence DESC")) {
@@ -6574,7 +6609,7 @@ describe("Agent Invocations", () => {
             const isSummaryBackfill = statements.some((statement) => {
               return isRuntimeRecord(statement)
                 && "sql" in statement
-                && hasRuntimeType(statement.sql, "string")
+                && typeof statement.sql === "string"
                 && statement.sql.includes("SET summary = json_remove")
             })
             if (isSummaryBackfill && summaryBackfillAttempts++ === 0) {
@@ -6720,8 +6755,8 @@ describe("Agent Invocations", () => {
             return async (...args: Parameters<Client["batch"]>) => {
               const statements = args[0]
               const firstStatement = statements[0]
-              if (hasRuntimeType(firstStatement, "object")
-                && "sql" in firstStatement && hasRuntimeType(firstStatement.sql, "string")
+              if (typeof firstStatement === "object"
+                && "sql" in firstStatement && typeof firstStatement.sql === "string"
                 && firstStatement.sql.includes("SET search")) {
                 pageSizes.push(statements.length)
                 if (--failPage === 0) throw new Error("migration interrupted")
@@ -6730,7 +6765,7 @@ describe("Agent Invocations", () => {
             }
           }
           const value = Reflect.get(target, property)
-          return hasRuntimeType(value, "function") ? value.bind(target) : value
+          return typeof value === "function" ? value.bind(target) : value
         },
       })
       const store = createLibsqlAgentInvocationStore({ client: flakyClient })
@@ -6840,7 +6875,7 @@ describe("Agent Invocations", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return hasRuntimeType(value, "function") ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     const invocations = defineAgentInvocations({
