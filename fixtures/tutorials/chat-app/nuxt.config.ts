@@ -9,8 +9,16 @@ export default defineNuxtConfig({
     console: false,
   }]],
   css: ["~/assets/main.css"],
+  vite: {
+    resolve: {
+      alias: [
+        // Inline Shiki's WebAssembly for the Nuxt 5 server build.
+        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+      ],
+    },
+  },
   ui: { fonts: false },
-  // Use Shiki's inline WebAssembly loader in the Nitro server bundle.
-  vite: { resolve: { alias: { "shiki/wasm": "shiki/dist/wasm.mjs" } } },
   devtools: { enabled: false },
 });

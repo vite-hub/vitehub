@@ -155,7 +155,6 @@ function providerRuntime(threadId: string, onStartSession: (input: { cwd: string
 function invocationContext(threadId: string, input: SandboxTestInput) {
   const values = new Map<string, unknown>()
   return {
-    actor: { id: "actor" },
     context: {
       entries: () => values.entries(),
       get: (key: string) => values.get(key),

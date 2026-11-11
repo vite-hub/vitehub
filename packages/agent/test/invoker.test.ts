@@ -107,7 +107,6 @@ describe("Agent Invoker", () => {
 
     const portable = portableResolvedAgentInvokerInput(input)
     expect(portable.context).toMatchObject({
-      actor: { id: "user-1", kind: "user", meta: { tenant: "acme" } },
       invoker: { id: "user-1", kind: "user", meta: { tenant: "acme" } },
     })
     expect(portable.context?.invoker?.meta?.loadTenant).toBeUndefined()

@@ -304,7 +304,7 @@ describe("Cloudflare D1 binding projections", () => {
 })
 
 describe("resolveDevRemoteConfig", () => {
-  const base = { connection: { url: "file:.vitehub/data/database/sqlite.db" }, drizzle: {}, name: "default" }
+  const base = { connection: { url: "file:.vitehub/data/database/sqlite.db" }, name: "default" }
 
   it("keeps local SQLite when nothing asks for the remote database", () => {
     const config = { ...base, cloudflare: { binding: "DB", databaseId: "database-id" } }

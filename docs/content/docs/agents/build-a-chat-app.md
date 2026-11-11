@@ -63,8 +63,7 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
     "@vite-hub/ui": "workspace:*",
     "ai": "7.0.130",
     "h3": "2.0.8",
-    "nitro": "3.0.261102-rc",
-    "nuxt": "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
     "tailwindcss": "4.3.3",
     "vite-hub": "workspace:*",
     "vue": "3.5.44",
@@ -81,7 +80,13 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
 
 The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
-Set `buildDir: ".nuxt"` to keep generated files at the path used by `tsconfig.json`.
+- The ViteHub module finds Agent Definitions (one file per Agent) in `server/agents`.
+- `preset: "node"` builds for a Node.js server.
+- `workflow: false` runs each short reply (an Invocation) inside the request.
+- Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
+- `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
+- `buildDir: ".nuxt"` keeps generated TypeScript in the project. This Nuxt version builds under `node_modules` by default, where the pinned Nitro skips TypeScript transforms.
+- The Shiki aliases inline its WebAssembly for the Nuxt 5 server build.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -95,9 +100,17 @@ export default defineNuxtConfig({
     console: false,
   }]],
   css: ["~/assets/main.css"],
+  vite: {
+    resolve: {
+      alias: [
+        // Inline Shiki's WebAssembly for the Nuxt 5 server build.
+        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+      ],
+    },
+  },
   ui: { fonts: false },
-  // Use Shiki's inline WebAssembly loader in the Nitro server bundle.
-  vite: { resolve: { alias: { "shiki/wasm": "shiki/dist/wasm.mjs" } } },
   devtools: { enabled: false },
 });
 ```
