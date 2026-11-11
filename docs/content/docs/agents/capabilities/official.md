@@ -10,7 +10,7 @@ navigation.kind: Reference
 
 A Capability gives an Agent one ability. Pick one below by task. Each page shows setup, what the Agent gets, and how to verify it.
 
-Import factories from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabilities` in a standalone package. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a full example. Server Primitive Capabilities are documented next to their server API.
+Import factories from `vite-hub/agent/capabilities`. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a full example. Server Primitive Capabilities are documented next to their server API.
 
 ## Catalog
 
@@ -64,12 +64,9 @@ Import factories from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabil
 
 | Ability | Capability | Use it when |
 | --- | --- | --- |
-| LLM routing | [`llmRoute()`](/docs/agents/capabilities/llm-route) | Choose one developer-defined route with any model, or Jev, before the invocation. |
-| LLM gate | [`llmGate()`](/docs/agents/capabilities/llm-gate) | Allow or reject a request with any model, or Jev, before the invocation. |
 | Rate limit | [`rateLimit()`](/docs/rate-limit/agent-capability) | Consume a trusted invocation budget before the Agent runs. |
 | Invocation budget | [`budget()`](/docs/agents/capabilities/budget) | Observe or enforce per-invocation token and USD limits. |
 | Title | [`title()`](/docs/agents/capabilities/title) | Generate a title for Agent output, finish extensions, or Channel threads. |
-| Chat summary | [`chatSummary()`](/docs/agents/capabilities/chat-summary) | Replace a summary command with a conversation summary. |
 | Progress summary | [`progressSummary()`](/docs/agents/capabilities/progress-summary) | Summarize reasoning and tool activity while streaming. |
 | Usage | [`usage()`](/docs/agents/capabilities/usage) | Normalized provider tokens and cost. |
 

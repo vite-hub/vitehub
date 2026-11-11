@@ -34,10 +34,4 @@ defineProps<{
   color: var(--ui-primary);
   text-decoration-color: currentColor;
 }
-
-.property-help:focus-visible {
-  border-radius: 0.125rem;
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 2px;
-}
 </style>

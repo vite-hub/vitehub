@@ -70,9 +70,9 @@ If you use Nuxt, add `database: true` to the `vite-hub/nuxt` module options inst
 ::tutorial-step{title="Create and migrate the table"}
 ## Create and migrate the table
 
-Create `server/databases/config.ts`. This file is the Definition of your `default` database: it lists its tables.
+Create `server/databases/default.ts`. This file is the Definition of your `default` database: it lists its tables.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -87,7 +87,7 @@ export default defineDatabase({
 ```
 
 - `notes` gets an `id` that counts up by itself and a `title` that must have a value.
-- If your app already has `server/databases/config.ts`, add `notes` to its `schema`. Do not make a second file.
+- If your app already has `server/databases/default.ts`, add `notes` to its `schema`. Do not make a second file.
 
 The Definition only describes the table. To create the table in the database, make a migration and apply it:
 
@@ -96,7 +96,7 @@ pnpm vitehub database generate
 pnpm vitehub database migrate
 ```
 
-- `generate` writes the SQL for your tables to `server/databases/migrations/`.
+- `generate` writes the SQL for your tables to `server/databases/default/migrations/`.
 - `migrate` runs that SQL on the SQLite file.
 
 You do not need a running server for these commands. Make sure both finish without an error before you go on.

@@ -12,6 +12,7 @@ import {
   isConsoleDiagnosticCode,
   type ConsoleDiagnosticCode,
 } from "../src/console/runtime/diagnostics.ts"
+import { operationRpcFetch } from "../../internal/test-utils/operation-rpc.ts"
 
 const codes = [
   "CONSOLE_ACCESS_DENIED",
@@ -161,9 +162,9 @@ describe("Console problems", () => {
 describe("Console request diagnostics", () => {
   it.each([200, 422])("preserves field validation recovery through HTTP %i", async (status) => {
     const issues = [{ field: "title", message: "Required", path: [] }]
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "CONTENT_INVALID", details: { id: "guide", issues }, message: "Fix the invalid fields.", ok: false, status: 422,
-    }, { status })))
+    }, { status }))))
     const error = await requestConsole("/_vitehub/api/documents").catch((cause: unknown) => cause)
     expect(error).toMatchObject({ failureCode: "CONTENT_INVALID", status: 422 })
     expect(consoleFieldIssues(error)).toEqual(issues)
@@ -172,9 +173,9 @@ describe("Console request diagnostics", () => {
 
   it.each([200, 409])("preserves conflict recovery through HTTP %i", async (status) => {
     const documents = [{ id: "guide", expected: "before", actual: "after" }]
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "WORKSPACE_CONFLICT", details: { documents }, message: "The draft changed.", ok: false, status: 409,
-    }, { status })))
+    }, { status }))))
     const error = await requestConsole("/_vitehub/api/documents").catch((cause: unknown) => cause)
     expect(error).toMatchObject({ status: 409 })
     expect(isConsoleConflict(error)).toBe(true)
@@ -183,9 +184,9 @@ describe("Console request diagnostics", () => {
 
   it("tells a change on the site apart from a newer draft", async () => {
     const documents = [{ id: "guide", expected: "base", actual: "site" }]
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "WORKSPACE_CONFLICT", details: { documents, ref: "published" }, message: "1 document also changed on the site.", ok: false, status: 409,
-    }, { status: 409 })))
+    }, { status: 409 }))))
     const error = await requestConsole("/_vitehub/api/documents").catch((cause: unknown) => cause)
     expect(consolePublishedConflicts(error)).toEqual(documents)
     // Reloading the draft cannot fix it, so the newer-draft recovery must not run.
@@ -193,32 +194,32 @@ describe("Console request diagnostics", () => {
   })
 
   it("keeps the lease holder on HTTP 409", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "CONTENT_LEASE_HELD", details: { holder: { user: { name: "Editor" }, since: "2026-10-25T10:00:00Z" } },
       message: "Another tab holds the lease.", ok: false, status: 409,
-    }, { status: 409 })))
+    }, { status: 409 }))))
     const error = await requestConsole("/_vitehub/api/documents").catch((cause: unknown) => cause)
     expect(consoleLeaseHolder(error)).toEqual({ name: "Editor", since: "2026-10-25T10:00:00Z" })
   })
 
   it("ignores malformed owner details and uses the failed HTTP status", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "CONTENT_INVALID", details: ["invalid"], message: "Invalid fields.", ok: false, status: 200,
-    }, { status: 422 })))
+    }, { status: 422 }))))
     const error = await requestConsole("/_vitehub/api/documents").catch((cause: unknown) => cause)
     expect(error).toMatchObject({ failureCode: "CONTENT_INVALID", status: 422 })
     expect(consoleFieldIssues(error)).toEqual([])
   })
 
   it("reads the diagnostic fields of an RPC failure", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "CONSOLE_DEVELOPMENT_ONLY",
       docs: "https://vitehub.dev/docs/development/console#protect-the-console-route",
       fix: "Use Console Auth.",
       message: "console: true is development-only.",
       ok: false,
       status: 403,
-    }, { status: 403 })))
+    }, { status: 403 }))))
     await expect(requestConsole("/_vitehub/api/sections")).rejects.toMatchObject({
       code: "CONSOLE_DEVELOPMENT_ONLY",
       docs: "https://vitehub.dev/docs/development/console#protect-the-console-route",
@@ -229,7 +230,7 @@ describe("Console request diagnostics", () => {
   })
 
   it("uses a short plain-text rejection from host middleware as the why", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Cloudflare Access did not authenticate this request.", { headers: { "content-type": "text/plain" }, status: 401 })))
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(new Response("Cloudflare Access did not authenticate this request.", { headers: { "content-type": "text/plain" }, status: 401 }))))
     const error = await requestConsole("/_vitehub/api/sections").catch((cause: unknown) => cause)
     expect(consoleProblem(error)).toMatchObject({
       action: "sign-in",

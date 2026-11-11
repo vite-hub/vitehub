@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto"
 import { readdir, readFile } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 
 import { createBuilder } from "vite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createFormsHandler } from "@vite-hub/forms/runtime"
 import { getStandardContext } from "@vite-hub/runtime"
@@ -12,6 +13,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // The generated handler passes `getStandardContext` as the Forms context, so its result must fit. The client address
 // is in `runtime`.
@@ -73,12 +75,14 @@ describe("Forms in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // No `database` option: `server/forms/` turns it on.
-    const app = () => vitehub({ console: { auth: false }, preset: "node" })
+    const app = () => vitehub({ console: { auth: "token" }, preset: "node" })
+    const token = "forms-build-test-token-0123456789abcdef"
+    const authorization = `Bearer ${token}`
 
     const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrations = join(root, "server/databases/migrations")
+    const migrations = join(root, "server/databases/default/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)).toEqual(["CREATE TABLE `vitehub_form_submissions`"])
     const migrate = await runCli(root, app(), ["database", "migrate"])
@@ -89,19 +93,19 @@ describe("Forms in a built Nitro 3 app", () => {
     const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [app(), nitro() as never], root } as never)
     await builder.buildApp()
     // `server/forms/` alone turns the Forms section of the Console on.
-    const consolePlugin = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+    const consolePlugin = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
     expect(consolePlugin).toMatch(/installConsoleSections\([^)]*"forms"/)
     expect(consolePlugin).toContain('"operation":"forms.list"')
 
-    const server = await startBuiltServer(root, {})
+    const server = await startBuiltServer(root, { VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") })
     try {
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const response = await server.fetch("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ input, operation }),
-          headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        const response = await server.fetch("/_vitehub/rpc", {
+          body: operationRpcBody(operation, input),
+          headers: { authorization, "content-type": "application/json", [consoleRpcHeader]: "1" },
           method: "POST",
         })
-        const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
+        const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
         return body.value
       }
@@ -138,6 +142,10 @@ describe("Forms in a built Nitro 3 app", () => {
       expect(await call<Array<{ id: string }>>("forms.list", { status: "done" })).toEqual([expect.objectContaining({ id })])
 
       // `vitehub forms` runs the same operations from the command line.
+      vi.stubEnv("VITEHUB_CONSOLE_AUTHORIZATION", authorization)
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
       const url = `http://127.0.0.1:${server.port}`
       const cli = async (...args: string[]) => {
         const result = await runCli(root, app(), ["forms", ...args, "--url", url, "--json"])
@@ -161,7 +169,7 @@ describe("Forms in a built Nitro 3 app", () => {
       const mcp = async (method: string, params?: unknown) => {
         const response = await server.fetch("/_vitehub/mcp", {
           body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, ...(params ? { params } : {}) }),
-          headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+          headers: { accept: "application/json, text/event-stream", authorization, "content-type": "application/json" },
           method: "POST",
         })
         expect(response.status).toBe(200)

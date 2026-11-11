@@ -14,8 +14,8 @@ The CMS gives you the `cms` preset and roles. Pass the preset to `defineContent(
 | --- | --- |
 | `cms` from `vite-hub/cms` | The preset, in an app with `vitehub()`. |
 | `cms`, or the default export, from `@vite-hub/cms` | The same preset, for libraries and apps that install each package. |
-| `CmsPresetOptions` type from `vite-hub/cms` or `@vite-hub/cms` | The options of the tuple form. |
-| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` or `@vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and policies built on them ([Roles and access](/docs/cms/access)). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
+| `CmsPresetOptions` type from `vite-hub/cms` | The options of the tuple form. |
+| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and policies built on them ([Roles and access](/docs/cms/access)). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
@@ -23,7 +23,7 @@ import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { workspace: 'site' }],
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -46,7 +46,7 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 - pass that import directly to `extends`, not a value built at runtime;
 - write each option as a string literal.
 
-The build follows a re-export of `content` from a relative file, such as `export { content } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
+The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
 
 The preset fills `workspace` in `defineContent()`, so you cannot use `extends` with `workspace`. It also:
 

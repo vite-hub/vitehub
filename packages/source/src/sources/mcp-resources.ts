@@ -1,5 +1,4 @@
 import { abortable } from "@vite-hub/internal/abort"
-import { AnnotationsSchema, BlobResourceContentsSchema, ResourceContentsSchema } from "@modelcontextprotocol/sdk/types.js"
 
 import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath } from "../core/path.ts"
@@ -7,6 +6,7 @@ import { createPathMatcher, matchesAny } from "./path.ts"
 
 import type { FileSource, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
+import type { AnnotationsSchema, BlobResourceContentsSchema, ResourceContentsSchema } from "@modelcontextprotocol/sdk/types.js"
 import type { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
@@ -368,20 +368,32 @@ function isMcpNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
 }
 
-function isMcpMetadata(value: unknown): boolean {
-  return ResourceContentsSchema.shape._meta.safeParse(value).success
+interface McpSchemas {
+  AnnotationsSchema: typeof AnnotationsSchema
+  BlobResourceContentsSchema: typeof BlobResourceContentsSchema
+  ResourceContentsSchema: typeof ResourceContentsSchema
+}
+
+// The SDK is an optional peer. Load its schemas with the first response, so importing this module does not need it.
+let mcpSchemas: Promise<McpSchemas> | undefined
+function loadMcpSchemas(): Promise<McpSchemas> {
+  return mcpSchemas ??= import("@modelcontextprotocol/sdk/types.js")
+}
+
+function isMcpMetadata(value: unknown, schemas: McpSchemas): boolean {
+  return schemas.ResourceContentsSchema.shape._meta.safeParse(value).success
 }
 
 function isMcpArrayOf(value: unknown, validate: (entry: unknown) => boolean): boolean {
   return isDenseArray(value) && value.every(validate)
 }
 
-function isResourceAnnotations(value: unknown): boolean {
+function isResourceAnnotations(value: unknown, schemas: McpSchemas): boolean {
   return isRecord(value)
     && hasOptionalMcpField(value, "audience", audience => isMcpArrayOf(audience, role => role === "assistant" || role === "user"))
     && hasOptionalMcpString(value, "lastModified")
     && hasOptionalMcpField(value, "priority", isMcpNumber)
-    && AnnotationsSchema.safeParse(value).success
+    && schemas.AnnotationsSchema.safeParse(value).success
 }
 
 function isResourceIcon(value: unknown): boolean {
@@ -392,7 +404,7 @@ function isResourceIcon(value: unknown): boolean {
     && hasOptionalMcpField(value, "theme", theme => theme === "dark" || theme === "light")
 }
 
-function isResourceDescriptor(value: unknown): value is McpResourceDescriptor {
+function isResourceDescriptor(value: unknown, schemas: McpSchemas): value is McpResourceDescriptor {
   return isRecord(value)
     && isOwnMcpString(value, "name")
     && isOwnMcpString(value, "uri")
@@ -400,24 +412,24 @@ function isResourceDescriptor(value: unknown): value is McpResourceDescriptor {
     && hasOptionalMcpString(value, "title")
     && hasOptionalMcpString(value, "description")
     && hasOptionalMcpField(value, "size", isMcpNumber)
-    && hasOptionalMcpField(value, "_meta", isMcpMetadata)
-    && hasOptionalMcpField(value, "annotations", isResourceAnnotations)
+    && hasOptionalMcpField(value, "_meta", meta => isMcpMetadata(meta, schemas))
+    && hasOptionalMcpField(value, "annotations", annotations => isResourceAnnotations(annotations, schemas))
     && hasOptionalMcpField(value, "icons", icons => isMcpArrayOf(icons, isResourceIcon))
 }
 
-function isResourceContent(value: unknown): value is McpResourceContent {
+function isResourceContent(value: unknown, schemas: McpSchemas): value is McpResourceContent {
   if (!isRecord(value)
     || !isOwnMcpString(value, "uri")
     || !hasOptionalMcpString(value, "mimeType")
-    || !hasOptionalMcpField(value, "_meta", isMcpMetadata)) return false
+    || !hasOptionalMcpField(value, "_meta", meta => isMcpMetadata(meta, schemas))) return false
   const hasTextKey = Object.hasOwn(value, "text")
   const hasBlobKey = Object.hasOwn(value, "blob")
   const hasText = hasTextKey && isMcpString(Reflect.get(value, "text"))
-  const hasBlob = hasBlobKey && BlobResourceContentsSchema.safeParse(value).success
+  const hasBlob = hasBlobKey && schemas.BlobResourceContentsSchema.safeParse(value).success
   return hasText !== hasBlob && (!hasTextKey || hasText) && (!hasBlobKey || hasBlob)
 }
 
-function parseResourceListPage(value: unknown): { nextCursor?: string, resources: McpResourceDescriptor[] } {
+function parseResourceListPage(value: unknown, schemas: McpSchemas): { nextCursor?: string, resources: McpResourceDescriptor[] } {
   if (!isRecord(value)) {
     throw sourceError("[vitehub] mcpResources server returned an invalid listResources response.")
   }
@@ -426,14 +438,14 @@ function parseResourceListPage(value: unknown): { nextCursor?: string, resources
   }
   const resources = Reflect.get(value, "resources")
   const nextCursor = Object.hasOwn(value, "nextCursor") ? Reflect.get(value, "nextCursor") : undefined
-  if (!isDenseArray(resources) || resources.some(resource => !isResourceDescriptor(resource)) || (nextCursor !== undefined && !isMcpString(nextCursor))) {
+  if (!isDenseArray(resources) || resources.some(resource => !isResourceDescriptor(resource, schemas)) || (nextCursor !== undefined && !isMcpString(nextCursor))) {
     throw sourceError("[vitehub] mcpResources server returned an invalid listResources response.")
   }
   // SAFETY: Every resource field declared by McpResourceDescriptor has passed validation.
   return { nextCursor, resources: resources as McpResourceDescriptor[] }
 }
 
-function parseResourceContents(value: unknown): McpResourceContent[] {
+function parseResourceContents(value: unknown, schemas: McpSchemas): McpResourceContent[] {
   if (!isRecord(value)) {
     throw sourceError("[vitehub] mcpResources server returned an invalid readResource response.")
   }
@@ -441,7 +453,7 @@ function parseResourceContents(value: unknown): McpResourceContent[] {
     throw sourceError("[vitehub] mcpResources server returned an invalid readResource response.")
   }
   const contents = Reflect.get(value, "contents")
-  if (!isDenseArray(contents) || contents.some(content => !isResourceContent(content))) {
+  if (!isDenseArray(contents) || contents.some(content => !isResourceContent(content, schemas))) {
     throw sourceError("[vitehub] mcpResources server returned an invalid readResource response.")
   }
   // SAFETY: Every content entry is an object with the string URI required by the MCP response contract.
@@ -459,7 +471,8 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
       }
       seenCursors.add(cursor)
     }
-    const page = parseResourceListPage(await client.listResources(cursor === undefined ? undefined : { cursor }, request))
+    const response = await client.listResources(cursor === undefined ? undefined : { cursor }, request)
+    const page = parseResourceListPage(response, await loadMcpSchemas())
     for (const resource of page.resources) resources.push(resource)
     cursor = page.nextCursor
   } while (cursor !== undefined)
@@ -471,7 +484,8 @@ async function readResourceContents(
   resource: McpResourceDescriptor,
   request: McpResourcesRequestOptions | undefined,
 ) {
-  return parseResourceContents(await client.readResource({ uri: resource.uri }, request))
+  const response = await client.readResource({ uri: resource.uri }, request)
+  return parseResourceContents(response, await loadMcpSchemas())
 }
 
 async function createEntries<TKey extends string>(

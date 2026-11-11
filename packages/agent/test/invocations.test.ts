@@ -2335,6 +2335,41 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("keeps the children of a foreign AggregateError subclass with its own name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-aggregate-subclass",
+      observations: [],
+      status: "running",
+      traceId: "foreign-aggregate-subclass-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('new (class ValidationError extends AggregateError { name = "ValidationError" })([new Error("field invalid")], "validation failed")')
+
+    await store.update("foreign-aggregate-subclass", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-aggregate-subclass"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          errors: [{ message: "field invalid", name: "Error" }],
+          message: "validation failed",
+          name: "ValidationError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
   it("recognizes foreign errors when stack formatting returns a non-string", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({
@@ -5223,8 +5258,9 @@ describe("Agent Invocations", () => {
   it("shares an unfinished open after its wait times out", async () => {
     vi.useFakeTimers()
     try {
-      const pending = Promise.withResolvers<void>()
-      const open = vi.fn(() => pending.promise)
+      let resolveOpen!: () => void
+      const pending = new Promise<void>(resolve => { resolveOpen = resolve })
+      const open = vi.fn(() => pending)
       const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
       const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
       await vi.advanceTimersByTimeAsync(10_000)
@@ -5232,7 +5268,7 @@ describe("Agent Invocations", () => {
       const next = invocations.list()
       await vi.advanceTimersByTimeAsync(1)
       expect(open).toHaveBeenCalledOnce()
-      pending.resolve()
+      resolveOpen()
       await expect(next).resolves.toMatchObject({ invocations: [] })
       expect(open).toHaveBeenCalledOnce()
     }

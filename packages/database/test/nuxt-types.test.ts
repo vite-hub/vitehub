@@ -25,7 +25,7 @@ async function createApp() {
   tempDirs.push(root)
   // The config marks the project root, so ViteHub does not climb to the repository.
   await writeModule(join(root, "nuxt.config.ts"), ["export default {}"])
-  await writeModule(join(root, "server/databases/config.ts"), [
+  await writeModule(join(root, "server/databases/default.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     "export default defineDatabase({",
@@ -43,6 +43,9 @@ const tableChecks = [
   "export const noteId = (note: Note): number => note.id",
   "export const noteTitle = (note: Note): string => note.title",
   "export type RegisteredNote = ReturnType<typeof useDatabase<'default'>>['schema']['notes']['$inferSelect']",
+  "// Without a name, `useDatabase()` returns the only Database.",
+  "export const unnamedNotes = (use: typeof useDatabase) => use().schema.notes",
+  "export const unnamedNoteId = (note: ReturnType<typeof unnamedNotes>['$inferSelect']): number => note.id",
   "// @ts-expect-error The schema has no comments table.",
   "export type Comment = typeof schema.comments.$inferSelect",
 ]

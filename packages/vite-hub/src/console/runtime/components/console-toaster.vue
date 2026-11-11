@@ -46,7 +46,7 @@ onBeforeUnmount(() => {
       :open="!closed.has(toast.id)"
       :duration="toast.duration"
       :type="toast.error ? 'foreground' : 'background'"
-      class="pointer-events-auto flex min-h-12 w-full items-center gap-2.5 rounded-xl bg-default py-2 ps-4 pe-2 text-sm text-highlighted shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] ring ring-default data-[swipe=cancel]:translate-x-0 data-[swipe=cancel]:transition-transform data-[swipe=move]:translate-x-(--reka-toast-swipe-move-x) motion-safe:data-[state=closed]:animate-[vitehub-console-toast-out_150ms_ease-out] motion-safe:data-[state=open]:animate-[vitehub-console-toast-in_200ms_cubic-bezier(.25,.75,.6,.98)] motion-safe:data-[swipe=end]:animate-[vitehub-console-toast-out_100ms_ease-out]"
+      class="pointer-events-auto flex min-h-12 w-full items-center gap-2.5 rounded-xl bg-default py-2 ps-4 pe-2 text-sm text-highlighted shadow-(--vh-shadow-floating) data-[swipe=cancel]:translate-x-0 data-[swipe=cancel]:transition-transform data-[swipe=move]:translate-x-(--reka-toast-swipe-move-x) motion-safe:data-[state=closed]:animate-[vitehub-console-toast-out_150ms_ease-out] motion-safe:data-[state=open]:animate-[vitehub-console-toast-in_200ms_cubic-bezier(.25,.75,.6,.98)] motion-safe:data-[swipe=end]:animate-[vitehub-console-toast-out_100ms_ease-out]"
       @update:open="(open) => { if (!open) close(toast.id) }"
     >
       <UIcon v-if="toast.error" name="i-lucide-circle-alert" class="size-4 shrink-0 text-error" aria-hidden="true" />

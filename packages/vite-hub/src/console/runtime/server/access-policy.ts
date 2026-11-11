@@ -33,9 +33,6 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
   }
-  if ("signInPage" in policy && policy.signInPage !== undefined && !isConsoleSignInPage(policy.signInPage)) {
-    throw new TypeError("[vitehub] The Console sign-in page must be a path on the same origin, such as /sign-in.")
-  }
   if ("impersonation" in policy && policy.impersonation !== undefined && typeof policy.impersonation !== "boolean") {
     throw new TypeError("[vitehub] console.impersonation must be true or false.")
   }
@@ -48,7 +45,7 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
     if (policy.mode === "local" || !policy.authorize) return "all"
     // Agents have no browser request and no token, so `authorize` gets a request without headers, `via: "agent"`, and
     // the user that the Actor stands for. It never sees `via: "token"` here: that means a verified Console token.
-    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    const request = new Request("http://vitehub.local/_vitehub/rpc", { method: "POST" })
     const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser, via: "agent" } : { request, via: "agent" })
     if (result === true) return "all"
     return isRuntimeResponse(result) ? [] : consoleAuthorizedSections(result) ?? []
@@ -57,14 +54,6 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 
 export function installedConsoleAccessPolicy(): ConsoleAccessPolicy | undefined {
   return scope[policyKey]
-}
-
-/** Whether a value stays a path on the same origin after URL normalization. */
-export function isConsoleSignInPage(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The value comes from configuration or generated output.
-  if (typeof value !== "string" || !/^\/(?!\/)[^\\\s]*$/.test(value)) return false
-  // Dot segments can turn a single-slash input into a network-path reference when serialized.
-  return !new URL(value, "http://vitehub.local").pathname.startsWith("//")
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {
