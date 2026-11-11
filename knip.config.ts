@@ -275,8 +275,9 @@ const config: KnipConfiguration = {
         "@vercel/blob",
         // Consumer tests resolve it from `packages/internal` with `createRequire`.
         "sharp",
-        // remove when the unused oxlint-tsgolint and chat-state-cloudflare-do devDependencies of the root are fixed
+        // remove when the unused oxlint-tsgolint, chat and chat-state-cloudflare-do devDependencies of the root are fixed
         "oxlint-tsgolint",
+        "chat",
         "chat-state-cloudflare-do",
       ],
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },

@@ -88,6 +88,7 @@ describe("Chat with a plain AI SDK route", () => {
     await wrapper.get("textarea").setValue("What does vale mean?");
     await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
     await vi.waitFor(() => expect(chat.status).toBe("ready"));
+    await vi.dynamicImportSettled();
     await flushPromises();
 
     expect(requests).toHaveLength(1);
