@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 
 import { Chat, chatActivity } from "../src/components/chat.ts";
+
+afterEach(async () => {
+  // Chat starts async component imports that must finish before the test environment closes.
+  await vi.dynamicImportSettled();
+});
 
 const question: UIMessage = { id: "q", parts: [{ text: "How do I install Lumen?", type: "text" }], role: "user" };
 
@@ -40,6 +45,11 @@ describe("chatActivity", () => {
 });
 
 describe("Chat activity line", () => {
+  afterEach(async () => {
+    // Chat's lazy component imports must finish before the test environment closes.
+    await vi.dynamicImportSettled();
+  });
+
   it("shows one still line under the last message while the Agent works, then removes it", async () => {
     const wrapper = mount(Chat, { global, props: { messages: [question, reply(started)], status: "streaming" } });
     const content = wrapper.get("[data-slot=message-scroller-content]");

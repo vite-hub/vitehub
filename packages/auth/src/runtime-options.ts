@@ -15,7 +15,7 @@ import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
-import { getAuthRuntimeState } from "./runtime-state.ts"
+import { authProcessMemoryDatabase, getAuthRuntimeState } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -62,10 +62,11 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
   state.memoryDatabases ??= new WeakMap()
   const tables = state.memoryDatabases.get(definition) ?? {}
   state.memoryDatabases.set(definition, tables)
-  return (options: BetterAuthOptions) => {
+  const database = (options: BetterAuthOptions) => {
     for (const { modelName } of Object.values(getAuthTables(options))) tables[modelName] ??= []
     return memoryAdapter(tables)(options)
   }
+  return Object.assign(database, { [authProcessMemoryDatabase]: true })
 }
 
 declare const __VITEHUB_AUTH_DEV__: boolean | undefined

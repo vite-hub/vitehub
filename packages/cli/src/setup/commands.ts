@@ -92,7 +92,6 @@ function writeStatus(status: SetupStatus & SetupLinkStatus & SetupLiveStatus & {
     ["link", linkLabel(status.link)],
     ["credentials", credentialsLabel(status.credentials)],
     ["live", liveLabel(status)],
-    ...(status.console ? [["console", `pending link ${status.console.pendingId}`]] : []),
     ...(status.stack ? [["stack", status.stack.command]] : []),
   ])}\n\n`)
   if (shown.length) {
