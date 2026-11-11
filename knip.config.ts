@@ -103,20 +103,21 @@ const packageEntries = [
 // Packages bundle `@vite-hub/internal` (`alwaysBundle`), so the imports of the internal modules that they use become
 // theirs, and each one declares them. `@valibot/to-json-schema` stays external through the `neverBundle` of internal.
 const bundledInternal: Record<string, string[]> = {
-  agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft"],
-  blob: ["@valibot/to-json-schema"],
-  cli: ["@babel/parser"],
+  agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
+  blob: ["@valibot/to-json-schema", "birpc"],
+  cli: ["@babel/parser", "birpc"],
   codemods: ["@babel/parser"],
-  comments: ["@valibot/to-json-schema"],
-  content: ["@valibot/to-json-schema"],
+  comments: ["@valibot/to-json-schema", "birpc"],
+  content: ["@valibot/to-json-schema", "birpc"],
   database: ["@sqlite.org/sqlite-wasm"],
-  email: ["@valibot/to-json-schema"],
-  kv: ["@valibot/to-json-schema"],
-  "rate-limit": ["@valibot/to-json-schema"],
+  email: ["@valibot/to-json-schema", "birpc"],
+  forms: ["birpc"],
+  kv: ["@valibot/to-json-schema", "birpc"],
+  "rate-limit": ["@valibot/to-json-schema", "birpc"],
   schedule: ["@valibot/to-json-schema"],
-  "vite-hub": ["@valibot/to-json-schema", "semver"],
+  "vite-hub": ["@valibot/to-json-schema", "birpc", "semver"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
-  workspace: ["@valibot/to-json-schema", "@vercel/nft"],
+  workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
@@ -251,8 +252,9 @@ const config: KnipConfiguration = {
   },
   // Runtime modules of Cloudflare Workers, such as `cloudflare:workers`. Knip reads them as the npm package `cloudflare`.
   ignoreDependencies: ["cloudflare"],
-  // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, and the docs Nuxt module serves `#docs/*`.
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app"],
+  // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, the docs Nuxt module serves `#docs/*`,
+  // and the Console app's Vite plugin supplies its built account page as `#console-page`.
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app", "#console-page"],
   // A CLI that people install on their own machine. The Sandbox runs it when they choose the Crabbox provider.
   ignoreBinaries: ["crabbox"],
   ignoreIssues: {

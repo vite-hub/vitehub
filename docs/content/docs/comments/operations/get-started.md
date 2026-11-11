@@ -19,7 +19,7 @@ In this tutorial, you write the rule for who may comment, create the database ta
 Install Comments and the Database packages:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/comments @vite-hub/database drizzle-orm
+pnpm add @vite-hub/comments @vite-hub/database drizzle-orm@1.0.0-rc.5
 pnpm add -D drizzle-kit
 ```
 
@@ -60,7 +60,7 @@ export default defineConfig({
 :::
 
 - You do not turn on the Database yourself. When `server/comments.ts` exists, `vitehub()` turns it on and adds a default Database.
-- `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, set up [a Console token](/docs/development/console#in-production).
+- `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, [link the app in the Console](/docs/development/console#in-production).
 
 If you set `database: false`, the build fails with `COMMENTS_B0001`.
 
@@ -112,7 +112,7 @@ pnpm vitehub comments list --json
 pnpm vitehub comments get --input '{"id":"<id>"}'
 ```
 
-You can also open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development), and choose **Comments**. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
+On a deployed app, the Comments section of the [Console](/docs/development/console) shows the same threads. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
 
 ::details{summary="What the Comments section of the Console does"}
 The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.

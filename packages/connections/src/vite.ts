@@ -17,6 +17,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
+import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
@@ -289,8 +290,14 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   nitro: {
     name: string;
     /** Nitro rebuilds its routing table from `options.handlers` when `routing.sync()` runs. */
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
+    setup: (nitro: ConnectionsNitro) => void;
   };
+};
+
+/** The parts of a Nitro instance that the management route reads and changes. */
+type ConnectionsNitro = {
+  options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
+  routing: { sync: () => void };
 };
 
 /** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
@@ -356,7 +363,7 @@ function connectionMountBase(base: unknown): string {
 }
 
 /**
- * The management action route takes only `POST`, so a `GET` of the same path reaches the Console page.
+ * The management action route takes only `POST`, so a `GET` of the same path reaches the app.
  * The connect and callback routes are the only `GET` routes under it.
  */
 function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {
@@ -471,6 +478,9 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       name: "@vite-hub/connections/management",
       setup(nitro) {
         nitroInstance = nitro;
+        // The development policy trusts only this machine. Nitro's dev worker never sees the client address, so the
+        // front process signs loopback requests for it.
+        if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers ??= []);
       },
     },
     vitehub: {
