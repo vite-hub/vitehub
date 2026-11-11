@@ -21,6 +21,7 @@ import { documents, singleton } from "../src/collections.ts"
 import { contentSource, defineContent } from "../src/index.ts"
 import { contentOperations } from "../src/operations.ts"
 import { hubContent } from "../src/vite.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ContentCliOptions } from "../src/cli.ts"
 
@@ -98,9 +99,9 @@ function devServer(content: unknown) {
   Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), content === undefined ? {} : { content: async () => ({ default: content }) })
   cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
   return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+    const { input, operation } = operationRpcRequest(init?.body)
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
-    return Response.json(result, { status: result.ok ? 200 : result.status })
+    return operationRpcResponse(init?.body, result)
   })
 }
 

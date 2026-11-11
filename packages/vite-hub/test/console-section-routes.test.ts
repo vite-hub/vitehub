@@ -8,7 +8,7 @@ import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 // Every app with Console access serves the operation RPC and the MCP endpoint.
-const consoleRoutes = ["/_vitehub/rpc/**", "/_vitehub/mcp"]
+const consoleRoutes = ["/_vitehub/rpc", "/_vitehub/mcp"]
 
 it.each([
   ["no primitives", { env: false }, []],

@@ -452,6 +452,9 @@ catalogs:
     '@valibot/to-json-schema':
       specifier: ^1.8.0
       version: 1.8.0
+    birpc:
+      specifier: ^4.2.0
+      version: 4.2.0
     diff:
       specifier: ^9.0.0
       version: 9.0.0
@@ -1095,6 +1098,9 @@ importers:
       ai:
         specifier: catalog:ai
         version: 7.0.130(zod@4.6.7)
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       chat:
         specifier: catalog:chat
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
@@ -1357,6 +1363,9 @@ importers:
       aws4fetch:
         specifier: catalog:storage
         version: 1.0.20
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       box-typescript-sdk-gen:
         specifier: catalog:storage
         version: 1.19.1(supports-color@8.1.1)
@@ -1553,6 +1562,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       diff:
         specifier: catalog:runtime
         version: 9.0.0
@@ -1761,6 +1773,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       confbox:
         specifier: ^0.3.1
         version: 0.3.1
@@ -1911,6 +1926,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
@@ -1968,6 +1986,9 @@ importers:
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       comark:
         specifier: catalog:markdown-ui
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
@@ -2272,6 +2293,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
@@ -2414,6 +2438,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
@@ -2621,6 +2648,9 @@ importers:
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.67.5)(supports-color@10.2.2)
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
@@ -2688,6 +2718,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       defu:
         specifier: catalog:unjs
         version: 6.1.7
@@ -2942,6 +2975,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -3586,6 +3622,9 @@ importers:
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       confbox:
         specifier: ^0.2.4
         version: 0.2.4
@@ -4072,6 +4111,9 @@ importers:
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      birpc:
+        specifier: catalog:runtime
+        version: 4.2.0
       defu:
         specifier: catalog:unjs
         version: 6.1.7

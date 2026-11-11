@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation, table } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
+import { operationRpcResponse } from "../test-utils/operation-rpc.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -155,7 +156,7 @@ describe("operations", () => {
       CF_ACCESS_CLIENT_ID: "client-id",
       CF_ACCESS_CLIENT_SECRET: "client-secret",
     }
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ ok: true, value: "done" }))
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: "done" }))
     expect(await callOperation({ env, fetch, url: "http://localhost:5173", ...(discovered ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })).toMatchObject({ ok: true })
     const headers = new Headers(fetch.mock.calls[0]![1]?.headers)
     for (const header of ["authorization", "cookie", "cf-access-client-id", "cf-access-client-secret"]) {

@@ -23,6 +23,7 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "drizzle-kit": "catalog:database",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
