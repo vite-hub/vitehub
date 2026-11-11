@@ -19,6 +19,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleDocumentActions, ConsoleMediaAccess } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const keys = [consoleStateKey, policyKey]
@@ -70,12 +71,12 @@ function install(sections: readonly string[] = ["content", "blob"]): void {
 
 async function respond(request: Request): Promise<{ body: Record<string, unknown>, status: number }> {
   const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
-  return { body: Object(await response.json()), status: response.status }
+  return { body: Object(await operationRpcResponseResult(response)), status: response.status }
 }
 
 function media(action: string, body: Record<string, unknown> = {}, section = "content") {
-  return respond(new Request("http://localhost/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input: { action, body, section }, operation: "media.action" }),
+  return respond(new Request("http://localhost/_vitehub/rpc", {
+    body: operationRpcBody("media.action", { action, body, section }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
@@ -84,8 +85,8 @@ function media(action: string, body: Record<string, unknown> = {}, section = "co
 async function upload(fields: { crop?: string, file: File, folder?: string, pathname?: string }, headers: Record<string, string> = {}, section = "content") {
   const { file, ...rest } = fields
   const input = { ...rest, data: Buffer.from(await file.arrayBuffer()).toString("base64"), filename: file.name, section, ...(file.type ? { contentType: file.type } : {}) }
-  return respond(new Request("http://localhost/_vitehub/rpc/__call", {
-    body: JSON.stringify({ operation: "media.upload", input }),
+  return respond(new Request("http://localhost/_vitehub/rpc", {
+    body: operationRpcBody("media.upload", input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }))
@@ -225,10 +226,10 @@ describe("Console media library", () => {
   it("rejects cross-site and oversized uploads, and unknown actions", async () => {
     await expect(upload({ file: file("a.txt", "a") }, { origin: "https://evil.example" })).resolves.toMatchObject({ status: 403 })
     // The body limit of `media.upload` holds a 32 MiB file as base64. A larger body stops before the operation runs.
-    const huge = new Request("http://localhost/_vitehub/rpc/__call", { body: `{"operation":"media.upload","input":{"data":"${"A".repeat(45 * 1024 * 1024)}"}}`, headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })
+    const huge = new Request("http://localhost/_vitehub/rpc", { body: operationRpcBody("media.upload", { data: "A".repeat(45 * 1024 * 1024) }), headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })
     await expect(respond(huge)).resolves.toMatchObject({ body: { code: "CONSOLE_REQUEST_INVALID" }, status: 413 })
-    const malformed = new Request("http://localhost/_vitehub/rpc/__call", {
-      body: JSON.stringify({ operation: "media.upload", input: { data: "not base64", filename: "a.txt", section: "content" } }),
+    const malformed = new Request("http://localhost/_vitehub/rpc", {
+      body: operationRpcBody("media.upload", { data: "not base64", filename: "a.txt", section: "content" }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     })

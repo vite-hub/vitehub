@@ -7,6 +7,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
 import { changeAuthConsole, readAuthConsole } from "../src/console/runtime/client/auth-management.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
+import { operationRpcBody, operationRpcFetch, operationRpcRequest, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const state = vi.hoisted(() => ({ inspect: undefined as unknown }));
 vi.mock("@vite-hub/auth/server", async (importOriginal) => ({
@@ -40,16 +41,16 @@ async function call(command: Record<string, unknown>, extra: Record<string, stri
     ? authConsoleReadOperations[operation as keyof typeof authConsoleReadOperations]
     : authConsoleActionOperations[action as keyof typeof authConsoleActionOperations];
   const input = { ...fields, ...Object(query), ...Object(activity) };
-  return await handleConsoleRpcRequest(new Request("http://localhost:3000/_vitehub/rpc/__call", {
+  return await handleConsoleRpcRequest(new Request("http://localhost:3000/_vitehub/rpc", {
     method: "POST",
-    body: JSON.stringify({ operation: name, input }),
+    body: operationRpcBody(name, input),
     headers: { ...headers, ...extra },
   }));
 }
 
 /** The value of a successful operation call. */
 async function value(response: Promise<Response>): Promise<unknown> {
-  const body: unknown = await (await response).json();
+  const body: unknown = await operationRpcResponseResult(await response);
   expect(body).toMatchObject({ ok: true });
   return Reflect.get(Object(body), "value");
 }
@@ -163,20 +164,20 @@ describe("Auth Console operations", () => {
 describe("Auth Console client", () => {
   it("reads and changes Auth through operations, and impersonates through the route", async () => {
     const sent: Array<{ body: unknown; path: string }> = [];
-    vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
-      const body: unknown = JSON.parse(String(init?.body));
+    vi.stubGlobal("fetch", operationRpcFetch(async (input: string, init?: RequestInit) => {
+      const body: unknown = input.endsWith("/_vitehub/rpc") ? operationRpcRequest(init?.body) : JSON.parse(String(init?.body));
       sent.push({ body, path: input });
-      return input.endsWith("/_vitehub/rpc/__call") ? Response.json({ ok: true, value: { total: 0 } }) : Response.json({ ok: true });
-    });
+      return input.endsWith("/_vitehub/rpc") ? Response.json({ ok: true, value: { total: 0 } }) : Response.json({ ok: true });
+    }));
     await readAuthConsole("users", { query: { limit: 25, search: "ada" } });
     await readAuthConsole("organization", { id: "org", query: { offset: 25 } });
     await changeAuthConsole("/_vitehub/auth/manage", { action: "revokeSessions", userId: "u1" });
     await changeAuthConsole("/_vitehub/auth/manage", { action: "impersonate", userId: "u1" });
     await changeAuthConsole("/_vitehub/auth/manage", { action: "stopImpersonating" });
     expect(sent).toEqual([
-      { body: { input: { limit: 25, search: "ada" }, operation: "auth.users" }, path: "/_vitehub/rpc/__call" },
-      { body: { input: { id: "org", offset: 25 }, operation: "auth.organization" }, path: "/_vitehub/rpc/__call" },
-      { body: { input: { userId: "u1" }, operation: "auth.revoke-sessions" }, path: "/_vitehub/rpc/__call" },
+      { body: { input: { limit: 25, search: "ada" }, operation: "auth.users" }, path: "/_vitehub/rpc" },
+      { body: { input: { id: "org", offset: 25 }, operation: "auth.organization" }, path: "/_vitehub/rpc" },
+      { body: { input: { userId: "u1" }, operation: "auth.revoke-sessions" }, path: "/_vitehub/rpc" },
       { body: { action: "impersonate", userId: "u1" }, path: "/_vitehub/auth/manage" },
       { body: { action: "stopImpersonating" }, path: "/_vitehub/auth/manage" },
     ]);

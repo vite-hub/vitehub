@@ -10,6 +10,7 @@ import {
 } from "../src/console/runtime/client/pending-links.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { browserProjectStorage, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { operationRpcFetch } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleProjectStorage } from "../src/console/runtime/client/projects.ts"
 
@@ -174,7 +175,7 @@ describe("creating a pending link", () => {
 describe("linking from a pending link", () => {
   async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, storage: ConsoleProjectStorage = browserStorage()) {
     const fetchMock = vi.fn(fetch)
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", operationRpcFetch(fetchMock))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const pendingLinkLocks = linkLocks()

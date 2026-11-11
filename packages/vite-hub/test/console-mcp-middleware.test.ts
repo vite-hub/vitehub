@@ -112,7 +112,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' as 
     expect((await send(request(token))).status).toBe(403)
     sectionAllowed = true
     expect((await send(request("invalid"))).status).toBe(401)
-    for (const sibling of [`${mount}/_vitehub/rpc/__call`, `${path}/extra`]) {
+    for (const sibling of [`${mount}/_vitehub/rpc`, `${path}/extra`]) {
       expect((await send(request(token, sibling))).status).toBe(401)
     }
   }
@@ -247,7 +247,7 @@ it.each([
   const invalid = await send(request("invalid"))
   expect(invalid.status).toBe(401)
   expect(invalid.headers.get("www-authenticate")).toContain('error="invalid_token"')
-  for (const sibling of [`${mount}/_vitehub/rpc/__call`, `${path}/extra`]) {
+  for (const sibling of [`${mount}/_vitehub/rpc`, `${path}/extra`]) {
     expect((await send(request(token, sibling))).status).toBe(401)
   }
 })

@@ -781,7 +781,7 @@ describe("framework package contract", () => {
       }
       // Apps serve the Console endpoints only: no Console page, client script, or page tools session.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/env/manage",
         "/_vitehub/schedules/run",
         "/_vitehub/mcp",

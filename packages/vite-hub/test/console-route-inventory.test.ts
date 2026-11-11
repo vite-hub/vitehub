@@ -8,6 +8,8 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { createProject } from "./support/content-cms.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
+import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
+
 import type { ConsoleOptions } from "../src/index.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
@@ -74,7 +76,7 @@ const everyMode = {
   handlers: [
     "route ALL /_vitehub/mcp console/server/mcp.js",
     "route ALL /_vitehub/page/session app/.vitehub/nitro/comments/page-session.mjs",
-    "route ALL /_vitehub/rpc/** console/server/rpc.js",
+    "route ALL /_vitehub/rpc console/server/rpc.js",
     "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
     "route ALL /api/auth/** app/.vitehub/auth/route.ts",
     "route GET /_vitehub/connections/callback app/.vitehub/nitro/connections/handler.ts",
@@ -146,17 +148,17 @@ describe("Nitro routes of a production build with every Console section on", () 
   }, 120_000)
 })
 
-describe("paths that the Console RPC route serves below /_vitehub/rpc/", () => {
-  it("answers only the paths in this list, every other path is 404", async () => {
+describe("paths that the Console RPC route serves", () => {
+  it("answers only POST /_vitehub/rpc, every other path is 404", async () => {
     const served: string[] = []
-    for (const path of ["__call", "__upload", "__other"]) {
-      const response = await handleConsoleRpcRequest(new Request(`http://app.test/_vitehub/rpc/${path}`, {
-        body: "{}",
+    for (const path of ["/_vitehub/rpc", "/_vitehub/rpc/", "/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/rpc/__other"]) {
+      const response = await handleConsoleRpcRequest(new Request(`http://app.test${path}`, {
+        body: operationRpcBody("sections.list"),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       }))
       if (response.status !== 404) served.push(path)
     }
-    expect(served).toEqual(["__call"])
+    expect(served).toEqual(["/_vitehub/rpc"])
   })
 })

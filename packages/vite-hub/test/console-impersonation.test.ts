@@ -19,6 +19,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import { assertConsoleAccess, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { requestEvent } from "./console-event.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const state = vi.hoisted(() => ({ inspect: undefined as unknown, host: undefined as unknown }))
 vi.mock("@vite-hub/auth/server", async importOriginal => ({
@@ -58,9 +59,9 @@ function manage(body: unknown, cookie = "") {
 
 /** One `auth.*` operation through the Console RPC, with the cookies of the browser. */
 async function operation(name: string, input: Record<string, unknown> = {}, cookie = "") {
-  return await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
+  return await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc", {
     method: "POST",
-    body: JSON.stringify({ operation: name, input }),
+    body: operationRpcBody(name, input),
     headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
   }))
 }
@@ -117,7 +118,7 @@ describe("Auth Console impersonation route", () => {
     expect(await impersonate.json()).toEqual({ message: "This Console access can read Auth data but not change it." })
     const ban = await operation("auth.ban", { userId: "user-1" })
     expect(ban.status).toBe(403)
-    expect(await ban.json()).toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("read-only") })
+    expect(await operationRpcResponseResult(ban)).toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("read-only") })
     expect(inspect.execute).not.toHaveBeenCalled()
   })
 
@@ -128,17 +129,17 @@ describe("Auth Console impersonation route", () => {
     installConsoleSections("impersonation-route", ["auth"])
     installConsoleAccess({ mode: "open", impersonation: true, authorize: () => ({ sections: ["auth"] }) })
 
-    const described = await (await operation("auth.describe", {}, app.operator.cookie)).json()
+    const described = await operationRpcResponseResult(await operation("auth.describe", {}, app.operator.cookie))
     expect(state.host).toEqual({ impersonation: true })
     expect(described).toMatchObject({ value: { actions: { impersonate: { enabled: true } }, impersonation: { duration: 3600, active: null } } })
-    expect(await (await operation("auth.user", { id: app.member.id }, app.operator.cookie)).json()).toMatchObject({ value: { impersonation: { enabled: true } } })
+    expect(await operationRpcResponseResult(await operation("auth.user", { id: app.member.id }, app.operator.cookie))).toMatchObject({ value: { impersonation: { enabled: true } } })
 
     const started = await manage({ action: "impersonate", userId: app.member.id }, app.operator.cookie)
     expect(started.status).toBe(200)
     const impersonating = jar(app.operator.cookie, started)
     const session = (cookie: string) => app.auth.api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })
     expect(await session(impersonating)).toMatchObject({ user: { id: app.member.id }, session: { impersonatedBy: app.operator.id } })
-    expect(await (await operation("auth.describe", {}, impersonating)).json()).toMatchObject({
+    expect(await operationRpcResponseResult(await operation("auth.describe", {}, impersonating))).toMatchObject({
       value: { impersonation: { active: { user: { id: app.member.id, name: "Ada Lovelace" } } } },
     })
 

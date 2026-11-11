@@ -50,7 +50,7 @@ async function fixture(page) {
     published: documents.filter((doc) => doc.state === "published").length,
     deleted: 0,
   });
-  await page.route("**/_vitehub/rpc/__call", async (route) => {
+  await page.route("**/_vitehub/rpc", async (route) => {
     const { operation, input = {} } = route.request().postDataJSON();
     const action = operation === "documents.action" ? input.action : operation;
     if (controls.hold[action]) await controls.hold[action];

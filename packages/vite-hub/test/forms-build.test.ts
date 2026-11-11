@@ -13,6 +13,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // The generated handler passes `getStandardContext` as the Forms context, so its result must fit. The client address
 // is in `runtime`.
@@ -99,12 +100,12 @@ describe("Forms in a built Nitro 3 app", () => {
     const server = await startBuiltServer(root, { VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") })
     try {
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const response = await server.fetch("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ input, operation }),
+        const response = await server.fetch("/_vitehub/rpc", {
+          body: operationRpcBody(operation, input),
           headers: { authorization, "content-type": "application/json", [consoleRpcHeader]: "1" },
           method: "POST",
         })
-        const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
+        const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
         return body.value
       }
