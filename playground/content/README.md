@@ -26,6 +26,12 @@ users get `user`, which has no CMS permission. `cmsContentAuthorize` and `cmsCom
 | `writer@vitehub.dev` | `editor` | Read and write, no publish | Read, comment, resolve |
 | `reviewer@vitehub.dev` | `commenter` | Read drafts only | Read, comment, resolve |
 
+An admin changes a role in the Console Auth section.
+
+`GET /api/users` lists the users for an admin. `server/routes/api/users.get.ts` checks the role with
+`requireAuthorization(event, ...)` and calls the `admin()` plugin's `listUsers` on `useAuth(event).api`. Another user
+gets `403`, and a signed-out caller gets `401`.
+
 The playground uses `console: { auth: false }`, so `vitehub content` and the other commands call the dev server without
 a signature. The Console at console.vitehub.dev calls apps from its server, so it cannot open this dev server.
 

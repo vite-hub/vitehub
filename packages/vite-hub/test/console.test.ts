@@ -443,7 +443,7 @@ describe("Agent invocation console", () => {
         blobStores: ["default", "archive"],
         console: productionConsole,
         resolveKV: () => false,
-        sections: ["blob"],
+        sections: ["env", "blob"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -683,7 +683,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: productionConsole,
         resolveKV: () => false,
-        sections: ["databases"],
+        sections: ["env", "databases"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -728,7 +728,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: productionConsole,
         resolveKV: () => false,
-        sections: ["queues"],
+        sections: ["env", "queues"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -771,7 +771,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: productionConsole,
         resolveKV: () => false,
-        sections: ["rate-limits"],
+        sections: ["env", "rate-limits"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
