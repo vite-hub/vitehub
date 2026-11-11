@@ -338,6 +338,8 @@ jobs:
         run: node test/run-package-task.mjs typecheck --packages "$PACKAGES"
         env:
           PACKAGES: ${{ steps.changed.outputs.packages }}
+      # The docs typecheck needs framework exports regardless of package selection.
+      - run: vp run --cache -t vite-hub#build
       - name: Typecheck the docs site
         run: vp run --filter vitehub-docs --ignore-depends-on typecheck
 
