@@ -185,8 +185,8 @@ Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/
 
 When a change can make the docs Worker bigger or slower, such as how `@vite-hub/docs` loads pages, measure the built Worker before and after. `docs/scripts/bench-worker.mjs` reports:
 
-- Worker bytes and gzip bytes, from `wrangler deploy --dry-run --outdir`.
-- Start time: how long a fresh `workerd` takes to listen with the Worker, minus the same for an empty Worker. `workerd` compiles every module and runs top-level code before it listens.
+- Worker bytes from `wrangler deploy --dry-run --outdir`, and aggregate gzip bytes from Wrangler's rounded upload report. Per-module gzip sizes are separate diagnostics.
+- Start time: how long a fresh `workerd` takes to emit its control-pipe `listen` event after module compilation and top-level initialization, minus the same for an empty Worker. No request is sent.
 - Cold latency: a fresh `wrangler dev` per sample, and the first request for each of 20 fixed pages.
 - Warm latency: one `wrangler dev`, two warmup rounds, then ten measured rounds.
 - Memory: the RSS that the loaded Worker adds to `workerd`, and the peak RSS of the `wrangler dev` `workerd`. These are process numbers, not the isolate heap that the 128 MB limit counts.

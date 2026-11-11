@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 import { connect } from "node:net";
 import { cpus, loadavg, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { gzipSync } from "node:zlib";
 
 // Fixed list so two runs measure the same work: HTML pages of different
@@ -78,6 +79,7 @@ function bundle(server, outdir) {
   const result = spawnSync(process.execPath, [wranglerBin, "deploy", "--dry-run", "--config", join(server, "wrangler.json"), "--outdir", outdir], { env: quietEnv, encoding: "utf8" });
   if (result.status !== 0) throw new Error(`wrangler deploy --dry-run failed:\n${result.stdout}${result.stderr}`);
   const upload = /Total Upload: ([\d.]+) KiB \/ gzip: ([\d.]+) KiB/.exec(result.stdout);
+  if (!upload) throw new Error(`No upload size in Wrangler's report:\n${result.stdout}`);
   const modules = readdirSync(outdir, { recursive: true, withFileTypes: true })
     .filter(entry => entry.isFile() && entry.name !== "README.md" && !entry.name.endsWith(".map"))
     .map((entry) => {
@@ -91,9 +93,10 @@ function bundle(server, outdir) {
   const assetFiles = assets ? readdirSync(assets, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()) : [];
   return {
     bytes: modules.reduce((total, module) => total + module.bytes, 0),
-    gzip: modules.reduce((total, module) => total + module.gzip, 0),
-    wranglerUploadKiB: upload ? Number(upload[1]) : null,
-    wranglerGzipKiB: upload ? Number(upload[2]) : null,
+    // Wrangler compresses all modules together and rounds its report to 0.01 KiB.
+    gzip: Math.round(Number(upload[2]) * 1024),
+    wranglerUploadKiB: Number(upload[1]),
+    wranglerGzipKiB: Number(upload[2]),
     modules,
     assets: { files: assetFiles.length, bytes: assetFiles.reduce((total, entry) => total + statSync(join(entry.parentPath, entry.name)).size, 0) },
   };
@@ -113,10 +116,9 @@ const config :Workerd.Config = (
 }
 
 /**
- * Time from spawning workerd until it accepts connections, for the bundled
- * Worker and for an empty Worker. workerd compiles every module and runs
- * top-level code before it listens, so the difference is the start cost of
- * the bundle. The empty Worker run removes process start from the number.
+ * Time from spawning workerd until its control-pipe listen event, emitted
+ * after module compilation and top-level initialization. TCP binds earlier.
+ * No request is sent. The empty Worker run removes process start from the number.
  */
 async function startup(server, outdir, samples, port) {
   const workerd = createRequire(createRequire(wranglerPackage).resolve("miniflare"))("workerd").default;
@@ -142,18 +144,36 @@ async function startup(server, outdir, samples, port) {
   for (let sample = 0; sample < samples; sample++) {
     for (const name of ["empty", "worker"]) {
       const started = performance.now();
-      const child = spawn(workerd, ["serve", join(outdir, `${name}.capnp`)], { stdio: ["ignore", "ignore", "pipe"] });
+      const child = spawn(workerd, ["serve", "--control-fd=3", join(outdir, `${name}.capnp`)], { stdio: ["ignore", "ignore", "pipe", "pipe"] });
       let stderr = "";
       child.stderr.on("data", (chunk) => { stderr += chunk; });
-      while (await portIsFree(port)) {
-        if (child.exitCode !== null) throw new Error(`workerd exited with ${child.exitCode}:\n${stderr}`);
-        await new Promise(resolveWait => setTimeout(resolveWait, 2));
+      const exited = new Promise(resolveExit => child.once("close", resolveExit));
+      const control = createInterface({ input: child.stdio[3] });
+      let timeout;
+      try {
+        await new Promise((resolveReady, rejectReady) => {
+          timeout = setTimeout(() => rejectReady(new Error(`workerd did not initialize within 120s:\n${stderr}`)), 120_000);
+          child.once("error", rejectReady);
+          child.once("exit", code => rejectReady(new Error(`workerd exited with ${code}:\n${stderr}`)));
+          control.on("line", (line) => {
+            try {
+              const event = JSON.parse(line);
+              if (event.event === "listen" && event.socket === "http") resolveReady();
+            }
+            catch (error) {
+              rejectReady(error);
+            }
+          });
+        });
+        times[name].push(performance.now() - started);
+        memory[name].push(workerdPeak(child.pid));
       }
-      times[name].push(performance.now() - started);
-      memory[name].push(workerdPeak(child.pid));
-      const exited = new Promise(resolveExit => child.once("exit", resolveExit));
-      child.kill("SIGKILL");
-      await exited;
+      finally {
+        clearTimeout(timeout);
+        control.close();
+        child.kill("SIGKILL");
+        await exited;
+      }
     }
   }
   const net = times.worker.map((time, index) => time - times.empty[index]);

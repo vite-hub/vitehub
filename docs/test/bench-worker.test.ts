@@ -50,24 +50,53 @@ describe("docs Worker bench", () => {
     expect(slow.stdout).toContain("page /: cold p95 100 ms -> 151 ms");
   });
 
-  it("measures a built Worker with Wrangler and workerd", () => {
+  it("measures a split Worker with Wrangler and workerd", () => {
     const root = directory();
     const server = join(root, ".output/server");
     mkdirSync(join(root, ".output/public"), { recursive: true });
     mkdirSync(server, { recursive: true });
     writeFileSync(join(root, ".output/public/robots.txt"), "User-agent: *\n");
-    writeFileSync(join(server, "index.mjs"), "export default { fetch() { return new Response('ok') } };\n");
+    const imports = Array.from({ length: 32 }, (_, index) => {
+      writeFileSync(join(server, `${index}.txt`), `module ${index}: ${"shared content ".repeat(100)}`);
+      return `import text${index} from './${index}.txt';`;
+    });
+    writeFileSync(join(server, "index.mjs"), `${imports.join("\n")}\nexport default { fetch() { return new Response([${imports.map((_, index) => `text${index}`).join(",")}].join('')) } };\n`);
     writeFileSync(join(server, "wrangler.json"), JSON.stringify({ name: "bench-test", main: "index.mjs", compatibility_date: "2026-07-19", assets: { directory: "../public", binding: "ASSETS" } }));
 
     const run = bench("run", "--server", server, "--out", join(root, "result.json"), "--port", "4817", "--startup", "1", "--cold", "1", "--warmup", "0", "--warm", "1");
     expect(run.status, run.stdout + run.stderr).toBe(0);
     const output = JSON.parse(readFileSync(join(root, "result.json"), "utf8"));
     expect(output.bundle.bytes).toBeGreaterThan(0);
+    expect(output.bundle.modules.length).toBe(33);
+    expect(output.bundle.gzip / 1024).toBeCloseTo(output.bundle.wranglerGzipKiB, 2);
     expect(output.bundle.assets.files).toBe(1);
     expect(output.startup.workerReadyMs.n).toBe(1);
     expect(output.coldMs.n).toBe(20);
     expect(output.warmMs.n).toBe(20);
     expect(output.pages["/llms.txt"].status).toEqual([200]);
     expect(run.stdout).toContain("Cold p50 / p95");
+  }, 120_000);
+
+  it("includes top-level execution and allocation in startup without sending a request", () => {
+    const root = directory();
+    const server = join(root, ".output/server");
+    mkdirSync(join(root, ".output/public"), { recursive: true });
+    mkdirSync(server, { recursive: true });
+    writeFileSync(join(root, ".output/public/robots.txt"), "User-agent: *\n");
+    writeFileSync(join(server, "index.mjs"), `
+      const memory = new Uint8Array(100 * 1024 * 1024).fill(1);
+      let sum = 0;
+      for (let index = 0; index < 500_000_000; index++) sum += Math.sqrt(index);
+      export default { fetch() { throw new Error('Unexpected request: ' + sum + memory[0]) } };
+    `);
+    writeFileSync(join(server, "wrangler.json"), JSON.stringify({ name: "bench-startup-test", main: "index.mjs", compatibility_date: "2026-07-19", assets: { directory: "../public", binding: "ASSETS" } }));
+
+    const run = bench("run", "--server", server, "--out", join(root, "result.json"), "--port", "4818", "--startup", "2", "--cold", "0", "--warmup", "0", "--warm", "0");
+    expect(run.status, run.stdout + run.stderr).toBe(0);
+    const output = JSON.parse(readFileSync(join(root, "result.json"), "utf8"));
+    expect.soft(output.startup.netMs.min).toBeGreaterThan(500);
+    if (process.platform === "linux") expect.soft(output.startup.netPeakBytes).toBeGreaterThan(64 * 1024 * 1024);
+    expect(output.coldMs.n).toBe(0);
+    expect(output.warmMs.n).toBe(0);
   }, 120_000);
 });
