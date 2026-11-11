@@ -222,7 +222,6 @@
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
