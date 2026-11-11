@@ -678,11 +678,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           if (bar && !state.draft.value) {
             // Near the top of the screen there is no room above. On a touch screen the system's own menu takes that place,
             // and the selection handles hang under the text, so the bar goes above only when its 38px do not fit below.
-            // Above the text on a touch screen, it leaves 56px for the system's menu.
+            // Above the text on a touch screen, it leaves 64px for the system's menu, which on Android is about 48px tall and 8px above the text.
             const touch = matchMedia("(pointer: coarse)").matches
             const under = bar.bottom + (touch ? 20 : 8)
-            const below = bar.top < (touch ? 94 : 56) || (touch && under <= innerHeight - 46)
-            const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 56 : 8)
+            const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
+            const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 64 : 8)
             nodes.push(h("div", {
               class: "selection-bar",
               "data-below": below ? "true" : undefined,
