@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { findDataLoss } from "./migration-sql.ts"
+import { findDataLoss, splitSqlStatements } from "./migration-sql.ts"
 
 import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
 
@@ -41,7 +41,7 @@ export function migrationSqlFile(migrationsDir: string, tag: string): string {
   return existsSync(folder) ? folder : join(migrationsDir, `${tag}.sql`)
 }
 
-/** Reports whether `migrationsDir` has the layout of Drizzle Kit 0.x, which `vitehub db up` converts. */
+/** Reports whether `migrationsDir` has the layout of Drizzle Kit 0.x, which `vitehub database up` converts. */
 export function hasDrizzleKit0xLayout(migrationsDir: string): boolean {
   return existsSync(join(migrationsDir, "meta", "_journal.json"))
 }
@@ -51,7 +51,8 @@ export function readMigrations(migrationsDir: string, database?: string): Migrat
   if (!existsSync(migrationsDir)) return []
   if (hasDrizzleKit0xLayout(migrationsDir)) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database, dir: migrationsDir })
   return readdirSync(migrationsDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql")))
+    // A generated folder without its SQL is incomplete history, even though Drizzle 1.0 silently skips it.
+    .filter(entry => entry.isDirectory() && (/^\d{14}_/.test(entry.name) || existsSync(join(migrationsDir, entry.name, "migration.sql"))))
     .map(entry => entry.name)
     .sort((a, b) => a.localeCompare(b))
     .map(tag => ({
@@ -88,7 +89,7 @@ function readSnapshotColumns(migrationsDir: string, tag: string): TableColumns |
 
 export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[]): PendingMigration {
   const sql = readFileSync(migrationSqlFile(migrationsDir, tag), "utf8")
-  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(Boolean)
+  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(statement => splitSqlStatements(statement).length)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
   const before = index < 0 ? undefined : index > 0 ? readSnapshotColumns(migrationsDir, entries[index - 1]!.tag) : new Map<string, string[]>()

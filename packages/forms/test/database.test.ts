@@ -96,5 +96,6 @@ describe.each([
 it("names the migration when the table is missing", async () => {
   const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
   const [error] = await createFormsInbox(store).list()
-  expect(error?.message).toContain("vitehub db migrate")
+  expect(error?.message).toContain("vitehub database generate")
+  expect(error?.message).toContain("vitehub database migrate")
 })

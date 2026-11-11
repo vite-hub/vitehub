@@ -6,6 +6,7 @@ import { consoleAspectRatio, consoleCropName, consoleFocalCropPosition, consoleM
 import { useConsoleToast } from "../client/toast";
 
 import type { ConsoleMediaClient, ConsoleMediaFile } from "../client/media-library";
+import ConsoleCodeText from "./console-code-text.vue";
 
 /**
  * Named crops of an image for art direction, such as `mobile` at 4:5 next to the original for wide screens. Each crop
@@ -92,12 +93,12 @@ async function remove(name: string): Promise<void> {
 
 <template>
   <div class="grid gap-2">
-    <p v-if="!crops.length && !adding" class="text-xs text-muted">
-      No crops. Add one for each layout that needs its own framing, such as <span class="font-mono">mobile</span> at 4:5.
-    </p>
-    <ul v-if="crops.length" class="grid gap-2">
-      <li v-for="crop in crops" :key="crop.name" class="flex items-center gap-3 rounded-md border border-default p-2">
-        <div class="h-14 shrink-0 overflow-hidden rounded-sm bg-elevated" :style="{ aspectRatio: String(crop.ratio), background: file.color }">
+    <UEmpty v-if="!crops.length && !adding" variant="naked" size="xs" icon="i-lucide-crop" title="No crops yet">
+      <template #description><ConsoleCodeText text="Add one for each layout that needs its own framing, such as `mobile` at 4:5." /></template>
+    </UEmpty>
+    <ul v-if="crops.length" class="divide-y divide-default rounded-lg border border-default">
+      <li v-for="crop in crops" :key="crop.name" class="flex items-center gap-3 p-2">
+        <div class="h-14 shrink-0 overflow-hidden rounded-md bg-elevated" :style="{ aspectRatio: String(crop.ratio), background: file.color }">
           <img
             v-if="variant(crop)"
             :src="variant(crop)"
@@ -149,12 +150,12 @@ async function remove(name: string): Promise<void> {
       </li>
     </ul>
 
-    <form v-if="adding" class="grid gap-2 rounded-md border border-default p-2" @submit.prevent="add">
+    <form v-if="adding" class="grid gap-2 rounded-lg border border-default p-2" @submit.prevent="add">
       <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-        <UInput v-model="newName" size="sm" placeholder="mobile" aria-label="Crop name" autofocus :ui="{ base: 'font-mono text-xs' }" />
-        <USelect v-model="newAspect" size="sm" class="w-36" :items="aspectItems" aria-label="Aspect ratio" />
+        <UInput v-model="newName" class="font-mono" placeholder="mobile" aria-label="Crop name" autofocus />
+        <USelect v-model="newAspect" class="w-36" :items="aspectItems" aria-label="Aspect ratio" />
       </div>
-      <UInput v-if="newAspect === 'custom'" v-model="customAspect" size="sm" placeholder="3:2" aria-label="Custom aspect ratio" :ui="{ base: 'font-mono text-xs' }" />
+      <UInput v-if="newAspect === 'custom'" v-model="customAspect" class="font-mono" placeholder="3:2" aria-label="Custom aspect ratio" />
       <p v-if="nameTaken" class="text-xs text-error">A crop named {{ nameValue }} exists.</p>
       <p v-else-if="newName && nameValue !== newName" class="text-xs text-dimmed">Saved as <span class="font-mono">{{ nameValue }}</span>.</p>
       <div class="flex justify-end gap-2">

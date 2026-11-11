@@ -1,6 +1,7 @@
 {
   "name": "vite-hub-consumer-contract",
   "private": true,
+  "packageManager": "pnpm@10.33.0",
   "type": "module",
   "scripts": {
     "build": "vite build && vite build --ssr server-entry.ts --outDir dist/server",

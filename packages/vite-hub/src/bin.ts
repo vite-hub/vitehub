@@ -23,6 +23,12 @@ const [connectionsCli, decisionsCli] = await Promise.all([
   importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
 ])
 
+// `vitehub kv get` and the other KV commands call the running dev server, like `connections`.
+const kvCli = process.argv[2] === "kv" ? await importOptionalOwner("@vite-hub/kv", () => import("@vite-hub/kv/cli")) : undefined
+
+// `vitehub bundle` reads the report of the last build in .vitehub/bundle/, so it does not load the project.
+const bundleCli = process.argv[2] === "bundle" ? await import("@vite-hub/bundle/cli") : undefined
+
 const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
   description: "Generate and derive app secrets without loading project configuration.",
   features: secretCliFeatures,
@@ -36,8 +42,8 @@ runViteHubCliEntrypoint({
     const { isAgentCliEnabled } = await import("./internal/runtime-feature-guard.ts")
     return isAgentCliEnabled(cwd)
   },
-  // `connections` commands only call the running app. Loading the project runs every ViteHub plugin, and the server
-  // files that they generate make the running dev server rebuild while the command waits for its answer.
-  runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? []],
-  runtimeNamespaces: [...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createSandboxCliNamespace(), secretRuntimeNamespace],
+  // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the
+  // server files that they generate make the running dev server rebuild while the command waits for its answer.
+  runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? []],
+  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createSandboxCliNamespace(), secretRuntimeNamespace],
 })

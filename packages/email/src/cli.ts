@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { askOnTerminal, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
+import { isRecord } from "@vite-hub/internal/object"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { previewEmailTemplate } from "./preview.ts"
@@ -139,11 +139,6 @@ function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): Parse
   return parsed
 }
 
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
-
 function deliveryLabel(delivery: EmailOutboxDelivery): string {
   switch (delivery.status) {
     case "pending":
@@ -203,10 +198,6 @@ function formatMessage(message: EmailOutboxMessage): string {
   ].join("\n")
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !Array.isArray(value) && v.is(v.record(v.string(), v.unknown()), value)
-}
-
 const deliverySchema = v.variant("status", [
   v.object({ status: v.literal("captured") }),
   v.object({ status: v.literal("pending") }),
@@ -241,12 +232,6 @@ function parseOutboxResult(operation: OutboxCommand["operation"], value: unknown
   }
 }
 
-function writeFailure(json: boolean, context: EmailCliContext, failure: { code?: string, fix?: string, message: string }): number {
-  if (json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
-}
-
 function formatOutboxResult(parsed: ParsedOutboxArgs, result: OutboxResult): string {
   if (parsed.json) return `${JSON.stringify(result.operation === "outbox-show" ? result.value.message : result.value, null, 2)}\n`
   switch (result.operation) {
@@ -265,16 +250,6 @@ function formatOutboxResult(parsed: ParsedOutboxArgs, result: OutboxResult): str
   }
 }
 
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
-}
-
 async function runOutboxCommand(command: OutboxCommand, args: string[], context: EmailCliContext, options: EmailCliOptions): Promise<number> {
   let parsed: ParsedOutboxArgs
   try {
@@ -282,7 +257,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
   }
   catch (error) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeOutboxUsage(command, context.stderr)
     return 1
@@ -294,7 +269,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
   if (command.name === "clear" && !parsed.yes) {
     const question = `Remove every captured message from the Email outbox at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed.json, context, { code: "EMAIL_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "email outbox clear removes every captured message and was not confirmed." })
+    if (!confirmed) return writeCliFailure(parsed.json, context, { code: "EMAIL_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "email outbox clear removes every captured message and was not confirmed." })
   }
   const called = await callOperationFromCli({
     ...(command.name === "clear" ? { confirmed: true } : {}),
@@ -304,9 +279,9 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
     ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     ...(parsed.url ? { url: parsed.url } : {}),
   }, `email.${command.operation}`, parsed.id === undefined ? {} : { id: parsed.id })
-  if (!called.ok) return writeFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  if (!called.ok) return writeCliFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
   const result = parseOutboxResult(command.operation, called.value)
-  if (!result) return writeFailure(parsed.json, context, { message: "The email operation answered with an invalid result." })
+  if (!result) return writeCliFailure(parsed.json, context, { message: "The email operation answered with an invalid result." })
   context.stdout.write(formatOutboxResult(parsed, result))
   return 0
 }
@@ -325,7 +300,7 @@ export async function runEmailOutboxCli(args: string[], context: EmailCliContext
   const command = outboxCommands.find(entry => entry.name === name)
   if (!command) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeFailure(true, context, { message: `Unknown outbox command: ${name}` })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: `Unknown outbox command: ${name}` })
     context.stderr.write(`Unknown outbox command: ${name}\n`)
     writeOutboxCommands(context.stderr)
     return 1
@@ -436,7 +411,7 @@ export async function runEmailPreviewCli(args: string[], context: EmailCliContex
   }
   catch (error) {
     const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined
-    return writeFailure(json, context, { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) })
+    return writeCliFailure(json, context, { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) })
   }
 }
 

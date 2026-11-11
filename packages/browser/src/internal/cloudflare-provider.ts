@@ -1,5 +1,4 @@
 import { runtimeBinding } from "./runtime-binding.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "./connections.ts"
@@ -108,7 +107,7 @@ export function createCloudflareBrowser(
 }
 
 function isCloudflareSessionId(value: unknown): value is string {
-  return hasRuntimeType(value, "string")
+  return typeof value === "string"
     && value.length > 0
     && isWellFormedUnicode(value)
     && value !== "."

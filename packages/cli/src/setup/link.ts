@@ -11,6 +11,7 @@ import {
   createVercelProvisionClient,
   ProvisionRequestError,
 } from "@vite-hub/internal/provision"
+import { isRecord } from "@vite-hub/internal/object"
 import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
@@ -87,10 +88,6 @@ const linkHosts: readonly SetupLinkHost[] = ["cloudflare", "vercel", "netlify", 
 
 function isLinkHost(value: string): value is SetupLinkHost {
   return linkHosts.some(host => host === value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -328,7 +325,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   await writeSetupLinkFile(project.root, { ...link, ...(pending ? { console: pending } : {}) })
   return {
     created: linked.created,
-    credentials: credentials.ok ? { source: credentials.source } : null,
+    credentials: host !== "deno" && credentials.ok ? { source: credentials.source } : null,
     file: SETUP_LINK_FILE,
     gitignore: await ensureViteHubGitignore(project.root),
     link,

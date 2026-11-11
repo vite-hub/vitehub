@@ -73,7 +73,7 @@ describe("remote inspection", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-remote-"))
     try {
       await mkdir(join(rootDir, "server", "databases"), { recursive: true })
-      await writeFile(join(rootDir, "server", "databases", "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ ${options}, schema: {} })\n`)
+      await writeFile(join(rootDir, "server", "databases", "default.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ ${options}, schema: {} })\n`)
       const [definition] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
       const field = definition?.fields.find(item => item.label === "Development")
       expect(field?.value.startsWith("Remote.") ?? false).toBe(remote)

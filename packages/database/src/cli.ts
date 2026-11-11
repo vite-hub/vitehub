@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { createRequire, findPackageJSON } from "node:module"
 import { pathToFileURL } from "node:url"
 
-import type { DBModulePublicOptions } from "./types.ts"
+import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { MigrationPlan } from "./internal/migration-plan.ts"
@@ -62,7 +62,7 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
 
 function writeMigrateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
-    "Usage: vitehub db migrate [--dry-run] [--allow-data-loss]",
+    "Usage: vitehub database migrate [--dry-run] [--allow-data-loss]",
     "",
     "Refreshes ViteHub database artifacts and applies pending Drizzle migrations.",
     "It first reads the applied migrations from the database. It refuses pending",
@@ -82,7 +82,7 @@ function writeExportUsage(context: ViteHubCliContext): void {
     `Usage: ${exportUsage}`,
     "",
     "Writes a SQL dump of each database, or of the one that `--database` names.",
-    "Without `--remote`, it reads the local SQLite file that `vitehub db migrate` uses.",
+    "Without `--remote`, it reads the local SQLite file that `vitehub database migrate` uses.",
     "SQLite, libSQL, and D1 dumps use the format of `wrangler d1 export`.",
     "",
     "Options:",
@@ -106,7 +106,7 @@ function writeUpUsage(context: ViteHubCliContext): void {
     "layout of Drizzle Kit 1.0: one `<timestamp>_<name>/migration.sql` folder per",
     "migration. It runs `drizzle-kit up` on the migrations folder of each Database",
     "Definition. Folders that already use the 1.0 layout stay as they are. Applied",
-    "migrations stay applied: `vitehub db migrate` and Wrangler keep their ledger rows.",
+    "migrations stay applied: `vitehub database migrate` and Wrangler keep their ledger rows.",
     "",
     "Options:",
     "  -h, --help         Show this help.",
@@ -114,11 +114,11 @@ function writeUpUsage(context: ViteHubCliContext): void {
   ].join("\n"))
 }
 
-const upUsage = "vitehub db up"
+const upUsage = "vitehub database up"
 
-const generateUsage = "vitehub db generate [--name <name>] [--custom [--schema-snapshot]]"
+const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]]"
 
-const exportUsage = "vitehub db export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
+const exportUsage = "vitehub database export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
 
 interface ExportArgs {
   database?: string
@@ -291,11 +291,30 @@ async function runDrizzleKit(
   }
   const dryRun = feature === "migrate" && args.includes("--dry-run")
   const allowDataLoss = args.includes("--allow-data-loss")
+  if (feature === "migrate" && allowDataLoss && !dryRun) {
+    // Bypassing the data-loss check still requires complete migration files, as Kit 0.x did.
+    const { readMigrations } = await import("./internal/migration-journal.ts")
+    for (const { database } of runs) {
+      if (!database) continue
+      try {
+        readMigrations(resolve(projectRoot, database.migrationsDir))
+      }
+      catch (error) {
+        const problem = error instanceof Error ? error.message : String(error)
+        context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }))}\n`)
+        return 1
+      }
+    }
+  }
+  // Databases that already have every migration of their journal. Drizzle Kit would start only to apply nothing.
+  const upToDate = new Map<ResolvedDrizzleDatabaseConfig, MigrationPlan>()
   if (feature === "migrate" && (dryRun || !allowDataLoss)) {
     // Check every Database before the first one changes, so a refusal leaves all of them as they were.
     let exitCode = 0
     for (const { database } of runs) {
-      exitCode = Math.max(exitCode, await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun }))
+      const check = await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun })
+      exitCode = Math.max(exitCode, check.exitCode)
+      if (database && check.plan && !check.plan.pending.length && check.plan.applied) upToDate.set(database, check.plan)
     }
     if (dryRun) context.stdout.write("[vitehub] Dry run. No changes were made.\n")
     if (exitCode !== 0 || dryRun) return exitCode
@@ -315,6 +334,11 @@ async function runDrizzleKit(
     if (usesD1Http(database)) {
       const result = await migrateD1Database(database, projectRoot, context)
       if (result !== 0) return result
+      continue
+    }
+    const plan = database && upToDate.get(database)
+    if (plan) {
+      writeMigrationPlan(plan, context)
       continue
     }
     if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, projectRoot, context)
@@ -390,7 +414,7 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
   // Drizzle Kit 0.x has an `up` command too, but it upgrades 0.x snapshots and keeps the journal.
   const major = Number.parseInt(drizzleKit.version ?? "", 10)
   if (!(major >= 1)) {
-    context.stderr.write(`[vitehub] \`vitehub db up\` needs drizzle-kit 1.0, and ${projectRoot} has drizzle-kit ${drizzleKit.version ?? "of an unknown version"}. Install the version that ViteHub uses, for example with \`pnpm add -D drizzle-kit@1.0.0-rc.5\`, and run it again.\n`)
+    context.stderr.write(`[vitehub] \`vitehub database up\` needs drizzle-kit 1.0, and ${projectRoot} has drizzle-kit ${drizzleKit.version ?? "of an unknown version"}. Install the version that ViteHub uses, for example with \`pnpm add -D drizzle-kit@1.0.0-rc.5\`, and run it again.\n`)
     return 1
   }
   const { bin } = drizzleKit
@@ -473,7 +497,7 @@ async function checkPendingMigrations(
   projectRoot: string,
   context: ViteHubCliContext,
   { allowDataLoss, dryRun }: { allowDataLoss: boolean, dryRun: boolean },
-): Promise<number> {
+): Promise<{ exitCode: number, plan?: MigrationPlan }> {
   // Keep the database driver and migration inspector out of config-time imports.
   // The CLI contributor is loaded while Vite resolves the project config.
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
@@ -482,16 +506,16 @@ async function checkPendingMigrations(
     : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.\n")
-    return 1
+    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
+    return { exitCode: 1 }
   }
   if (dryRun) writeMigrationPlan(plan, context)
   const losses = plan.pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
   if (losses.length && !allowDataLoss) {
     context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: plan.database, statements: losses }))}\n`)
-    return 1
+    return { exitCode: 1, plan }
   }
-  return 0
+  return { exitCode: 0, plan }
 }
 
 async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext): Promise<number> {
@@ -509,7 +533,7 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
   return 0
 }
 
-/** libSQL does not create parent directories, so the first `db migrate` needs the local data directory to exist. */
+/** libSQL does not create parent directories, so the first `database migrate` needs the local data directory to exist. */
 async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext) {
   if (database.cloudflare?.http && database.cloudflare.databaseId) return
   const url = resolveConfigValue(database.connection?.url, context.env ?? process.env)
@@ -520,7 +544,7 @@ async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfi
 }
 
 // drizzle-kit generate catches schema load and diff errors, logs them with console.error, and exits 0.
-// This preload turns a logged Error into a non-zero exit code so `vitehub db generate` cannot report success.
+// This preload turns a logged Error into a non-zero exit code so `vitehub database generate` cannot report success.
 const drizzleKitFailOnLoggedError = [
   "const logError = console.error",
   "console.error = function (...args) {",
@@ -562,7 +586,7 @@ async function runDrizzleKitWithConfig(
 }
 
 export function createDbCliContributor(
-  options?: false | Exclude<DBModulePublicOptions, false>["cli"],
+  options?: false | Exclude<DatabaseOptions, false>["cli"],
   getConfig?: ResolvedDBViteConfigProvider,
 ): ViteHubCliContributor | undefined {
   if (options === false) return
@@ -593,7 +617,7 @@ export function createDbCliContributor(
         }
         return await runDrizzleKit("migrate", args, context, getConfig)
       },
-      usage: "vitehub db migrate [--dry-run] [--allow-data-loss]",
+      usage: "vitehub database migrate [--dry-run] [--allow-data-loss]",
     })
   }
 
@@ -631,7 +655,7 @@ export function createDbCliContributor(
     namespaces: [{
       description: "Database development workflows.",
       features,
-      name: "db",
+      name: "database",
     }],
   } satisfies SharedViteHubCliContributor
 }

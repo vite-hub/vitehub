@@ -53,7 +53,7 @@ const id = useId();
           color="neutral"
           variant="ghost"
           size="xs"
-          :icon="expanded ? 'i-ph-caret-up-light' : 'i-ph-caret-down-light'"
+          :icon="expanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
           :aria-expanded="expanded"
           :aria-controls="id"
           @click="expanded = !expanded"

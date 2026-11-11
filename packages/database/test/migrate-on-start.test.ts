@@ -35,7 +35,7 @@ async function createProject() {
   roots.push(root)
   await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
   await mkdir(join(root, "server/databases"), { recursive: true })
-  await writeFile(join(root, "server/databases/config.ts"), [
+  await writeFile(join(root, "server/databases/default.ts"), [
     'import { defineDatabase } from "@vite-hub/database"',
     'import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"',
     'export default defineDatabase({ schema: { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) } })',
@@ -45,7 +45,7 @@ async function createProject() {
 
 async function writeMigrations(root: string, migrations: Array<{ sql: string, tag: string, when: number }>) {
   // Drizzle Kit 1.0 writes `<YYYYMMDDHHmmss>_<name>/migration.sql`. The folder time is the `when` of each fixture.
-  const dir = join(root, "server/databases/migrations")
+  const dir = join(root, "server/databases/default/migrations")
   for (const migration of migrations) {
     await mkdir(join(dir, migration.tag), { recursive: true })
     await writeFile(join(dir, migration.tag, "migration.sql"), migration.sql)
@@ -118,7 +118,7 @@ describe("database.migrateOnStart", () => {
     expect((await server.start()).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
     expect(await readLedger(url)).toEqual([init.when, seed.when])
 
-    // `vitehub db migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
+    // `vitehub database migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
     const database = { connection: { url }, dialect: "sqlite", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
@@ -135,7 +135,7 @@ describe("database.migrateOnStart", () => {
 
   it("migrates the implicit default Database with contributed tables before serving requests", { timeout: 60_000 }, async () => {
     const root = await createProject()
-    await rm(join(root, "server/databases/config.ts"))
+    await rm(join(root, "server/databases/default.ts"))
     const tables = join(root, "tables.mjs")
     await writeFile(tables, [
       'import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"',
@@ -348,11 +348,21 @@ describe("database.migrateOnStart", () => {
     expect(started.stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
 
-    // `vitehub db migrate --dry-run` reads the same run on a new file and finds no data loss either.
+    // `vitehub database migrate --dry-run` reads the same run on a new file and finds no data loss either.
     const database = { connection: { url: `file:${join(root, "data/new.sqlite")}` }, dialect: "sqlite", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
     expect(plan?.pending.map(migration => [migration.name, migration.dataLoss])).toEqual([[init.tag, []], [seed.tag, []], [dropLegacy.tag, []]])
+  })
+
+  it("skips a migration chunk that holds only comments", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const commented = { ...seed, sql: `-- Sample rows.\n--> statement-breakpoint\n${seed.sql}\n--> statement-breakpoint\n/* The end. */\n` }
+    await writeMigrations(root, [init, commented])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    const started = await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
+    expect(started.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
   })
 
   it("refuses to drop a table that a pending rebuild filled with older rows", async () => {
