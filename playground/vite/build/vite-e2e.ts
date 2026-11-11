@@ -290,7 +290,7 @@ function renderQueueRuntimeModule(file: string) {
   return [
     `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
     `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
-    `export { deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { deferQueue, sendQueue, useQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
     `export { createQueueClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/create-client.ts")))}`,
     "",
   ].join("\n")
@@ -316,7 +316,7 @@ function renderSandboxTaskRuntimeModule(file: string) {
 function renderWorkflowRuntimeModule(file: string) {
   return [
     `export { defineWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/definition.ts")))}`,
-    `export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
+    `export { createWorkflow, deferWorkflow, getWorkflowRun, startWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
     `export { readRequestPayload, readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/payload.ts")))}`,
     "",
   ].join("\n")
@@ -1518,6 +1518,16 @@ async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<
   }
 
   await writeVercelOutput(options, artifacts)
+}
+
+/**
+ * The composer writes the one hosted output of the e2e build. A feature plugin writes its own Provider Output in
+ * `buildEnd` and `closeBundle`, so this removes those two hooks and keeps the config, dev and CLI parts of the plugin.
+ */
+export function withoutProviderOutput<T extends Plugin>(plugin: T): T {
+  delete plugin.buildEnd
+  delete plugin.closeBundle
+  return plugin
 }
 
 export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {

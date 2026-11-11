@@ -1,3 +1,5 @@
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+
 export function consoleAuthMountBase(baseURL: string): string {
   // Vite asset bases can be relative or absolute URLs; auth routes use only the application pathname.
   if (!baseURL || baseURL === "./") return ""
@@ -36,13 +38,13 @@ function isWebRequest(value: unknown): value is Request {
 
 /**
  * The Web Request of a Console call: a Request, or the H3 event of a Nitro route, which carries it as `req`. The
- * checks read the shape, so a Request from another realm also passes. Throws a `TypeError` for any other value.
+ * checks read the shape, so a Request from another realm also passes. Throws a diagnostic for any other value.
  */
 export function consoleEventRequest(event: object): Request {
   if (isWebRequest(event)) return event
   const request: unknown = Reflect.get(event, "req")
   if (isWebRequest(request)) return request
-  throw new TypeError("[vitehub] Expected a Request or an H3 event with a Web Request.")
+  throw viteHubErrorDiagnostics.VITE_HUB_R0142()
 }
 
 /** Match guards against H3's routed path, while retaining the original request for Auth. */

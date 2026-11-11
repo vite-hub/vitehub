@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import type { AgentChannelDispatchItem, AgentChannelPullPage, AgentChannelTriggerContext, AgentTriggerFailedEvent } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -65,7 +65,7 @@ function pullLog(context: { pull: AgentChannelTriggerContext["pull"] }, hooks: H
 }
 
 function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (context: { run?: { runId?: string } }) => string, failed?: (event: AgentTriggerFailedEvent) => void) {
-  const channel = defineChannel("t", {
+  const channel = channelAdapter("t", {
     messages: false,
     triggers: {
       webhook: defineChannelTrigger({

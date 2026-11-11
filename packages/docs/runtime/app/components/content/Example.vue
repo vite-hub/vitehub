@@ -1,13 +1,28 @@
 <script setup lang="ts">
-// `:::example`: rendered Markdown with its source a switch away, and an optional link that opens it in a playground.
-// The parser puts the rendered copy of a Markdown fence in an `example-preview` node before the source.
-defineProps<{
+import examples from "#docs/examples"
+
+// `:::example`: a preview with its source a switch away, and an optional link that opens it in a playground. Around a
+// Markdown code block, the parser put the rendered Markdown in an `example-preview` node before the source. With
+// `name`, the preview is the Vue file of that name in the examples folder, and the parser made its source the code.
+const props = defineProps<{
   label?: string
   /** A playground URL that opens this example. */
   play?: string
+  /** A Vue file in the examples folder, without `.vue`. */
+  name?: string
+  /** The height, in rem, that a Vue example keeps before its module loads. Markdown writes it as a string. */
+  height?: number | string
+  /** Show a Vue example edge to edge, at a fixed height, for chats and dashboards. */
+  flush?: boolean
+  /** Show a Reset control that mounts a Vue example again with its first state. */
+  reset?: boolean
 }>()
 
-const view = ref<"preview" | "code">("preview")
+// `::examples` passes its view in, so the next tab opens in the view the reader picked.
+const view = defineModel<"preview" | "code">("view", { default: "preview" })
+const loader = props.name ? examples[props.name] : undefined
+const live = loader ? defineAsyncComponent(loader) : undefined
+const mounts = ref(0)
 const seg = useTemplateRef<HTMLElement>("seg")
 const thumb = ref<{ left: number, width: number, slide: boolean } | null>(null)
 
@@ -31,17 +46,35 @@ onBeforeUnmount(() => resizes?.disconnect())
 <template>
   <div class="vh-example" :data-view="view">
     <div class="vh-example-bar">
+      <p v-if="$slots.title" class="vh-example-title"><slot name="title" /></p>
       <a v-if="play" :href="play" class="vh-example-play">
         <UIcon name="i-lucide-flask-conical" class="size-3.5" />
         Playground
       </a>
+      <button v-if="live && reset" type="button" class="vh-example-play" @click="mounts++">
+        <UIcon name="i-lucide-rotate-ccw" class="size-3.5" />
+        Reset
+      </button>
       <div ref="seg" class="vh-seg" role="group" aria-label="View">
         <span v-if="thumb" class="vh-seg-thumb" :class="{ 'is-still': !thumb.slide }" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
-        <button type="button" data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
-        <button type="button" data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
+        <button type="button" data-focus-inset data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
+        <button type="button" data-focus-inset data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
       </div>
     </div>
     <div class="vh-example-body">
+      <div
+        v-if="live"
+        class="docs-example-preview vh-example-live"
+        :class="{ 'is-flush': flush }"
+        :style="height ? { '--vh-example-height': `${height}rem` } : undefined"
+      >
+        <Suspense>
+          <component :is="live" :key="mounts" />
+          <template #fallback>
+            <div role="status" class="vh-example-loading">Loading preview…</div>
+          </template>
+        </Suspense>
+      </div>
       <slot />
     </div>
   </div>
@@ -59,6 +92,17 @@ onBeforeUnmount(() => resizes?.disconnect())
   justify-content: flex-end;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+/* A title, such as Correct or Incorrect on a lint rule's examples, leads the bar. */
+.vh-example-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 auto 0 0;
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .vh-example-play {
@@ -81,7 +125,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 .vh-seg {
   position: relative;
   display: inline-flex;
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-elevated);
   padding: 3px;
 }
@@ -93,7 +137,7 @@ onBeforeUnmount(() => resizes?.disconnect())
   left: 3px;
   border-radius: 6px;
   background: var(--vh-raised);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
+  box-shadow: 0 0 0 1px var(--ui-border);
   transition: transform 200ms var(--vh-ease-out), width 200ms var(--vh-ease-out);
 }
 
@@ -111,7 +155,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 /* Before the thumb is measured, the pressed button carries the raised surface itself. */
 .vh-seg button.is-unmeasured[aria-pressed="true"] {
   background: var(--vh-raised);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
+  box-shadow: 0 0 0 1px var(--ui-border);
 }
 
 .vh-seg button[aria-pressed="true"] {
@@ -124,10 +168,6 @@ onBeforeUnmount(() => resizes?.disconnect())
   }
 }
 
-.vh-seg button:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
 
 /* Touch screens get 44px targets. */
 @media (pointer: coarse) {
@@ -158,7 +198,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 }
 
 .vh-example-body > :deep(.docs-example-preview) {
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   box-shadow: 0 0 0 1px var(--ui-border);
   padding: 1.25rem 1.5rem;
 }
@@ -191,5 +231,28 @@ onBeforeUnmount(() => resizes?.disconnect())
 
 .vh-example-body > :deep(:not(.docs-example-preview)) {
   margin-block: 0;
+}
+
+/* A Vue example keeps its height before its module loads. The height is a minimum, so text that wraps on a narrow
+   screen grows the frame. A flush example fills a fixed height edge to edge, as a chat fills its parent. */
+.vh-example-live {
+  min-width: 0;
+  min-height: calc(var(--vh-example-height, 0rem) + 2.5rem);
+  overflow-x: auto;
+}
+
+.vh-example-live.is-flush {
+  height: var(--vh-example-height, auto);
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.vh-example-loading {
+  display: grid;
+  min-height: var(--vh-example-height, 4rem);
+  place-items: center;
+  color: var(--ui-text-muted);
+  font-size: 0.875rem;
 }
 </style>

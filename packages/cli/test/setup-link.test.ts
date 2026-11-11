@@ -61,8 +61,12 @@ async function readLink(root: string): Promise<SetupLink> {
 function wranglerLogin(accounts: readonly { id: string, name: string }[]): { run: HostCliRun, calls: string[] } {
   const calls: string[] = []
   const run: HostCliRun = async (command, args) => {
-    calls.push([command, ...args].join(" "))
-    if (args[0] === "auth") return { exitCode: 0, stdout: JSON.stringify({ token: TOKEN, type: "oauth" }) }
+    // A project-local Wrangler runs through Node with its entry point before the CLI arguments.
+    if (command === process.execPath) expect(args[0]).toMatch(/[/\\]wrangler[/\\]/u)
+    else expect(command).toBe("wrangler")
+    const cliArgs = command === process.execPath ? args.slice(1) : args
+    calls.push(["wrangler", ...cliArgs].join(" "))
+    if (cliArgs[0] === "auth") return { exitCode: 0, stdout: JSON.stringify({ token: TOKEN, type: "oauth" }) }
     return { exitCode: 0, stdout: JSON.stringify({ accounts, loggedIn: true }) }
   }
   return { calls, run }
@@ -256,10 +260,10 @@ describe("vitehub link", () => {
     expect(requests).toEqual(["GET 1", "GET 2", "POST "])
   })
 
-  it("stores an unverified Deno link without calling an API", async () => {
+  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno", name: "my-app" }`) })
 
-    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root)
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, env)
 
     expect(exitCode).toBe(0)
     expect(json).toMatchObject({ credentials: null, link: { host: "deno", project: { name: "my-app" }, verified: false } })

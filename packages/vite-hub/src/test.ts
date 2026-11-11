@@ -36,9 +36,9 @@ export interface RunScheduleTestOptions {
 export interface ViteHubTest {
   /** Messages that `email.send()` accepted during the current test. No provider runs. */
   readonly emails: readonly TestEmailMessage[]
-  /** Jobs that `runQueue()`, `deferQueue()`, and Queue clients sent during the current test. No handler runs. */
+  /** Jobs that `sendQueue()`, `deferQueue()`, and Queue clients sent during the current test. No handler runs. */
   readonly jobs: readonly ViteHubTestJob[]
-  /** Runs that `runWorkflow()`, `deferWorkflow()`, and Workflow handles started during the current test. No handler runs. */
+  /** Runs that `startWorkflow()`, `deferWorkflow()`, and Workflow handles started during the current test. No handler runs. */
   readonly workflows: readonly ViteHubTestWorkflowRun[]
   /**
    * Sends one webhook delivery to a Channel of an Agent, as the provider would, and waits for the work that it starts.

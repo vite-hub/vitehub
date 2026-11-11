@@ -39,3 +39,13 @@ export function requestEvent(request: Request, extra: { context?: { params?: Rec
   const { remoteAddress, ...rest } = extra
   return { ...rest, "~standard": { vendor: "test", req: request, res: { headers: new Headers() }, ...(remoteAddress ? { runtime: { clientAddress: remoteAddress } } : {}) } }
 }
+
+/**
+ * The Request that Nitro passes to a Fetchable Console route for this event: the event's Request, with the event's
+ * Standard Context on it, as the ViteHub Nitro plugin sets it.
+ */
+export function routeRequest(event: ConsoleRequestEvent): Request {
+  const standard = event["~standard"]
+  if (!("~standard" in standard.req)) Object.defineProperty(standard.req, "~standard", { configurable: true, value: standard })
+  return standard.req
+}

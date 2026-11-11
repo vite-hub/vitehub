@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it, vi } from "vitest"
 
 describe("Console RPC module", () => {
@@ -15,4 +17,13 @@ describe("Console RPC module", () => {
     }
   }, 60_000)
 
+  it.each([
+    "auth-manage", "channel-replay", "env-manage", "logs.get", "mcp", "mcp-authorization-server", "mcp-metadata",
+    "rpc", "schedule-run", "status.get", "usage.get",
+  ])("serves %s as a Fetchable route that imports nothing from h3", async (name) => {
+    const { default: route } = await import(`../src/console/runtime/server/${name}.ts`)
+
+    expect(route.fetch).toBeTypeOf("function")
+    expect(await readFile(new URL(`../src/console/runtime/server/${name}.ts`, import.meta.url), "utf8")).not.toMatch(/from "h3"/)
+  }, 60_000)
 })
