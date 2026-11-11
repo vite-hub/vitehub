@@ -78,7 +78,7 @@ describe("Auth inline guards", () => {
       const error = await requireAuth(new Request("https://example.com/me"), definition).catch((error: unknown) => error)
 
       expect(HTTPError.isError(error)).toBe(true)
-      expect(error).toMatchObject({ message: "Unauthorized.", status: 401 })
+      expect(error).toMatchObject({ data: { code: "SIGNED_OUT" }, message: "Unauthorized.", status: 401, statusText: "Unauthorized" })
     })
 
     it("answers JSON 401 from H3 without running the rest of the handler", async () => {
@@ -93,7 +93,7 @@ describe("Auth inline guards", () => {
       const response = await app.fetch(new Request("https://example.com/me"))
 
       expect(response.status).toBe(401)
-      expect(await response.json()).toMatchObject({ message: "Unauthorized.", status: 401 })
+      expect(await response.json()).toEqual({ data: { code: "SIGNED_OUT" }, message: "Unauthorized.", status: 401, statusText: "Unauthorized" })
       expect(after).not.toHaveBeenCalled()
     })
 
@@ -140,8 +140,18 @@ describe("Auth inline guards", () => {
       const response = await app.fetch(new Request("https://example.com/posts/1", { method: "DELETE" }))
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toMatchObject({ message: "Forbidden.", status: 403 })
+      expect(await response.json()).toEqual({ data: { code: "FORBIDDEN" }, message: "Forbidden.", status: 403, statusText: "Forbidden" })
       expect(deleted).not.toHaveBeenCalled()
+    })
+
+    it("keeps the code of the text 403 that an HTML request gets", async () => {
+      providerMocks.getSession.mockResolvedValue(signedIn)
+      const page = new Request("https://example.com/posts/1", { headers: { accept: "text/html" } })
+
+      const error = await requireAuthorization(page, () => false, definition).catch((error: unknown) => error)
+
+      expect(HTTPError.isError(error)).toBe(true)
+      expect(error).toMatchObject({ data: { code: "FORBIDDEN" }, message: "Forbidden.", status: 403 })
     })
 
     it("throws the status, headers, and text of the callback's Response", async () => {
@@ -193,6 +203,7 @@ describe("Auth inline guards", () => {
 
       expect(response.status).toBe(401)
       expect(response.headers.get("location")).toBeNull()
+      expect(await response.json()).toMatchObject({ data: { code: "SIGNED_OUT" } })
       expect(providerMocks.handler).not.toHaveBeenCalled()
     })
 
