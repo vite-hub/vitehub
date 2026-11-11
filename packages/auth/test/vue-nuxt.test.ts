@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import hubAuthNuxt from "../src/nuxt.ts"
 
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
+import type { createAuthClient } from "../src/vue.ts"
 
 type Route = { fullPath: string, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
@@ -45,7 +46,7 @@ vi.mock("better-auth/vue", () => ({
 }))
 
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
-  default: { setup: (app: { payload: typeof mocks.payload }) => Promise<void> }
+  default: { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
 }
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
@@ -139,6 +140,14 @@ describe("Nuxt session and page guard", () => {
     mocks.state.value = session
     mocks.getSession.mockResolvedValue({ data: null })
     expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
+  })
+
+  it("provides the configured client for browser composables", async () => {
+    await configure("/auth", "/app/")
+    vi.stubGlobal("window", {})
+    const result = await plugin.setup({ payload: mocks.payload })
+    await result!.provide.vitehubAuthClient.getSession()
+    expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth" })
   })
 
   it("checks repeated navigations without installing session hooks", async () => {

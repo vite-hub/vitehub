@@ -57,7 +57,7 @@ the same behavior.
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
-| `vite-hub/console/auth` | Define a Console-owned Auth Definition and its access policy. |
+| `vite-hub/console/auth` | `defineConsoleAuthorize()` for `console.authorize`, and its context types. |
 | `vite-hub/console/mcp-client` | Console MCP client operations. The generated Console plugin installs them when `console.mcpClient` is on. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
@@ -72,6 +72,7 @@ the same behavior.
 | `vite-hub/docs` | Docs site frontmatter schema, manifest types, and navigation helpers. Re-exports `@vite-hub/docs`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, the Agent preset that answers reader questions from the docs, and `docsRateLimit()`. Re-exports `@vite-hub/docs/assistant`. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/auth/abilities` | [`defineAbilities()`, `guest()`, and `deny()`](/docs/auth/abilities) for permission rules shared by server and app. |
 | `vite-hub/auth/mcp` | OAuth sign-in, discovery, request checks, and unused-client cleanup for an app's MCP server. Needs `@better-auth/oauth-provider`. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and adds its tables to generated migrations. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
@@ -80,7 +81,7 @@ the same behavior.
 | `vite-hub/auth/console-runtime` | `createAuthConsole()` for trusted manual server hosts. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
-| `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
+| `vite-hub/auth/vue` | Better Auth Vue client, normalized session composables, `useAbility()`, and the `Can` component. |
 | `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, `ensureBlob()`, `detectContentType()`, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()`, `createMultipartUploader()`, and `detectContentType()`. |
 | `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |
@@ -96,7 +97,7 @@ the same behavior.
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, and `vite-hub/comments/runtime` | Browser pin anchors, the Comments tables, and the API handler and Nitro plugin that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `vite-hub/page/pill.js` | The page pill of ViteHub's page tools as a classic browser script that declares `ViteHubPagePill`, for a page script of your own to paste in as text, for example with a Vite `?raw` import. It has no module exports. |
-| `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions and `createConnectionsHandler()` (the management and OAuth routes that the Console mounts), the Google preset with typed Gmail Operations, and runtime access. |
+| `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions and `createConnectionsHandler()` (the management and OAuth routes that `connections.management` mounts), the Google preset with typed Gmail Operations, and runtime access. |
 | `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |

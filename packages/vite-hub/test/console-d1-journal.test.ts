@@ -79,7 +79,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     const query = db.select().from(schema.invocations).where(eq(schema.invocations.id, summary.id))
     await expect(query.all()).resolves.toMatchObject([{ id: summary.id, agentName: "labeller", status: "completed", record: { id: summary.id } }])
     await expect(query.get()).resolves.toMatchObject({ id: summary.id, status: "completed" })
-    await expect(db.query.invocations.findFirst({ where: eq(schema.invocations.id, summary.id) })).resolves.toMatchObject({ id: summary.id, status: "completed" })
+    await expect(db.query.invocations.findFirst({ where: { id: summary.id } })).resolves.toMatchObject({ id: summary.id, status: "completed" })
     expect(env).toHaveBeenCalled()
   })
 

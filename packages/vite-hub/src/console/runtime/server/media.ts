@@ -19,12 +19,9 @@ export const consoleMediaActionNames = ["createFolder", "get", "info", "list", "
 
 export type ConsoleMediaActionName = (typeof consoleMediaActionNames)[number]
 
-/** Largest file the Console uploads in one request. Hosts may lower it, such as Vercel Functions at 4.5 MB. */
-export const maximumConsoleMediaUploadBytes: number = 32 * 1024 * 1024
-
-/** Largest JSON request of a media action. */
-import { maximumConsoleMediaRequestBytes } from "./limits.ts"
-export { maximumConsoleMediaRequestBytes }
+/** Largest JSON request of a media action, and largest file of one upload. */
+import { maximumConsoleMediaRequestBytes, maximumConsoleMediaUploadBytes } from "./limits.ts"
+export { maximumConsoleMediaRequestBytes, maximumConsoleMediaUploadBytes }
 
 const listLimit = 200
 const searchScanLimit = 5_000
@@ -472,32 +469,17 @@ export async function runConsoleMediaAction(section: string, action: unknown, in
 }
 
 const tooLarge = () => failure(413, "MEDIA_TOO_LARGE", `Files must be smaller than ${maximumConsoleMediaUploadBytes / 1024 / 1024} MB.`)
+const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/
 
-/** Reads a `multipart/form-data` body, refusing more than the upload limit before it is all in memory. */
-async function boundedForm(request: Request): Promise<FormData> {
-  const length = Number(request.headers.get("content-length") ?? Number.NaN)
-  if (Number.isFinite(length) && length > maximumConsoleMediaUploadBytes) throw tooLarge()
-  const type = request.headers.get("content-type") ?? ""
-  if (!type.toLowerCase().startsWith("multipart/form-data") || !request.body) throw consoleRequestError(400, "Send the upload as multipart/form-data.")
-  const chunks: Uint8Array[] = []
-  let bytes = 0
-  const reader = request.body.getReader()
-  while (true) {
-    const chunk = await reader.read()
-    if (chunk.done) break
-    bytes += chunk.value.byteLength
-    if (bytes > maximumConsoleMediaUploadBytes) {
-      await reader.cancel()
-      throw tooLarge()
-    }
-    chunks.push(chunk.value)
-  }
-  try {
-    return await new Response(new Blob(chunks), { headers: { "content-type": type } }).formData()
-  }
-  catch {
-    throw consoleRequestError(400, "Send the upload as multipart/form-data.")
-  }
+/** The file of one upload, decoded from base64 after its size is checked, so an oversized file is never allocated. */
+function uploadedFile({ contentType, data, filename }: Pick<ConsoleMediaUploadInput, "contentType" | "data" | "filename">): File {
+  if (data.length % 4 !== 0 || !base64Pattern.test(data)) throw failure(400, "MEDIA_INPUT", "The file data is not valid base64.")
+  const size = data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0)
+  if (size > maximumConsoleMediaUploadBytes) throw tooLarge()
+  const binary = atob(data)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+  return new File([bytes], filename, contentType ? { type: contentType } : {})
 }
 
 /** The result of one upload: the stored file, and whether the store already held the same bytes elsewhere. */
@@ -508,24 +490,31 @@ export interface ConsoleMediaUpload {
 }
 
 /**
- * Stores one uploaded file from a `multipart/form-data` request: `file` and `folder` for a new file, or `file`,
- * `pathname`, and `crop` for the replacement image of one crop, such as a portrait version for phones.
+ * The input of `media.upload`: one file as base64 with its name and type, and `folder` for a new file, or `crop` and
+ * `pathname` for the replacement image of one crop, such as a portrait version for phones.
  */
-export async function uploadConsoleMedia(request: Request, section: string, access: ConsoleAccess): Promise<ConsoleMediaUpload> {
-  const context = await mediaContext(section, access)
+export interface ConsoleMediaUploadInput {
+  contentType?: string
+  crop?: string
+  data: string
+  filename: string
+  folder?: string
+  pathname?: string
+  section: string
+}
+
+/** Stores one uploaded file of the media library of a section. */
+export async function uploadConsoleMedia(input: ConsoleMediaUploadInput, access: ConsoleAccess): Promise<ConsoleMediaUpload> {
+  const context = await mediaContext(input.section, access)
   requireAccess(context, "write")
-  const form = await boundedForm(request)
-  const file = form.get("file")
-  if (!(file instanceof File)) throw failure(400, "MEDIA_INPUT", "The upload has no file.")
-  const crop = form.get("crop")
-  const pathname = form.get("pathname")
-  if (String(crop) === crop && crop) {
-    if (String(pathname) !== pathname || !pathname) throw failure(400, "MEDIA_INPUT", "A crop replacement needs the pathname of the original.")
+  const file = uploadedFile(input)
+  const { crop, pathname } = input
+  if (crop) {
+    if (!pathname) throw failure(400, "MEDIA_INPUT", "A crop replacement needs the pathname of the original.")
     const record = await blobCall(() => context.storage.media.replaceCrop(mediaPath(pathname, "pathname"), crop, file))
     return { duplicate: false, file: mediaFile(record) }
   }
-  const folderValue = form.get("folder")
-  const rawFolder = folderPath(String(folderValue) === folderValue ? folderValue : "")
+  const rawFolder = folderPath(input.folder ?? "")
   const folder = rawFolder ? mediaPath(rawFolder, "folder") : ""
   return await withUploadLock(context.storage, folder, async () => {
     const target = await freePathname(context.storage, folder, fileName(file.name || "file"))

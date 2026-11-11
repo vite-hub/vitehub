@@ -480,7 +480,7 @@ export default defineAgent({
 
 Conversations are private. Every surface answers `CHANNELS_THREAD_UNKNOWN` (404) for a thread with no Invocation of this Channel and no transcript. The check runs before the provider is asked, so nobody can use the bot token to read another chat. A group thread with a transcript but no Invocation is not found. Admitted-Invocation evidence is kept in State, so group transcripts stay readable without the journal. Rejected messages do not make a group known.
 
-On the Console, CLI, and [MCP](/docs/development/mcp) (where the app serves `/_vitehub/mcp`), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
+On the Console, the CLI, and the [ViteHub MCP](/docs/development/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
 
 ```ts [server/agents/support.ts] fragment
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
@@ -961,7 +961,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the hosted Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the hosted Console](/docs/development/console#links-to-the-hosted-console).
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/development/console#links-to-the-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 

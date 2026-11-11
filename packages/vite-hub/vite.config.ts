@@ -56,18 +56,15 @@ const distributionEntries = [
 
 const runtimeEntries = [
   ...distributionEntries,
-  // Keep shared Console declarations separate from the optional Better Auth entry.
-  "src/console/auth-pages.ts",
   // Generated code imports these modules by path. They are not package exports.
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
+  "src/internal/disabled-redis-driver.ts",
   "src/task/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
   "src/connections/agent.ts",
-  "src/console/auth-cloudflare-access.ts",
-  "src/console/auth-inline.ts",
   "src/console/runtime/server/blob.ts",
   "src/console/runtime/server/database.ts",
   "src/console/runtime/server/definitions.ts",
@@ -75,16 +72,15 @@ const runtimeEntries = [
   "src/console/runtime/server/operation-contributions.ts",
   "src/console/runtime/server/sections.ts",
   "src/console/auth-types.ts",
-  // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
-  "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
+  "src/console/runtime/client/account.ts",
+  "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
-  "src/console/runtime/client/env-management.ts",
-  "src/console/runtime/client/connections-management.ts",
+  "src/console/runtime/client/ticket.ts",
   "src/console/runtime/client/blob-media.ts",
   "src/console/runtime/client/documents.ts",
   "src/console/runtime/client/format.ts",
@@ -98,12 +94,8 @@ const runtimeEntries = [
   "src/console/runtime/client/presence.ts",
   "src/console/runtime/client/preview.ts",
   "src/console/runtime/client/publish.ts",
-  "src/console/runtime/client/mcp.ts",
   "src/console/runtime/client/mcp-client.ts",
-  "src/console/runtime/client/new-project.ts",
-  "src/console/runtime/client/open-link.ts",
   "src/console/runtime/client/operation-view.ts",
-  "src/console/runtime/client/pending-links.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/project.ts",
   "src/console/runtime/client/project-link.ts",
@@ -114,9 +106,9 @@ const runtimeEntries = [
   "src/console/runtime/client/route-query.ts",
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
-  "src/console/runtime/client/sign-in.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
+  "src/console/runtime/auth-operations.ts",
   "src/console/runtime/definitions.ts",
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
@@ -128,7 +120,6 @@ const runtimeEntries = [
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
-  "src/console/runtime/server/console-preflight.ts",
   "src/console/runtime/server/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
   "src/console/runtime/server/documents.ts",
@@ -138,16 +129,10 @@ const runtimeEntries = [
   "src/console/runtime/server/invocation-workspace.get.ts",
   "src/console/runtime/server/invocations.get.ts",
   "src/console/runtime/server/env.get.ts",
-  "src/console/runtime/server/auth-manage.ts",
-  "src/console/runtime/server/env-manage.ts",
+  "src/console/runtime/server/auth.ts",
+  "src/console/runtime/server/tickets.ts",
   "src/console/runtime/server/logs.get.ts",
-  "src/console/runtime/server/mcp.ts",
-  "src/console/runtime/server/mcp-discovery.ts",
-  "src/console/runtime/server/mcp-authorization-server.ts",
-  "src/console/runtime/server/mcp-metadata.ts",
-  "src/console/runtime/server/schedule-run.ts",
   "src/console/runtime/server/search.get.ts",
-  "src/console/runtime/server/sign-in.ts",
   "src/console/runtime/server/sections.get.ts",
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
@@ -215,14 +200,6 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
-          from: "src/console/runtime/components/console-connect-agent.vue",
-          to: "dist/console/runtime/components",
-        },
-        {
-          from: "src/console/runtime/components/console-connect.vue",
-          to: "dist/console/runtime/components",
-        },
-        {
           from: "src/console/runtime/components/console-comment-thread.vue",
           to: "dist/console/runtime/components",
         },
@@ -247,6 +224,46 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-account-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-menu.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-setup.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-sign-in.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-settings.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-shell.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-home.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-snippet.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-team.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-unlink.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-kv.vue",
           to: "dist/console/runtime/components",
         },
@@ -259,23 +276,7 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
-          from: "src/console/runtime/components/console-project-link.vue",
-          to: "dist/console/runtime/components",
-        },
-        {
-          from: "src/console/runtime/components/console-project-oauth.vue",
-          to: "dist/console/runtime/components",
-        },
-        {
-          from: "src/console/runtime/components/console-project-problem.vue",
-          to: "dist/console/runtime/components",
-        },
-        {
           from: "src/console/runtime/components/console-project-switcher.vue",
-          to: "dist/console/runtime/components",
-        },
-        {
-          from: "src/console/runtime/components/console-project-token.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -364,10 +365,7 @@ export default defineConfig({
         },
         { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-credential-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-activity-feed.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
         {
           from: "src/console/runtime/components/console-auth.vue",
           to: "dist/console/runtime/components",
@@ -391,9 +389,6 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-auth-event-list.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-event-setup.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-code-text.vue", to: "dist/console/runtime/components" },
         ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
@@ -488,18 +483,17 @@ export default defineConfig({
         exclude: ["bin"],
         bin: distributionBinEntries,
         customExports(exports) {
-          delete exports["./console/auth-pages"];
           delete exports["./console/auth-types"];
-          delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
+          delete exports["./console/runtime/client/account"];
+          delete exports["./console/runtime/client/account-views"];
           delete exports["./console/runtime/client/appearance"];
           delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
-          delete exports["./console/runtime/client/env-management"];
-          delete exports["./console/runtime/client/connections-management"];
+          delete exports["./console/runtime/client/ticket"];
           delete exports["./console/runtime/client/blob-media"];
           delete exports["./console/runtime/client/documents"];
           delete exports["./console/runtime/client/editor"];
@@ -508,8 +502,6 @@ export default defineConfig({
           delete exports["./console/runtime/client/format"];
           delete exports["./console/runtime/client/live"];
           delete exports["./console/runtime/client/mcp-client"];
-          delete exports["./console/runtime/client/mcp"];
-          delete exports["./console/runtime/client/open-link"];
           delete exports["./console/runtime/client/operation-view"];
           delete exports["./console/runtime/client/media"];
           delete exports["./console/runtime/client/media-library"];
@@ -517,8 +509,6 @@ export default defineConfig({
           delete exports["./console/runtime/client/presence"];
           delete exports["./console/runtime/client/preview"];
           delete exports["./console/runtime/client/publish"];
-          delete exports["./console/runtime/client/new-project"];
-          delete exports["./console/runtime/client/pending-links"];
           delete exports["./console/runtime/client/problem"];
           delete exports["./console/runtime/client/project"];
           delete exports["./console/runtime/client/project-link"];
@@ -529,9 +519,9 @@ export default defineConfig({
           delete exports["./console/runtime/client/route-query"];
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
-          delete exports["./console/runtime/client/sign-in"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
+          delete exports["./console/runtime/auth-operations"];
           delete exports["./console/runtime/definitions"];
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
@@ -551,30 +541,21 @@ export default defineConfig({
           delete exports["./console/runtime/server/invocation-workspace.get"];
           delete exports["./console/runtime/server/invocations.get"];
           delete exports["./console/runtime/server/env.get"];
-          delete exports["./console/runtime/server/auth-manage"];
-          delete exports["./console/runtime/server/env-manage"];
-          delete exports["./console/runtime/server/console-preflight"];
+          delete exports["./console/runtime/server/auth"];
+          delete exports["./console/runtime/server/tickets"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
-          delete exports["./console/runtime/server/mcp"];
           delete exports["./console/runtime/server/mcp-client-operations"];
-          delete exports["./console/runtime/server/mcp-discovery"];
-          delete exports["./console/runtime/server/mcp-authorization-server"];
-          delete exports["./console/runtime/server/mcp-metadata"];
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/runtime"];
-          delete exports["./console/runtime/server/schedule-run"];
           delete exports["./console/runtime/server/search.get"];
-          delete exports["./console/runtime/server/sign-in"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
-          delete exports["./console/auth-cloudflare-access"];
-          delete exports["./console/auth-inline"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
           delete exports["./task/operations"];

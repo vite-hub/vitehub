@@ -37,6 +37,9 @@ export const PromptInput = defineComponent({
   props: {
     accept: { type: String },
     attachments: { default: true, type: Boolean },
+    /** The attach button's look: `outline`, or `ghost` for a muted icon in a box that has its own frame. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    attachVariant: { default: "outline", type: String as PropType<"outline" | "ghost"> },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
     /** Prevent adding and removing files while a consumer submits them. Text stays editable. */
     filesDisabled: { default: false, type: Boolean },
@@ -179,7 +182,7 @@ export const PromptInput = defineComponent({
             slots.actions?.() ??
               (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
-                class: "rounded-full",
+                class: props.attachVariant === "ghost" ? "rounded-full text-muted hover:text-default" : "rounded-full",
                 color: "neutral",
                 disabled: props.filesDisabled,
                 icon: "i-lucide-plus",
@@ -187,7 +190,7 @@ export const PromptInput = defineComponent({
                 size: "sm",
                 square: true,
                 type: "button",
-                variant: "outline",
+                variant: props.attachVariant,
               })),
             slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
@@ -204,7 +207,8 @@ export const PromptInput = defineComponent({
                 size: "sm",
                 square: true,
                 type: "button",
-                variant: "solid",
+                // Solid once there is something to send, so an empty box doesn't end in a dark button.
+                variant: props.status === "ready" && !canSubmit.value ? "soft" : "solid",
               }),
           ]),
         ]),

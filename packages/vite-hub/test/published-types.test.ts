@@ -77,18 +77,11 @@ it("keeps installed Console sections independent of optional Auth packages", asy
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
     }
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { createConsoleAppAuthPages, installConsoleSections } from "./node_modules/vite-hub/dist/console/runtime/server/sections.js"
+      import { consoleRealtimeAccess, installConsoleSections } from "./node_modules/vite-hub/dist/console/runtime/server/sections.js"
+      import { defineConsoleAuthorize } from "./node_modules/vite-hub/dist/console/auth.js"
       installConsoleSections("/consumer", [])
-      createConsoleAppAuthPages(async () => ({
-        api: { getSession: async () => null },
-        handler: async () => new Response(),
-        $context: Promise.resolve({
-          baseURL: "https://example.com/api/auth",
-          options: {},
-          socialProviders: [],
-          isTrustedOrigin: () => true,
-        }),
-      }))
+      consoleRealtimeAccess("content")
+      defineConsoleAuthorize(({ user }) => Boolean(user))
     `)
     await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
     await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({

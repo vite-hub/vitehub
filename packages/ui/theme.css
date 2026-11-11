@@ -51,7 +51,11 @@
   --ui-radius: 0.25rem;
   /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
   --ui-primary: oklch(0.205 0 0);
-  /* Blue marks focus, and only focus, so it stands apart from the black and white buttons. Sky 600 keeps 3:1 on white. */
+  /*
+   * Blue marks focus, and the areas drawn for comments (`--vh-comment-mark` in styles.css), so it stands apart from the
+   * black and white buttons. Sky 600 keeps 3:1 on white. An area in the text color would vanish on a white image in a
+   * dark page.
+   */
   --vh-focus: oklch(0.588 0.158 241.966);
   /*
    * Status colors as text. Nuxt UI draws text and dots with the same 500 shade, which reaches only 2.1:1 (amber) to

@@ -66,7 +66,7 @@ async function generateMigration(appDir: string, serverDirs: string[]) {
     config.generatedDrizzleConfigFile,
   ], { cwd: appDir })
   const migrationsDir = join(appDir, config.databases.default!.migrationsDir)
-  const files = (await readdir(migrationsDir)).filter(file => file.endsWith(".sql"))
+  const files = (await readdir(migrationsDir)).map(folder => join(folder, "migration.sql"))
   return { config, files, sql: (await Promise.all(files.map(file => readFile(join(migrationsDir, file), "utf8")))).join("\n") }
 }
 
@@ -313,7 +313,7 @@ describe("Database Definitions in Nuxt layers", () => {
     const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
-      "export default defineDatabase({ drizzle: { casing: 'snake_case' }, schema: {} })",
+      "export default defineDatabase({ remote: true, schema: {} })",
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
@@ -322,7 +322,7 @@ describe("Database Definitions in Nuxt layers", () => {
 
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
-      "export default defineDatabase({ connection: { url: 'file:.data/app.db' }, drizzle: { casing: 'snake_case' }, schema: {} })",
+      "export default defineDatabase({ connection: { url: 'file:.data/app.db' }, remote: true, schema: {} })",
     ])
     expect(discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toEqual([
       expect.objectContaining({ handler: appDefinition }),
@@ -341,7 +341,7 @@ describe("Database Definitions in Nuxt layers", () => {
     const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
-      "export default defineDatabase({ drizzle: { casing: 'snake_case' }, schema: {} })",
+      "export default defineDatabase({ remote: true, schema: {} })",
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
@@ -360,7 +360,7 @@ describe("Database Definitions in Nuxt layers", () => {
     const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
-      "const options = { drizzle: { casing: 'snake_case' as const }, schema: {} }",
+      "const options = { remote: true, schema: {} }",
       "export default defineDatabase(options)",
     ])
 

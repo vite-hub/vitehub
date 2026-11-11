@@ -15,7 +15,7 @@ icon: i-lucide-database-zap
     modules: ['vite-hub/nuxt'],
     vitehub: {
       preset: 'node',
-      // On Node, values are saved in .vitehub/data/kv
+      // Node supports shared stores and local files
       kv: true,
     },
   })
@@ -31,7 +31,7 @@ icon: i-lucide-database-zap
     plugins: [
       vitehub({
         preset: 'node',
-        // On Node, values are saved in .vitehub/data/kv
+        // Node supports shared stores and local files
         kv: true,
       }),
       nitro(),
@@ -48,7 +48,7 @@ icon: i-lucide-database-zap
     plugins: [
       vitehub({
         preset: 'node',
-        // On Node, values are saved in .vitehub/data/kv
+        // Node supports shared stores and local files
         kv: true,
       }),
     ],
@@ -108,11 +108,11 @@ icon: i-lucide-database-zap
   :::
 
   :::product-feature-item{title="Same code on every host" icon="i-lucide-server" to="/docs/kv/configure#providers"}
-  Values stay on disk in development. Your routes do not change on Cloudflare, Deno, or Upstash.
+  Values stay on disk in development. On Cloudflare, Deno, Redis, Postgres, or Upstash, your routes do not change.
   :::
 
   :::product-feature-item{title="Counters and one-time values" icon="i-lucide-circle-plus" to="/docs/kv/server-api#use-it-at-runtime"}
-  `setIfAbsent()` writes a token once. On Upstash, `increment()` counts and `getAndDelete()` reads a value once.
+  `setIfAbsent()` writes a token once. With Redis, a Database, or Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
   :::
 
   :::product-feature-item{title="Know when to use a database" icon="i-lucide-database" to="/docs/kv/hosts#production-checks"}
