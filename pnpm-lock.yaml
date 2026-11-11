@@ -2219,6 +2219,9 @@ importers:
       nuxt-site-config:
         specifier: ^5.0.3
         version: 5.0.3(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(nuxt@4.6.4(4a4a2b076410cbacdc76ed15f35975b3))(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+      postcss:
+        specifier: ^8.5.29
+        version: 8.5.32
       rou3:
         specifier: ^1.0.0
         version: 1.0.0
