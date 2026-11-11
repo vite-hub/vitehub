@@ -436,6 +436,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
           await rm(stagedWorkerOutfile, { force: true, recursive: true })
           await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, {
             ...options.bundleOptions,
+            resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
             define: { ...options.bundleDefines, ...options.bundleOptions?.define },
             minifyIdentifiers: options.bundleOptions?.minifyIdentifiers ?? true,
             minifySyntax: options.bundleOptions?.minifySyntax ?? true,
@@ -553,6 +554,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     }
     await bundleEsmEntry(options.bundleEntry, serverEntry, {
       ...options.bundleOptions,
+      resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
       define: { ...options.bundleDefines, ...options.bundleOptions?.define },
       minifyIdentifiers: options.bundleOptions?.minifyIdentifiers ?? true,
       minifySyntax: options.bundleOptions?.minifySyntax ?? true,
@@ -657,6 +659,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await mkdir(dirname(outfile), { recursive: true })
     await bundleEsmEntry(func.bundleEntry, outfile, {
       ...func.bundleOptions,
+      resolveEntryPackageAliases: func.bundleOptions.resolveEntryPackageAliases ?? false,
       conditions: func.bundleOptions.conditions ?? ["netlify", "node"],
       define: { ...options.bundleDefines, ...func.bundleOptions.define },
       minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers ?? true,

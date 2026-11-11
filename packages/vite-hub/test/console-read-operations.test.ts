@@ -4,7 +4,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it } from "vitest"
 import { operationCliPath } from "@vite-hub/internal/operations"
 
-import { consoleDatabaseKey, consoleDatabaseRegistryKey, consoleDatabaseRootKey } from "../src/console/internal.ts"
+import { consoleState } from "../src/console/internal.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
@@ -45,19 +45,17 @@ function call(operation: string, input: unknown = {}, headers: Record<string, st
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close()
-  for (const scope of [globalThis, process]) {
-    for (const key of [consoleDatabaseKey, consoleDatabaseRegistryKey, consoleDatabaseRootKey]) Reflect.deleteProperty(scope, key)
-  }
+  delete consoleState().database
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
 })
 
 describe("database operations", () => {
-  it("puts the table commands under `vitehub db`", () => {
+  it("puts the table commands under `vitehub database`", () => {
     const paths = consoleOperations.filter(operation => operation.name.startsWith("databases.")).map(operation => ({ name: operation.name, ...operationCliPath(operation) }))
     expect(paths).toEqual([
-      { command: "rows", name: "databases.browse", namespace: "db" },
-      { command: "tables", name: "databases.tables", namespace: "db" },
+      { command: "rows", name: "databases.browse", namespace: "database" },
+      { command: "tables", name: "databases.tables", namespace: "database" },
     ])
   })
 
@@ -116,10 +114,10 @@ describe("database operations", () => {
 })
 
 describe("usage operation", () => {
-  it("reads the Usage section, and is `vitehub usage`", () => {
+  it("reads the Usage section, and is `vitehub agent usage`", () => {
     const usage = consoleOperations.find(operation => operation.name === "usage.get")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
-    expect(usage && operationCliPath(usage)).toEqual({ command: "get", namespace: "usage" })
-    expect(usage?.cli?.default).toBe(true)
+    expect(usage && operationCliPath(usage)).toEqual({ command: "usage", namespace: "agent" })
+    expect(usage?.cli?.default).toBeUndefined()
   })
 })

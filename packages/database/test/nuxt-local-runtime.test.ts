@@ -47,7 +47,7 @@ describe("Nuxt production Node Database runtime", () => {
 
   it.each(["default", "orders"])("queries the configured %s SQLite database through the generated host alias", async (name) => {
     const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-node-"))
-    const definition = join(root, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+    const definition = join(root, "server/databases", name, "index.ts")
     const databaseUrl = `file:${join(root, "data", `${name}.sqlite`)}`
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
@@ -77,7 +77,7 @@ describe("Nuxt production Node Database runtime", () => {
       const runtime = config.alias["@vite-hub/database/drizzle"]
       // Nuxt CLI clears buildDir after ready() and nitro:config, before compiling.
       await rm(join(root, ".nuxt"), { recursive: true, force: true })
-      await expect(readFile(runtime!, "utf8")).resolves.toContain("export function useDatabase")
+      await expect(readFile(runtime!, "utf8")).resolves.toContain("export const useDatabase = createUseDatabase(")
 
       const entry = join(root, "server.mjs")
       await writeFile(entry, [

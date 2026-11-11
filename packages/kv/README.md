@@ -40,11 +40,10 @@ import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  kv: {
+  plugins: [hubKv({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
-  },
-  plugins: [hubKv()],
+  })],
 })
 ```
 
@@ -53,6 +52,8 @@ export default defineConfig({
 Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
+
+`fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. The migration lock stays in that folder, so only `base` needs write access. Stop all processes that use the store before moving it. Copies and backups must preserve hidden files and hard links. Use GNU `cp -a` and verify the copied layout record before opening the copy; see [Move an fs-lite store](https://vitehub.dev/docs/kv/configure#move-an-fs-lite-store). Ordinary `cp -R` breaks the layout identity and can make existing keys inaccessible.
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
@@ -68,7 +69,7 @@ An explicit `driver` is honored as before; an `upstash` store prints the same no
 
 ## Nitro cache
 
-`@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+`kvNitroCacheDriver` from `@vite-hub/kv/vite` is the file path of an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
 
 ## Listing keys
 
@@ -116,6 +117,6 @@ export default defineNitroPlugin((nitroApp) => {
 
 `hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
-Each command runs a `kv.*` operation of the app through the Console RPC (`@vite-hub/kv/operations`). On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
+Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

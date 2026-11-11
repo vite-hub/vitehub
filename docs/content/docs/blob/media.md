@@ -16,7 +16,7 @@ Records are JSON files in the same store, so they work on every driver, even Ver
 
 ```ts [server/api/media.post.ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   // Authorize the request here. The route decides who may upload.
@@ -31,12 +31,19 @@ export default defineEventHandler(async (event) => {
 
 `handleUpload()` reads the `files` form field, stores each file under `folder`, and returns one record per file. If the store already has the same bytes, it returns that record and stores nothing. `media.put()` writes to your pathname unless you pass `dedupe: true`.
 
-```ts
-const [error, record] = await blob.media.put('posts/cover.jpg', file, {
-  alt: 'A field at sunrise',
-  focal: { x: 0.7, y: 0.4 },
-  crops: { mobile: { aspect: '4:5' } },
-})
+```ts [server/utils/cover.ts]
+import { blob } from 'vite-hub/blob'
+
+// Store a cover image that server code already holds, such as a generated one
+export async function saveCover(file: Blob) {
+  const [error, record] = await blob.media.put('posts/cover.jpg', file, {
+    alt: 'A field at sunrise',
+    focal: { x: 0.7, y: 0.4 },
+    crops: { mobile: { aspect: '4:5' } },
+  })
+  if (error) throw error
+  return record
+}
 ```
 
 A record looks like this:
@@ -60,7 +67,7 @@ A record looks like this:
 }
 ```
 
-- `width` and `height` come from the JPEG, PNG, WebP, GIF, AVIF, or SVG header, after EXIF rotation. Other files have none. `probeImage()` from `@vite-hub/blob/media` is the same parser.
+- `width` and `height` come from the JPEG, PNG, WebP, GIF, AVIF, or SVG header, after EXIF rotation. Other files have none. `probeImage()` from `vite-hub/blob/media` is the same parser.
 - `color` is the average color, for a placeholder background. It needs an [image transformer](#image-transformers), so passthrough stores leave it out.
 - `focal` runs from 0 to 1 on each axis. `{ x: 0.5, y: 0.5 }` is the center.
 - `url` is set only for the [served store](/docs/blob/configure#serve-blob-backed-assets), and is never stored.
@@ -145,10 +152,11 @@ Variants are cached under `_vitehub/derived/` like every [transformed object](/d
 In your own routes, pass the variant to `blob.serve()`:
 
 ```ts fragment
-import { blob, parseImageVariant } from '@vite-hub/blob'
+import { blob, parseImageVariant } from 'vite-hub/blob'
 
-const [error, stream] = await blob.serve(event, pathname, {
-  variant: parseImageVariant(getQuery(event)) ?? { width: 640 },
+const url = new URL(request.url)
+return blob.serve(request, pathname, {
+  variant: parseImageVariant(url.searchParams) ?? { width: 640 },
 })
 ```
 
@@ -331,10 +339,10 @@ Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their cente
 
 ## Responsive images
 
-`responsiveImage()` from `@vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It works with any framework and in the browser.
+`responsiveImage()` from `vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It works with any framework and in the browser.
 
 ```ts [server/api/posts/[slug].get.ts] fragment
-import { blob, responsiveImage } from '@vite-hub/blob'
+import { blob, responsiveImage } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const post = await findPost(getRouterParam(event, 'slug')!)
@@ -354,7 +362,7 @@ export default defineEventHandler(async (event) => {
 
 ```vue [components/CoverImage.vue]
 <script setup lang="ts">
-import type { ResponsiveImage } from '@vite-hub/blob/media'
+import type { ResponsiveImage } from 'vite-hub/blob/media'
 
 defineProps<{ image: ResponsiveImage }>()
 </script>

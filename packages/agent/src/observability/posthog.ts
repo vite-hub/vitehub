@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { sendBatchToPostHog } from "evlog/posthog"
 import { PostHog } from "posthog-node"
 import type { ObservabilityExporter } from "../observability.ts"
@@ -19,7 +19,7 @@ export function posthog(options: PostHogExporterOptions): ObservabilityExporter 
 
   function distinctId(properties: Record<string, unknown>): string {
     for (const value of [options.service, properties.service, properties.agent_name]) {
-      if (hasRuntimeType(value, "string") && value.trim()) return value.trim()
+      if (typeof value === "string" && value.trim()) return value.trim()
     }
     return "vitehub"
   }
