@@ -52,6 +52,7 @@ function button(label, onClick, secondary) {
 }
 function leave(data, message) {
   const target = data && (data.url || data.redirect_uri);
+  // Internal invariant: run() catches this error and shows its message in the alert.
   if (!target) throw new Error(message);
   location.assign(target);
 }
@@ -63,6 +64,7 @@ async function post(path, body) {
     method: "POST",
   });
   const data = await response.json().catch(() => ({}));
+  // Internal invariant: run() catches this error and shows its message in the alert.
   if (!response.ok) throw new Error(data.error_description || data.message || "This link has expired. Start again from your agent.");
   return data;
 }
@@ -70,6 +72,7 @@ const read = path => fetch(path, { credentials: "same-origin" }).then(response =
 
 async function signInWithPasskey() {
   const options = await read(${JSON.stringify(`${authBase}/passkey/generate-authenticate-options`)});
+  // Internal invariant: run() catches this error and shows its message in the alert.
   if (!options || !options.challenge) throw new Error("The passkey sign-in did not start. Try again.");
   const credential = await navigator.credentials.get({ publicKey: {
     ...options,
@@ -120,6 +123,7 @@ async function main() {
   if (session.user.email && !session.user.email.endsWith("@passkey.invalid")) $("#email").textContent = session.user.email;
   $("#switch").addEventListener("click", () => run(async () => {
     const response = await fetch(${JSON.stringify(`${authBase}/sign-out`)}, { body: "{}", credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST" });
+    // Internal invariant: run() catches this error and shows its message in the alert.
     if (!response.ok) throw new Error("Sign-out did not finish. Try again.");
     location.reload();
   }));
