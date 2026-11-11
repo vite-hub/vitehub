@@ -21,7 +21,7 @@ The package requires Node.js 22.19 or newer. Vite is an optional peer dependency
 For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
 ```sh
-pnpm add @vercel/queue
+pnpm add @vercel/queue @vercel/functions
 pnpm add -D @types/node @types/ws
 ```
 
@@ -207,6 +207,8 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your TypeScript project. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
 
 ```ts
+import { sendQueue, useQueue } from "@vite-hub/queue"
+
 const [error] = await sendQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
 const queue = await useQueue("welcome-email")
 const [sendError] = await queue.send({ email: "ada@example.com" })

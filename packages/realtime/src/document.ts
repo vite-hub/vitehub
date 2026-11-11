@@ -1,6 +1,7 @@
 import { getSchema } from "@tiptap/core"
 import { prosemirrorJSONToYXmlFragment, updateYFragment, yXmlFragmentToProsemirrorJSON } from "@tiptap/y-tiptap"
 import * as Y from "yjs"
+import { isRecord } from "@vite-hub/internal/object"
 
 export { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 
@@ -17,10 +18,6 @@ function realtimeEditorSchema(editor: RealtimeEditor): Schema {
     schemas.set(editor, schema)
   }
   return schema
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function stableJson(value: unknown): string {

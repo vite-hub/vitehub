@@ -31,6 +31,7 @@ describe("workspace inventory", () => {
       "i18n",
       "kv",
       "markdown-template",
+      "mcp",
       "presets",
       "queue",
       "rate-limit",

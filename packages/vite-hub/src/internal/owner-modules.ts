@@ -33,6 +33,7 @@ const [
   i18nVite,
   kvVite,
   markdownTemplateVite,
+  mcpVite,
   queueVite,
   rateLimitVite,
   realtimeVite,
@@ -59,6 +60,7 @@ const [
   importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/vite")),
   importOptionalOwner("@vite-hub/kv", () => import("@vite-hub/kv/vite")),
   importOptionalOwner("@vite-hub/markdown-template", () => import("@vite-hub/markdown-template/vite")),
+  importOptionalOwner("@vite-hub/mcp", () => import("@vite-hub/mcp/vite")),
   importOptionalOwner("@vite-hub/queue", () => import("@vite-hub/queue/vite")),
   importOptionalOwner("@vite-hub/rate-limit", () => import("@vite-hub/rate-limit/vite")),
   importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")),
@@ -87,6 +89,7 @@ export const ownerModules = {
   i18nVite,
   kvVite,
   markdownTemplateVite,
+  mcpVite,
   queueVite,
   rateLimitVite,
   realtimeVite,
@@ -122,7 +125,7 @@ function importsCmsPreset(file: string, seen = new Set<string>()): boolean {
     if (statement.type !== "ExportAllDeclaration" && statement.type !== "ExportNamedDeclaration") continue
     if (!statement.source?.value.startsWith(".")) continue
     if (statement.type === "ExportNamedDeclaration" && !statement.specifiers.some(specifier =>
-      specifier.exported.type === "Identifier" ? specifier.exported.name === "content" : specifier.exported.value === "content",
+      specifier.exported.type === "Identifier" ? specifier.exported.name === "default" : specifier.exported.value === "default",
     )) continue
     const base = resolve(dirname(file), statement.source.value)
     const extensions = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
@@ -181,10 +184,12 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "console/ui": "console ui",
   "decisions": "decisions",
   "email": "email",
+  "forge": "forge",
   "forms": "forms",
   "gateways": "gateways",
   "kv": "kv",
   "markdown-template": "markdown-template",
+  "mcp": "mcp",
   "presets": "presets",
   "queue": "queue",
   "rate-limit": "rateLimit",

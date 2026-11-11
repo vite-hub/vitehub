@@ -12,7 +12,7 @@ type RuntimeTypeMap = {
   undefined: undefined
 }
 
-/** Narrows opaque inputs without reading their properties. */
+/** Narrows opaque inputs without reading their properties. Kept for `@vite-hub/presets`; other packages use `typeof`. */
 export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
   value: unknown,
   expected: TType,
@@ -49,12 +49,19 @@ function isPlainRecord(value: object): boolean {
   return prototype === Object.prototype || prototype === null
 }
 
-const nativeResponse: unknown = globalThis.Response
-const nativeResponseStatus = hasRuntimeType(globalThis.Response, "function")
-  ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-  : undefined
-// Node.js 22 runs the Response brand check through a Proxy. Node.js 24 does not.
-const isProxy = globalThis.process?.getBuiltinModule?.("node:util")?.types.isProxy
+/** The native Response class and its `status` getter, and the proxy check of Node.js. Read once, at import. */
+function captureResponseChecks() {
+  const response: unknown = globalThis.Response
+  return {
+    response,
+    status: typeof response === "function" ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get : undefined,
+    // Node.js 22 runs the Response brand check through a Proxy. Node.js 24 does not.
+    isProxy: globalThis.process?.getBuiltinModule?.("node:util")?.types.isProxy,
+  }
+}
+
+// Pure, so a bundle that never checks a Response drops the capture.
+const nativeResponseChecks = /* @__PURE__ */ captureResponseChecks()
 
 /**
  * The `status` getter of the global `Response` when a server replaced the native class. srvx, which Nitro uses on Node.js,
@@ -63,7 +70,7 @@ const isProxy = globalThis.process?.getBuiltinModule?.("node:util")?.types.isPro
  */
 function replacedResponseStatus(): ((this: unknown) => unknown) | undefined {
   const current: unknown = globalThis.Response
-  if (!hasRuntimeType(current, "function") || current === nativeResponse) return undefined
+  if (typeof current !== "function" || current === nativeResponseChecks.response) return undefined
   const prototype: unknown = Reflect.get(current, "prototype")
   return isRuntimeObject(prototype) ? Object.getOwnPropertyDescriptor(prototype, "status")?.get : undefined
 }
@@ -75,12 +82,12 @@ function replacedResponseStatus(): ((this: unknown) => unknown) | undefined {
  * and a Response from another Fetch implementation all fail. A proxy fails too. The check reads no property of `value`.
  */
 export function isRuntimeResponse(value: unknown): value is Response {
-  if (value === null || !hasRuntimeType(value, "object") || isProxy?.(value)) return false
+  if (value === null || typeof value !== "object" || nativeResponseChecks.isProxy?.(value)) return false
   // A failed brand check throws, and each TypeError captures a stack trace. An array, an object literal, or a
   // null-prototype record skips both checks. Where `isProxy` is missing, this would run the getPrototypeOf trap of a
   // proxy, so it runs only with `isProxy`.
-  if (isProxy !== undefined && (Array.isArray(value) || isPlainRecord(value))) return false
-  for (const status of [nativeResponseStatus, replacedResponseStatus()]) {
+  if (nativeResponseChecks.isProxy !== undefined && (Array.isArray(value) || isPlainRecord(value))) return false
+  for (const status of [nativeResponseChecks.status, replacedResponseStatus()]) {
     if (!status) continue
     try {
       Reflect.apply(status, value, [])

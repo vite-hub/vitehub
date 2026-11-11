@@ -282,7 +282,7 @@ describe("scheduled publishing in the Console", { timeout: 30_000 }, () => {
 
   it("schedules, lists, and cancels with publish access", async () => {
     const { content, posts } = await setup()
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     const saved = await posts.save("hello", { data: { title: "Hello" }, body: "" })
     await posts.save("other", { data: { title: "Other" }, body: "" })
     const at = later().toISOString()
@@ -329,7 +329,7 @@ describe("scheduled publishing in the Console", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => scoped.dispose())
-    const actions = createContentConsoleActions({ content: scoped })
+    const actions = createContentConsoleActions({ default: scoped })
     const reader = { user: { id: "rae", role: "reader" } }
     const page = await actions.list({ collection: "posts" }, reader)
     expect(page.items.map(item => item.id)).toEqual(["hello"])

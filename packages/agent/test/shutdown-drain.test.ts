@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
+import { agentRuntimeModule } from "../src/vite.ts"
 
 type Drain = (context: { signal: AbortSignal, timeoutMs: number }) => unknown
 
@@ -18,7 +18,7 @@ async function generateQueuePlugin(options: { preset?: string, shutdown?: false 
       providers: { state: { provider: "libsql", url: options.preset ? "libsql://state.example.com" : "file:agent-state.sqlite" } },
       ...(options.shutdown === undefined ? {} : { shutdown: options.shutdown }),
     })
-    if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+    if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
     // SAFETY: The hook reads only command, preset, and root from this test config.
     await plugin.configResolved.call({} as never, { command: "build", ...(options.preset ? { preset: options.preset } : {}), root } as never)
     return await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
@@ -61,7 +61,7 @@ const context = (timeoutMs: number) => ({ signal: new AbortController().signal, 
 describe("generated Agent shutdown drains", () => {
   it("registers the chat and queue drains with ViteHub shutdown on a persistent server", async () => {
     const source = await generateQueuePlugin({ shutdown: { drainMs: 45_000 } })
-    expect(source).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, registerChannelTaskQueueStarter, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
+    expect(source).toContain(`import { drainInlineChatInvocations, onAgentRoutesLoad, registerChannelTaskQueueStarter, onShutdown, webhookQueueShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
     expect(source).not.toContain("SIGTERM")
     expect(source).not.toContain("process.exit")
 

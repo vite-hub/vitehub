@@ -13,11 +13,13 @@ import type { McpToolServerConnection } from "../internal/mcp-tool-capability.ts
 import type { McpAvailabilityWarning, McpCapabilityOptions, McpClient, McpClientConfig, McpConnectionServerConfig } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 const mcpWarningSchema = v.object({
   phase: v.picklist(["discovery", "resolve"]),
   server: v.string(),
   statusCode: v.optional(v.pipe(v.number(), v.integer(), v.minValue(400), v.maxValue(599))),
+  code: v.optional(v.string()),
 })
 
 /** Return valid MCP availability warnings recorded in an Agent run input. */
@@ -35,10 +37,6 @@ export function getMcpWarnings(input: AgentRunInput): McpAvailabilityWarning[] {
 
 function normalizeMcpToolName(serverName: string, toolName: string) {
   return `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isMcpClientConfig(value: McpClient | McpClientConfig | McpConnectionServerConfig): value is McpClientConfig | McpConnectionServerConfig {

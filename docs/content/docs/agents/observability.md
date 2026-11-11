@@ -6,7 +6,7 @@ navigation.order: 50
 navigation.kind: Guides
 ---
 
-Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
+Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog. `service` turns on Agent telemetry and installs `useObservability()`; without it, `observability` registers only Evlog and the [Logs](/docs/logs) source in `observability.logs`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -99,7 +99,7 @@ ViteHub then:
 - declares `posthog.apiKey` as Server Env `observability.posthog.apiKey` and reads it at startup, so the Console Env page shows it.
 - generates a Nitro plugin that installs one host instance, sets request IDs, connects the evlog drain and HTTP error hooks, and flushes on shutdown.
 - adds the observability Capability to every Agent, and with `papercuts`, the `report_papercut` tool.
-- reports `status()` as `observability` in `/_vitehub/api/status`.
+- reports `status()` as `observability` in the `status.get` operation.
 
 Remove your own evlog Nitro module and host plugin. Without an API key, events still reach local evlog output, `status().configured` is `false`, and `capture()` rejects.
 
@@ -115,7 +115,7 @@ observability.exception(error, { operation: 'import' })
 observability.status() // { configured, accepted, failed, dropped, pending, closed, papercuts? }
 ```
 
-`useObservability()` throws when `vitehub({ observability })` is not set.
+`useObservability()` throws when `vitehub({ observability })` has no `service`.
 
 The Capability sends one terminal `$ai_trace` event per invocation, also when preparation fails, with duration, invocation identity, known usage and cost, and status. Streaming usage updates add no extra ones. With an exporter set, internal Agent events skip the global drain to avoid duplicates.
 

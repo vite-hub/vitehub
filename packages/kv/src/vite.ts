@@ -16,7 +16,6 @@ import {
   isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
@@ -29,7 +28,7 @@ import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
-import type { KVModuleOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
+import type { KVOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -51,6 +50,10 @@ const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = ownModule(import.meta.url, "runtime
 export const kvNitroCacheDriver: string = ownModule(import.meta.url, "runtime/nitro-cache")
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const OPTIONAL_PEER_ID_PATTERN = /^(?:@vite-hub\/kv\/runtime\/upstash-driver|cloudflare:workers)$/
+const RESOLVE_ID_PATTERN = /^(?:@vite-hub\/kv(?:\/runtime\/upstash-driver)?|cloudflare:workers|#vitehub\/kv\/config)$/
+const LOAD_ID_PATTERN = /^\0#vitehub\/kv\/(?:runtime|config)$/
 
 export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
 export type { KVViteRuntimeConfig } from "./vite-config.ts"
@@ -72,9 +75,12 @@ export function hubKvOptionalPeerResolver(): Plugin {
   return {
     name: "@vite-hub/kv/optional-peers",
     enforce: "pre",
-    resolveId(id, importer, resolveOptions) {
-      if (!resolveOptions?.ssr) return
-      if (isKVOptionalUpstashImport(id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
+    resolveId: {
+      filter: { id: OPTIONAL_PEER_ID_PATTERN },
+      handler(id, importer, resolveOptions) {
+        if (!resolveOptions?.ssr) return
+        if (isKVOptionalUpstashImport(id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
+      },
     },
   }
 }
@@ -257,13 +263,13 @@ function reconcileNitroCloudflareKV(
 }
 
 function configureNitroCloudflareKV(
-  config: { kv?: KVModuleOptions, nitro?: unknown },
-  options: KVModuleOptions | undefined,
+  config: object,
+  options: KVOptions | undefined,
   input: KVResolutionInput,
   ownedNamespaces: Set<{ binding: string, id?: string }>,
   provisionState: ReturnType<typeof readProvisionStateSync>,
 ): boolean {
-  const { nitro } = config
+  const nitro: unknown = Reflect.get(config, "nitro")
   if (!isPlainObject(nitro)) return false
 
   // SAFETY: Vite's Nitro config is an open plain object; this function owns only the optional Cloudflare Wrangler fields below.
@@ -274,7 +280,7 @@ function configureNitroCloudflareKV(
   }
   ownedNamespaces.clear()
 
-  const kv = resolveKVViteConfig(config.kv ?? options, input).kv
+  const kv = resolveKVViteConfig(options, input).kv
   configureNitroCloudflareRequestEnv(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
@@ -287,7 +293,7 @@ function configureNitroCloudflareKV(
 }
 
 /** `input.hosting` names the host preset for driver inference, as `vitehub()` passes it. Without it, KV reads the host from env. */
-export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, "hosting"> = {}): KVVitePlugin {
+export function hubKv(options?: KVOptions, input: Pick<KVResolutionInput, "hosting"> = {}): KVVitePlugin {
   let command: "build" | "serve" = "build"
   let mode = "development"
   let viteEnv: Record<string, string> | undefined
@@ -299,7 +305,6 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let runtimeConfig: KVViteRuntimeConfig | undefined
-  let configuredOptions = options
   let projectRoot = process.cwd()
   const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options, resolutionInput())
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
@@ -317,13 +322,13 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
     },
     vitehub: {
       inspect: () => {
-        const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting }).kv
-        const dev = resolveKVViteConfig(configuredOptions, { dev: true, env: viteEnv, hosting: input.hosting }).kv
+        const build = resolveKVViteConfig(options, { hosting: input.hosting }).kv
+        const dev = resolveKVViteConfig(options, { dev: true, env: viteEnv, hosting: input.hosting }).kv
         if (!build || !dev) return
         const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
         return {
           definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }],
-          resources: () => inspectKVResources(configuredOptions, projectRoot),
+          resources: () => inspectKVResources(options, projectRoot),
         }
       },
       // The Console, `vitehub kv`, and agents run these.
@@ -332,7 +337,7 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
         const { createKVCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return {
           ...createKVCliContributor(),
-          provision: [createKVCloudflareProvisionStep(() => configuredOptions)],
+          provision: [createKVCloudflareProvisionStep(() => options)],
         } satisfies ViteHubCliContributor
       },
     },
@@ -342,7 +347,6 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
         command = env?.command ?? "build"
         mode = env?.mode ?? config.mode ?? (command === "serve" ? "development" : "production")
         runtimeConfig = undefined
-        configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, readProvisionStateSync(projectRoot))
@@ -356,11 +360,10 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
         // The Nuxt replay passes a Vite config without `command`; the `config` hook already set it.
         if (config.command) command = config.command
         mode = config.mode ?? mode
-        configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         providerOutput = useProviderOutputCatalog(config)
-        runtimeConfig = resolveKVViteConfig(config.kv ?? options, resolutionInput())
+        runtimeConfig = resolveKVViteConfig(options, resolutionInput())
         const provisionState = readProvisionStateSync(projectRoot)
         if (nitroOptions) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, provisionState)
         if (hasNitroConfigContext(config) || isPlainObject(getResolvedNitroConfig(config))) {
@@ -383,6 +386,7 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
     },
     resolveId: {
       order: "pre",
+      filter: { id: RESOLVE_ID_PATTERN },
       handler(id, importer, resolveOptions) {
         if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv) && isKVOptionalUpstashImport(id, importer)) {
           return { external: true, id }
@@ -395,6 +399,7 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
     },
     load: {
       order: "pre",
+      filter: { id: LOAD_ID_PATTERN },
       handler(id, options) {
         if (id === RESOLVED_KV_RUNTIME_ID) {
           const kv = getConfig().kv
@@ -416,7 +421,7 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
           await providerOutputGenerations.reset(this, providerOutput, error)
           return
         }
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
 
         const rootDir = resolved.root
         const clientOutDir = resolved.build.outDir
@@ -477,15 +482,10 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    kv?: KVModuleOptions
-  }
-}
