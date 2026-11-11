@@ -8,23 +8,24 @@ import type { ConsoleWorkflowRunView } from "../src/console/runtime/client/workf
 
 const source = readFileSync(new URL("../src/console/runtime/components/console-workflow-actions.vue", import.meta.url), "utf8")
 // Render the actual run list without the start and resume forms.
-const start = source.indexOf('<section v-if="workflowRuns.length"')
-const template = source.slice(start, source.indexOf("</section>", start) + "</section>".length)
+const start = source.indexOf('<ConsoleSection v-if="workflowRuns.length"')
+const template = source.slice(start, source.indexOf("</ConsoleSection>", start) + "</ConsoleSection>".length)
 
 async function renderRuns(run: ConsoleWorkflowRunView): Promise<string> {
   const app = createSSRApp({
     render: compile(template),
     setup: () => ({
       busyRun: undefined,
-      copy: () => {},
       isConsoleWorkflowRunActive: () => false,
       refresh: () => {},
       statusOf: () => ({ label: "Succeeded", tone: "success" }),
       workflowRuns: [run],
     }),
   })
-  app.component("UButton", defineComponent({ props: { ariaLabel: String }, setup: props => () => h("button", { "aria-label": props.ariaLabel }) }))
-  for (const name of ["ConsoleStatus", "UTooltip"]) {
+  const button = defineComponent({ props: { ariaLabel: String }, setup: props => () => h("button", { "aria-label": props.ariaLabel }) })
+  app.component("UButton", button)
+  app.component("CopyButton", button)
+  for (const name of ["ConsoleSection", "Status", "UTooltip"]) {
     app.component(name, defineComponent({ setup: (_props, { slots }) => () => slots.default?.() }))
   }
   return renderToString(app)

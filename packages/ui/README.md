@@ -82,6 +82,7 @@ The workspace entries render a live app next to a docs page: a tutorial with the
 | `@vite-hub/ui/connect-panel` | `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()` |
 | `@vite-hub/ui/browser-support-notice` | `BrowserSupportNotice` |
 | `@vite-hub/ui/playground` | Share links and zips for any playground: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, `downloadZip()` |
+| `@vite-hub/ui/playground-container` | `PlaygroundContainer`, a complete playground built from the parts above, and `usePlaygroundDevice()` |
 
 None of them is in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
 
@@ -100,6 +101,40 @@ const state = await decodePlaygroundLink(readPlaygroundHash(location.hash) ?? ""
 ```
 
 A playground without templates, such as one Markdown file, leaves `template` out. Links longer than `playgroundLinkLimit` (16,000 characters) are cut by chat apps, so offer `downloadZip()` instead.
+
+`PlaygroundContainer` is the whole page part: a toolbar with the run state, a template menu, Download, Copy link, and Restart and Discard changes. Under it are the file tree, the editor, the preview, and the dev server console. It marks edited files, asks before it replaces edits, and opens `#code=` links. Desktops boot it on their own, tablets boot it on a tap, and phones get a card with Copy link and Download files. A browser without WebContainer support gets `BrowserSupportNotice`.
+
+```vue
+<script setup lang="ts">
+import { PlaygroundContainer } from "@vite-hub/ui/playground-container";
+import { fetchSnapshot } from "@vite-hub/web-container";
+import { defineConnect } from "@vite-hub/web-container/connect";
+
+const connect = defineConnect({ github: true });
+const files = {
+  "package.json": JSON.stringify({ scripts: { dev: "vite --port 3000" }, devDependencies: { vite: "^8.0.0" } }),
+  "index.html": "<h1>Hello</h1>",
+};
+const templates = [
+  { id: "hello", label: "Hello", files, open: "index.html", snapshot: () => fetchSnapshot(["/snapshots/hello.0.bin"]) },
+  { id: "empty", label: "Empty", files: { ...files, "index.html": "" } },
+];
+</script>
+
+<template>
+  <PlaygroundContainer :templates="templates" label="playground" name="my-app" :port="3000" :connect="connect" :tabs="[{ value: 'messages', label: 'Messages' }]">
+    <template #messages="{ workspace }">
+      <pre>{{ workspace.files.value["index.html"] }}</pre>
+    </template>
+  </PlaygroundContainer>
+</template>
+```
+
+- Props: `templates` (one or more, each `{ id, label, files, description?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"playground"` or `"tutorial"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, and `v-model:open`.
+- Templates with the same `snapshot` function switch in place. Another snapshot, or an edited `package.json`, boots a new workspace.
+- Slots: `#toolbar` adds buttons before Download, `#banner` shows under the toolbar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ workspace, template, edited, show, showTab, guard }`, and `@context` gives the same object to code outside the container. `#intro` and `#fallback` show around the card when the workspace does not show.
+- It emits `update:template` when the reader opens a template or discards the changes to one.
+- A tutorial gives one template with the files of its step, sets `layout="tutorial"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
 
 ```vue
 <script setup lang="ts">
@@ -144,7 +179,7 @@ const source = computed({
 - `setFiles(files, { mode: "merge" | "replace" })` writes to the container. Edits made before the mount ends are written when it ends. `reset()` puts back the original files. `install()` runs the install again, and `restart()` restarts the dev server.
 - `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)`.
 - `logs` retains the latest output, up to 65,536 characters and 1,000 chunks. Older output is dropped. Its array carries an `offset` counting dropped characters; pass it directly to `WorkspaceTerminal` to keep writes incremental across rollover. Ordinary arrays still append by prefix and clear the terminal when replaced.
-- `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the terminal under the editor and the preview at the side. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
+- `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the preview at the side and the other tabs under the editor. `tabs` sets the tabs and their order, with a label and an optional `badge` each, and each tab shows the slot with its `value`. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
 - The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe.
 - `ConnectPanel` takes the providers of `defineConnect()` and a state for each one. It emits `connect` for pasted tokens and `oauth` with the provider definition (including its `app` or `clientId`) for the application to start authorization. It also emits `disconnect`, `remove-all`, and `copy-command`. It does not store tokens. Without providers it shows `empty`, "No accounts needed." by default. `useConnectStore()` keeps them in sessionStorage by default (`storage: "local" | "memory"` also work), and falls back to memory when storage operations fail.
 - `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations. `description` replaces the text for a tutorial with what the reader of your page can do instead.
@@ -156,7 +191,7 @@ The demo page in `test/browser/page` shows every part in the tutorial layout. `p
 Add the package, ViteHub, and the runtime peers to an existing Nuxt application:
 
 ```bash
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Register Nuxt UI and `vite-hub/nuxt`:
@@ -178,7 +213,7 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide and Phosphor collections must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
+`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide collection must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
 
 `@vite-hub/ui/nuxt` is internal. `vite-hub/nuxt` and `@vite-hub/docs/nuxt` load it, and it can change in any release. Do not add it to Nuxt `modules`.
 

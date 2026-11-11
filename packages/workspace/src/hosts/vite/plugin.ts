@@ -7,8 +7,8 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveDurabilityModule } from "@vite-hub/internal/durability"
+import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, resolveWorkspaceDefinitionModule } from "../../build/assets.ts"
@@ -658,16 +658,6 @@ function configureNitroWorkspaceAssets(nitro: NitroConfig, root: string): void {
   // The Nitro types of the host decide the alias type, so read it as a plain record.
   const alias: unknown = nitro.alias
   nitro.alias = { ...(alias && typeof alias === "object" ? alias : {}), [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(root, workspaceAssetsRegistryPath) }
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 function configureCloudflareNitroRuntime(nitro: NitroConfig): void {

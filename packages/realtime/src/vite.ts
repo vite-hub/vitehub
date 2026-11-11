@@ -7,6 +7,7 @@ import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, isProductionBuild, re
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
+import { cloneRecord as record } from "@vite-hub/internal/object"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 export { discoverRealtimeDefinitions } from "./discovery.ts"
@@ -78,10 +79,6 @@ interface NitroConfig extends Record<string, unknown> {
   features?: Record<string, unknown>
   handlers?: Array<Record<string, unknown>>
   preset?: string
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function configureCloudflareRealtime(nitro: NitroConfig, nitro2: boolean): void {

@@ -119,7 +119,6 @@ const agentPackageName = "@vite-hub/agent"
 export type AgentRuntimeModule =
   | "cloudflare"
   | "cloudflare/state"
-  | "eve"
   | "index"
   | "internal/workspace/internal/runtime/hosted"
   | "internal/workspace/internal/runtime/hosted-vercel-blob"
@@ -1081,18 +1080,6 @@ function isPositionedNode(value: unknown): value is PositionedNode {
   )
 }
 
-function visitNodes(node: PositionedNode, visit: (node: PositionedNode, parent?: PositionedNode) => void, parent?: PositionedNode): void {
-  visit(node, parent)
-  for (const value of Object.values(node)) {
-    if (isPositionedNode(value)) visitNodes(value, visit, node)
-    else if (Array.isArray(value)) {
-      for (const item of value) {
-        if (isPositionedNode(item)) visitNodes(item, visit, node)
-      }
-    }
-  }
-}
-
 function applyCodeReplacements(
   code: string,
   replacements: Array<{ end: number, start: number, value: string }>,
@@ -1340,14 +1327,6 @@ async function assertNamedChannelImportAcyclic(
   }
 }
 
-interface EveExtensionImport {
-  call: PositionedNode
-  declaration: PositionedNode
-  identity?: string
-  local: string
-  source: string
-}
-
 function nodePropertyName(node: PositionedNode): unknown {
   const key = node.key
   return isPositionedNode(key) && key.type === "Identifier"
@@ -1369,512 +1348,6 @@ function unwrapTypeScriptExpression(node: PositionedNode): PositionedNode {
     expression = inner
   }
   return expression
-}
-
-function staticObjectProperty(
-  object: PositionedNode,
-  name: string,
-  objects: Map<string, PositionedNode>,
-  seen = new Set<PositionedNode>(),
-): PositionedNode | null | undefined {
-  if (seen.has(object)) return
-  seen.add(object)
-  const properties = Array.isArray(object.properties) ? object.properties : []
-  for (let index = properties.length - 1; index >= 0; index--) {
-    const property = properties[index]
-    if (!isPositionedNode(property)) continue
-    if (property.type === "Property" && property.computed !== true && nodePropertyName(property) === name) return property
-    if (property.type !== "SpreadElement") continue
-    const argument = property.argument
-    if (!isPositionedNode(argument) || argument.type !== "Identifier" || typeof argument.name !== "string") return null
-    const spread = objects.get(argument.name)
-    if (!spread) return null
-    const found = staticObjectProperty(spread, name, objects, seen)
-    if (found !== undefined) return found
-  }
-}
-
-function eveExtensionIdentityNamespace(specifier: string): string {
-  const encoded = [...specifier].map((character) => {
-    if (/[a-z0-9-]/i.test(character)) return character
-    if (character === "_") return "_u"
-    if (character === "@") return "_a"
-    if (character === "/") return "_s"
-    return `_x${character.codePointAt(0)!.toString(16)}_`
-  }).join("")
-  return `pkg-${encoded}`
-}
-
-export async function transformEveExtensionCapabilities(
-  code: string,
-  parse: (code: string) => unknown,
-  resolveExtension: (specifier: string) => Promise<boolean | string>,
-  resolveExtensionIdentity: (specifier: string) => Promise<boolean | string> = resolveExtension,
-): Promise<string | undefined> {
-  const program = parse(code)
-  if (!isPositionedNode(program)) return
-
-  const imports = new Map<string, { declaration: PositionedNode, source: string }>()
-  const defineAgentImports = new Set<string>()
-  const defineAgentNamespaces = new Set<string>()
-  const staticArrays = new Map<string, PositionedNode>()
-  const staticObjects = new Map<string, PositionedNode>()
-  const exportedStaticArrays = new Set<PositionedNode>()
-  const optionFactories = new Map<string, PositionedNode>()
-  const optionValues = new Map<string, PositionedNode>()
-  const dynamicOptionFactoryRanges = new Set<PositionedNode>()
-  const references = new Map<string, number>()
-  const functionRanges: Array<{ end: number, start: number }> = []
-  const nestedClassRanges: Array<{ end: number, start: number }> = []
-  const shadowRanges = new Map<string, Array<{ end: number, start: number }>>()
-  for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement)) continue
-    const declarationStatement = statement.type === "ExportNamedDeclaration" && isPositionedNode(statement.declaration)
-      ? statement.declaration
-      : statement
-    if (declarationStatement.type === "FunctionDeclaration") {
-      const identifier = declarationStatement.id
-      if (isPositionedNode(identifier) && identifier.type === "Identifier" && typeof identifier.name === "string") {
-        optionFactories.set(identifier.name, declarationStatement)
-      }
-      continue
-    }
-    if (declarationStatement.type !== "VariableDeclaration" || declarationStatement.kind !== "const") continue
-    for (const declaration of Array.isArray(declarationStatement.declarations) ? declarationStatement.declarations : []) {
-      if (!isPositionedNode(declaration) || declaration.type !== "VariableDeclarator") continue
-      const identifier = declaration.id
-      const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
-      if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
-      if (!isPositionedNode(initializer)) continue
-      optionValues.set(identifier.name, initializer)
-      if (initializer.type.includes("Function")) optionFactories.set(identifier.name, initializer)
-      if (initializer.type === "ArrayExpression") {
-        staticArrays.set(identifier.name, initializer)
-        if (statement.type === "ExportNamedDeclaration" && identifier.name === "capabilities") exportedStaticArrays.add(initializer)
-      }
-      if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
-    }
-  }
-  for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement)) continue
-    if (statement.type === "ExportNamedDeclaration") {
-      for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
-        if (!isPositionedNode(specifier)) continue
-        const local = specifier.local
-        if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") continue
-        const exported = specifier.exported
-        const exportedName = isPositionedNode(exported) && exported.type === "Identifier"
-          ? exported.name
-          : isPositionedNode(exported) && exported.type === "Literal"
-            ? exported.value
-            : undefined
-        if (exportedName !== "capabilities") continue
-        const array = staticArrays.get(local.name)
-        if (array) exportedStaticArrays.add(array)
-      }
-    }
-  }
-  visitNodes(program, (node, parent) => {
-    const nonComputedPropertyKey = parent?.type === "Property"
-      && parent.computed !== true
-      && parent.shorthand !== true
-      && parent.key === node
-    const nonComputedMemberProperty = parent?.type === "MemberExpression"
-      && parent.computed !== true
-      && parent.property === node
-    if (node.type === "Identifier" && typeof node.name === "string" && !nonComputedPropertyKey && !nonComputedMemberProperty) {
-      references.set(node.name, (references.get(node.name) ?? 0) + 1)
-    }
-    if (node.type.includes("Function")) functionRanges.push({ end: node.end, start: node.start })
-    if (node.type === "PropertyDefinition" || node.type === "StaticBlock") nestedClassRanges.push({ end: node.end, start: node.start })
-    if (node.type !== "ImportDeclaration") return
-    const source = node.source
-    const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
-    if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") return
-    if (source.value === "@vite-hub/agent" || source.value === "vite-hub/agent") {
-      for (const specifier of specifiers) {
-        if (!isPositionedNode(specifier)) continue
-        if (specifier.type === "ImportNamespaceSpecifier") {
-          const local = specifier.local
-          if (isPositionedNode(local) && local.type === "Identifier" && typeof local.name === "string") {
-            defineAgentNamespaces.add(local.name)
-          }
-          continue
-        }
-        if (specifier.type !== "ImportSpecifier") continue
-        const imported = specifier.imported
-        const local = specifier.local
-        if (
-          isPositionedNode(imported)
-          && imported.type === "Identifier"
-          && imported.name === "defineAgent"
-          && isPositionedNode(local)
-          && local.type === "Identifier"
-          && typeof local.name === "string"
-        ) defineAgentImports.add(local.name)
-      }
-    }
-    const defaultSpecifier = specifiers.find(specifier => isPositionedNode(specifier) && specifier.type === "ImportDefaultSpecifier")
-    if (!isPositionedNode(defaultSpecifier)) return
-    const local = defaultSpecifier.local
-    if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") return
-    imports.set(local.name, { declaration: node, source: source.value })
-  })
-  if (!imports.size) return
-
-  const shadowable = new Set([
-    ...imports.keys(),
-    ...defineAgentImports,
-    ...defineAgentNamespaces,
-    ...staticArrays.keys(),
-    ...staticObjects.keys(),
-    ...optionFactories.keys(),
-    ...optionValues.keys(),
-  ])
-  const bindingNames = (value: unknown): string[] => {
-    if (!isPositionedNode(value)) return []
-    if (value.type === "Identifier" && typeof value.name === "string") return [value.name]
-    if (value.type === "RestElement") return bindingNames(value.argument)
-    if (value.type === "AssignmentPattern") return bindingNames(value.left)
-    if (value.type === "ArrayPattern") return (Array.isArray(value.elements) ? value.elements : []).flatMap(bindingNames)
-    if (value.type === "ObjectPattern") {
-      return (Array.isArray(value.properties) ? value.properties : []).flatMap((property) => {
-        if (!isPositionedNode(property)) return []
-        return property.type === "RestElement" ? bindingNames(property.argument) : bindingNames(property.value)
-      })
-    }
-    return []
-  }
-  const recordShadows = (value: unknown, range?: { end: number, start: number }): void => {
-    if (!range) return
-    for (const name of bindingNames(value)) {
-      if (!shadowable.has(name)) continue
-      const ranges = shadowRanges.get(name) ?? []
-      ranges.push(range)
-      shadowRanges.set(name, ranges)
-    }
-  }
-  const collectShadows = (
-    value: unknown,
-    scope?: { end: number, start: number },
-    functionScope?: { end: number, start: number },
-  ): void => {
-    if (!value || typeof value !== "object") return
-    const node = value as Record<string, unknown>
-    const nextScope = isPositionedNode(node) && (
-      node.type === "BlockStatement"
-      || node.type === "CatchClause"
-      || node.type === "ForStatement"
-      || node.type === "ForInStatement"
-      || node.type === "ForOfStatement"
-      || node.type === "StaticBlock"
-      || node.type === "SwitchStatement"
-      || node.type.includes("Function")
-    )
-      ? { end: node.end, start: node.start }
-      : scope
-    const nextFunctionScope = isPositionedNode(node) && node.type.includes("Function")
-      ? { end: node.end, start: node.start }
-      : functionScope
-    if (node.type === "VariableDeclaration") {
-      const declarationScope = node.kind === "var" ? nextFunctionScope ?? nextScope : nextScope
-      for (const declaration of Array.isArray(node.declarations) ? node.declarations : []) {
-        if (isPositionedNode(declaration) && declaration.type === "VariableDeclarator") {
-          recordShadows(declaration.id, declarationScope)
-        }
-      }
-    }
-    if (nextScope && typeof node.type === "string" && node.type.includes("Function")) {
-      for (const parameter of Array.isArray(node.params) ? node.params : []) {
-        recordShadows(parameter, nextScope)
-      }
-    }
-    if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") recordShadows(node.id, scope)
-    if (node.type === "FunctionExpression" || node.type === "ClassExpression") recordShadows(node.id, nextScope)
-    if (node.type === "CatchClause") recordShadows(node.param, nextScope)
-    for (const child of Object.values(node)) {
-      if (Array.isArray(child)) child.forEach(item => collectShadows(item, nextScope, nextFunctionScope))
-      else collectShadows(child, nextScope, nextFunctionScope)
-    }
-  }
-  collectShadows(program)
-
-  const calls: EveExtensionImport[] = []
-  const collectedArrays = new Set<PositionedNode>()
-  function collectExtensionCalls(array: PositionedNode): void {
-    if (collectedArrays.has(array)) return
-    collectedArrays.add(array)
-    for (const rawElement of Array.isArray(array.elements) ? array.elements : []) {
-      if (!isPositionedNode(rawElement)) continue
-      const element = unwrapTypeScriptExpression(rawElement)
-      if (element.type === "SpreadElement") {
-        const argument = element.argument
-        if (isPositionedNode(argument) && argument.type === "Identifier" && typeof argument.name === "string") {
-          if (shadowRanges.get(argument.name)?.some(range => argument.start > range.start && argument.end < range.end)) continue
-          const spreadArray = staticArrays.get(argument.name)
-          if (spreadArray) collectExtensionCalls(spreadArray)
-        }
-        continue
-      }
-      if (element.type !== "CallExpression") continue
-      const rawCallee = element.callee
-      if (!isPositionedNode(rawCallee)) continue
-      const callee = unwrapTypeScriptExpression(rawCallee)
-      if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue
-      const imported = imports.get(callee.name)
-      if (!imported) continue
-      if (shadowRanges.get(callee.name)?.some(range => element.start > range.start && element.end < range.end)) continue
-      calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
-    }
-  }
-  function collectDynamicOptionFactories(value: PositionedNode, seen = new Set<PositionedNode>()): void {
-    const expression = unwrapTypeScriptExpression(value)
-    if (seen.has(expression)) return
-    seen.add(expression)
-    if (expression.type === "Identifier" && typeof expression.name === "string") {
-      if (shadowRanges.get(expression.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
-      const initializer = optionValues.get(expression.name)
-      if (initializer) collectDynamicOptionFactories(initializer, seen)
-      return
-    }
-    if (expression.type === "CallExpression") {
-      const callee = expression.callee
-      if (isPositionedNode(callee) && callee.type === "Identifier" && typeof callee.name === "string") {
-        if (shadowRanges.get(callee.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
-        const factory = optionFactories.get(callee.name)
-        if (factory) dynamicOptionFactoryRanges.add(factory)
-      }
-      return
-    }
-    if (expression.type !== "ObjectExpression") return
-    for (const property of Array.isArray(expression.properties) ? expression.properties : []) {
-      if (!isPositionedNode(property) || property.type !== "SpreadElement" || !isPositionedNode(property.argument)) continue
-      collectDynamicOptionFactories(property.argument, seen)
-    }
-  }
-  visitNodes(program, (node) => {
-    if (node.type !== "CallExpression") return
-    const callee = node.callee
-    const isDefineAgentCall = isPositionedNode(callee)
-      && (
-        (callee.type === "Identifier" && typeof callee.name === "string" && defineAgentImports.has(callee.name)
-          && !shadowRanges.get(callee.name)?.some(range => node.start > range.start && node.end < range.end))
-        || (
-          callee.type === "MemberExpression"
-          && callee.computed !== true
-          && isPositionedNode(callee.object)
-          && callee.object.type === "Identifier"
-          && typeof callee.object.name === "string"
-          && defineAgentNamespaces.has(callee.object.name)
-          && !shadowRanges.get(callee.object.name)?.some(range => node.start > range.start && node.end < range.end)
-          && isPositionedNode(callee.property)
-          && callee.property.type === "Identifier"
-          && callee.property.name === "defineAgent"
-        )
-      )
-    if (!isDefineAgentCall) return
-    const rawOptions = Array.isArray(node.arguments) ? node.arguments[0] : undefined
-    if (!isPositionedNode(rawOptions)) return
-    collectDynamicOptionFactories(rawOptions)
-    const unwrappedOptions = unwrapTypeScriptExpression(rawOptions)
-    const options = unwrappedOptions.type === "ObjectExpression"
-      ? unwrappedOptions
-      : unwrappedOptions.type === "Identifier" && typeof unwrappedOptions.name === "string"
-        && !shadowRanges.get(unwrappedOptions.name)?.some(range => node.start > range.start && node.end < range.end)
-          ? staticObjects.get(unwrappedOptions.name)
-        : undefined
-    if (!options) return
-    const capabilities = staticObjectProperty(options, "capabilities", staticObjects)
-    if (!isPositionedNode(capabilities)) return
-    const rawValue = capabilities.value
-    if (!isPositionedNode(rawValue)) return
-    const value = unwrapTypeScriptExpression(rawValue)
-    const array = value.type === "ArrayExpression"
-      ? value
-      : value.type === "Identifier" && typeof value.name === "string"
-        && !shadowRanges.get(value.name)?.some(range => value.start > range.start && value.end < range.end)
-          ? staticArrays.get(value.name)
-        : undefined
-    if (!array) return
-    collectExtensionCalls(array)
-  })
-  for (const array of exportedStaticArrays) collectExtensionCalls(array)
-  const staticallyMountedImports = new Set(calls.map(call => call.local))
-  for (const [local, imported] of imports) {
-    if (staticallyMountedImports.has(local) || !dynamicOptionFactoryRanges.size) continue
-    let hasDynamicOptionReference = false
-    visitNodes(program, (node, parent) => {
-      if (hasDynamicOptionReference || node.type !== "Identifier" || node.name !== local) return
-      if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
-      if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
-      if (node.start >= imported.declaration.start && node.end <= imported.declaration.end) return
-      if (shadowRanges.get(local)?.some(range => node.start > range.start && node.end < range.end)) return
-      if (![...dynamicOptionFactoryRanges].some(range => node.start > range.start && node.end < range.end)) return
-      hasDynamicOptionReference = true
-    })
-    if (hasDynamicOptionReference && await resolveExtension(imported.source)) {
-      throw agentDiagnostics.AGENT_B0007({ message: `[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.` })
-    }
-  }
-  if (!calls.length) return
-
-  const extensions: EveExtensionImport[] = []
-  for (const call of calls) {
-    const resolvedIdentity = await resolveExtension(call.source)
-    if (!resolvedIdentity) continue
-    if ([...functionRanges, ...nestedClassRanges].some(range => call.call.start > range.start && call.call.end < range.end)) {
-      throw agentDiagnostics.AGENT_B0008({ message: `[vitehub] Eve extension ${JSON.stringify(call.source)} must be mounted in a top-level static capabilities array.` })
-    }
-    const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
-    if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
-      throw agentDiagnostics.AGENT_B0009({ message: `[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.` })
-    }
-    extensions.push({ ...call, identity: typeof resolvedIdentity === "string" ? resolvedIdentity : call.source })
-  }
-  if (!extensions.length) return
-
-  const packageCounts = new Map<string, number>()
-  for (const extension of extensions) {
-    packageCounts.set(extension.identity!, (packageCounts.get(extension.identity!) ?? 0) + 1)
-  }
-  const duplicate = [...packageCounts].find(([, count]) => count > 1)
-  if (duplicate) throw agentDiagnostics.AGENT_B0010({ message: `[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.` })
-  const identifiers = new Set(references.keys())
-  let helper = "__vitehubEveExtensionCapability"
-  while (identifiers.has(helper)) helper += "_"
-  const firstImport = extensions.reduce((first, extension) =>
-    extension.declaration.start < first.declaration.start ? extension : first
-  )
-  const replacements: Array<{ end: number, start: number, value: string }> = []
-  const runtimeImportIdentities = new Map<PositionedNode, string>()
-  for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement) || statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
-    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : []
-    if (!specifiers.some(specifier => !isPositionedNode(specifier) || specifier.importKind !== "type")) continue
-    const source = statement.source
-    if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") continue
-    const identity = await resolveExtensionIdentity(source.value)
-    if (identity) runtimeImportIdentities.set(statement, typeof identity === "string" ? identity : source.value)
-  }
-  for (const extension of extensions) {
-    const separateRuntimeImport = [...runtimeImportIdentities]
-      .find(([statement, identity]) => statement !== extension.declaration && identity === extension.identity)?.[0]
-    if (separateRuntimeImport) {
-      throw agentDiagnostics.AGENT_B0011({ message: `[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot be imported separately as a runtime value.` })
-    }
-    let hasSurvivingReference = false
-    visitNodes(program, (node, parent) => {
-      if (hasSurvivingReference || node.type !== "Identifier" || node.name !== extension.local) return
-      if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
-      if (parent?.type === "ImportSpecifier" && parent.imported === node && parent.local !== node) return
-      if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
-      if (node.start >= extension.declaration.start && node.end <= extension.declaration.end) return
-      if (extensions.some((candidate) => {
-        const callee = candidate.call.callee
-        return candidate.local === extension.local
-          && isPositionedNode(callee)
-          && node.start >= callee.start
-          && node.end <= callee.end
-      })) return
-      if (shadowRanges.get(extension.local)?.some(range => node.start > range.start && node.end < range.end)) return
-      hasSurvivingReference = true
-    })
-    if (hasSurvivingReference) {
-      throw agentDiagnostics.AGENT_B0012({ message: `[vitehub] Eve extension factory ${JSON.stringify(extension.local)} cannot be referenced outside its static Capability mount.` })
-    }
-    const args = Array.isArray(extension.call.arguments) ? extension.call.arguments : []
-    const config = isPositionedNode(args[0]) ? code.slice(args[0].start, args[0].end) : "undefined"
-    replacements.push({
-      end: extension.call.end,
-      start: extension.call.start,
-      value: `await ${helper}(${JSON.stringify(extension.identity)}, ${JSON.stringify(eveExtensionIdentityNamespace(extension.identity!))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
-    })
-    const retainedSpecifiers = Array.isArray(extension.declaration.specifiers)
-      ? extension.declaration.specifiers.filter((specifier) => {
-          if (!isPositionedNode(specifier) || specifier.type === "ImportDefaultSpecifier") return false
-          return specifier.importKind === "type" || extension.declaration.importKind === "type"
-        })
-      : []
-    const valueCoImports = Array.isArray(extension.declaration.specifiers)
-      ? extension.declaration.specifiers.filter(specifier => isPositionedNode(specifier) && specifier.type !== "ImportDefaultSpecifier" && specifier.importKind !== "type" && extension.declaration.importKind !== "type")
-      : []
-    if (valueCoImports.length) {
-      throw agentDiagnostics.AGENT_B0013({ message: `[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot share its import with named runtime values.` })
-    }
-    replacements.push({
-      end: extension.declaration.end,
-      start: extension.declaration.start,
-      value: [
-        ...(extension === firstImport ? [`import { eveExtensionCapability as ${helper} } from ${JSON.stringify(agentRuntimeModule("eve"))}`] : []),
-        ...(retainedSpecifiers.length
-          ? [`import type { ${retainedSpecifiers.map(specifier => code.slice(specifier.start, specifier.end).replace(/^type\s+/, "")).join(", ")} } from ${JSON.stringify(extension.source)}`]
-          : []),
-      ].join("\n"),
-    })
-  }
-  return applyCodeReplacements(code, replacements)
-}
-
-const supportedEveExtensionContracts = {
-  1: {
-    config: [1],
-    dynamicTool: [8],
-    extension: [1],
-    tool: [5],
-  },
-  2: {
-    config: [1],
-    // Epochs whose tool shapes ViteHub's adapter is tested against: 20, GitHub Tools 0.8.0 (54/52),
-    // and GitHub Tools 0.8.1 built with Eve 0.72.1 (76/72).
-    // This adapter-specific list is independent of Eve's runtime support table.
-    dynamicTool: [20, 52, 72],
-    extension: [1],
-    tool: [20, 54, 76],
-  },
-} satisfies Record<number, Record<string, readonly number[]>>
-
-async function resolveEveExtensionPackage(
-  config: Pick<ResolvedConfig, "createResolver">,
-  specifier: string,
-  importer: string,
-  validate = true,
-): Promise<false | string> {
-  const entry = await config.createResolver()(specifier, importer)
-  if (!entry) return false
-  let directory = dirname(entry.split(/[?#]/, 1)[0]!)
-  while (true) {
-    const packagePath = join(directory, "package.json")
-    if (existsSync(packagePath)) {
-      const packageJson: unknown = JSON.parse(await readFile(packagePath, "utf8"))
-      const packageName = isRecord(packageJson) ? packageJson.name : undefined
-      const eve = isRecord(packageJson) && isRecord(packageJson.eve) ? packageJson.eve : undefined
-      const extension = eve && isRecord(eve.extension) ? eve.extension : undefined
-      if (typeof packageName === "string" && extension) {
-        if (!validate) return packageName
-        const dist = extension.dist
-        if (typeof dist !== "string") return false
-        const manifestPath = resolve(directory, dist, "_manifest.json")
-        const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"))
-        const formatVersion = isRecord(manifest) ? manifest.formatVersion : undefined
-        const requires = isRecord(manifest) && isRecord(manifest.requires) ? manifest.requires : undefined
-        if (!isRecord(manifest) || manifest.kind !== "eve-extension" || !requires
-          || (formatVersion !== 1 && formatVersion !== 2)) {
-          throw agentDiagnostics.AGENT_B0014({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported compatibility manifest (expected eve-extension format 1 or 2).` })
-        }
-        const contracts = supportedEveExtensionContracts[formatVersion]
-        for (const [contract, version] of Object.entries(requires)) {
-          const versions = Object.entries(contracts).find(([name]) => name === contract)?.[1]
-          if (typeof version !== "number" || !Number.isInteger(version) || version < 1 || !versions?.includes(version)) {
-            throw agentDiagnostics.AGENT_B0015({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.` })
-          }
-        }
-        return packageName
-      }
-    }
-    const parent = dirname(directory)
-    if (parent === directory) return false
-    directory = parent
-  }
 }
 
 function generatedRuntimeHelpers(): string[] {
@@ -3244,7 +2717,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   const agent: AgentOptions | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
-  const eveExtensionOwners = new Map<string, string>()
   let installsCloudflareState = false
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
@@ -3266,12 +2738,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let stateDurability: AgentStateDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
-
-  function clearEveExtensionOwnership(owner: string): void {
-    for (const [specifier, currentOwner] of eveExtensionOwners) {
-      if (currentOwner === owner) eveExtensionOwners.delete(specifier)
-    }
-  }
 
   function workflowState(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
@@ -3440,9 +2906,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
     },
     async configureServer(server) {
-      const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
-      server.watcher?.on("add", clearUnlinkedEveExtensionOwnership)
-      server.watcher?.on("unlink", clearUnlinkedEveExtensionOwnership)
       let discoveryRefresh: Promise<void> | undefined
       let discoveryClosed = false
       const pendingDiscovery = new Map<string, boolean>()
@@ -3479,8 +2942,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         pendingDiscovery.clear()
         server.watcher?.off("add", refreshDiscovery)
         server.watcher?.off("unlink", refreshDiscovery)
-        server.watcher?.off("add", clearUnlinkedEveExtensionOwnership)
-        server.watcher?.off("unlink", clearUnlinkedEveExtensionOwnership)
         await discoveryRefresh
       }
       server.watcher?.on("add", refreshDiscovery)
@@ -3508,7 +2969,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     },
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
-      clearEveExtensionOwnership(file)
       const agentRoots = (serverDirs ?? [join(resolved?.root ?? context.server.config.root, "server")])
         .map(directory => `${resolve(directory).replace(/\\/g, "/")}/agents/`)
       const relativeAgentPath = agentRoots
@@ -3566,22 +3026,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
         let transformed = code
         if (projectModule) {
-          clearEveExtensionOwnership(normalizedId)
-          transformed = await transformEveExtensionCapabilities(
-            transformed,
-            value => this.parse(value),
-            async (specifier) => {
-              const identity = await resolveEveExtensionPackage(resolved!, specifier, normalizedId)
-              if (!identity) return false
-              const owner = eveExtensionOwners.get(identity)
-              if (owner && owner !== normalizedId) {
-                throw agentDiagnostics.AGENT_B0018({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.` })
-              }
-              eveExtensionOwners.set(identity, normalizedId)
-              return identity
-            },
-            specifier => resolveEveExtensionPackage(resolved!, specifier, normalizedId, false),
-          ) ?? transformed
           const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
             || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
           const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)

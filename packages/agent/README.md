@@ -17,7 +17,7 @@ Keep the three pieces separate:
 ## Install
 
 ```sh
-pnpm add @vite-hub/agent @vite-hub/workspace ai
+pnpm add @vite-hub/agent @vite-hub/env @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
@@ -25,14 +25,6 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 `driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
 
 Add the AI SDK model provider you pass to `model`.
-
-Eve extensions are optional and require Node.js 24 or newer. Install the compatible pair before mounting one in a static Capability list:
-
-```sh
-pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
-```
-
-For the accepted manifest contracts, the bridge supports one `session.started`, `turn.started`, or `step.started` handler per dynamic tool during Invocation preparation. Reading an unavailable session sequence, `stepIndex`, step model, or `modelId` throws `AGENT_R0415`. It does not provide real per-step lifecycle hooks, Eve sandbox, token, auth, or dynamic-skill adapters. Approval definitions may use `{ request }`; response authorizers are rejected. See [Eve extension capabilities](https://vitehub.dev/docs/agents/capabilities#use-an-eve-extension).
 
 The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 provider runtime. Install only the provider packages an Agent uses:
 
@@ -155,6 +147,28 @@ Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, in
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
+The Agent reads the Codex `auth.json` from a Server Env secret:
+
+```ts
+// vite.config.ts
+import { hubAgent } from "@vite-hub/agent/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    hubEnv({
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+      },
+    }),
+    hubWorkspace(),
+    hubAgent(),
+  ],
+});
+```
+
 ```ts
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
@@ -185,8 +199,6 @@ export default defineAgent({
 The resolver remains the external source of truth, but ViteHub does not write Codex refreshes back to it. A persisted profile is a complete Codex Home, including auth, configuration, session state, and logs, so treat the whole volume as sensitive. Give each Kubernetes replica its own persistent volume; profiles do not coordinate a shared multi-writer volume across processes or pods. Agent inspection reports only that a credential source is configured and never resolves, checks, or prints it.
 
 Provider Drivers require a local Node.js host; Cloudflare Agents and Deno fail explicitly. Set `sandbox` on the Agent Definition to start the provider command inside an [`@vite-hub/sandbox`](../sandbox/README.md) session. Each invocation opens a new Sandbox with its checkout, environment, Home files, and requirements resolved for that invocation. ViteHub adds the provider command to the requirements and writes Driver instructions and Skills to the Sandbox Home. The Sandbox runtime must forward process input, and Capability tools need a runtime that shares the ViteHub network. `sandbox` rejects model and custom `run` Drivers, `driver.launch`, `driver.credentials`, `driver.credentialProfile`, and `workspace` when the Agent is defined. Sandbox invocations do not resume provider sessions, fail explicitly on Windows hosts, and fail when the Sandbox session cannot close. Set `driver.cwd` to an existing directory, or a resolver that returns one, to run the provider in an application-owned checkout. ViteHub then materializes Workspace Sources but starts no Workspace session: it does not copy files, create a Git baseline, write changes back, or remove the directory. Title and progress summary runs ignore `cwd`. Cloudflare Worker builds exclude the provider Driver runtime through the `workerd` and `worker` package conditions and fail with `AGENT_B0019` when the Worker output contains a provider Driver. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` for Codex or a literal prompt file for Claude Code, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active. Set `sessionStorePath` to keep opaque provider cursors in SQLite across restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Dedicate each file to one provider Agent Definition on one persistent process host; it does not coordinate concurrent ownership of one thread across workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
-Codex never removes its sessions, logs, or thread history, so its Home grows without a limit. Set `driver.retention: { maxAge, maxRecords, maxSize }` on the Codex Driver, for example `{ maxSize: '45%' }`, to remove the oldest data in the background until every limit holds. `maxSize` counts the Home's files, SQLite live pages, and WAL files; a percent is a share of the volume. Retention runs on the first Codex invocation, then at most every 10 minutes, and never removes a running thread or a file changed in the last 10 minutes. Sessions that a resume cursor references go last; the next invocation of that conversation then sends the full message history. It needs a persistent Home (`credentialProfile`, `providerSettings.homePath`, or `CODEX_HOME`); plain `credentials` without a profile fail with `AGENT_R1006`. `vitehub agent codex-home status|prune --home <path>` measures and prunes a Home with the same rules. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#limit-the-codex-home-size).
-
 When all selected Workspace Sources materialize successfully before the provider session starts, ViteHub appends source evidence for each ready GitHub Source with an immutable commit revision. Direct, inferred shorthand, and resolved GitHub Sources are supported. If session startup must retry materialization, ViteHub omits source evidence because the mounted revision may change. The evidence gives the canonical repository URL, commit revision, configured source root, and Workspace mount so the provider can cite the mounted files without rediscovering their origin. ViteHub omits mutable or unavailable revisions, custom Sources, invalid repository metadata, and Source credentials.
 
 Process hosts can call `failInterruptedAgentInvocations(store, { recover })` at startup. `recover` must identify records owned by the stopped process host. Exclude durable Workflows and other provider-owned work because their active records may not hold a store claim while suspended. Recovery first respects an existing claim, waits up to `recoveryTimeoutMs`, and asks `recover` again before taking over the stopped host's claim. The timeout defaults to `claimLeaseMs`.
@@ -272,17 +284,6 @@ Capability setup and close callbacks emit `agent.capability.<phase>` timing even
 `title()` accepts message input or a plain `prompt`. It selects the prepared user message matching `run.messageId`, or the latest prepared user message when no ID is available. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Each journaled invocation generates its own title even when Channel thread-title delivery has already succeeded. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
-
-```ts
-// vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
-});
-```
 
 ## CLI inspection
 

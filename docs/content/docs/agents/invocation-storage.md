@@ -586,29 +586,34 @@ On Vercel, Agents run through the inline Workflow adapter, because Vercel's dete
 
 ## Store invocations in Cloudflare D1
 
-Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load:
+Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load. `useDatabaseBinding()` returns the D1 binding of a [ViteHub Database](/docs/database/server-api#pass-the-d1-binding-to-other-code):
 
 ```ts [server/invocations.ts]
-import { env } from 'cloudflare:workers'
 import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
+import { useDatabaseBinding } from 'vite-hub/database/drizzle'
 
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({
-    database: () => env.DB,
+    database: () => useDatabaseBinding('default'),
+    migrate: false,
     maxAge: '30d',
     maxRecords: 10_000,
   }),
 })
 ```
 
-The store creates its table and indexes on each isolate's first use of a binding, with `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation retries on the next operation. To use your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
+With `cloudflare.readReplication`, `useDatabaseBinding()` returns a new D1 session for each request. The store's automatic setup runs once per database object, so leaving it enabled would run schema writes on the primary in every request. The example sets `migrate: false`; apply the schema with your deployment migrations before serving requests.
+
+Print the schema statements with `d1AgentInvocationSchema()` and apply them to the D1 database:
 
 ```ts [scripts/invocation-schema.ts]
 import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
+
+When using a stable D1 binding without request sessions, you can omit `migrate: false` to create the table and indexes on first use of each binding in a Worker isolate. The statements use `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation is retried on the next operation.
 
 `tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub database generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
 
