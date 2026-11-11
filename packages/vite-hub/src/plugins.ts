@@ -1262,7 +1262,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(agentChannelEnvPlugin())
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
-  plugins.push(publicUrlPlugin(options.publicUrl, configuredConsole?.auth === "token"))
+  plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}

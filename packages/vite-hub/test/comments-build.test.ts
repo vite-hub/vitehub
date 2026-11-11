@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import { startBuiltServer } from "./content-preview-fixture.ts"
+import { freePort, startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli, serverBuild } from "./support/content-cms.ts"
 
 import type { CommentThread } from "@vite-hub/comments/client"
@@ -36,7 +36,10 @@ describe("Comments in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // Production output must never invent a local identity, even with NODE_ENV=development.
-    const app = () => vitehub({ auth: true, console: { authorize: "./server/console-authorize.ts" }, preset: "node" })
+    // Signed calls on Node check the origin that `publicUrl` names, so the server starts on a known port.
+    const port = await freePort()
+    const publicUrl = `http://127.0.0.1:${port}`
+    const app = () => vitehub({ auth: true, console: { authorize: "./server/console-authorize.ts" }, preset: "node", publicUrl })
     const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])
@@ -59,7 +62,7 @@ describe("Comments in a built Nitro 3 app", () => {
     } as never)
     await builder.buildApp()
 
-    const server = await startBuiltServer(root, { ...ci.env, NODE_ENV: "development" })
+    const server = await startBuiltServer(root, { ...ci.env, NODE_ENV: "development" }, { port })
     try {
       const unsigned = await server.fetch("/_vitehub/rpc", {
         body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }),
@@ -70,7 +73,7 @@ describe("Comments in a built Nitro 3 app", () => {
       expect(await unsigned.json()).toMatchObject({ code: "CONSOLE_SIGNATURE_MISSING" })
       // The Console signs each call for the person who uses it.
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const signed = await signedRpcRequest({ caller: { user: { id: "ana", name: "Ana" }, via: "console" }, input, key: ci.key, operation, url: `http://127.0.0.1:${server.port}/_vitehub/rpc` })
+        const signed = await signedRpcRequest({ caller: { user: { id: "ana", name: "Ana" }, via: "console" }, input, key: ci.key, operation, url: `${publicUrl}/_vitehub/rpc` })
         const response = await server.fetch("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)

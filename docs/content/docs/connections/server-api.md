@@ -27,7 +27,7 @@ A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. `createConnection
 With `createConnectionsHandler()`, pass `actor` as one of these:
 
 - a function that returns `user:<id>` to allow a manager, `undefined` to reject with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject with it
-- `'development'`, which allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere
+- `'development'`, which allows `user:local` only when `NODE_ENV` is `development` and the request comes from this machine. A request from another machine returns `403` with `CONNECTIONS_FORBIDDEN`, and another runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`
 
 The provider redirects to the OAuth callback. It finishes the flow only for the browser that started it (the `state` cookie) and the same manager. The `state` works once and expires after 10 minutes. A `state` from another manager returns `403`.
 
