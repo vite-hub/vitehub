@@ -339,11 +339,16 @@ export async function loadConsoleSignInState(): Promise<ConsoleSignInState> {
   return { passkeys, providers, methods }
 }
 
+interface EarlyLoad<T> {
+  start: () => Promise<unknown>
+  take: () => Promise<T>
+}
+
 /**
  * A load that starts before its page opens, such as when the pointer reaches the page's link. The page takes it when it
  * opens, so it renders the answer at once. An answer older than 30 seconds is loaded again.
  */
-function early<T>(load: () => Promise<T>): { start: () => Promise<unknown>, take: () => Promise<T> } {
+function early<T>(load: () => Promise<T>): EarlyLoad<T> {
   let pending: { at: number, answer: Promise<T> } | undefined
   const fresh = () => pending !== undefined && Date.now() - pending.at < 30_000
   return {
@@ -367,7 +372,7 @@ function early<T>(load: () => Promise<T>): { start: () => Promise<unknown>, take
 }
 
 /** The data of the Members page, loaded early. */
-export const earlyConsoleTeam = early(loadConsoleTeam)
+export const earlyConsoleTeam: EarlyLoad<ConsoleTeamDetails> = early(loadConsoleTeam)
 
 /** The data of Account settings, loaded early. */
-export const earlyConsoleSignInState = early(loadConsoleSignInState)
+export const earlyConsoleSignInState: EarlyLoad<ConsoleSignInState> = early(loadConsoleSignInState)

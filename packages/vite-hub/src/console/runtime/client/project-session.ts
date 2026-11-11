@@ -851,6 +851,8 @@ let showAccountPath: ((path: string) => void) | undefined
  */
 export function showConsoleAccountPage(page: ConsoleAccountPage): void {
   const projects = useState()
+  // An earlier app-opening response must not replace the page the person selected.
+  ++probeVersion
   const path = `${projects.home.replace(/\/+$/, "")}/${page}`
   if (projects.gate.value.kind === "ready") {
     projects.navigate(path)

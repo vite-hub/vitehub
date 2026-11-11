@@ -534,6 +534,7 @@ export default defineConfig({
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/account"];
+          delete exports["./console/runtime/client/account-views"];
           delete exports["./console/runtime/client/appearance"];
           delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];

@@ -324,6 +324,37 @@ describe("account Console", () => {
     module.openAccountProject(linked.id)
     expect(state.navigate).toHaveBeenLastCalledWith("/")
   })
+
+  describe.each(["home", "team", "settings"] as const)("while %s is selected", (page) => {
+    it.each([200, 401])("ignores a late %s app response", async (status) => {
+      const pending = pendingResponse()
+      const { module, state } = await account(() => pending.promise)
+      state.openingView = "shell"
+      const opening = module.openConsoleProject()
+      expect(state.gate.value).toEqual({ kind: "opening" })
+
+      module.showConsoleAccountPage(page)
+      pending.resolve(Response.json(status === 200 ? projectGet : tokenRejection, { status }))
+      await opening
+
+      expect(state.gate.value).toEqual({ kind: "home", page })
+      expect(state.info.value).toBeUndefined()
+      expect(state.navigate).not.toHaveBeenCalled()
+    })
+  })
+
+  it.each([200, 401])("uses a late %s app response when the user stays on the opening view", async (status) => {
+    const pending = pendingResponse()
+    const { module, state } = await account(() => pending.promise)
+    state.openingView = "shell"
+    const opening = module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "opening" })
+
+    pending.resolve(Response.json(status === 200 ? projectGet : tokenRejection, { status }))
+    await opening
+
+    expect(state.gate.value).toEqual(status === 200 ? { kind: "ready" } : { kind: "setup", project: linked })
+  })
 })
 
 describe("linking a project", () => {
