@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // One build input for each component module. The package exports only the entries below, but separate files let an
 // app's bundler drop every component that it does not import, with the code of their dependencies.
@@ -17,7 +17,7 @@ const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     alias: { "vega-canvas": vegaCanvasBrowser },
     copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }],
     deps: {
@@ -82,7 +82,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: "ci-only",
   },
 });

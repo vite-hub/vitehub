@@ -1,18 +1,20 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: [{
+    ...packDefaults,
     // Vue components. Their declarations need the full type checker: `defineComponent()` types cannot be written by hand.
-    // This config runs first and cleans `dist`. The next one writes the package exports, these two included.
+    // This config runs first and cleans `dist`. The next one writes the package exports, this one included.
+    exports: false,
     deps: { alwaysBundle: ["@vite-hub/icons"], neverBundle: ["vue", /^@vite-hub\/(?!icons$)/], onlyBundle: false },
     entry: ["src/primitive-rail.ts"],
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
     tsconfig: "tsconfig.vue.json",
   }, {
+    ...packDefaults,
     clean: false,
-    tsconfig: "tsconfig.build.json",
     // Nuxt compiles the Vue app and the theme. Nitro handlers are entries, so they ship as JavaScript.
     copy: [{ from: "runtime/app", to: "dist/runtime" }, { from: "runtime/theme", to: "dist/runtime" }],
     deps: {
@@ -34,11 +36,6 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   }, {
     // @nuxtjs/mcp-toolkit gives the MCP tools to Nitro by path. Nitro does not compile TypeScript in node_modules, so
     // the tools ship as JavaScript, with every import left for Nitro to resolve.

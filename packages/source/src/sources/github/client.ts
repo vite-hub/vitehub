@@ -25,7 +25,6 @@ export function githubErrorStatus(error: unknown): number | undefined {
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before they are used.
   return typeof value === "string" && value.length > 0
 }
 
@@ -109,7 +108,6 @@ export function createGitHubClient(repo: string): GitHubClient {
     },
     async resolveCommit(ref, token, signal) {
       const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
       if (typeof sha !== "string" || !sha) throw malformed(repo, "commit")
       return sha
     },

@@ -76,7 +76,6 @@
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/ui": "workspace:*",
-    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "defu": "catalog:unjs",

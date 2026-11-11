@@ -110,7 +110,6 @@ export type AgentPublicErrorCode =
   | "CAPABILITY_NOT_FOUND"
   | "HOST_RESTARTED"
   | "INTERNAL"
-  | "LLM_GATE_REJECTED"
   | "PROVIDER_AUTHENTICATION_FAILED"
   | "PROVIDER_QUOTA_EXHAUSTED"
   | "PROVIDER_RATE_LIMITED"
@@ -141,7 +140,6 @@ export interface AgentPublicErrorDetails {
   limits?: AgentPublicErrorBudgetLimits
   exceeded?: readonly AgentPublicErrorBudgetExceeded[]
   capability?: string
-  category?: string
   /** Provider quota reset time as an ISO 8601 timestamp, for a validated reset time. */
   resetAt?: string
   /** Validated provider quota reset time as the provider wrote it, for example `Sep 15th, 2026 1:23 AM`. */
@@ -423,10 +421,6 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
       return viteHubError.code === "RATE_LIMIT_UNAVAILABLE"
         ? publicError("RATE_LIMIT_UNAVAILABLE", "Rate limiting is unavailable.", details)
         : publicError("RATE_LIMIT_REJECTED", "Rate limit exceeded. Try again later.", details)
-    }
-    if (viteHubError?.code === "LLM_GATE_REJECTED") {
-      const category = identifier(viteHubError.details?.category)
-      return publicError("LLM_GATE_REJECTED", "Agent request was rejected.", publicDetails(error, category ? { category } : {}))
     }
     if (viteHubError?.code === "CAPABILITY_NOT_FOUND") {
       return publicError("CAPABILITY_NOT_FOUND", "Capability was not found.", publicDetails(error))

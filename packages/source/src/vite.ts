@@ -34,6 +34,7 @@ const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
+const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentTypesPluginEntry = ".vitehub/content/types.mjs"
 // The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
 const contentTypesEntry = ".vitehub/types/content.d.ts"
@@ -79,7 +80,7 @@ export interface SourceVitePluginOptions {
   importBase?: string
 }
 
-/** The discovered `server/content.ts` file. It exports the Content runtime as `content`. */
+/** The discovered `server/content.ts` file. Its default export is the Content runtime. */
 export interface ContentDefinitionFile {
   handler: string
 }
@@ -139,6 +140,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentSqliteEntry,
     contentTypesPluginEntry,
     contentTypesEntry,
   ]
@@ -174,6 +176,7 @@ async function restoreGeneratedSourceArtifacts(
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentSqliteEntry,
     contentTypesPluginEntry,
     contentTypesEntry,
   ]) {
@@ -341,7 +344,7 @@ async function writeCollectionArtifacts(
 }
 
 /**
- * Find the `server/content.{ts,js}` file that exports the application Content runtime as `content`. Returns undefined when
+ * Find the `server/content.{ts,js}` file whose default export is the application Content runtime. Returns undefined when
  * the project has none. The generated `/api/content/**` route and the Console content editor import the same file.
  */
 export async function findContentEntry(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
@@ -366,8 +369,14 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
   if (candidates.length > 1) throw sourceErrorDiagnostics.SOURCE_B0007({ message: "[vitehub] Content is defined in more than one server directory." })
   const file = candidates[0]
   if (!file) return
-  if (!exportNames(await readFile(file, "utf8"), file).includes("content")) {
-    throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".` })
+  const exports = exportNames(await readFile(file, "utf8"), file)
+  if (!exports.includes("default")) {
+    const name = JSON.stringify(relative(options.projectRoot, file))
+    // A named `content` export was the form before the default export.
+    if (exports.includes("content")) {
+      throw sourceErrorDiagnostics.SOURCE_B0009({ message: `[vitehub] Content file ${name} exports \`content\` by name. Content is now the default export: \`export default defineContent({ ... })\`.` })
+    }
+    throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${name} must default-export the result of defineContent(): \`export default defineContent({ ... })\`.` })
   }
   return file
 }
@@ -386,6 +395,8 @@ export interface ContentEntryFeatures {
   markdown: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
+  /** The module imports `sqlite` from `vite-hub/content/sqlite`, so SQLite WASM must load when a Worker starts. */
+  sqlite: boolean
 }
 
 type AstNode = Record<string, unknown> & { type?: unknown }
@@ -416,12 +427,23 @@ function unwrapAst(node: unknown): unknown {
 }
 
 /**
- * Read the `defineContent()` call that initializes the `content` export. Collections count as present unless the call
+ * Read the `defineContent()` call that the default export holds. Collections count as present unless the call
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
  * `sitemap`, `robots`, or `markdown` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
-  const maybe: ContentEntryFeatures = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+  return { ...inspectContentOptions(program, contentImportBase), sqlite: importsContentSqlite(program, contentImportBase) }
+}
+
+function importsContentSqlite(program: unknown, contentImportBase?: string): boolean {
+  const bases = contentImportBase ? new Set([...contentModules, contentImportBase]) : contentModules
+  const modules = new Set([...bases].map(base => `${base}/sqlite`))
+  return (isAstNode(program) ? astNodes(program.body) : [])
+    .some(statement => statement.type === "ImportDeclaration" && isAstNode(statement.source) && modules.has(String(statement.source.value)))
+}
+
+function inspectContentOptions(program: unknown, contentImportBase?: string): Omit<ContentEntryFeatures, "sqlite"> {
+  const maybe: Omit<ContentEntryFeatures, "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -447,14 +469,17 @@ export function inspectContentModule(program: unknown, contentImportBase?: strin
     if (isAstNode(declaration) && declaration.type === "VariableDeclaration") {
       for (const declarator of astNodes(declaration.declarations)) {
         const local = astName(declarator.id)
-        if (!local) continue
-        if (declaration.kind === "const") constants.set(local, declarator.init)
-        if (exported && local === "content") contentInit = declarator.init
+        if (local && declaration.kind === "const") constants.set(local, declarator.init)
       }
+    }
+    if (statement.type === "ExportDefaultDeclaration") {
+      const value = unwrapAst(statement.declaration)
+      if (isAstNode(value) && value.type === "Identifier") contentLocal = astName(value)
+      else contentInit = statement.declaration
     }
     if (exported && !statement.source) {
       for (const specifier of astNodes(statement.specifiers)) {
-        if (astName(specifier.exported) === "content") contentLocal = astName(specifier.local)
+        if (astName(specifier.exported) === "default") contentLocal = astName(specifier.local)
       }
     }
   }
@@ -501,7 +526,7 @@ export function inspectContentModule(program: unknown, contentImportBase?: strin
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: ContentEntryFeatures = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const features: Omit<ContentEntryFeatures, "sqlite"> = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
@@ -527,7 +552,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true, sqlite: false }
   }
 }
 
@@ -540,10 +565,11 @@ async function writeContentArtifact(
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   const markdown = resolve(options.projectRoot, contentMarkdownEntry)
+  const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
   const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown, typesPlugin, types].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, sqlite, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -551,7 +577,7 @@ async function writeContentArtifact(
   const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
-    `import { content } from ${contentModule}`,
+    `import content from ${contentModule}`,
     "",
     "export default defineContentHandler(content)",
     "",
@@ -565,12 +591,25 @@ async function writeContentArtifact(
     await writeFileIfChanged(preview, [
       `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
       "",
-      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.content))`,
+      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.default))`,
       "",
     ].join("\n"))
     handlers.push({ handler: preview, plugin: true })
   }
   else await rm(preview, { force: true })
+  // A Nitro plugin: loads `vite-hub/content/sqlite` while the server starts. Content loads on its first request, and a
+  // Cloudflare Worker compiles WebAssembly only while it starts, which SQLite WASM needs. On Node it loads Node SQLite.
+  if (features.sqlite) {
+    await writeFileIfChanged(sqlite, [
+      `import { sqlite } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/sqlite`)}`,
+      "",
+      "// Returning the import keeps it in the bundle. A bare import is dropped, because the packages have no side effects.",
+      "export default () => sqlite",
+      "",
+    ].join("\n"))
+    handlers.push({ handler: sqlite, plugin: true })
+  }
+  else await rm(sqlite, { force: true })
   // A Nitro plugin: writes the types of `content.get()`, `content.list()`, and `content.query()` in development.
   await writeFileIfChanged(typesPlugin, [
     `import { defineContentTypesPlugin } from ${importBase}`,
@@ -581,7 +620,7 @@ async function writeContentArtifact(
     '  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })',
     '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
     "}",
-    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).content, write, { moduleName: ${importBase} }) : () => {}`,
+    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).default, write, { moduleName: ${importBase} }) : () => {}`,
     "",
   ].join("\n"))
   handlers.push({ handler: typesPlugin, plugin: true })
@@ -601,7 +640,7 @@ async function writeContentArtifact(
     }
     await writeFileIfChanged(path, [
       `import { ${helper} } from ${importBase}`,
-      `import { content } from ${contentModule}`,
+      `import content from ${contentModule}`,
       "",
       `export default ${helper}(content)`,
       "",

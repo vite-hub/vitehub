@@ -13,7 +13,7 @@ Pass ViteHub Source definitions, registered names, readers, reader factories, or
 import { defineContent } from "@vite-hub/content"
 import { glob } from "@vite-hub/source"
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob({ cwd: "docs", include: "**/*.md" }),
     blog: glob({ cwd: "blog", include: "**/*.md" }),
@@ -39,7 +39,7 @@ import { defineContent } from "@vite-hub/content"
 import { glob } from "@vite-hub/source"
 import headings from "comark/plugins/headings"
 
-export const content = defineContent({
+export default defineContent({
   markdown: {
     plugins: [
       // Read each page description from its first blockquote
@@ -53,6 +53,13 @@ export const content = defineContent({
 Use per-render Markdown APIs when plugin values must come from an individual
 request or invocation. Content parsing and cache refreshes use the plugin list
 configured on the content runtime.
+
+`sqlite()` from `@vite-hub/content/sqlite` is an in-memory database for index
+plugins such as `sqlite-full-text-search`. It uses Node SQLite on Node and
+SQLite WASM on Cloudflare Workers, where the `workerd` export condition selects
+it. When `server/content.ts` imports it, the generated
+`.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
+because a Worker compiles WebAssembly only then.
 
 Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
 
@@ -112,7 +119,7 @@ import { documents } from "@vite-hub/content/collections"
 import cms from "@vite-hub/cms"
 import { z } from "zod"
 
-export const content = defineContent({
+const content = defineContent({
   extends: cms,
   collections: {
     posts: documents({
@@ -122,6 +129,8 @@ export const content = defineContent({
   },
   authorize: ({ user, actor, action }) => user?.role === "editor" && (actor === undefined || action !== "publish"),
 })
+
+export default content
 
 const posts = content.collection("posts")
 const saved = await posts.save("hello", { data: { title: "Hello", date: "2026-10-14" }, body: "# Hello" }, { ifDigest: null })
@@ -146,13 +155,15 @@ import { z } from "zod"
 import { defineContent } from "@vite-hub/content"
 import { documents, singleton } from "@vite-hub/content/collections"
 
-export const content = defineContent({
+const content = defineContent({
   workspace: "site",
   collections: {
     settings: singleton({ path: "settings.json", fields: { title: z.string(), social: z.array(z.url()).default([]) } }),
     authors: documents({ path: "authors/*.yaml", fields: { name: z.string() } }),
   },
 })
+
+export default content
 
 const settings = content.collection("settings") // kind: "singleton", id: "settings"
 const draft = await settings.save({ data: { title: "ViteHub" } })
@@ -181,7 +192,7 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 import { withAuth } from "@vite-hub/auth/server"
 import type { H3Event } from "h3"
 import { createError, defineEventHandler } from "h3"
-import { content } from "../content"
+import content from "../content"
 
 export default defineEventHandler(withAuth(async (event: H3Event, { user }) => {
   if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })

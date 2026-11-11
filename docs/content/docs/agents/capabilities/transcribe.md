@@ -27,95 +27,6 @@ export default defineAgent({
 })
 ```
 
-### OpenRouter
-
-`openRouterTranscriptionModel()` returns a normal AI SDK model that handles OpenRouter authentication, audio encoding, request shape, and errors, so your Agent needs no multipart code.
-
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-import { env } from 'vite-hub/env'
-
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    preset: 'node',
-    env: {
-      server: {
-        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
-      },
-    },
-  },
-})
-```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-import { env } from 'vite-hub/env'
-
-export default defineConfig({
-  plugins: [vitehub({
-    preset: 'node',
-    env: {
-      server: {
-        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
-      },
-    },
-  }), nitro()],
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-import { env } from 'vite-hub/env'
-
-export default defineConfig({
-  plugins: [vitehub({
-    preset: 'node',
-    env: {
-      server: {
-        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
-      },
-    },
-  })],
-})
-```
-:::
-::
-
-```ts [server/agents/voice.ts]
-import { useServerEnv } from '#vitehub/env/server'
-import { defineAgent } from 'vite-hub/agent'
-import {
-  openRouterTranscriptionModel,
-  transcribe,
-} from 'vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: { model: 'openai/gpt-5.1-mini' },
-  capabilities: [
-    transcribe({
-      model: openRouterTranscriptionModel({
-        apiKey: () => useServerEnv().openrouterApiKey.unseal(),
-        model: 'openai/gpt-4o-transcribe',
-      }),
-    }),
-  ],
-})
-```
-
-- It sends base64 JSON with `response_format: 'json'`, not `verbose_json`, which only some upstream providers support.
-
-- It forwards `providerOptions.openrouter` values for `language`, `temperature`, and `provider` routing.
-- Unsupported options throw instead of being ignored.
-
 ## How transcription works
 
 Before the model runs, for each audio part it:
@@ -278,8 +189,6 @@ Asynchronous transcription is Driver-independent: your code puts the operation a
 | `client.submit({ source, metadata, abortSignal })` | `submitted` operation | Submits a remote HTTP(S) source; returns the operation ID. |
 | `client.receive(payload)` | `completed \| failed` completion | Normalizes an authenticated completion payload. |
 | `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps Scribe v2 submission and callback payloads, hiding provider types. |
-
-`openRouterTranscriptionModel({ apiKey, model })` returns a model for synchronous `transcribe({ model })`.
 
 Without `artifacts.directory`, transcripts go to `transcripts/<date>/<stem>.txt` with the audio beside them. With transcripts off, audio goes to `audio/<date>/<stem>.<extension>`.
 

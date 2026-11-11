@@ -80,7 +80,8 @@ const viteHubAppEntries = [
   "server/modules/*.{ts,mts,js,mjs}",
   "server/modules/*/index.{ts,mts,js,mjs}",
   "server/{agents,browsers,channels,connections,queues,realtime,schedules,workflows,workspaces}/**/*.{ts,mts,js,mjs}",
-  "server/databases/**/config.{ts,mts,js,mjs}",
+  "server/databases/*.{ts,mts,js,mjs}",
+  "server/databases/**/index.{ts,mts,js,mjs}",
   "server/sandbox-tasks/**/index.{ts,mts,js,mjs}",
   "server/{auth,comments,content}.{ts,mts,js,mjs}",
   "server.auth.{ts,mts,js,mjs}",
@@ -163,8 +164,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "nuxt-site-config",
       // nuxt-og-image renders the `*.takumi.vue` share images with it.
       "@takumi-rs/core",
-      // remove when the unlisted happy-dom of the docs package tests is fixed
-      "happy-dom",
     ],
   },
   // The CLI loads `nuxt/kit` from the app with `createRequire`, so the app owns that dependency.
@@ -276,9 +275,8 @@ const config: KnipConfiguration = {
         "@vercel/blob",
         // Consumer tests resolve it from `packages/internal` with `createRequire`.
         "sharp",
-        // remove when the unused oxlint-tsgolint, chat and chat-state-cloudflare-do devDependencies of the root are fixed
+        // remove when the unused oxlint-tsgolint and chat-state-cloudflare-do devDependencies of the root are fixed
         "oxlint-tsgolint",
-        "chat",
         "chat-state-cloudflare-do",
       ],
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
