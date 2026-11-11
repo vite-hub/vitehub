@@ -39,6 +39,7 @@ import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
+import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions } from "./deployment.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
@@ -1315,8 +1316,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 
+  plugins.push(setupDevPlugin({ origins: configuredConsole?.origins }))
   plugins.push(operationsCheckPlugin())
-  // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
+  // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
   const devOperationsOnly = configuredConsole === undefined
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}

@@ -469,7 +469,7 @@ describe("generated Console access", () => {
     await expect(generatedPlugin({ console: { auth: false, origins: [] } }, "serve")).resolves.toContain("vitehubInstallConsoleOrigins([])")
   })
 
-  it("serves development operations without Console pages or assets", async () => {
+  it("serves development operations with Setup-only navigation and no app-served pages", async () => {
     const assets = [{ baseURL: "/public", dir: "/user-owned-assets" }]
     const config = { base: "/portal/", nitro: { handlers: [], publicAssets: assets } }
 

@@ -116,7 +116,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
   const startable = field("Kind") === "Started by code"
   return {
     cells: {
-      manual: field("Manual") === "Enabled" ? "Yes" : "No",
+      manual: field("Manual") === "Enabled" ? "Enabled" : "Disabled",
       schedule: summary.name,
       timing: startable ? "Started by code" : cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
     },
