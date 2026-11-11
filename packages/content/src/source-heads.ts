@@ -138,8 +138,14 @@ interface StoredHead {
   movedAt: string | null
   pinned: boolean
   rejected: ContentSourceHead["rejected"]
-  /** When a server instance last resolved the branch. Older heads do not have it. */
+  /** The check time in heads stored before polling metadata moved to its own key. */
   checkedAt?: string | null
+}
+
+/** The last completed branch check, separate from both head authority and the short check lease. */
+interface StoredCheck {
+  origin: string
+  at: string
 }
 
 /** One commit loaded through the commit cache. `commit` is missing when a document does not parse, and `reason` says why. */
@@ -233,6 +239,11 @@ function headKey(name: string): string {
 /** The KV key of the lease of the hourly check of a Source, such as `content:check:docs`. */
 function checkKey(name: string): string {
   return `content:check:${name}`
+}
+
+/** The KV key of the last completed branch check, such as `content:checked:docs`. */
+function checkedKey(name: string): string {
+  return `content:checked:${name}`
 }
 
 /** The KV key of the last push webhook delivery of a Source, such as `content:webhook:docs`. */
@@ -378,6 +389,16 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     await kvCall(state, store => store.set(headKey(state.name), head))
   }
 
+  async function lastCheck(state: HeadState, head: StoredHead): Promise<string | null> {
+    const stored = await kvCall(state, store => store.get<StoredCheck>(checkedKey(state.name)))
+    const at = head.checkedAt ?? head.movedAt
+    return stored?.origin === origin(state) && Date.parse(stored.at) >= (Date.parse(at ?? "") || 0) ? stored.at : at ?? null
+  }
+
+  async function checked(state: HeadState): Promise<void> {
+    await kvCall(state, store => store.set(checkedKey(state.name), { origin: origin(state), at: new Date().toISOString() }))
+  }
+
   /** Load and parse every document of `input`. Returns the documents, or the error when a document does not parse. */
   async function parse(name: string, input: ContentSourceInput): Promise<Omit<ContentCommit, "files"> | string> {
     // A fresh memory cache, so `snapshot()` reads the parsed documents back without loading the files again.
@@ -497,10 +518,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
-  /**
-   * Move the head to the latest valid commit of the branch, and return the stored head. With `recheck`, a branch that did
-   * not move still stores the time of the check.
-   */
+  /** Move the head to the latest valid commit of the branch, and record a completed check separately. */
   async function move(state: HeadState, recheck = false): Promise<StoredHead | null> {
     const before = await read(state)
     if (before?.pinned) return before
@@ -509,20 +527,22 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
     if (!revision?.immutable) return before
     if (revision.id === before?.sha) {
-      if (!recheck || !before) return before
-      const checked = { ...before, checkedAt: new Date().toISOString() }
-      await write(state, checked)
-      return checked
+      const latest = await read(state)
+      if (!recheck || JSON.stringify(latest) !== JSON.stringify(before)) return latest
+      await checked(state)
+      // A pin or webhook may have completed during the branch lookup. A check never restores the old head.
+      return await read(state)
     }
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
-      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, checkedAt: now }
-      : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null, checkedAt: now }
+      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason } }
+      : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null }
     // Best-effort conflict detection only. KV is not CAS: callers must serialize initialization and mutations through one writer.
     const latest = await read(state)
     if (JSON.stringify(latest) !== JSON.stringify(before)) return latest
     await write(state, next)
+    await checked(state)
     return next
   }
 
@@ -536,12 +556,13 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   /**
    * The head without a push for one hour resolves its branch again, so it moves without a webhook too. The server
    * instance that reads it first takes a one-minute lease under another KV key, so other server instances do not check
-   * too. Only the head write of the check stores `checkedAt`: a stale copy of the head never goes back to KV, and a
-   * failed check is tried again after the lease.
+   * too. A separate completion key stores `checkedAt`, so a check-only write cannot replace head authority or write the
+   * lease key twice within the provider's one-second limit. A failed check is tried again after the lease.
    */
   async function recheck(state: HeadState, head: StoredHead): Promise<StoredHead | null> {
-    const checkedAt = Date.parse(head.checkedAt ?? head.movedAt ?? "")
-    if (head.pinned || Date.now() - (Number.isNaN(checkedAt) ? 0 : checkedAt) < CHECK_MS) return head
+    if (head.pinned) return head
+    const checkedAt = Date.parse(await lastCheck(state, head) ?? "")
+    if (Date.now() - (Number.isNaN(checkedAt) ? 0 : checkedAt) < CHECK_MS) return head
     const lease = await kvCall(state, store => store.get<{ at: number }>(checkKey(state.name)))
     if (lease && Date.now() - lease.at < CHECK_LEASE_MS) return head
     await kvCall(state, store => store.set(checkKey(state.name), { at: Date.now() }))
@@ -621,7 +642,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       movedAt: head?.movedAt ?? null,
       pinned: head?.pinned ?? false,
       rejected: head?.rejected ?? null,
-      checkedAt: head?.checkedAt ?? null,
+      checkedAt: live && head ? await lastCheck(state, head) : null,
       webhook: await lastDelivery(state),
       cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, kv: kvHits }, misses },
       views: [...views.values()].filter(open => open.state === state).map(open => open.sha),
