@@ -1841,12 +1841,12 @@ describe("Babysitter preset runtime", () => {
   it("parks a malformed lockfile without retrying unchanged installation inputs", async () => {
     const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
-    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: {}\n");
+    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: [\n");
     try {
       await f.reconcile("babysitter.install.failed");
       const waiting = await f.runtime.inbox.get("acme/app", 12);
       expect(waiting?.status).toBe("waiting");
-      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("Source contains multiple documents") });
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("Flow sequence") });
       expect(waiting?.wait?.retryAt).toBeUndefined();
       expect(f.passes).toHaveLength(0);
       const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 600_000);

@@ -1,7 +1,7 @@
 import { defineHandler } from "h3"
 import { contentField } from "vite-hub/content/client"
 
-import { content } from "../content"
+import content from "../content"
 
 // The public site lists published posts only. It has no edit button: editors open /_vitehub.
 export default defineHandler(async () => {

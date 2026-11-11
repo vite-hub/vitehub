@@ -6,6 +6,7 @@ import { applyStreamEvent } from "../src/messages.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
+  agentResultKind,
   agentToolStreamDefaults,
   agentStreamErrorSymbol,
   finalTextFromAgentOutput,
@@ -17,6 +18,11 @@ import {
 } from "../src/agent-output.ts"
 
 describe("agent output helpers", () => {
+  it("classifies a hostile proxy result without reading its properties", () => {
+    const hostile = new Proxy({}, { get() { throw new Error("blocked property") } })
+    expect(agentResultKind(hostile)).toBe("object")
+  })
+
   it("normalizes primitive values into Agent run results", () => {
     expect(toAgentRunResult("ok")).toEqual({ raw: "ok", text: "ok" })
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
