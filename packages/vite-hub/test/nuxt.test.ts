@@ -26,6 +26,7 @@ import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubAgent } from "@vite-hub/agent/vite"
+import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
@@ -781,6 +782,27 @@ describe("ViteHub Nuxt integration", () => {
       vi.unstubAllEnvs()
       await rm(envDir, { force: true, recursive: true })
     }
+  })
+
+  it("registers Content KV when Nuxt 5 builds Nitro 3 without a Vite environment", async () => {
+    const content = hubContent()
+    mocks.vitehub.mockReturnValue([content, hubKv(undefined, { hosting: "node" })])
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const file = resolve(nuxt.options.serverDir!, "content.ts")
+    await mkdir(nuxt.options.serverDir!, { recursive: true })
+    await writeFile(file, "export default {}")
+    await viteHubNuxtModule({ kv: true, preset: "node" }, nuxt)
+    const config: Record<string, unknown> = {}
+    await runNitroConfigHook(config)
+    const modules = config.modules as Array<typeof content.nitro>
+    const module = modules.find(candidate => candidate.name === content.nitro.name)
+    expect(module).toBeDefined()
+    const options = { rollupConfig: { plugins: [] as Plugin[] } }
+    module!.setup({ options })
+    const plugin = options.rollupConfig.plugins.find(candidate => candidate.name === "@vite-hub/content/nitro-kv")!
+    const transform = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
+    expect(await Reflect.apply(transform, {}, ["export default {}", file])).toMatchObject({ code: expect.stringContaining("__vitehubRegisterContentKV(__vitehubContentKV)") })
   })
 
   it.each(["application", "layer", "contribution"])("infers Postgres KV from a %s Database when Nuxt skips the Vite build", async (source) => {

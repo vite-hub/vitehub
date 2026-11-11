@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { comarkContent } from "comark-content"
+import { comarkContent, memory } from "comark-content"
 import type { ContentGetOptions, ContentOptions, JsonSchema, Source as ComarkContentSource } from "comark-content"
 import { createSource, useSource } from "@vite-hub/source"
-import type { Source, SourceItem, SourceName } from "@vite-hub/source"
+import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { withContentSnapshot } from "./snapshots.ts"
@@ -24,8 +24,11 @@ export interface ContentSourceOptions {
 
 type ContentSourceItem = SourceItem<string, unknown, object>
 type RuntimeObject = Record<string, unknown>
+/** The revision that each load of a Source definition reads, such as the head commit of a `github()` Source. */
+type ContentSourceRevision = () => SourceRevision | undefined | Promise<SourceRevision | undefined>
+type ContentSourceFactoryOptions = Omit<ContentSourceOptions, "url"> & { revision?: ContentSourceRevision }
 type ContentSourceFactory = {
-  create(options?: ContentSourceOptions): ComarkContentSource
+  create(options?: ContentSourceFactoryOptions): ComarkContentSource
 }
 type ContentSourceState = {
   latestItems?: Map<string, ContentSourceItem>
@@ -174,18 +177,19 @@ function getContentSourceFactory(source: ComarkContentSource): ContentSourceFact
 }
 
 function contentSourceOptions(
-  defaults: ContentSourceOptions,
-  overrides: ContentSourceOptions,
-): ContentSourceOptions {
+  defaults: ContentSourceFactoryOptions,
+  overrides: ContentSourceFactoryOptions,
+): ContentSourceFactoryOptions {
   return {
     prefix: overrides.prefix ?? defaults.prefix,
     schema: overrides.schema ?? defaults.schema,
+    revision: overrides.revision ?? defaults.revision,
   }
 }
 
 function createContentSourceFactory(
   sourceInput: Source<string, unknown, object> | SourceName | ContentSourceReader | (() => ContentSourceReader),
-  defaults: ContentSourceOptions,
+  defaults: ContentSourceFactoryOptions,
 ): ContentSourceFactory {
   const state: ContentSourceState = { latestSequence: 0, nextSequence: 0 }
   const factory: ContentSourceFactory = {
@@ -198,10 +202,11 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
+            const revision = await options.revision?.()
             const currentReader = isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
-                ? createSource(sourceInput)
+                ? createSource(sourceInput, revision ? { revision } : undefined)
                 : isRuntimeFunction(sourceInput)
                   ? sourceInput()
                   : sourceInput
@@ -269,7 +274,8 @@ export function contentSourceUrl(input: ContentSourceInput | undefined): Content
   return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
 }
 
-function contentSourceDefinition(input: ContentSourceInput): Source<string, unknown, object> | undefined {
+/** The `@vite-hub/source` Source definition behind an input, if any. */
+export function contentSourceDefinition(input: ContentSourceInput): Source<string, unknown, object> | undefined {
   if (isSourceDefinition(input)) return input
   return isComarkContentSource(input) ? contentSourceDefinitions.get(input) : undefined
 }
@@ -290,7 +296,8 @@ export async function contentSourceKeys(input: ContentSourceInput): Promise<stri
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  const { url = contentSourceUrl(input), ...comarkOptions } = options
+  const { url = contentSourceUrl(input), prefix, schema } = options
+  const comarkOptions = { prefix, schema }
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
   }
@@ -310,12 +317,15 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
 
 /**
  * Create the Comark instance of one Source. With `snapshot`, the instance hydrates from the build-time snapshot on its
- * first read and keeps the Source as its origin.
+ * first read and keeps the Source as its origin. With `revision`, each load of a Source definition reads that revision.
  */
-export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader): ReturnType<typeof comarkContent> {
-  const source = contentSource(input)
+export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader, revision?: ContentSourceRevision): ReturnType<typeof comarkContent> {
+  const adapted = contentSource(input)
+  const source = revision ? getContentSourceFactory(adapted)?.create({ revision }) ?? adapted : adapted
   options = {
     ...options,
+    // A persistent Comark cache has no commit identity. Keep managed GitHub caches local to this instance.
+    ...(revision && options.cache !== false ? { cache: { ...options.cache, driver: memory() } } : {}),
     plugins: options.plugins?.map(plugin => plugin && ({
       ...plugin,
       setup(context) {

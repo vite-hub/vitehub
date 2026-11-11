@@ -1164,7 +1164,8 @@ function doctorPlugin(): Plugin {
 
 /**
  * The ViteHub plugin list. When `server/content.ts` selects the `cms` preset of `@vite-hub/cms` and `database`,
- * `blob`, or `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
+ * `blob`, or `workspace` is unset, ViteHub turns that feature on. When it imports `github()` and `kv` is unset, ViteHub
+ * turns KV on for the head commits of the Sources. See `withCmsPresetPlugins()`.
  */
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
