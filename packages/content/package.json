@@ -99,6 +99,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "comark": "catalog:markdown-ui",
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
@@ -111,6 +112,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "drizzle-orm": "catalog:database",
@@ -127,7 +129,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
