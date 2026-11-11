@@ -191,6 +191,10 @@ The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the databas
 
 The options of `defineDatabase()`, or an object in them such as `schema`, `cloudflare`, or `connection`, is not a plain object.
 
+### DATABASE_INVALID_RELATIONS
+
+The `relations` of a Definition, a Nuxt layer, or a table contribution name a table that the merged database does not hold, or a table that a later Nuxt layer replaced. Drizzle builds SQL from the table objects in the relations, so they must be the tables of the database. Pass `defineRelations()` the same table objects as `schema`. When a layer replaces a table, define the relations of that table in the same layer.
+
 ### DATABASE_INVALID_REMOTE
 
 `remote` is not `true` or `false`. Set `remote: true` to query the real D1 database in `vite dev`, or remove it to keep local SQLite.
@@ -263,7 +267,7 @@ ViteHub reads the `cloudflare` object from the source to write the D1 binding. W
 
 ### DATABASE_RESERVED_SCHEMA_KEY
 
-A schema key is one that the generated schema module uses for its own exports. Rename the table key.
+A schema key is one that the generated schema module uses for its own exports: `schema`, `relations`, or `default`. Rename the table key.
 
 ### DATABASE_SCHEMA_LOAD_FAILED
 
