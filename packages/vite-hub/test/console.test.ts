@@ -36,7 +36,7 @@ import agentInvocationsHandlerRoute from "../src/console/runtime/server/agent-in
 import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/internal/default-invocations"
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"

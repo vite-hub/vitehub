@@ -1,3 +1,4 @@
+import { agentSurface } from "./agent-surface/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
@@ -21,4 +22,5 @@ export const codemods: readonly Codemod[] = [
   defineForms,
   oneEntryImports,
   vitehubOptions,
+  agentSurface,
 ]

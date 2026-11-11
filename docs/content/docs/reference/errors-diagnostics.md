@@ -51,10 +51,10 @@ Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, suc
 Catch a diagnostic by its full `code` when your app can fix or classify that exact defect.
 
 ```ts
-import { getAgentFromRegistry } from 'vite-hub/agent'
+import { loadAgent } from 'vite-hub/agent'
 
 try {
-  await getAgentFromRegistry('triage', {})
+  await loadAgent('triage', {})
 }
 catch (error) {
   if (error instanceof Error && 'code' in error && error.code === 'AGENT_R0001') {
