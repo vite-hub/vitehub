@@ -1,6 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import sqlite from "comark-content/database/sqlite-node"
+import sqlQuery from "comark-content/plugins/sql-query"
+import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
@@ -197,6 +200,25 @@ describe("content.sources.at()", () => {
     expect(views).toHaveLength(MAX_SOURCE_VIEWS)
     expect(views.at(-1)).toBe(shas[0])
     expect(downloads()).toBe(before)
+  })
+
+  it("drops the SQL tables and search rows of a view that leaves the pool", async () => {
+    const database = sqlite()
+    const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false, plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database })] })
+    cleanup.push(() => content.dispose())
+    const tables = async () => (await database.all<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '__search_r%'`)).length
+    const sources = async () => (await database.all<{ source: string }>(`SELECT DISTINCT source FROM __fts_search`)).length
+    for (let index = 0; index < MAX_SOURCE_VIEWS + 2; index++) {
+      const view = await content.sources.at(fake.commit("main", { "guide.md": page(`Guide ${index}`) }), "docs")
+      expect(await view.search("Guide")).not.toHaveLength(0)
+      await view.list()
+    }
+    // Eviction closes views in the background.
+    await vi.waitFor(async () => expect(await sources()).toBe(MAX_SOURCE_VIEWS))
+    expect(await tables()).toBe(MAX_SOURCE_VIEWS)
+    await content.dispose()
+    expect(await sources()).toBe(0)
+    expect(await tables()).toBe(0)
   })
 
   it("shares one view and one download between refs at the same commit", async () => {

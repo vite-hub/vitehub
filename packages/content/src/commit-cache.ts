@@ -169,15 +169,12 @@ export function withCommitDocuments(origin: ComarkContentSource, load: () => Pro
     return { commit, index }
   }
   // Comark changes the manifest and documents that it holds, such as on `refresh()`. It gets copies, so the cached commit
-  // stays as it was parsed.
+  // stays as it was parsed. There is no `manifest()` tier: each init loads the snapshot, so index plugins such as
+  // `sql-query` rebuild their tables at the served commit and never keep the rows of another commit.
   return {
     parsed: true,
     origin,
     ...(origin.schema ? { schema: origin.schema } : {}),
-    async manifest() {
-      const loaded = await documents()
-      return loaded && structuredClone(loaded.commit.manifest)
-    },
     async get(key) {
       const item = (await documents())?.index.get(key)
       return item && structuredClone(item)
