@@ -10,6 +10,7 @@
     "test": "vp run --cache -t @vite-hub/console#build && vp test"
   },
   "dependencies": {
+    "@better-auth/passkey": "catalog:auth",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/runtime": "workspace:*",

@@ -16,6 +16,7 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { generatedModules } from "../internal/generated-modules.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
+import { setupDevRoute } from "../setup-dev.ts"
 
 function resolveConsoleRuntimeRoot(): string {
   const root = [
@@ -159,6 +160,8 @@ export interface ConsoleNitroPluginOptions {
   file: string
   projectRoot: string
   sections: readonly ConsoleSectionId[]
+  /** Visible navigation, when it differs from the sections whose operations need runtime state. */
+  navigationSections?: readonly ConsoleSectionId[]
   /** The discovered Agents, Schedules, operations, and section content. */
   catalog: ConsoleBuildCatalog
   blobStores: readonly string[]
@@ -177,6 +180,7 @@ function renderConsoleNitroPlugin(
   {
     projectRoot,
     sections: configuredSections,
+    navigationSections,
     catalog,
     blobStores,
     invoke = false,
@@ -250,9 +254,9 @@ function renderConsoleNitroPlugin(
     ...accessCode.imports,
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
-    `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
+    `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
+    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(independentAuth)}, ${JSON.stringify(navigationSections)}` : independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,

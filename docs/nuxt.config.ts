@@ -6,6 +6,8 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
   modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
+  sourcemap: { server: false },
   docs: {
     site: {
       name: "ViteHub",
@@ -308,9 +310,12 @@ export default defineNuxtConfig({
       nodeCompat: true,
       wrangler: {
         name: "vitehub-docs",
+        // Minify the final upload, including the icon collections and server-rendered Markdown dependencies.
+        minify: true,
         compatibility_date: "2026-07-19",
         workers_dev: false,
         preview_urls: true,
+        upload_source_maps: false,
         d1_databases: [
           {
             binding: "DB",
