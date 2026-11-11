@@ -479,7 +479,7 @@ export const validScheduleCron: DoctorRule = createRule({
       ScriptNode(node) {
         if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["schedule"], "defineSchedule")) return
         const [first] = callArguments(node)
-        const cronNode = stringValue(first) === undefined ? objectValue(first, "cron") : first
+        const cronNode = objectValue(first, "cron")
         const cron = stringValue(cronNode)
         if (cron === undefined) return
         const problems = cronProblems(cron)

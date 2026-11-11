@@ -41,7 +41,7 @@ function withTestDatabase<TSchema extends Record<string, unknown>>(
     if (!test || !localSqlite) return database
     const sqlite = localSqlite
     return test.backend(`database:${name}`, () => {
-      const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
+      const directory = migrationsDir ?? `server/databases/${name}/migrations`
       const client = sqlite.createTestClient(test.root, directory)
       // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
       return sqlite.drizzle(client, { schema }) as RuntimeDrizzleDatabase<TSchema>

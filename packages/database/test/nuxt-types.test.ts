@@ -25,7 +25,7 @@ async function createApp() {
   tempDirs.push(root)
   // The config marks the project root, so ViteHub does not climb to the repository.
   await writeModule(join(root, "nuxt.config.ts"), ["export default {}"])
-  await writeModule(join(root, "server/databases/config.ts"), [
+  await writeModule(join(root, "server/databases/default.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     "export default defineDatabase({",

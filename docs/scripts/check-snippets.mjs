@@ -266,11 +266,11 @@ const registries = [
     type: "collections",
   },
   {
-    // @vite-hub/database: src/internal/generated.ts. `server/databases/config.ts` and `src/database.ts` define the
-    // `default` Database, and `server/databases/<name>/config.ts` a named one.
+    // @vite-hub/database: src/internal/generated.ts. `src/database.ts` defines the `default` Database.
+    // Server Definitions use `server/databases/<name>.ts` or `server/databases/<name>/index.ts`.
     definitions: (label) => {
-      if (/^server\/databases\/config\.[cm]?ts$/.test(label) || label === "src/database.ts") return ["default"]
-      const name = /^server\/databases\/(.+)\/config\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
+      if (label === "src/database.ts") return ["default"]
+      const name = /^server\/databases\/([^/]+)(?:\/index)?\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
     render: entries => ["@vite-hub/database", "vite-hub/database"].flatMap(module => [

@@ -3,7 +3,7 @@ import { defineHandler, getRouterParam } from "h3"
 import { contentHead } from "vite-hub/content"
 import { contentField } from "vite-hub/content/client"
 
-import { content } from "../../content"
+import content from "../../content"
 import { attributes, escape, renderHead } from "../../html"
 
 // The site's own components for the ones that posts declare in server/content.ts.

@@ -33,7 +33,7 @@ Without an event store, Overview and Activity show the setup steps. Overview sti
 
 Add `events.store` to `defineAuth()`. This example uses a SQLite Database Definition named `auth`. Keep your Better Auth adapter and options.
 
-```ts [server/databases/auth/config.ts]
+```ts [server/databases/auth/index.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ name: 'auth', schema: {} })

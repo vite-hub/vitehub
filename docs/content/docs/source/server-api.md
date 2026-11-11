@@ -148,7 +148,7 @@ await cachedRecaps.get('2026-07')
 
 A Collection is the paged list that your app serves to clients. For a Drizzle database, let `table()` build the query. This example reads the `articles` table of the default Database:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 

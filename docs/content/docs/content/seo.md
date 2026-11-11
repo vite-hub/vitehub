@@ -25,7 +25,7 @@ import { defineContent, seo } from 'vite-hub/content'
 import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
@@ -49,7 +49,7 @@ A read-only Source (files Content does not edit) gets a `url` from `contentSourc
 import { contentSource, defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
   source: contentSource(glob({ cwd: 'content', include: 'guides/*.md' }), { url: '/:id' }),
   seo: { sitemap: true },
 })
@@ -146,7 +146,7 @@ import { defineContent, seo } from 'vite-hub/content'
 import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
@@ -176,7 +176,7 @@ Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate
 Check the output from code:
 
 ```ts [server/utils/seo-check.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function checkSeo() {
   await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]

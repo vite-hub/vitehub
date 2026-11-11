@@ -20,7 +20,7 @@ describe("Nuxt remote Database development", () => {
     { customRegistry: true, mode: "http" },
   ])("uses D1 HTTP with $mode and custom registry $customRegistry", async ({ customRegistry, mode }) => {
     const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-remote-"))
-    const definition = join(root, "server/databases/config.ts")
+    const definition = join(root, "server/databases/default.ts")
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     const watchHooks: Array<(event: string, path: string) => Promise<void> | void> = []
     try {
@@ -52,7 +52,7 @@ describe("Nuxt remote Database development", () => {
       for (const hook of hooks) await hook(config)
       const entry = join(root, "query.mjs")
       await writeFile(entry, [
-        'import definition from "./server/databases/config.ts"',
+        'import definition from "./server/databases/default.ts"',
         ...customRegistry ? [] : ['import { useDatabase } from "@vite-hub/database"'],
         'process.env.CLOUDFLARE_ACCOUNT_ID = "account-id"',
         'process.env.CLOUDFLARE_API_TOKEN = "api-token"',

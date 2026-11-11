@@ -19,7 +19,7 @@ vi.mock("#vitehub/database/databases", () => ({
           dialect: "sqlite",
           drizzle: {},
           generatedSchemaFile: ".vitehub/database/schema/default.ts",
-          migrationsDir: "server/databases/migrations",
+          migrationsDir: "server/databases/default/migrations",
           mode: "default",
           name: "default",
           orm: "drizzle",
@@ -34,7 +34,7 @@ let root: string
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "vitehub-database-test-mode-"))
-  const migrations = join(root, "server/databases/migrations")
+  const migrations = join(root, "server/databases/default/migrations")
   await mkdir(join(migrations, "meta"), { recursive: true })
   await writeFile(join(migrations, "0000_notes.sql"), "CREATE TABLE `notes` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`title` text NOT NULL\n);\n")
   await writeFile(join(migrations, "meta/_journal.json"), JSON.stringify({

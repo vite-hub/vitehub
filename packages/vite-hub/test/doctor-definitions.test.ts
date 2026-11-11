@@ -24,7 +24,7 @@ describe("vitehub/known-definition-names", () => {
   const definitions = {
     "server/queues/welcome-email.ts": queue,
     "server/workflows/onboard.ts": workflow,
-    "server/databases/analytics/config.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "sqlite" })\n',
+    "server/databases/analytics/index.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "sqlite" })\n',
   }
 
   it("reports names that match no discovered Definition", async () => {
@@ -266,9 +266,9 @@ describe("vitehub/valid-schedule-cron", () => {
   it("accepts portable cron expressions", async () => {
     expect(await codes(validScheduleCron, {
       "server/schedules/a.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "*/15 0-23 * 1,6 *", handler: async () => {} })\n',
-      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * 1-5", async () => {})\n',
+      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * 1-5", handler: async () => {} })\n',
       // The process runtime accepts names and both day fields. Provider builds report them with `SCHEDULE_R0003`.
-      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * MON", async () => {})\n',
+      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * MON", handler: async () => {} })\n',
       "server/schedules/e.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 0 1 * 1", handler: async () => {} })\n',
     })).toEqual([])
   })

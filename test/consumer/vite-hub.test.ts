@@ -522,8 +522,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await writeFile(join(appDir, "server/comments.ts"), "export const comments = {}\n", "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/comments @vite-hub/database drizzle-orm")
       await rm(join(appDir, "server/comments.ts"))
-      await writeFile(join(appDir, "server/content.cts"), 'export { content } from "./definition"\n', "utf8")
-      await writeFile(join(appDir, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport const content = { extends: cms }\n', "utf8")
+      await writeFile(join(appDir, "server/content.cts"), 'export { default } from "./definition"\n', "utf8")
+      await writeFile(join(appDir, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport default { extends: cms }\n', "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/content @vite-hub/cms @vite-hub/database drizzle-orm @vite-hub/workspace")
     }
     finally {
@@ -924,15 +924,15 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir)
-      await mkdir(join(appDir, "server/databases/migrations"), { recursive: true })
+      await mkdir(join(appDir, "server/databases/default/migrations"), { recursive: true })
       await Promise.all([
         writeFile(join(appDir, "app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
-        writeFile(join(appDir, "server/databases/config.ts"), [
+        writeFile(join(appDir, "server/databases/default.ts"), [
           'import { defineDatabase } from "vite-hub/database"',
           "export default defineDatabase({ schema: {} })",
           "",
         ].join("\n"), "utf8"),
-        writeFile(join(appDir, "server/databases/migrations/0001_portable.sql"), "SELECT 1;\n", "utf8"),
+        writeFile(join(appDir, "server/databases/default/migrations/0001_portable.sql"), "SELECT 1;\n", "utf8"),
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default defineNuxtConfig({
             modules: ["vite-hub/nuxt"],

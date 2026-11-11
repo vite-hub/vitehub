@@ -47,7 +47,7 @@ the room.
 
 This adapter stores pages in the `pages` table of the default Database:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
 

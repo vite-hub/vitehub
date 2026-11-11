@@ -14,7 +14,7 @@ Use the app's SQLite Drizzle database or another one. Like the Env and Connectio
 
 Here, users and events share the `auth` Database. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
-```ts [server/databases/auth/config.ts]
+```ts [server/databases/auth/index.ts]
 import { defineDatabase } from '@vite-hub/database'
 
 export default defineDatabase({ name: 'auth', schema: {} })
