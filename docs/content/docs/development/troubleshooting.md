@@ -65,7 +65,7 @@ or set a provider in its package. The
 Tell runtime failures apart from model behavior. Use `vitehub agent dev` to
 inspect one run. Use Agent Evals when the bad behavior repeats. If the check
 times out before it reaches the failure, raise the dev-loop inactivity
-`--timeout` or `agent.eval.testTimeout` in `vite.config.ts`.
+`--timeout` or `agent.eval.testTimeout` in `nuxt.config.ts` or `vite.config.ts`.
 
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json
