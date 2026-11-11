@@ -391,7 +391,11 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const status = left === right ? "identical" : base === right ? "behind" : base === left ? "ahead" : "diverged"
       // GitHub lists the files that changed from the merge base to the head, at most 300.
       const files = [...treeChanges(commits.get(base)!.tree, commits.get(right)!.tree)].slice(0, 300).map(([filename, change]) => ({ filename, status: change }))
-      return json({ merge_base_commit: { sha: base }, status, files })
+      // GitHub lists the commits from the merge base to the head, oldest first, one page of `per_page` (default 250).
+      const known = reachable(base)
+      const between = [...reachable(right)].filter(sha => !known.has(sha)).map(sha => commits.get(sha)!).reverse()
+      const perPage = Number(url.searchParams.get("per_page") || "250")
+      return json({ merge_base_commit: { sha: base }, status, files, total_commits: between.length, commits: between.slice(0, perPage).map(restCommit) })
     }
     if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
       const prefix = rest.slice("/git/matching-refs/heads/".length)
@@ -479,7 +483,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     if (rest.startsWith("/commits/") && method === "GET") {
       const ref = rest.slice("/commits/".length)
       const commit = resolve(ref)
-      return commit ? json(restCommit(commit)) : failure(422, `No commit found for SHA: ${ref}`)
+      if (!commit) return failure(422, `No commit found for SHA: ${ref}`)
+      // GitHub lists the files that the commit changed from its first parent, at most 300.
+      const files = [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree)].slice(0, 300).map(([filename, change]) => ({ filename, status: change }))
+      return json({ ...restCommit(commit), files })
     }
     if (rest.startsWith("/tarball/") && method === "GET") {
       if (state.archiveFailures-- > 0) return new Response("retry", { headers: { "retry-after": "0" }, status: 503 })

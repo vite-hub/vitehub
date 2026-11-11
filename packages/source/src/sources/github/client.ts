@@ -31,8 +31,10 @@ export interface GitHubClient {
   /** The latest commit that changed each path, from `sha` back, in one GraphQL request. Null for a path without commits. */
   latestCommits: (paths: readonly string[], sha: string, token: string | undefined) => Promise<Array<GitHubFileCommit | null>>
   /**
-   * The paths that changed from `base` to `head`, with the old path of a rename. Undefined when `head` is not `base` or a
-   * descendant of it, or when GitHub lists 300 files, its limit, so the list may be cut.
+   * The paths that a commit from `base` to `head` changed, with the old path of a rename, including a file that one
+   * commit edits and a later one reverts. One compare request, plus one request per commit when there is more than
+   * one. Undefined when `head` is not `base` or a descendant of it, when there are more than 20 commits, or when GitHub
+   * lists 300 files, its limit, so the list may be cut.
    */
   changedPaths: (base: string, head: string, token: string | undefined) => Promise<string[] | undefined>
   /**
@@ -46,6 +48,13 @@ export interface GitHubClient {
 const compareFileLimit = 300
 /** GitHub lists at most 3,000 files of a pull request, 100 on each page. */
 const pullFilePages = 30
+/**
+ * `changedPaths()` reads the files of each commit between the two commits, up to this many commits. More commits read
+ * every page again.
+ */
+const compareCommitLimit = 20
+/** Commit requests of `changedPaths()` that run at once. */
+const compareCommitConcurrency = 4
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
 export function githubEnvToken(): string | undefined {
@@ -317,18 +326,47 @@ export function createGitHubClient(repo: string): GitHubClient {
       const data = await missingAsUndefined(() => request(`${base}...${head}`, "compare", token, undefined, async (client, repoRef) => (await client.request<unknown>(
         "GET",
         `${repoPath(repoRef)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
-        { query: { per_page: 1 } },
+        { query: { per_page: compareCommitLimit } },
       )).data))
       if (data === undefined) return
       if (!isRecord(data) || typeof data.status !== "string") throw malformed(repo, "compare")
       if (data.status !== "ahead" && data.status !== "identical") return
-      const files: unknown = data.files ?? []
-      if (!Array.isArray(files)) throw malformed(repo, "compare")
-      if (files.length >= compareFileLimit) return
-      return files.flatMap((file) => {
-        if (!isRecord(file) || !isNonEmptyString(file.filename)) throw malformed(repo, "compare")
-        return isNonEmptyString(file.previous_filename) ? [file.filename, file.previous_filename] : [file.filename]
-      })
+      const paths = (files: unknown, what: string): string[] | undefined => {
+        if (!Array.isArray(files)) throw malformed(repo, what)
+        if (files.length >= compareFileLimit) return
+        return files.flatMap((file) => {
+          if (!isRecord(file) || !isNonEmptyString(file.filename)) throw malformed(repo, what)
+          return isNonEmptyString(file.previous_filename) ? [file.filename, file.previous_filename] : [file.filename]
+        })
+      }
+      const changed = paths(data.files ?? [], "compare")
+      if (!changed) return
+      // The compare files are the net change, so a file that a commit edits and a later one reverts is not in them.
+      // With more than one commit, the files of each commit name every file that a commit touched.
+      const commits: unknown = data.commits ?? []
+      const total: unknown = data.total_commits ?? 0
+      if (!Array.isArray(commits) || typeof total !== "number") throw malformed(repo, "compare")
+      if (total <= 1) return changed
+      if (total > compareCommitLimit || commits.length < total) return
+      const touched = new Set(changed)
+      for (let start = 0; start < commits.length; start += compareCommitConcurrency) {
+        const lists = await Promise.all(commits.slice(start, start + compareCommitConcurrency).map(async (commit: unknown) => {
+          if (!isRecord(commit) || !isNonEmptyString(commit.sha)) throw malformed(repo, "compare")
+          const sha = commit.sha
+          const detail = await request(sha, "commit", token, undefined, async (client, repoRef) => (await client.request<unknown>(
+            "GET",
+            `${repoPath(repoRef)}/commits/${encodeURIComponent(sha)}`,
+            { query: { per_page: compareFileLimit } },
+          )).data)
+          if (!isRecord(detail)) throw malformed(repo, "commit")
+          return paths(detail.files ?? [], "commit")
+        }))
+        for (const list of lists) {
+          if (!list) return
+          for (const path of list) touched.add(path)
+        }
+      }
+      return [...touched]
     },
     async pullPaths(number, token) {
       const paths: string[] = []

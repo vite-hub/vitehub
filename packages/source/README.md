@@ -97,8 +97,10 @@ the first line of `message`, and `url`. `content.history()` uses it.
 `Map` from key to commit. It sends one GitHub GraphQL request per 150 files, 4
 at a time, so 2,600 files cost 18 requests. When GitHub stops a request after 10
 seconds (502), it asks again with half the files. `changes(base, head)` returns
-the keys that changed from one commit to a later one, from one compare request,
-or undefined when GitHub cannot list them all. The Content sitemap and RSS feed
+the keys that a commit from one commit to a later one changed, with a file that
+one commit edits and a later one reverts. It sends one compare request, plus one
+commit request per commit when there is more than one. It returns undefined when
+GitHub cannot list them all or more than 20 commits lie between them. The Content sitemap and RSS feed
 use both to date Source pages. `pullChanges(number)` returns the keys that a pull
 request adds or changes, from its file list, with the new key of a renamed file
 and without removed files. GitHub lists at most 3,000 files of a pull request.

@@ -7,6 +7,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import type { AnyContentCollection } from "./collections-types.ts"
 import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
 import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentMcpOptions } from "./mcp.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
@@ -26,6 +27,11 @@ export interface DefineContentSeoOptions {
    * of their latest `content.history()` entry. `title` defaults to the host name, `limit` to 20 items, at most 500.
    */
   rss?: boolean | ContentRssOptions
+  /**
+   * Serve a public read-only MCP server at `/mcp` with two tools: `list-pages` lists the published Markdown pages that
+   * the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
+   */
+  mcp?: boolean | ContentMcpOptions
 }
 
 /** `defineContent({ seo: { rss } })`. */
@@ -52,6 +58,12 @@ export interface ContentSitemapEntry {
 export interface ContentSitemapOptions {
   /** Public origin. Defaults to `defineContent({ seo: { site } })`. */
   site?: string
+  /**
+   * The `waitUntil` of the request, such as `getStandardContext(request).waitUntil`. After a `github()` Source head
+   * moves, the answer then uses the page dates of the previous head at once, and Content computes the new dates after
+   * the response. Without it, the first answer after a head move waits for GitHub.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 /** One sitemap file holds at most this many URLs. */
@@ -61,7 +73,7 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots, markdown, rss } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown, rss, mcp } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) throw invalid("markdown must be true or false.")
@@ -71,6 +83,12 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
     const { title, description, limit } = rss as Record<string, unknown>
     if ((title !== undefined && String(title) !== title) || (description !== undefined && String(description) !== description)) throw invalid(shape)
     if (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 500)) throw invalid("rss limit must be an integer from 1 to 500.")
+  }
+  if (mcp !== undefined && mcp !== true && mcp !== false) {
+    const shape = "mcp must be true, false, or { name }."
+    if (mcp === null || Object(mcp) !== mcp || Array.isArray(mcp)) throw invalid(shape)
+    const { name } = mcp as Record<string, unknown>
+    if (name !== undefined && (String(name) !== name || !name.trim())) throw invalid(shape)
   }
   if (robots !== undefined && robots !== true && robots !== false) {
     if (robots === null || Object(robots) !== robots || Array.isArray(robots)) throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
@@ -293,10 +311,18 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
   const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)
   const description = stringField(seo, "description") ?? stringField(document.data, "description")
-  const body = document.body.trim()
+  return await renderMarkdownCopy({ title, description, body: document.body }, site)
+}
+
+/**
+ * A Markdown copy of a page: its title as a heading, unless the body has its own, its description as a quote, then the
+ * body with root-relative links made absolute when `site` is known.
+ */
+export async function renderMarkdownCopy(page: { title?: string, description?: string, body: string }, site: string | undefined): Promise<string> {
+  const body = page.body.trim()
   const head = [
-    title && !/^#\s/.test(body) ? `# ${title}` : undefined,
-    description ? `> ${description.replace(/\s*\n\s*/g, " ")}` : undefined,
+    page.title && !/^#\s/.test(body) ? `# ${page.title}` : undefined,
+    page.description ? `> ${page.description.replace(/\s*\n\s*/g, " ")}` : undefined,
   ].filter(Boolean)
   return `${[...head, await absoluteLinks(body, site)].filter(Boolean).join("\n\n")}\n`
 }
