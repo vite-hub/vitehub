@@ -131,6 +131,19 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
     expect((await content.check()).findings).toEqual([expect.objectContaining({ rule: "link", line: 5, message: expect.stringContaining("/docs/guide links to /docs/missing") })])
   })
 
+  it("checks a Source that is not on GitHub as it is", async () => {
+    const items = [
+      { key: "hello.md", path: "hello.md", content: page("Hello from Acme", "See [world](/blog/wrld).\n") },
+      { key: "world.md", path: "world.md", content: page("World from Acme") },
+    ]
+    const content = defineContent({ sources: { blog: contentSource({ items: async () => items }, { url: "/blog/:id" }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    const result = await content.check()
+    expect(result).toMatchObject({ ok: false, errors: 1, sources: [{ source: "blog", sha: null, pages: 2 }] })
+    expect(result.findings).toEqual([expect.objectContaining({ path: "hello.md", url: "/blog/hello", line: 5, rule: "link" })])
+    await expect(content.check({ sha: "0".repeat(40) })).rejects.toMatchObject({ code: "CONTENT_R0069" })
+  })
+
   it("throws CONTENT_R0069 for a SHA that is not a full commit SHA", async () => {
     fake.commit("main", { "guide.md": page("Getting started") })
     const content = server()
