@@ -42,10 +42,6 @@ export default defineConfig({
         cache: false,
         command: "vp run --filter vitehub-docs build",
       },
-      "docs:dev": {
-        cache: false,
-        command: "vp run --filter vitehub-docs dev",
-      },
       "e2e:local": {
         cache: false,
         command: "node test/local/local.mjs",
@@ -83,10 +79,6 @@ export default defineConfig({
         cache: false,
         command: "cd playground/vite && vp build",
         dependsOn: ["build"],
-      },
-      "playground:vite:build:cloudflare": {
-        cache: false,
-        command: "vp run playground:vite:build --mode chat",
       },
       "playground:vite:build:local": {
         cache: false,

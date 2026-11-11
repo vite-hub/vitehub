@@ -70,7 +70,20 @@ when you use a primitive that sets them.
 Use `getRuntimeContext()` in application-owned H3 or Nuxt routes with Nitro 3.
 Create a new context for each invocation:
 
-```ts [server/api/support.post.ts] fragment
+The route runs this Agent:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
+```ts [server/api/support.post.ts]
 import { defineEventHandler, readValidatedBody } from 'h3'
 import { useRuntimeConfig } from 'nitro/runtime-config'
 import * as v from 'valibot'
