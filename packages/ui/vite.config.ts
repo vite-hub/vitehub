@@ -71,6 +71,8 @@ export default defineConfig({
       "src/connect-panel.ts",
       "src/browser-support-notice.ts",
       "src/playground.ts",
+      "src/playground-container.ts",
+      "src/playground-render.ts",
     ],
     exports: {
       customExports(exports) {
