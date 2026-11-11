@@ -85,7 +85,7 @@ vitehub({
 })
 ```
 
-Turned-on integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv/`, `blob/`, and `workspaces/` in this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get their own subdirectories. Explicit paths and remote providers win, and disabled services stay off. Relative paths resolve from the working directory of the configuration process.
+Turned-on integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv/`, `blob/`, and `workspaces/` in this directory. Named local KV and Blob stores get their own subdirectories. Explicit paths and remote providers win, and disabled services stay off. Relative paths resolve from the working directory of the configuration process.
 
 ::warning
 The host must give a persistent, writable filesystem at this path. The option does not create a volume or make a temporary filesystem durable. Other presets reject it. For hosted storage, keep your provider configuration.

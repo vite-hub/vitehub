@@ -1,6 +1,6 @@
 # Content playground
 
-A real ViteHub app that edits Content documents in the Console. It uses app Auth, the Blob + Database Store for the
+A real ViteHub app with Content documents. It uses app Auth, the Blob + Database Store for the
 `site` Workspace, and two document collections in `server/content.ts`.
 
 ```bash
@@ -15,21 +15,19 @@ until #2377 lands.
 
 Open <http://localhost:5173/login> and sign in as one of the playground users. `server/auth.ts` installs the Better
 Auth `admin` plugin with the CMS roles, `admin(cmsAccess)`, and gives each playground user its role at sign-up. Other
-users get `user`, which has no CMS permission. `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`
-from `vite-hub/cms/access` then decide in `server/content.ts`, `server/comments.ts`, and `server/console-authorize.ts`.
+users get `user`, which has no CMS permission. `cmsContentAuthorize` and `cmsCommentsAuthorize` from
+`vite-hub/cms/access` then decide in `server/content.ts` and `server/comments.ts`.
 `vitehub cms roles` lists the roles.
 
-| User | CMS role | Console sections | Content | Comments |
-| --- | --- | --- | --- | --- |
-| `admin@vitehub.dev` | `admin` | Every section | Read, write, publish | Read, comment, resolve |
-| `editor@vitehub.dev` | `publisher` | Content, Comments | Read, write, publish | Read, comment, resolve |
-| `writer@vitehub.dev` | `editor` | Content, Comments | Read and write, no publish | Read, comment, resolve |
-| `reviewer@vitehub.dev` | `commenter` | Content, Comments | Read drafts only | Read, comment, resolve |
+| User | CMS role | Content | Comments |
+| --- | --- | --- | --- |
+| `admin@vitehub.dev` | `admin` | Read, write, publish | Read, comment, resolve |
+| `editor@vitehub.dev` | `publisher` | Read, write, publish | Read, comment, resolve |
+| `writer@vitehub.dev` | `editor` | Read and write, no publish | Read, comment, resolve |
+| `reviewer@vitehub.dev` | `commenter` | Read drafts only | Read, comment, resolve |
 
-An admin changes a role in the Console Auth section.
-
-The playground uses `console: { auth: "app" }`. The hosted Console at console.vitehub.dev needs `auth: "token"` to open
-an app, so use the CLI or MCP with the app session, or switch to a token to open it there.
+The playground uses `console: { auth: false }`, so `vitehub content` and the other commands call the dev server without
+a signature. The Console at console.vitehub.dev calls apps from its server, so it cannot open this dev server.
 
 `realtime: true` turns on the live co-editing rooms. The live editor was part of the Console that the app served,
 which is removed. The room saves the draft a few seconds after
@@ -40,7 +38,7 @@ table stores the room's `live` lease in its text `kind` column, so the committed
 Media in the Content section stores files in `.vitehub/data/blob`. Editors upload files and edit alt text,
 focal points, and crops; admins and publishers also move and delete them, since they can publish.
 
-The public page at `/` lists published posts. It has no edit button: editors use the Content section of the Console.
+The public page at `/` lists published posts. It has no edit button: editors use the Content section of the Console, or `vitehub content`.
 
 The `docs` collection keeps each page in English and Spanish, with `locales: ['en', 'es']`. `server/routes/[...path].get.ts`
 serves every published docs page: `/docs/guide` in English and `/es/docs/guide` in Spanish, or in English with a note
