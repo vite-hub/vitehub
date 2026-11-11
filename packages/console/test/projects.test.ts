@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { readConsolePublicKeys, signConsoleRequest, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 
-import { consoleSchema, createConsoleProjectStore } from "../src/projects.ts"
+import { createConsoleProjectStore } from "../src/projects.ts"
 
 const secret = "s".repeat(64)
 const table = "CREATE TABLE `console_projects` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `url` text NOT NULL, `label` text, `key_sealed` text NOT NULL, `public_key` text NOT NULL, `created_by` text NOT NULL, `created_at` integer NOT NULL, UNIQUE (`team_id`, `url`))"
@@ -12,7 +12,7 @@ const table = "CREATE TABLE `console_projects` (`id` text PRIMARY KEY NOT NULL, 
 async function database() {
   const client = createClient({ url: ":memory:" })
   await client.execute(table)
-  return { client, db: drizzle(client, { schema: consoleSchema }) }
+  return { client, db: drizzle({ client }) }
 }
 
 describe("project store", () => {

@@ -132,6 +132,11 @@
       "import": "./dist/auth.js",
       "default": "./dist/auth.js"
     },
+    "./auth/abilities": {
+      "types": "./dist/auth/abilities.d.ts",
+      "import": "./dist/auth/abilities.js",
+      "default": "./dist/auth/abilities.js"
+    },
     "./auth/agent": {
       "types": "./dist/auth/agent.d.ts",
       "import": "./dist/auth/agent.js",
@@ -1171,7 +1176,7 @@
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
     "box-typescript-sdk-gen": "catalog:storage",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "dropbox": "catalog:storage",
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",

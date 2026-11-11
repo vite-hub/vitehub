@@ -12,8 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 ## Minimal API
@@ -99,7 +99,7 @@ A production build bundles libSQL only when a Database can reach a remote libSQL
 
 ## Migrations
 
-`vitehub database generate` writes Drizzle migrations beside the Definition. `vitehub database migrate` applies the pending ones with Drizzle Kit. For D1 HTTP it applies them itself with Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), so `wrangler d1 migrations apply` and `vitehub database migrate` agree on what is applied. Each file and its ledger row go in one request. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
+`vitehub database generate` writes Drizzle migrations beside the Definition, one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder each, as Drizzle Kit 1.0 does. Convert a `meta/_journal.json` folder from Drizzle Kit 0.x once with `npx drizzle-kit up`. For Cloudflare D1, commit the `d1-migrations.json` that keeps the Wrangler file name of each folder. `vitehub database migrate` applies the pending ones with Drizzle Kit. For D1 HTTP it applies them itself with Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), so `wrangler d1 migrations apply` and `vitehub database migrate` agree on what is applied. Each file and its ledger row go in one request. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
 
 Connection URLs and tokens can use string literals or runtime environment declarations, including module-level variables initialized with those values. The generated Kit config reads environment values at invocation time and uses the Turso dialect for remote or authenticated libSQL. The migration check uses the same connection values. Local migration creates the database's parent directory after the check; generation and `--dry-run` do not create the database file.
 
@@ -112,6 +112,8 @@ pnpm vitehub database migrate --allow-data-loss # apply them, and skip the check
 Before it applies anything, `vitehub database migrate` reads Drizzle's migrations table (`__drizzle_migrations`) of each database, or Wrangler's table for D1 HTTP, to find the pending migrations. It refuses `DROP TABLE`, `DROP SCHEMA`, a column drop with `ALTER TABLE`, `TRUNCATE`, `DELETE` without `WHERE`, and a SQLite table rebuild that does not copy every column of the previous Drizzle snapshot. It reports them with `DATABASE_MIGRATION_DATA_LOSS` and exits with code 1. The check skips a table that an earlier pending migration of the same run created or dropped, because the table has no rows from before the run, for example a create and a drop on a new database. A table that gets rows from an older table, like a SQLite rebuild of an existing table, stays in the check. For PostgreSQL, this exception requires schema-qualified table names and, for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, subsequent losses stay in the check because unqualified names can switch between temporary and permanent tables. `--dry-run` also exits with code 1 in that case, so CI can run it as a check.
 
 The check connects to the migration target: the local SQLite file, remote libSQL, D1 HTTP with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (or the object-form `cloudflare.http` proxy's resolved `url` and `authToken`), or Postgres with the `postgres` package. When it cannot read the migrations table, it fails with `DATABASE_MIGRATION_CHECK_FAILED` and does not guess. A D1 HTTP database without Wrangler's table but with `__drizzle_migrations` keeps the migrations that Drizzle Kit applied: the first `vitehub database migrate` writes them to Wrangler's table. Wrangler applies the migrations of a native D1 binding, so that path has no check.
+
+The CLI and startup refuse a legacy ledger upgrade when overlapping timestamp or hash updates would assign different folder names to one row. Drizzle Kit can replay applied SQL in that case. Verify and repair the ledger upgrade on a database copy before retrying.
 
 `vitehub database export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads remote libSQL, Cloudflare D1 through the D1 export API (like `wrangler d1 export --remote`), an object-form `cloudflare.http` proxy, or Postgres through `pg_dump`. `--stage <name>` loads that mode's Vite env files, `--database <name>` picks one database, and `--output <file>` sets the file. SQLite-family dumps use Wrangler's format, so `wrangler d1 execute --file` and `sqlite3` can restore them. Failures print `DATABASE_EXPORT_FAILED`.
 
