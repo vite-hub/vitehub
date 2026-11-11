@@ -37,12 +37,13 @@ icon: i-lucide-monitor
   ```
 
   ```ts [server/api/page-html.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { runBrowser } from 'vite-hub/browser'
 
   // Run the page-html file by its name
   export default defineEventHandler(async (event) => {
-    const input = await readBody<{ url: string }>(event)
+    const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.string() }), body))
     return await runBrowser('page-html', input)
   })
   ```
@@ -51,7 +52,7 @@ icon: i-lucide-monitor
   import { defineEventHandler } from 'h3'
   import {
     runBrowserAction,
-  } from 'vite-hub/browser/actions'
+  } from 'vite-hub/browser'
 
   // One call, no browser file needed
   export default defineEventHandler(() => {
@@ -62,6 +63,32 @@ icon: i-lucide-monitor
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  // Adds the Cloudflare browser setting for you
+
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: { preset: 'cloudflare', browser: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+  import { vitehub } from 'vite-hub'
+
+  // Adds the Cloudflare browser setting for you
+  export default defineConfig({
+    plugins: [
+      vitehub({ preset: 'cloudflare', browser: true }),
+      nitro(),
+    ],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
@@ -73,6 +100,7 @@ icon: i-lucide-monitor
     ],
   })
   ```
+  ::::
   :::
 ::
 
@@ -82,7 +110,7 @@ icon: i-lucide-monitor
   :::
 
   :::product-feature-item{title="Several steps on one page" icon="i-lucide-mouse-pointer-click" to="/docs/browser/server-api#keep-a-page-session-open"}
-  `browser.open()` keeps a page open to go to links, click, and fill in forms. ViteHub closes it for you.
+  `browser.open()` keeps a page open to follow links, click, and fill in forms. ViteHub closes it.
   :::
 
   :::product-feature-item{title="Quick calls without a file" icon="i-lucide-zap" to="/docs/browser/server-api#browser-actions"}
@@ -90,7 +118,7 @@ icon: i-lucide-monitor
   :::
 
   :::product-feature-item{title="No browser setup in your app" icon="i-lucide-cloud-cog" to="/docs/browser/configure#configuration"}
-  `browser: true` adds the Cloudflare setting at build time. Your routes do not import Cloudflare code.
+  `browser: true` adds the Cloudflare binding at build time. Routes import no Cloudflare code.
   :::
 
   :::product-feature-item{title="Full control when you need it" icon="i-lucide-sliders-horizontal" to="/docs/browser/server-api#low-level-sessions"}
@@ -98,7 +126,7 @@ icon: i-lucide-monitor
   :::
 
   :::product-feature-item{title="Check the URLs you open" icon="i-lucide-shield-check" to="/docs/browser/limits-and-errors#production-checks"}
-  Check every URL that users send you. Treat the content of each page as untrusted.
+  Check every URL that users send. Treat page content as untrusted.
   :::
 ::
 

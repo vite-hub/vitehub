@@ -1,33 +1,31 @@
 ---
 title: OpenAPI
-description: Expose selected OpenAPI operations as bounded Agent tools or a generated Capability CLI.
+description: Turn the API endpoints you choose from an OpenAPI file into Agent tools or a command-line tool.
 navigation.title: OpenAPI
 navigation.order: 245
 navigation.group: Capabilities
 icon: i-lucide-route
 ---
 
-`openapi()` turns selected OpenAPI `operationId`s into bounded HTTP operations.
-Use it to generate Agent tools from a known API contract instead of writing one `fetch()` tool per endpoint.
+`openapi()` turns selected OpenAPI operations, picked by `operationId`, into bounded HTTP tools, so you do not write one `fetch()` tool per endpoint.
 
-Attaching the Capability is the opt-in.
-Channel, customer, or tenant admission belongs in `access()`, Agent Trigger routing, or separate Agent Definitions, not in `openapi()`.
+Do not use it to decide which Channels, customers, or tenants get in. Use `access()`, Agent Trigger routing, or separate Agent Definitions.
 
 ## Configure an OpenAPI Capability
 
-Add `openapi()` to the Agent when every invocation needs the API, or to one [Channel's capabilities](/docs/agents/channels#scope-abilities-to-one-channel) when only that Channel needs it.
+Add `openapi()` to the Agent when every Invocation (Agent run) needs the API, or to one [Channel's capabilities](/docs/agents/channels#scope-abilities-to-one-channel) when only it does.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { access, openapi } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model },
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [
     access({
       chat: {
         resolve({ invoker }) {
-          return invoker.kind === 'portal'
+          return invoker?.kind === 'portal'
         },
       },
     }),
@@ -39,16 +37,13 @@ export default defineAgent({
 })
 ```
 
-By default, `openapi()` creates one model-facing tool per selected operation.
-Each tool uses the OpenAPI request path, query parameters, request body schema, operation summary, and response parser.
+By default, each selected operation becomes one model tool, built from its path, query parameters, body schema, summary, and response parser.
 
-When `cli` is set, ViteHub replaces those operation tools with one Capability CLI tool.
-The generated CLI has one subcommand per selected operation and can also run through `vitehub agent dev --cli`.
+With `cli`, one Capability CLI tool replaces them, with one subcommand per operation. `vitehub agent dev --cli` also runs it.
 
 ## Select operations
 
-Always pass the operation allowlist directly.
-ViteHub does not expose every operation by default.
+Always pass the allowed operations; none are exposed by default.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -57,15 +52,11 @@ openapi({
 })
 ```
 
-ViteHub reads only the selected operations.
-Other operations can use unsupported HTTP methods, repeat an `operationId`, or have an `operationId` that is not a valid tool name.
-In v1, selected operations can use `GET`, `HEAD`, or `POST`.
+Only selected operations are read, so others may use unsupported methods, repeat an `operationId`, or have invalid tool names. In v1, selected operations can use `GET`, `HEAD`, or `POST`.
 
 ### Name operations
 
-Each selected `operationId` is the tool name, and its kebab-case form is the CLI command name.
-Generated `operationId`s such as `read_flow_run_flow_runs__id__get` are hard for an Agent to use.
-Pass a record of names to `operationId`s to choose the names instead:
+The `operationId` is the tool name, and its kebab-case form the CLI command. Generated ids such as `read_flow_run_flow_runs__id__get` are hard for Agents, so map names to `operationId`s:
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -78,20 +69,15 @@ openapi({
 })
 ```
 
-ViteHub uses each name verbatim as the tool name and as the CLI command name, so this example gives `prefect flow-run` and `prefect logs`.
-A name must start with a letter and use only letters, numbers, underscores, and hyphens.
-`hooks.request` and `transformResponse` still receive the `operationId` as `operation.id`.
+Each name is used as written for the tool and CLI command, giving `prefect flow-run` and `prefect logs`. Names start with a letter and use letters, numbers, underscores, and hyphens. `hooks.request` and `transformResponse` still get the `operationId` as `operation.id`.
 
 ## Configure requests
 
-ViteHub derives the request server from the OpenAPI document by default:
+The server URL is `servers[0].url`, else the spec URL origin.
 
-1. `servers[0].url`
-2. the OpenAPI spec URL origin
+`hooks.request` changes each request before it is sent: runtime auth, cookies, tenant values, body and query fields, and the timeout or response-size limit, within bounds. It gets the operation, the Capability context, the model input, and a mutable draft request.
 
-Use `hooks.request` for runtime auth, cookies, tenant values, body additions, query additions, and bounded timeout or response-size changes.
-The hook receives the selected operation, Agent Capability context, visible model input, and a mutable draft request.
-When the hook owns OpenAPI fields such as tenant path params or runtime body tokens, declare them in `provides`; ViteHub removes those fields from the model and generated CLI schemas, strips them from caller input, then validates the final prepared request after the hook runs.
+List fields your server must supply, such as a tenant path param or runtime body token, in `provides`. ViteHub removes them from the model and CLI schemas and from caller input, and validates the final request after the hook.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -126,11 +112,11 @@ openapi({
 })
 ```
 
-ViteHub still keeps caller-owned required fields in the model and generated CLI schemas. If the hook only provides `tenantId`, another required path param such as `orderId` remains required from the caller.
+Required fields the hook does not provide stay in the schemas. If it provides only `tenantId`, the caller still sends `orderId`.
 
 ## Authenticate through a Connection
 
-Set `connection` to send each request with the credentials of an OAuth 2 [Connection](/docs/connections).
+Set `connection` to send requests with an OAuth 2 [Connection](/docs/connections), a stored login to an external account.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -140,9 +126,10 @@ openapi({
 })
 ```
 
-Connection request bodies must serialize to strings for durable approval replay. JSON bodies are serialized automatically. Hooks that supply Fetch bodies such as `URLSearchParams`, `FormData`, or binary data must serialize them to a string first; otherwise the request fails before dispatch.
+> [!NOTE]
+> With a Connection, the body must be a string, stored so the request can be resent after approval. JSON bodies are converted for you. A hook that supplies `URLSearchParams`, `FormData`, or binary data must convert it, or the request fails before sending.
 
-The Connection adds its credentials after `hooks.request`, so hooks never see the token. The capability sends requests through the Connection client as the `fetch` action. `GET` and `HEAD` requests are reads. Other methods are writes. Without a matching `fetch` rule, writes are denied, so allow them in the Agent rule of the Connection:
+Credentials are added after `hooks.request`, so hooks never see the token. Requests go through the Connection client as the `fetch` action. `GET` and `HEAD` are reads, other methods are writes, and writes are denied without a matching `fetch` rule:
 
 ```ts [server/connections/billing.ts] fragment
 access: {
@@ -150,12 +137,15 @@ access: {
 },
 ```
 
-ViteHub checks access before a tool runs. A denied request fails with `CONNECTIONS_DENIED`. A write that requires approval creates a durable Connection approval and fails with `CONNECTIONS_APPROVAL_REQUIRED` until an administrator approves it. Each call is recorded as Connection activity with the Agent actor, invocation trace id, and `fetch` action.
+Access is checked before a tool runs:
+
+- A denied request fails with `CONNECTIONS_DENIED`.
+- A write that needs approval creates a stored approval and fails with `CONNECTIONS_APPROVAL_REQUIRED` until an administrator approves.
+- Each call is recorded as activity with the Agent actor, trace id, and `fetch` action.
 
 ## Override the request server
 
-For a broken, missing, or environment-neutral `servers` entry, use `server` as an override escape hatch.
-`server` can also be a callback when the override comes from the current Agent Invocation context.
+Set `server` when the `servers` entry is broken, missing, or not environment-specific. A callback can read the run context.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -167,7 +157,7 @@ openapi({
 
 ## Generate a Capability CLI
 
-Use `cli` to give agents and developers the same operation catalog as commands.
+`cli` gives Agents and developers the operations as commands.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -180,7 +170,7 @@ openapi({
 })
 ```
 
-`cli` can also resolve from the current Agent Invocation. Return `false` or `undefined` to omit the generated CLI for that invocation without detaching the OpenAPI Capability or changing its lifecycle.
+A `cli` callback reads the current run and returns `false` or `undefined` to omit the CLI. The Capability stays attached with an unchanged lifecycle.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -195,10 +185,10 @@ openapi({
 })
 ```
 
-Treat Channel metadata as an availability hint, not authorization. Check trusted request, Agent Actor, or `access()` evidence before privileged API calls.
+> [!WARNING]
+> Channel metadata shows where a tool is available. It authorizes nothing. Check the trusted request, Agent Actor, or `access()` before privileged calls.
 
-Run the generated CLI through the Agent Dev Loop.
-Agents expose generated Capability CLI Contributions by default. Use `defineAgent({ cli: { capabilities: false } })` to attach the OpenAPI Capability without exposing its CLI.
+Run the CLI through the Agent Dev Loop. Generated CLIs are shown by default; `defineAgent({ cli: { capabilities: false } })` hides them.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli billing -- list-customers --json
@@ -206,7 +196,7 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli billing
 
 ## Shape responses
 
-Use `transformResponse` when the raw API response contains transport fields or verbose provider-specific rows.
+`transformResponse` gives the Agent a smaller result when the raw response has transport fields or long provider rows.
 
 ```ts [server/agents/support.ts] fragment
 openapi({
@@ -226,27 +216,27 @@ openapi({
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives selected OpenAPI tools, or one generated Capability CLI tool when `cli` is set. |
-| Provider-backed | Receives selected OpenAPI tools, or the generated Capability CLI tool, through the provider MCP bridge. |
-| Custom-run-backed | Receives prepared context; `driver.run` decides whether to call API operations directly. |
+| Model-backed | Gets the operation tools, or one CLI tool with `cli`. |
+| Provider-backed | Gets the same through the provider MCP bridge. |
+| Custom-run-backed | Gets prepared context. `driver.run` decides whether to call operations. |
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `spec` | `string \| URL \| object \| function` | required | OpenAPI document URL, inline document, or invocation-scoped document resolver. |
-| `operations` | `readonly string[] \| Record<string, string>` | required | Selected OpenAPI `operationId`s exposed by this Capability, or a record of tool and CLI command names to `operationId`s. |
-| `description` | `string` | none | Prefix for generated operation-tool descriptions and fallback description for the generated Capability CLI. |
-| `hooks.request` | `(context) => patch \| void` or `{ provides?, handler }` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, timeout, and `maxResponseBytes` values. |
-| `hooks.request.provides` | `{ body?, path?, query? }` | none | Runtime-owned OpenAPI input fields to remove from model and generated CLI schemas before caller validation. |
-| `connection` | `string` | none | Name of a Connection in `server/connections/`. It adds credentials, checks access for `fetch`, and records activity. |
-| `server` | `string \| URL \| function` | OpenAPI server | Override escape hatch for specs without a usable `servers[0].url` or spec URL origin. |
-| `cli` | `false \| { name, description? }` | `false` | Generates a Capability CLI instead of one model-facing tool per operation. |
-| `responseType` | `"json" \| "text"` | `"json"` | Response parser for operation results. |
-| `transformResponse` | `(response, context) => output` | none | Maps parsed operation responses before returning them to the Agent. |
-| `specHeaders` | `Record<string, string>` | none | Headers used only when fetching the OpenAPI document. |
-| `timeout` | `number` | `30000` | Default request and response-body timeout in milliseconds. |
-| `maxResponseBytes` | `number` | `5242880` | Maximum decoded size of the spec and operation responses. Hooks may lower or raise it up to 25 MiB. |
+| `spec` | `string \| URL \| object \| function` | required | Document URL, inline document, or per-run resolver. |
+| `operations` | `readonly string[] \| Record<string, string>` | required | Selected `operationId`s, or a record of tool and CLI names to `operationId`s. |
+| `description` | `string` | none | Prefix for tool descriptions and fallback CLI description. |
+| `hooks.request` | `(context) => patch \| void` or `{ provides?, handler }` | none | Fetch-style hook for headers, cookies, path, query, body, timeout, and `maxResponseBytes`. |
+| `hooks.request.provides` | `{ body?, path?, query? }` | none | Runtime-owned fields removed from model and CLI schemas before validation. |
+| `connection` | `string` | none | Connection in `server/connections/`. Adds credentials, checks `fetch` access, records activity. |
+| `server` | `string \| URL \| function` | OpenAPI server | Override for specs without a usable `servers[0].url` or spec URL origin. |
+| `cli` | `false \| { name, description? }` | `false` | One Capability CLI instead of one tool per operation. |
+| `responseType` | `"json" \| "text"` | `"json"` | Response parser. |
+| `transformResponse` | `(response, context) => output` | none | Maps parsed responses for the Agent. |
+| `specHeaders` | `Record<string, string>` | none | Headers only for fetching the document. |
+| `timeout` | `number` | `30000` | Default request and body timeout in milliseconds. |
+| `maxResponseBytes` | `number` | `5242880` | Maximum decoded spec and response size. Hooks may change it up to 25 MiB. |
 
 ## Related pages
 

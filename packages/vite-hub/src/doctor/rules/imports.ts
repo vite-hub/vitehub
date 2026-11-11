@@ -1,8 +1,10 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
+import frameworkPackageManifest from "../../../package.json" with { type: "json" }
 import { moduleSpecifier, vitehubModule } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
+import { dependsOn } from "./integrations.ts"
 
 const generatedFile = /(?:^|\/)\.vitehub\//
 const generatedImport = /(?:^|\/)(?:\.vitehub|\.nuxt\/vitehub)(?:\/|$)/
@@ -55,9 +57,9 @@ const serverOnlyAliases = new Set(["#vitehub/env/server", "#vitehub/auth/server"
  */
 const serverOnlyModules = new Set([
   "agent", "agent/capabilities", "agent/channels", "agent/mcp",
-  "blob", "browser", "browser/actions", "channels", "comments", "content",
-  "database/drizzle", "decisions", "forms", "forms/database", "forms/runtime",
-  "env", "env/auth", "env/bridge", "env/database", "env/http", "env/provider", "env/seal", "env/secret",
+  "blob", "browser", "channels", "comments", "content",
+  "database/drizzle", "decisions", "forms", "forms/database", "forms/operations", "forms/runtime",
+  "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
   "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
@@ -102,4 +104,38 @@ export const noServerImportsInClient: DoctorRule = createRule({
   },
 })
 
-export const rules: DoctorRule[] = [noInternalImports, noServerImportsInClient]
+const ownerPackages = new Set(Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies }))
+/** Paths after `vite-hub/` that re-export the owner path after `@vite-hub/`, such as `blob` and `rate-limit/drivers/memory`. */
+const facadePaths = new Set(Object.keys(frameworkPackageManifest.exports).flatMap((subpath) => {
+  const path = subpath.replace(/^\.\/?/, "")
+  return path && !path.startsWith("_internal/") && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
+}))
+/** The `vite-hub` package and the owner packages import each other through `@vite-hub/*`. */
+const viteHubPackage = /^(?:vite-hub|@vite-hub\/.+)$/
+
+export const preferViteHubImports: DoctorRule = createRule({
+  meta: {
+    id: "vitehub/prefer-vite-hub-imports",
+    title: "Import ViteHub features from vite-hub/*",
+    category: "imports",
+    severity: "warn",
+    requires: { script: true },
+  },
+  create(ctx) {
+    if (generatedFile.test(ctx.file.relativePath)) return
+    if (viteHubPackage.test(ctx.project.packageName ?? "") || !dependsOn(ctx, "vite-hub")) return
+    return {
+      ScriptNode(node) {
+        const specifier = moduleSpecifier(node)?.specifier
+        const path = specifier?.startsWith("@vite-hub/") ? vitehubModule(specifier) : undefined
+        if (!path || !facadePaths.has(path)) return
+        ctx.report(diagnostics.VHUB0036({
+          why: `This app uses \`vite-hub\`, but imports \`${specifier}\` from the owner package. Apps import ViteHub features from \`vite-hub/*\`, and \`vite-hub/${path}\` re-exports \`${specifier}\`.`,
+          fix: `Import \`vite-hub/${path}\` instead of \`${specifier}\`.`,
+        }), { range: ctx.range(node) })
+      },
+    }
+  },
+})
+
+export const rules: DoctorRule[] = [noInternalImports, noServerImportsInClient, preferViteHubImports]

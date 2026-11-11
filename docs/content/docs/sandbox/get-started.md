@@ -25,8 +25,31 @@ Add the Sandbox package and the Vercel Sandbox SDK. Sandbox also uses the TypeSc
 pnpm add @vite-hub/sandbox @vercel/sandbox
 ```
 
-In `vite.config.ts`, set `preset: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.
+In the ViteHub options of your app, set `preset: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', sandboxTask: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', sandboxTask: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -35,6 +58,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', sandboxTask: true })],
 })
 ```
+::::
+:::
 
 - `preset: 'vercel'` runs the Sandbox on Vercel. The `node` preset has no Sandbox provider, so `sandboxTask: true` fails during configuration with that preset.
 

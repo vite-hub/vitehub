@@ -2,7 +2,6 @@ import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
 import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -67,17 +66,8 @@ function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "git
   return cmsStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
-/**
- * The nested list of Nitro plugins that `vitehub()` includes. Both cases build the same Nitro, so the list stays one
- * unit: its plugins keep the `apply` that steps aside for an app's own `nitro()`, and Nuxt can still find and drop them.
- */
-function isIncludedNitroList(option: unknown): option is Plugin[] {
-  return Array.isArray(option) && option.length > 0 && option.every(item => isPluginObject(item) && isIncludedNitroPlugin(item))
-}
-
 function flattenPluginOptions(option: unknown, plugins: unknown[]): unknown[] {
-  if (isIncludedNitroList(option)) plugins.push(option)
-  else if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
+  if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
   else if (option) plugins.push(option)
   return plugins
 }
@@ -105,12 +95,13 @@ function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean):
   return option
 }
 
-function selectsDatabaseOwner(config: CmsPresetConfig): boolean {
+function selectsDatabaseOwner(config: CmsPresetConfig, comments: unknown): boolean {
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
   const project = { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
-  return usesComments(project) || usesForms(project)
+  // `comments: false` keeps `server/comments.ts` from turning the Database on, as `resolveCmsPresetFeatures()` does.
+  return (comments !== false && usesComments(project)) || usesForms(project)
 }
 
 /**
@@ -163,17 +154,11 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
   const flushAlt = (until?: Plugin) => {
     while (altIndex < alt.length && alt[altIndex] !== until) {
       const option = alt[altIndex++]
-      // The plain list's Nitro serves both cases.
-      if (isIncludedNitroList(option)) continue
       if (!isPluginObject(option) || !paired.has(option)) merged.push(applyWhen(option, selects))
     }
     if (until) altIndex++
   }
   for (const option of plain) {
-    if (isIncludedNitroList(option)) {
-      merged.push(option)
-      continue
-    }
     const other = isPluginObject(option) ? pairs.get(option) : undefined
     if (!other || !isPluginObject(option)) {
       merged.push(applyWhen(option, config => !selects(config)))
@@ -212,7 +197,7 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   const comments = databaseUnset ? attempt({ ...options, database: true }) : undefined
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   let merged = flattenPluginOptions(create(options), [])
-  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config) && !(cmsUnset && selectedCmsPresetStore(config)))
+  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config, options.comments) && !(cmsUnset && selectedCmsPresetStore(config)))
   if (blob) merged = composeVariants(merged, "error" in blob ? failing(blob.error) : blob, config => selectedCmsPresetStore(config) === "blob-database")
   if (github) merged = composeVariants(merged, "error" in github ? failing(github.error) : github, config => selectedCmsPresetStore(config) === "github")
   // SAFETY: The merged list holds the Vite plugin options of every build.

@@ -1,10 +1,13 @@
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
+
+// Generated code imports these modules by path. They are not public API.
+const privateEntries = new Set(["./definition", "./operations", "./runtime/console", "./runtime/state"]);
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     copy: [{ from: "src/registry-module.d.ts", to: "dist" }],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
@@ -36,14 +39,9 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return normalizePackageExports(Object.fromEntries(Object.entries(exports).filter(([key]) => key !== "./definition")));
+        return normalizePackageExports(Object.fromEntries(Object.entries(exports).filter(([key]) => !privateEntries.has(key))));
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 });

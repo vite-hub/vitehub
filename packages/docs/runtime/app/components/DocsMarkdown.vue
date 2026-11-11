@@ -6,6 +6,7 @@ import customComponents from "#docs/custom-components"
 import contentComponents from "#docs/components"
 
 import type { Component } from "vue"
+import type { ElementNode, Node as ComarkNode } from "comark"
 import type { DocsDocument } from "@vite-hub/docs"
 
 // The server parsed the page, so the client only renders nodes. Explicit maps and app content components override
@@ -35,19 +36,34 @@ const callouts: Record<string, Component> = {
 }
 
 const contentBlocks = Object.fromEntries(Object.entries(contentComponents).flatMap(([tag, load]) => load ? [[tag, defineAsyncComponent(async () => (await load()).default)]] : []))
+const componentKey = (tag: string) => capitalize(camelize(tag))
 const resolved = computed(() => {
   const components: Record<string, Component> = {}
   for (const map of [blocks, callouts, contentBlocks, customComponents, props.components ?? {}]) {
     // Comark looks up PascalCase before the raw tag, so all maps must use the same keys for precedence to hold.
-    for (const [tag, component] of Object.entries(map)) components[capitalize(camelize(tag))] = component
+    for (const [tag, component] of Object.entries(map)) components[componentKey(tag)] = component
   }
   return components
 })
+
+// HTML is the fallback. An app component still receives the original tag, props, and source children.
+function renderNodes(nodes: ComarkNode[]): ComarkNode[] {
+  return nodes.map((node): ComarkNode => {
+    if (typeof node === "string" || node[0] === null) return node
+    const [tag, attributes, ...children] = node
+    const { block, blockProps } = attributes
+    if (tag === "comark-html" && typeof block === "string" && resolved.value[componentKey(block)]) {
+      return [block, (blockProps ?? {}) as ElementNode[1], ...renderNodes(children)]
+    }
+    return [tag, attributes, ...renderNodes(children)]
+  })
+}
+const nodes = computed(() => renderNodes(props.document.nodes))
 </script>
 
 <template>
   <MarkdownDocument
-    :value="{ nodes: document.nodes, frontmatter: {}, meta: {} }"
+    :value="{ nodes, frontmatter: {}, meta: {} }"
     :components="resolved"
   />
 </template>

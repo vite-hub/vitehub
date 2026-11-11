@@ -1,15 +1,11 @@
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
-import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler } from "./types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
 const scheduleDefinitionKeys = new Set(["manual", "cron", "handler", "timeZone"])
-const scheduleOptionsKeys = new Set(["manual", "timeZone"])
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
 
 function isCronString(value: unknown): value is string {
   return value !== null && value !== undefined && String(value) === value
@@ -33,18 +29,15 @@ function validateCron(cron: unknown): asserts cron is string {
   }
 }
 
-export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult> & { cron: string }
+/** The `defineSchedule(cron, handler, options)` form was removed. Name the object form in the error. */
+const positionalFormMessage = "`defineSchedule(cron, handler)` was removed. Pass one object: `defineSchedule({ cron: \"0 9 * * *\", handler })`, with `manual` and `timeZone` in the same object."
+
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult> & { cron: string }): ScheduleDefinition<TResult> & { cron: string }
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
-export function defineSchedule<TResult = unknown>(cronOrInput: string | ScheduleDefinitionInput<TResult>, handler?: ScheduleHandler<TResult>, options: ScheduleDefinitionOptions = {}): ScheduleDefinition<TResult> {
-  if (!isPlainObject(options)) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` options must be an object." })
+export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>, ...removed: unknown[]): ScheduleDefinition<TResult> {
+  if (isCronString(input) || removed.length) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0007({ message: positionalFormMessage })
   }
-  assertOwnDefinitionFields(options, scheduleOptionsKeys, "`defineSchedule()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0004)
-  if (!isCronString(cronOrInput) && !isPlainObject(cronOrInput)) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
-  }
-  const input = isPlainObject(cronOrInput) ? cronOrInput : { ...options, cron: cronOrInput, handler: handler! }
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }

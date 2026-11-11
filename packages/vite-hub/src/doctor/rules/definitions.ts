@@ -11,8 +11,8 @@ type NamedCall = { modules: readonly string[], names: readonly string[], kind: D
 
 /** Runtime Helpers that take a Definition name as their first argument. */
 const namedCalls: readonly NamedCall[] = [
-  { modules: ["queue"], names: ["runQueue", "deferQueue", "getQueue"], kind: "queue", label: "Queue" },
-  { modules: ["workflow"], names: ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow"], kind: "workflow", label: "Workflow" },
+  { modules: ["queue"], names: ["sendQueue", "deferQueue", "useQueue"], kind: "queue", label: "Queue" },
+  { modules: ["workflow"], names: ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow"], kind: "workflow", label: "Workflow" },
   { modules: ["database/drizzle"], names: ["useDatabase"], kind: "database", label: "Database" },
   { modules: ["channels", "channels/server"], names: ["useChannel"], kind: "channel", label: "Channel" },
   { modules: ["browser"], names: ["runBrowser"], kind: "browser", label: "Browser" },
@@ -167,8 +167,8 @@ export const definitionLocation: DoctorRule = createRule({
 const queueOptionKeys = new Set(["delaySeconds", "idempotencyKey", "retentionSeconds", "contentType"])
 
 function isQueueEnqueue(reference: ViteHubReference | undefined): boolean {
-  if (isExport(reference, ["queue"], ["runQueue", "deferQueue"])) return true
-  return reference?.module === "queue" && reference.name === "dynamicQueue" && reference.path.length === 1 && ["run", "defer"].includes(reference.path[0] ?? "")
+  if (isExport(reference, ["queue"], ["sendQueue", "deferQueue"])) return true
+  return reference?.module === "queue" && reference.name === "dynamicQueue" && reference.path.length === 1 && ["send", "defer"].includes(reference.path[0] ?? "")
 }
 
 export const queuePayloadOptions: DoctorRule = createRule({
@@ -190,7 +190,7 @@ export const queuePayloadOptions: DoctorRule = createRule({
         if (!options.length) return
         ctx.report(diagnostics.VHUB0016({
           why: `This call sends \`{ payload, ${options.join(", ")} }\` as the job payload. ViteHub does not read enqueue options from the payload, so \`${options.join("`, `")}\` has no effect.`,
-          fix: "Pass the payload and the options as separate arguments: `runQueue(name, payload, { delaySeconds })`.",
+          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delaySeconds })`.",
         }), { range: ctx.range(args[1]) })
       },
     }
@@ -198,8 +198,8 @@ export const queuePayloadOptions: DoctorRule = createRule({
 })
 
 const dispatchCalls: readonly { modules: readonly string[], names: readonly string[] }[] = [
-  { modules: ["queue"], names: ["runQueue", "deferQueue", "getQueue"] },
-  { modules: ["workflow"], names: ["runWorkflow", "deferWorkflow"] },
+  { modules: ["queue"], names: ["sendQueue", "deferQueue", "useQueue"] },
+  { modules: ["workflow"], names: ["startWorkflow", "deferWorkflow"] },
   { modules: ["sandbox/task"], names: ["runSandboxTask"] },
   { modules: ["browser"], names: ["runBrowser"] },
 ]
@@ -234,8 +234,8 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflowSignal"])
-    || isExport(reference, ["queue"], "getQueue")
+  if (isExport(reference, ["workflow"], ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
+    || isExport(reference, ["queue"], "useQueue")
     || isExport(reference, ["schedule/runtime"], "runSchedule")) return { name: reference.name, kind: "value" }
 }
 
@@ -335,19 +335,20 @@ function stepPropertyName(file: string): string {
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
 /**
- * The handler of a folder Workflow index: the function passed to `defineWorkflow()`, or the default-exported function.
- * `context` names the whole first parameter (`ctx.steps`), and `steps` names its destructured `steps` property.
+ * The handler of a folder Workflow index: the function passed to `defineWorkflow(name, handler)`, or the
+ * default-exported function. A handler gets `(payload, context)`: `context` names the whole second parameter
+ * (`ctx.steps`), and `steps` names its destructured `steps` property.
  */
 function workflowHandler(ctx: RuleContext, r: Resolver): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
-  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[0]) : value
-  // `defineWorkflow(onboard)` names a function declared in this file.
+  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[1]) : value
+  // `defineWorkflow("onboard", onboard)` names a function declared in this file.
   if (isIdentifier(fn)) {
     const declaration = r.binding(fn)?.declaration
     fn = isNodeType(declaration, "VariableDeclarator") ? unwrap(declaration.init) : declaration
   }
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  let param = unwrap(fn.params[0])
+  let param = unwrap(fn.params[1])
   if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
   if (isIdentifier(param)) return { fn, context: param.name }
   const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []
@@ -480,7 +481,7 @@ export const validScheduleCron: DoctorRule = createRule({
       ScriptNode(node) {
         if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["schedule"], "defineSchedule")) return
         const [first] = callArguments(node)
-        const cronNode = stringValue(first) === undefined ? objectValue(first, "cron") : first
+        const cronNode = objectValue(first, "cron")
         const cron = stringValue(cronNode)
         if (cron === undefined) return
         const problems = cronProblems(cron)
@@ -523,7 +524,7 @@ export const manualScheduleRun: DoctorRule = createRule({
   },
 })
 
-const chatAdapterNames = ["discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
+const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
 
 export const validChannel: DoctorRule = createRule({
   meta: {

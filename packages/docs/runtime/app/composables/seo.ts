@@ -44,7 +44,7 @@ export function useDocsSeo(input: DocsSeoInput): void {
       site: site.name,
       section: section?.title ?? "",
       // A path, so the prerender reads the file from the build instead of fetching the site before it is deployed.
-      logo: site.logo ?? "",
+      logo: site.logo ? site.logo.src : "",
       host: site.url.replace(/^https?:\/\//, ""),
     })
   }

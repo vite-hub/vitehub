@@ -159,29 +159,29 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await shot(page, "tablet");
     // The server renders the button, so a tap before hydration does nothing. Tap until the workspace mounts.
-    for (let attempt = 0; attempt < 15 && await page.locator(".vh-tutorial-workspace").count() === 0; attempt++) {
+    for (let attempt = 0; attempt < 15 && await page.locator(".vh-ws-shell").count() === 0; attempt++) {
       await page.getByRole("button", { name: "Open workspace" }).click().catch(() => {});
       await page.waitForTimeout(2000);
     }
-    await page.locator(".vh-tutorial-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.waitForFunction(() => document.querySelector("iframe[src*='stackblitz']") !== null, undefined, { timeout: 60_000 });
     await shot(page, "tablet-open");
     await page.close();
   });
 
   await t.test("phone: prose and a card, never a WebContainer", async () => {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, acceptDownloads: true });
     await page.goto(tutorial);
-    const card = page.getByText("This tutorial has a live workspace. Open it on a desktop to edit and run the code.");
+    const card = page.getByText("The live workspace runs in a desktop browser. Open this page on a desktop to edit and run the code.");
     await card.waitFor();
-    assert.equal(await page.getByRole("link", { name: "Download starter" }).getAttribute("href"), "/_tutorials/first-agent-starter.zip");
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
-    assert.equal(await page.locator(".vh-tutorial-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "mobile");
-    const zip = await page.request.get(`${base}/_tutorials/first-agent-starter.zip`);
-    assert.equal(zip.status(), 200);
-    assert.equal((await zip.body()).subarray(0, 2).toString(), "PK");
+    // The zip holds the files of the step that is open.
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download files" }).click();
+    assert.equal((await download).suggestedFilename(), "first-agent.zip");
     await page.close();
   });
 
@@ -201,7 +201,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     });
     await page.goto(tutorial);
     await page.getByText("The live workspace does not run in Safari").waitFor();
-    assert.equal(await page.locator(".vh-tutorial-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "safari");
     await context.close();
   });

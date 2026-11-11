@@ -22,11 +22,34 @@ In this tutorial, you list Markdown files from a local folder. Then you write a 
 Install the Workspace package:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/workspace
+pnpm add @vite-hub/workspace valibot
 ```
 
-Add `workspace: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workspace: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -35,8 +58,9 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+::::
+:::
 
-Did you choose Nuxt in Installation? Then add `workspace: true` to the options of the `vite-hub/nuxt` module.
 
 ::
 
@@ -89,14 +113,15 @@ export default defineEventHandler(async () => {
 Create a second route that writes a draft:
 
 ```ts [server/api/drafts.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async (event) => {
   const workspace = useWorkspace('docs', { mode: 'write' })
-  const body = await readBody<{ text: string }>(event)
+  const body = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
 
-  await workspace.fs.writeFile('drafts/summary.md', body?.text ?? '', {
+  await workspace.fs.writeFile('drafts/summary.md', body.text, {
     mediaType: 'text/markdown',
   })
 
@@ -104,6 +129,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+- `readValidatedBody()` answers `400` when the body has no `text` string.
 - `{ mode: 'write' }` asks for write access. In read mode, `workspace.fs` has no `writeFile()`.
 - `writeFile()` saves the draft in the Workspace. It does not change the files in your `docs` folder.
 - `diff()` returns the changes that wait to be saved, here the new draft.

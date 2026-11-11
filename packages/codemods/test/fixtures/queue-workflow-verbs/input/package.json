@@ -1,0 +1,8 @@
+{
+  "name": "verbs-app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "vite-hub": "^0.1.0"
+  }
+}

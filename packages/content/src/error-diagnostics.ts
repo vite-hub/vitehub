@@ -15,9 +15,6 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_R0004: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
-    CONTENT_R0005: {
-      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
-    },
     CONTENT_R0006: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
@@ -53,6 +50,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0017: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    CONTENT_R0018: {
+      fix: "Import `sqlite` from `vite-hub/content/sqlite` in `server/content.ts`, so ViteHub loads SQLite WASM while the Worker starts. Cloudflare Workers compile WebAssembly only at startup.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
   },
