@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import { createSource } from "@vite-hub/source"
 import type { GitHubRef, GitHubRefTarget, Source, SourceItem, SourceRevision } from "@vite-hub/source"
 import { contentHub } from "comark-content"
@@ -5,7 +7,7 @@ import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "c
 import { formatDiagnostic } from "nostics"
 
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
-import { contentSourceDefinition, createContentInstance } from "./content-source.ts"
+import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { parseContentRef } from "./source-refs.ts"
 
@@ -49,7 +51,10 @@ export interface ContentSourceView extends ContentSourceRef {
   search: ContentHub["search"]
 }
 
-/** The head commits of `github()` Sources. */
+/**
+ * The head commits of `github()` Sources. Serialize first initialization and mutations per Source through one writer.
+ * KV has no atomic conditional writes; concurrent writers are unsupported. Read replicas follow provider consistency.
+ */
 export interface ContentSourceHeads {
   /** The head of a `github()` Source. The first call resolves its branch, validates the commit, and stores it in KV. */
   head(source?: string): Promise<ContentSourceHead>
@@ -114,6 +119,9 @@ interface HeadState {
   reading?: Promise<StoredHead | null>
   /** The commit that the instance reads on its next load. */
   served?: { sha: string, ref: string | null }
+  /** The last revision successfully loaded by an initialized instance. */
+  loaded?: string
+  access: AsyncLocalStorage<boolean>
   /** The reload of the instance after the head moved. Reads wait for it. */
   refreshing?: Promise<void>
   /** Rejected commits that this server instance already reported. */
@@ -151,6 +159,10 @@ function headKey(name: string): string {
   return `content:head:${name}`
 }
 
+function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
+  return typeof value === "function"
+}
+
 function isGitHubDefinition(definition: Source<string, unknown, object> | undefined): definition is GitHubDefinition {
   return definition?.name === "github" && "authenticated" in definition && typeof definition.authenticated === "function"
 }
@@ -162,6 +174,11 @@ export interface ContentKV {
 }
 
 let installedKV: ContentKV | undefined
+/**
+ * The build that registered KV. Plugin options can live in closures that the parser hash cannot read, so each build
+ * gets its own commit cache keys.
+ */
+let installedBuild: string | undefined
 
 /** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
 const kvFailures = new WeakSet<object>()
@@ -176,8 +193,9 @@ function isKVFailure(error: unknown): error is KVFailure {
  * Give Content the KV store that keeps the heads of `github()` Sources. When the app enables ViteHub KV, the build
  * calls it at the top of `server/content.ts`; you do not call it yourself. Without it, no Source is live.
  */
-export function registerContentKV(store: ContentKV | undefined): void {
+export function registerContentKV(store: ContentKV | undefined, build?: string): void {
   installedKV = store
+  installedBuild = build
 }
 
 /** The head state of one Content runtime. */
@@ -188,8 +206,6 @@ interface ContentSourceHeadsRuntime {
   commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined
   /** Give a `github()` Source its Comark instance, so a moved head reloads it. */
   attach(name: string, instance: ComarkContent): void
-  /** Bring every live Source to its current head before a read. */
-  sync(): Promise<void>
   /** Close every view after its current reads finish. */
   dispose(): Promise<void>
 }
@@ -285,19 +301,21 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
 
   /** Parse the files of one commit. Returns the commit, or why it is invalid. */
   async function parseCommit(state: HeadState, files: LoadedCommit["files"]): Promise<LoadedCommit> {
-    const parsed = await parse(state.name, { items: async () => files })
+    // The Source options, such as `prefix` and `schema`, change the parsed documents.
+    const { prefix, schema } = contentSource(state.input)
+    const parsed = await parse(state.name, contentSource({ items: async () => files }, { prefix, schema }))
     if (typeof parsed !== "string") return { files, commit: { files, ...parsed } }
     // Parse errors, such as YAML errors, do not name the document. Parse each document alone to find it.
     for (const item of files) {
       const single: Source<string, unknown, object> = { name: state.definition.name, getKeys: async () => [item.key], getItem: async () => item }
-      const error = await parse(state.name, single)
+      const error = await parse(state.name, contentSource(single, { prefix, schema }))
       if (typeof error === "string") return { files, reason: `${item.path ?? item.key}: ${error}` }
     }
     return { files, reason: parsed }
   }
 
   function hashOf(state: HeadState): Promise<string> {
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null })
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, build: installedBuild ?? null })
     return state.hash
   }
 
@@ -357,10 +375,11 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       return loaded
     })()
     memory.set(key, loading)
-    // A failed download leaves no entry, so the next read tries again.
-    loading.catch(() => {
+    // A failed download or a rejected commit leaves no entry, so `advance()` can retry the same SHA.
+    const forget = () => {
       if (memory.get(key) === loading) memory.delete(key)
-    })
+    }
+    loading.then(loaded => loaded.reason && forget(), forget)
     return await loading
   }
 
@@ -369,7 +388,13 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
    * This is the seam for `vitehub content check`, which adds schema, link, and SEO checks.
    */
   async function check(state: HeadState, revision: SourceRevision): Promise<string | undefined> {
-    return (await load(state, revision)).reason
+    // A commit that does not download, such as on a network failure, is rejected too. `advance()` retries it.
+    try {
+      return (await load(state, revision)).reason
+    }
+    catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
 
   /** Move the head to the latest valid commit of the branch, and return the stored head. */
@@ -379,13 +404,13 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     // A fresh reader resolves the branch, not the head that the instance reads.
     const revision = await createSource(state.definition).revision()
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
-    if (!revision?.immutable || revision.id === before?.sha || revision.id === before?.rejected?.sha) return before
+    if (!revision?.immutable || revision.id === before?.sha) return before
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
       ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason } }
       : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null }
-    // Another server instance moved the head while this one validated. Its head wins, so an older commit never replaces it.
+    // Best-effort conflict detection only. KV is not CAS: callers must serialize initialization and mutations through one writer.
     const latest = await read(state)
     if (JSON.stringify(latest) !== JSON.stringify(before)) return latest
     await write(state, next)
@@ -412,21 +437,34 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     return await state.reading
   }
 
-  /** Point the instance at `head`, and reload it when it already loaded another commit. */
+  /** Point readers at the selected head; only mark a reload complete after it succeeds. */
   async function serve(state: HeadState, head: StoredHead | null): Promise<void> {
-    const sha = head?.sha ?? undefined
+    if (state.refreshing) await state.refreshing
+    if (!head?.sha) return
+    const selected = { sha: head.sha, ref: head.ref }
     const instance = state.instance
-    if (sha !== state.served?.sha) {
-      state.served = head?.sha ? { sha: head.sha, ref: head.ref } : undefined
-      if (instance && instance.status !== "created" && instance.status !== "disposed") {
-        const refreshing = instance.refresh().then(() => undefined)
-        state.refreshing = refreshing
-        void refreshing.finally(() => {
-          if (state.refreshing === refreshing) state.refreshing = undefined
-        }).catch(() => {})
+    const previous = state.served
+    state.served = selected
+    if (!instance || instance.status === "created" || instance.status === "disposed" || state.loaded === head.sha) return
+    const refreshing = state.access.run(true, async () => {
+      try {
+        // Comark keeps its old index when a refresh cannot load the commit. Load it first, so a failed download fails here.
+        await load(state, { id: selected.sha, immutable: true, ...(selected.ref ? { ref: selected.ref } : {}) })
+        await instance.refresh()
+        state.loaded = selected.sha
       }
+      catch (error) {
+        state.served = previous
+        throw error
+      }
+    })
+    state.refreshing = refreshing
+    try {
+      await refreshing
     }
-    await state.refreshing
+    finally {
+      if (state.refreshing === refreshing) state.refreshing = undefined
+    }
   }
 
   /**
@@ -510,7 +548,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     }
     const revision: SourceRevision = { id: sha, immutable: true }
     const commits: ContentSourceCommits = {
-      revision: () => revision,
+      revision: async () => revision,
       files: async commit => (await load(state, commit)).files,
       documents: origin => withCommitDocuments(origin, async () => (await load(state, revision)).commit),
     }
@@ -544,6 +582,30 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
         if (open.evicted) void close(open).catch(() => {})
       }
     }
+  }
+
+  /** Resolve the head before a serving operation, including reads satisfied by a parsed index. */
+  async function sync(state: HeadState): Promise<void> {
+    if (!await isLive(state)) return
+    if (kvFailing(state)) return await serve(state, fallback(state))
+    let head: StoredHead | null
+    try {
+      head = await current(state)
+    }
+    catch (error) {
+      if (!isKVFailure(error)) throw error
+      if (!kvFailing(state)) {
+        state.failed = Date.now()
+        console.warn(formatDiagnostic(error))
+      }
+      return await serve(state, fallback(state))
+    }
+    state.failed = undefined
+    if (!head?.sha) {
+      if (head?.rejected) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, ...head.rejected, head: null })
+      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} has no validated head. Resolve its GitHub commit, then call content.sources.advance().` })
+    }
+    await serve(state, head)
   }
 
   const api: ContentSourceHeads = {
@@ -614,43 +676,54 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)
       if (!isGitHubDefinition(definition)) return
-      const state: HeadState = { name, input, definition, reported: new Set(), stats: { memory: 0, kv: 0, misses: 0 } }
+      const state: HeadState = { name, input, definition, reported: new Set(), stats: { memory: 0, kv: 0, misses: 0 }, access: new AsyncLocalStorage() }
       states.set(name, state)
-      const revision = (): SourceRevision | undefined => state.served ? { id: state.served.sha, immutable: true, ...(state.served.ref ? { ref: state.served.ref } : {}) } : undefined
+      // A read outside a guarded operation first brings the Source to its head.
+      const revision = async (): Promise<SourceRevision | undefined> => {
+        if (!state.access.getStore()) await state.access.run(true, () => sync(state))
+        return state.served ? { id: state.served.sha, immutable: true, ...(state.served.ref ? { ref: state.served.ref } : {}) } : undefined
+      }
       return {
         revision,
         files: async commit => (await load(state, commit)).files,
         documents: origin => withCommitDocuments(origin, async () => {
-          const served = revision()
+          const served = await revision()
           return served && (await load(state, served)).commit
         }),
       }
     },
     attach(name: string, instance: ComarkContent): void {
       const state = states.get(name)
-      if (state) state.instance = instance
-    },
-    async sync(): Promise<void> {
-      await Promise.all([...states.values()].map(async (state) => {
-        if (!await isLive(state)) return
-        // After a KV failure, reads keep the fallback for the hold time, so a broken store is not called on each read.
-        if (kvFailing(state)) return await serve(state, fallback(state))
-        let head: StoredHead | null
-        try {
-          head = await current(state)
-        }
-        catch (error) {
-          if (!isKVFailure(error)) throw error
-          // A KV failure must not fail the page. Content logs it once per hold and reads without the head.
-          if (!kvFailing(state)) {
-            state.failed = Date.now()
-            console.warn(formatDiagnostic(error))
+      if (!state) return
+      state.instance = instance
+      const guard = (method: (...args: unknown[]) => unknown, target: object, initialize = false) => {
+        return (...args: unknown[]) => state.access.getStore()
+          ? Reflect.apply(method, target, args)
+          : state.access.run(true, async () => {
+              await sync(state)
+              if (initialize) await instance.init()
+              const result: unknown = await Reflect.apply(method, target, args)
+              if (instance.status === "initialized-full" || instance.status === "initialized-partial") state.loaded = state.served?.sha
+              return result
+            })
+      }
+      // All index/body entry points share this boundary. Nested init/get calls and the serving reload bypass it.
+      for (const key of ["init", "get", "refresh", "list", "navigation", "manifest", "snapshot", "handler", "search"]) {
+        const method: unknown = Reflect.get(instance, key)
+        if (isFunction(method)) Object.defineProperty(instance, key, { value: guard(method, instance, key === "search") })
+      }
+      // SQL query builders stay synchronous. Only their terminal operations resolve the selected head.
+      const query: unknown = Reflect.get(instance, "query")
+      if (typeof query === "function") Object.defineProperty(instance, "query", {
+        value(...args: unknown[]) {
+          const builder: object = Reflect.apply(query, instance, args)
+          for (const key of ["all", "first", "count"]) {
+            const method: unknown = Reflect.get(builder, key)
+            if (isFunction(method)) Object.defineProperty(builder, key, { value: guard(method, builder, true) })
           }
-          return await serve(state, fallback(state))
-        }
-        state.failed = undefined
-        await serve(state, head)
-      }))
+          return builder
+        },
+      })
     },
   }
 }
