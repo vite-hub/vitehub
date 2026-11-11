@@ -318,6 +318,10 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
+to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
+have it. See [Source configuration](/docs/source/configure) for the loader options.
+
 | Option | Type | Description |
 | --- | --- | --- |
 | `source` | `Source` | The Source definition to bind. Required in this form. |
@@ -413,24 +417,29 @@ A Custom Source can read files already in the Workspace through `ctx.workspaceFi
 
 A Source can pick its origin and mount per invocation from trusted runtime context. Use this when one Source key needs a narrower origin after Access selects a Workspace Scope.
 
-```ts
+```ts [server/workspaces/support/config.ts]
+import { defineWorkspace, github } from 'vite-hub/workspace'
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: { meta?: { customer?: string } }
+    'support.customerScope': { customers: string[] }
   }
 }
 
-github(({ channel, invocation }) => {
-  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-  const customer = channel?.meta?.customer ?? scope?.customers[0]
-  if (!customer)
-    return false
+export default defineWorkspace({
+  sources: {
+    ingestion: github(({ invocation }) => {
+      const customer = invocation.context.get('support.customerScope')?.customers[0]
+      if (!customer)
+        return false
 
-  return {
-    repo: 'quiverdk/ingestion',
-    root: `dbt/${customer}`,
-    mount: `ingestion/${customer}`,
-  }
+      return {
+        repo: 'quiverdk/ingestion',
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+      }
+    }),
+  },
 })
 ```
 

@@ -109,7 +109,6 @@ function toggle(index: number): void {
   open.value = next;
 }
 
-const action = "size-6 justify-center text-dimmed hover:text-highlighted";
 </script>
 
 <template>
@@ -117,10 +116,11 @@ const action = "size-6 justify-center text-dimmed hover:text-highlighted";
     <ol class="grid grid-cols-1" :aria-label="field.label">
       <li v-for="(value, index) in items" :id="itemId(index)" :key="keys[index]" class="group/item grid grid-cols-1">
         <div class="flex min-h-8 items-start gap-1">
+          <!-- A field value, not an action: it reads in the type of the ghost fields of the form, which UButton does not. -->
           <button
             v-if="objectItems"
             type="button"
-            class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-base hover:bg-elevated/70 focus-visible:outline-2 md:text-sm"
+            class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-sm hover:bg-elevated pointer-coarse:text-base"
             :aria-expanded="open.has(keys[index]!)"
             :aria-controls="`${itemId(index)}-fields`"
             @click="toggle(index)"
@@ -133,9 +133,9 @@ const action = "size-6 justify-center text-dimmed hover:text-highlighted";
             <slot name="item" :id="itemId(index)" :depth="depth + 1" :index="index" :value="value" :update="(next: unknown) => update(index, next)" />
           </div>
           <div v-if="!disabled" class="flex h-8 shrink-0 items-center opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100 max-sm:opacity-100">
-            <UButton :id="`${itemId(index)}-up`" icon="i-lucide-arrow-up" size="xs" variant="ghost" color="neutral" :class="action" :disabled="index === 0" :aria-label="`Move ${title(value, index).title} up`" @click="move(index, -1)" />
-            <UButton :id="`${itemId(index)}-down`" icon="i-lucide-arrow-down" size="xs" variant="ghost" color="neutral" :class="action" :disabled="index === items.length - 1" :aria-label="`Move ${title(value, index).title} down`" @click="move(index, 1)" />
-            <UButton :id="`${itemId(index)}-remove`" icon="i-lucide-x" size="xs" variant="ghost" color="neutral" :class="action" :aria-label="`Remove ${title(value, index).title}`" @click="remove(index)" />
+            <UButton :id="`${itemId(index)}-up`" icon="i-lucide-arrow-up" size="xs" variant="ghost" :disabled="index === 0" :aria-label="`Move ${title(value, index).title} up`" @click="move(index, -1)" />
+            <UButton :id="`${itemId(index)}-down`" icon="i-lucide-arrow-down" size="xs" variant="ghost" :disabled="index === items.length - 1" :aria-label="`Move ${title(value, index).title} down`" @click="move(index, 1)" />
+            <UButton :id="`${itemId(index)}-remove`" icon="i-lucide-x" size="xs" variant="ghost" :aria-label="`Remove ${title(value, index).title}`" @click="remove(index)" />
           </div>
         </div>
         <div v-if="objectItems && open.has(keys[index]!)" :id="`${itemId(index)}-fields`" class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
@@ -147,10 +147,8 @@ const action = "size-6 justify-center text-dimmed hover:text-highlighted";
       v-if="!disabled"
       :id="`${inputId}-add`"
       icon="i-lucide-plus"
-      size="sm"
       variant="ghost"
-      color="neutral"
-      class="w-fit px-1.5 text-[13px] font-normal text-dimmed hover:text-highlighted"
+      class="w-fit"
       :label="`Add ${noun}`"
       @click="add"
     />

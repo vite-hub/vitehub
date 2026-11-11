@@ -39,8 +39,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
   ["@vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
-  ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
-  ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/comments/vite", { "vite": "both" }],
   ["@vite-hub/cms/access", { "@vite-hub/comments": "declaration", "better-auth": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
@@ -59,6 +57,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
+  ["@vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["@vite-hub/ui/markdown-editor", {
     "@nuxt/ui": "both",
     "@tiptap/core": "both",
@@ -80,7 +79,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console signs people in with Better Auth and keeps the Agent journal in libSQL.
   ["vite-hub/console/auth", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
-  ["vite-hub/console/auth/inline", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
@@ -90,6 +88,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
   ["vite-hub/source/drizzle", { "drizzle-orm": "both" }],
+  ["vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/console/ui", {
@@ -130,7 +129,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

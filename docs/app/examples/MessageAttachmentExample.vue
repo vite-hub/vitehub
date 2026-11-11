@@ -19,14 +19,14 @@
         </Bubble>
         <Attachment>
           <AttachmentMedia>
-            <UIcon name="i-ph-file-text-light" />
+            <UIcon name="i-lucide-file-text" />
           </AttachmentMedia>
           <AttachmentContent>
             <AttachmentTitle>release-notes.pdf</AttachmentTitle>
             <AttachmentDescription>PDF · 2.4 MB</AttachmentDescription>
           </AttachmentContent>
           <AttachmentActions>
-            <AttachmentAction icon="i-ph-download-simple-light" aria-label="Download release-notes.pdf" />
+            <AttachmentAction icon="i-lucide-download" aria-label="Download release-notes.pdf" />
           </AttachmentActions>
         </Attachment>
       </MessageContent>

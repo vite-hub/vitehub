@@ -159,4 +159,4 @@ The log records only operations through the supported Better Auth hooks and endp
 
 ## Console runtime exports
 
-`@vite-hub/auth/runtime/console` exports `readAuthEventConsoleRecords`, a no-argument reader that follows `@vite-hub/internal/console`. It returns up to 50 recent records, or an empty array when the log is off. `listAuthEvents` and `aggregateAuthEvents` are exported too, for pages that need cursors or metrics. This package adds no Console UI.
+`@vite-hub/auth/runtime/console` exports `listAuthEvents` and `aggregateAuthEvents`, for Console pages that need cursors or metrics. This package adds no Console UI.

@@ -70,7 +70,6 @@
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "mlly": "catalog:unjs",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
     "ocache": "catalog:unjs"
@@ -94,12 +93,16 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "drizzle-orm": {
       "optional": true
     },

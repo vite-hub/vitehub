@@ -28,17 +28,22 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
+Install Comark when importing a parse plugin directly:
+
+```sh
+pnpm add comark
+```
+
 ```ts
-import knap from "comark-knap"
+import { defineContent } from "@vite-hub/content"
+import { glob } from "@vite-hub/source"
+import headings from "comark/plugins/headings"
 
 export const content = defineContent({
   markdown: {
     plugins: [
-      knap({
-        variables: {
-          environment: process.env.NODE_ENV,
-        },
-      }),
+      // Read each page description from its first blockquote
+      headings({ descriptionTag: "blockquote" }),
     ],
   },
   source: glob({ cwd: "docs", include: "**/*.md" }),
@@ -101,6 +106,7 @@ documents({
 ```
 
 ```ts
+// server/content.ts
 import { defineContent } from "@vite-hub/content"
 import { documents } from "@vite-hub/content/collections"
 import cms from "@vite-hub/cms"
@@ -171,11 +177,19 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 `content.preview.enable(event)` signs an HMAC token with `VITEHUB_CONTENT_KEY` (32 random bytes as base64 or hex) and sets it as an `HttpOnly`, `SameSite=Strict` cookie for one hour by default. A request with a valid cookie reads `draft` through `/api/content/**`, `content.get()`/`list()`/`navigation()`/`search()`, and collection `get()`/`list()`, and gets `Cache-Control: private, no-store`. The grant lives in `AsyncLocalStorage` for that request only.
 
 ```ts
-if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
-await content.preview.enable(event, { maxAge: 900 })
-content.preview.disable(event)
-await content.preview.run(event, () => content.collection("posts").get("hello")) // outside Nitro
+// server/api/preview.post.ts
+import { withAuth } from "@vite-hub/auth/server"
+import type { H3Event } from "h3"
+import { createError, defineEventHandler } from "h3"
+import { content } from "../content"
+
+export default defineEventHandler(withAuth(async (event: H3Event, { user }) => {
+  if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
+  return await content.preview.enable(event, { maxAge: 900 }) // content.preview.disable(event) clears it
+}))
 ```
+
+Outside Nitro, such as in a test, run a read in preview yourself: `await content.preview.run(event, () => content.collection("posts").get("hello"))`.
 
 ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 5 apps. It imports `@vite-hub/content/preview` and loads `server/content.ts` on the first request with a preview cookie, a preview frame, or `?vitehub-content-published`, so the server starts without the Content runtime. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
 

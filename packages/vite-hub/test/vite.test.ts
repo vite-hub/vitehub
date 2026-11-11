@@ -446,13 +446,15 @@ describe("vitehub", () => {
     ]))
   })
 
-  it("allows a host-managed Console on Cloudflare", async () => {
+  it("refuses a host-managed Console in a production build on Cloudflare", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
+      .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+    await expect(callHook(plugin.config, [{}, { command: "serve", mode: "development" }]))
       .resolves.toBeUndefined()
   })
 
