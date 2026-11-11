@@ -1,4 +1,4 @@
-import { resolveConsoleAuth, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -11,13 +11,13 @@ export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
 export { installConsoleAccess, installConsoleDevelopment, installConsoleOrigins, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "./setup.ts"
 
 export function getConsoleSections(): readonly ConsoleSectionId[] {
-  return resolveConsoleSections()
+  return consoleState().sections ?? []
 }
 
 export function getConsoleAuth(): ConsoleAuthMode | false {
-  return resolveConsoleAuth()
+  return consoleState().auth ?? false
 }
 
 export function getConsoleProjectName(): string | undefined {
-  return resolveConsoleProjectName()
+  return consoleState().projectName
 }

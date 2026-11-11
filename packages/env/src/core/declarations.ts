@@ -1,6 +1,6 @@
 import type { EnvSchemaModuleReference, EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { envValueTypeName, parseEnvValue, stringValueSchema } from "./values.ts"
 
 type SafeParse = (input: unknown) => { data: unknown, success: true } | { error: Error, success: false }
@@ -159,10 +159,10 @@ function provider(provider: string, key: string): EnvSource {
 }
 
 function schemaFrom(module: string, exportName = "default"): EnvSchemaModuleReference {
-  if (!hasRuntimeType(module, "string") || !module.trim()) {
+  if (typeof module !== "string" || !module.trim()) {
     throw envErrorDiagnostics.ENV_R0029({ message: "env.schemaFrom() requires a non-empty module specifier." })
   }
-  if (!hasRuntimeType(exportName, "string") || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportName)) {
+  if (typeof exportName !== "string" || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportName)) {
     throw envErrorDiagnostics.ENV_R0029({ message: "env.schemaFrom() requires an export name that is a JavaScript identifier." })
   }
   return Object.freeze({ kind: "schema-module", module: module.trim(), export: exportName })
@@ -172,7 +172,7 @@ function schemaFrom(module: string, exportName = "default"): EnvSchemaModuleRefe
 export function schemaModuleReference(schema: unknown): EnvSchemaModuleReference | undefined {
   try {
     if (!isRuntimeRecord(schema) || schema.kind !== "schema-module") return undefined
-    return hasRuntimeType(schema.module, "string") && hasRuntimeType(schema.export, "string")
+    return typeof schema.module === "string" && typeof schema.export === "string"
       ? { kind: "schema-module", module: schema.module, export: schema.export }
       : undefined
   }
@@ -209,7 +209,7 @@ function enumVariable<const TValues extends readonly [string, ...string[]]>(
   values: TValues,
   options: Omit<EnvTypedVariableOptions<TValues[number]>, "secret"> = {},
 ): EnvVariableDeclaration {
-  if (!Array.isArray(values) || !values.length || values.some(value => !hasRuntimeType(value, "string") || !value) || new Set(values).size !== values.length) {
+  if (!Array.isArray(values) || !values.length || values.some(value => typeof value !== "string" || !value) || new Set(values).size !== values.length) {
     throw envErrorDiagnostics.ENV_R0022({ message: "env.enum() requires one or more unique non-empty strings." })
   }
   return typedVariable(createRuntimeValueSchema(Object.freeze({ kind: "enum", values: Object.freeze([...values]) })), options)
@@ -313,7 +313,7 @@ export function runtimeValueSchema(declaration: EnvVariableDeclaration): EnvValu
     const schemaToken = Object.getOwnPropertyDescriptor(schema, runtimeSchemaProperty)?.value
     if (schemaToken !== runtimeSchemaToken || !hasOnlyRuntimeSchemaKeys(schema)) return undefined
     const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")?.value
-    return hasRuntimeType(safeParse, "function") ? runtimeSchemaParsers.get(safeParse) : undefined
+    return typeof safeParse === "function" ? runtimeSchemaParsers.get(safeParse) : undefined
   }
   catch {
     return undefined
@@ -322,7 +322,7 @@ export function runtimeValueSchema(declaration: EnvVariableDeclaration): EnvValu
 
 function isRuntimeValueSchema(schema: unknown): schema is RuntimeValueSchema {
   try {
-    return isRuntimeRecord(schema) && hasRuntimeType(schema.safeParse, "function") && runtimeSchemaParsers.has(schema.safeParse)
+    return isRuntimeRecord(schema) && typeof schema.safeParse === "function" && runtimeSchemaParsers.has(schema.safeParse)
   }
   catch {
     return false
@@ -345,5 +345,5 @@ function hasOnlyRuntimeSchemaKeys(schema: Record<PropertyKey, unknown>): boolean
   return keys.length === 2
     && keys.includes(runtimeSchemaProperty)
     && keys.includes("safeParse")
-    && hasRuntimeType(safeParse?.value, "function")
+    && typeof safeParse?.value === "function"
 }

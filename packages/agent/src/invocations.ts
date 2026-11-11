@@ -79,21 +79,6 @@ const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
 const STORE_OPEN_TIMEOUT_MS = 10_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
-const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
-const brandedErrorValues = new WeakSet<object>()
-const intrinsicFunctionToString = Function.prototype.toString
-const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
-const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
-
-function isNativeConstructor(value: unknown, source: string): value is Function {
-  if (typeof value !== "function") return false
-  try {
-    return intrinsicFunctionToString.call(value) === source
-  }
-  catch {
-    return false
-  }
-}
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -705,131 +690,14 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
   }
 }
 
+// The `[object Error]` tag comes from the Error internal slot, so an Error from another realm also matches.
 function isErrorValue(value: unknown): value is Error {
-  if (!value || typeof value !== "object") return false
-  if (brandedErrorValues.has(value)) return true
-  try {
-    // Probe the intrinsic Error slot before reading `stack`. A foreign realm
-    // can cache a non-string formatter result (including `undefined`) on the
-    // first read, which would otherwise make the later brand probe fail.
-    if (errorStackGetter) {
-      let prototype = Object.getPrototypeOf(value)
-      while (prototype && prototype !== Object.prototype) {
-        const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-        const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (
-          typeof name === "string"
-          && typeof message === "string"
-          && isNativeConstructor(constructor, nativeErrorConstructorSource)
-          && constructor.prototype === prototype
-        ) {
-          const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
-          const stackDescriptor = Object.getOwnPropertyDescriptor(value, "stack")
-          const sentinel = {}
-          try {
-            // A prior intrinsic read can cache a custom formatter result on the
-            // Error's own lazy stack accessor. Remove that cache before probing.
-            if (stackDescriptor?.configurable) delete (value as object & { stack?: unknown }).stack
-            Object.defineProperty(constructor, "prepareStackTrace", {
-              configurable: true,
-              value: () => sentinel,
-              writable: true,
-            })
-            if (errorStackGetter.call(value) === sentinel) {
-              brandedErrorValues.add(value)
-              return true
-            }
-          }
-          catch {
-            // Continue to the remaining checks when the realm is locked down.
-          }
-          finally {
-            try {
-              if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
-              else delete constructor.prepareStackTrace
-              if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
-              else delete (value as object & { stack?: unknown }).stack
-            }
-            catch {
-              // Ignore restoration failures; classification remains bounded.
-            }
-          }
-        }
-        prototype = Object.getPrototypeOf(prototype)
-      }
-    }
-    // V8's intrinsic stack accessor performs the Error internal-slot check and
-    // works for Error instances created in another realm. Keep the structural
-    // fallback below for runtimes without that accessor.
-    if (errorStackGetter) {
-      try {
-        // Calling the intrinsic accessor performs the non-spoofable Error
-        // internal-slot check. The stack value may be non-string when a
-        // foreign realm customizes prepareStackTrace.
-        const stack = errorStackGetter.call(value)
-        // The intrinsic accessor returns `undefined` for objects without the
-        // Error internal slot. Only accept the intrinsic brand when it yields
-        // an actual stack value; structural checks below cover custom formatters
-        // that intentionally return `undefined`.
-        if (typeof stack === "string") {
-          // Preserve the non-spoofable intrinsic-brand evidence for the
-          // subsequent AggregateError classification pass.  Fallback
-          // classifications are intentionally never cached because proxies
-          // and other mutable values may change between observations.
-          brandedErrorValues.add(value)
-          return true
-        }
-      }
-      catch {
-        // A custom stack formatter can make the intrinsic getter throw. Keep
-        // checking the other Error brands so genuine values are still found.
-      }
-    }
-    if (isInstance(value, Error)) {
-      return true
-    }
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && prototype !== Object.prototype) {
-      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-      const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-      if (typeof name === "string" && typeof message === "string") {
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) {
-          // The intrinsic sentinel probe above is the non-spoofable brand check.
-        }
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return false
-  }
-  catch {
-    return false
-  }
+  return isInstance(value, Error) || Object.prototype.toString.call(value) === "[object Error]"
 }
 
-function isAggregateErrorValue(value: unknown): value is AggregateError {
-  if (!isErrorValue(value)) return false
-  try {
-    if (isInstance(value, AggregateError)) return true
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && prototype !== Object.prototype) {
-      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      if (
-        name === "AggregateError"
-        && isNativeConstructor(constructor, nativeAggregateErrorConstructorSource)
-        && constructor.prototype === prototype
-        && Object.hasOwn(value, "errors")
-        && isArray((value as unknown as Record<string, unknown>).errors)
-      ) return true
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return false
-  }
-  catch {
-    return false
-  }
+// An AggregateError from another realm, or a subclass with its own name, still has its `errors` array.
+function isAggregateErrorValue(value: Error): value is AggregateError {
+  return isInstance(value, AggregateError) || isArray((value as Partial<AggregateError>).errors)
 }
 
 function isRegExpValue(value: unknown): value is RegExp {
@@ -2269,13 +2137,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       return await failInterruptedAgentInvocations(store, recoveryOptions)
     },
     async [agentInvocationClaimStateSymbol](id) {
-      if (openStore) await openStore()
-      if (!await store.getSummary(id)) return "missing"
+      if (!await publicStore(() => store.getSummary(id))) return "missing"
       // The store gives the claim only when it is absent or expired. A live run renews its claim before it expires.
       const claimId = `probe_${globalThis.crypto.randomUUID()}`
-      if (!await store.claim(id, claimId, CLAIM_LEASE_MS)) return "held"
-      // The claim was free. A failed release only keeps the probe claim until its lease expires.
-      await Promise.resolve().then(() => store.release(id, claimId)).catch(() => undefined)
+      const claimTask = Promise.resolve().then(() => store.claim(id, claimId, CLAIM_LEASE_MS))
+      try {
+        if (!await publicStore(() => claimTask)) return "held"
+      }
+      catch (error) {
+        // Timing out does not cancel the store operation. Release a late claim by its unique probe id.
+        void claimTask.then(owned => owned ? publicStore(() => store.release(id, claimId)) : undefined).catch(() => undefined)
+        throw error
+      }
+      await publicStore(() => store.release(id, claimId))
       return "free"
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(

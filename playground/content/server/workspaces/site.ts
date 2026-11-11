@@ -2,7 +2,7 @@ import { blob } from "vite-hub/blob"
 import { defineWorkspace } from "vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore } from "vite-hub/workspace/blob-database"
 
-import contentDatabase from "../databases/content/config"
+import contentDatabase from "../databases/content/index"
 
 export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { createNitroServerKit } from "../src/nitro-kit.ts"
+import { createNitroServerKit, mergeNitroExternal } from "../src/nitro-kit.ts"
 
 describe("Nitro server kit", () => {
   it("preserves user config while isolating generated registrations", () => {
@@ -44,5 +44,18 @@ describe("Nitro server kit", () => {
 
     expect(kit.config.handlers).toEqual([{ handler: "kept.ts" }, { handler: "generated.ts" }])
     expect(kit.config.plugins).toEqual(["kept-plugin.ts", "generated-plugin.ts"])
+  })
+})
+
+describe("mergeNitroExternal", () => {
+  it("adds one id to each form of the external option", () => {
+    expect(mergeNitroExternal(undefined, "cloudflare:workers")).toEqual(["cloudflare:workers"])
+    expect(mergeNitroExternal(["a"], "cloudflare:workers")).toEqual(["a", "cloudflare:workers"])
+    expect(mergeNitroExternal(["cloudflare:workers"], "cloudflare:workers")).toEqual(["cloudflare:workers"])
+    expect(mergeNitroExternal("a", "cloudflare:workers")).toEqual(["a", "cloudflare:workers"])
+    expect(mergeNitroExternal(/^a/, "cloudflare:workers")).toEqual([/^a/, "cloudflare:workers"])
+    const external = mergeNitroExternal((source: string) => source === "a", "cloudflare:workers")
+    expect(typeof external === "function" && [external("a"), external("cloudflare:workers"), external("b")]).toEqual([true, true, false])
+    expect(mergeNitroExternal(false, "cloudflare:workers")).toBe(false)
   })
 })

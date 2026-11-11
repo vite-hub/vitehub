@@ -19,7 +19,7 @@ import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServer
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentPreset, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_PRESET, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { deploymentPresetFromNitro, detectPreset, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
@@ -27,6 +27,7 @@ import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
+import { generatedModules } from "./internal/generated-modules.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
@@ -39,7 +40,7 @@ import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
-import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
+import { cloudflareExportConditions } from "./deployment.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -60,7 +61,9 @@ import type { EnvOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVOptions } from "@vite-hub/kv"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
+import type { McpOptions } from "@vite-hub/mcp"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/bundle-options"
+import { cloneRecord } from "@vite-hub/internal/object"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitOptions } from "@vite-hub/rate-limit"
 import type { RealtimeOptions } from "@vite-hub/realtime"
@@ -132,11 +135,13 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/forge": true,
   "@vite-hub/forms": true,
   "@vite-hub/gateways": true,
   "@vite-hub/i18n": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
+  "@vite-hub/mcp": true,
   "@vite-hub/presets": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
@@ -417,7 +422,7 @@ export interface ViteHubOptions {
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
   /**
-   * The host to build for. When omitted, `detectPreset()` from `vite-hub/deployment` reads it from `VITEHUB_HOSTING`,
+   * The host to build for. When omitted, `detectHost()` from `vite-hub/runtime` reads it from `VITEHUB_HOSTING`,
    * `NITRO_PRESET`, `SERVER_PRESET`, or the provider variables of Cloudflare Workers Builds, Netlify, Vercel, and Deno Deploy.
    * Without any of them, ViteHub builds for `"node"`.
    */
@@ -451,7 +456,7 @@ export interface ViteHubOptions {
    * in the Database that `database` names, and enable `database` when it is unset.
    */
   connections?: boolean | ConnectionsOptions
-  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
+  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }` for development only, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
@@ -467,6 +472,11 @@ export interface ViteHubOptions {
    */
   env?: false | EnvOptions
   kv?: boolean | KVOptions
+  /**
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
+   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   */
+  mcp?: boolean | McpOptions
   /**
    * Request logs through Evlog, the logs that the Console and `vitehub logs` read with `logs`, and, with `service`, Agent
    * telemetry and papercut reports through `useObservability()`.
@@ -561,10 +571,6 @@ function resolveDeploymentIdentity(
     name: normalizeDeploymentName(basename(resolve(process.cwd(), root || "."))) || "vitehub",
     source: "root",
   }
-}
-
-function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
@@ -1201,6 +1207,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
     ["queue", options.queue && plan.services.queue.supported],
     ["rateLimit", options.rateLimit],
+    ["mcp", options.mcp],
     ["realtime", options.realtime],
     ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
@@ -1299,7 +1306,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
-    connections: options.connections ? "vite-hub/connections/agent" : false,
+    connections: options.connections ? generatedModules.connectionsAgent : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
@@ -1412,7 +1419,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.channels) plugins.push(requireOptionalOwner(channelsVite, "channels").hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
     if (options.connections !== true && options.connections.management && !configuredConsole) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" } or console: { auth: { ... } }. In vite dev, console: { auth: false } also works.' })
     }
     const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
     const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
@@ -1453,6 +1460,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.i18nVite, "i18n").hubI18n({ ...options.i18n, importBase: "vite-hub/i18n" } as I18nOptions))
   }
   if (options.bundle) plugins.push(hubBundle())
+  if (options.mcp) {
+    const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
+    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    if (mcpAuth && !options.auth) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+    }
+    plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
+      ...mcpOptions,
+      auth: mcpAuth,
+      imports: { authMcp: "vite-hub/auth/mcp", runtime: "@vite-hub/mcp/runtime" },
+      ...(options.name ? { name: options.name } : {}),
+    }))
+  }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
@@ -1470,12 +1490,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
     imports: {
-      auth: "vite-hub/comments/runtime/auth",
+      auth: generatedModules.commentsRuntimeAuth,
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "vite-hub/database/drizzle",
-      realtime: "vite-hub/comments/realtime",
+      realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },
   })
@@ -1491,7 +1511,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...context,
             contentImport: "vite-hub/content/realtime",
             realtimeImport: "vite-hub/realtime/server",
-            ...(configuredConsole ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+            ...(configuredConsole ? { console: { module: generatedModules.consoleSections, section: "content" } } : {}),
           }),
           commentsPlugin?.api.contributeRealtime(context),
         ])

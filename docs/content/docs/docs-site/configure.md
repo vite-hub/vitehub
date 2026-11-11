@@ -245,7 +245,19 @@ toc: false
 ---
 ```
 
-A tutorial with `codePanel: true` starts with the navigation closed, so text and code get the width. The reader opens it with the top-left button, and a cookie keeps the choice.
+### Collapsed navigation
+
+A page that needs the width, such as a playground, can start with the navigation collapsed. Set `sidebar: collapsed` in the frontmatter. On wide screens the navigation becomes a narrow column with the logo, an open button, search, and the site links. A site with a rail keeps the rail in that column. The reader opens and collapses the navigation with the same button, and a cookie keeps the choice on every page that starts collapsed. A tutorial with `codePanel: true` starts collapsed too.
+
+An app page in the docs layout sets the same in its page meta:
+
+```vue [app/pages/playground.vue]
+<script setup lang="ts">
+definePageMeta({ layout: "docs", sidebar: "collapsed" })
+</script>
+```
+
+Pages with a collapsible navigation fill the viewport, so they leave out the `banner`.
 
 ## Site options
 
@@ -398,8 +410,10 @@ The server parses every page with [Comark](https://comark.dev) and comark-ui's p
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
+import emoji from 'comark/plugins/emoji'
 
 export default {
+  plugins: [emoji()],
   comarkUi: { chips: true },
   examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
 } satisfies DocsParserOptions
@@ -508,7 +522,7 @@ import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
 import { docsCollection } from '@vite-hub/docs'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
   collections: { docs: docsCollection() },
 })

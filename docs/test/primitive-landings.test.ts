@@ -202,7 +202,7 @@ describe("Content landing examples", () => {
     for (const variant of ContentLanding.variants) {
       const definition = variant.files.find((file) => file.path === "server/content.ts");
       expect(definition?.content).toContain('import { defineContent } from "vite-hub/content"');
-      expect(definition?.content).toContain("export const content = defineContent(");
+      expect(definition?.content).toContain("export default defineContent(");
       expect(definition?.content).toContain('glob({ cwd: "docs", include: "**/*.md" })');
       expect(variant.files.some((file) => file.path === "docs/guide.md")).toBe(true);
       const manifest = JSON.parse(variant.files.find((file) => file.path === "package.json")!.content);
@@ -217,7 +217,7 @@ describe("Content landing examples", () => {
       const route = variant.files.find((file) => file.path.startsWith("server/routes/"));
       if (variant.framework === "nitro") {
         expect(route?.path).toBe("server/routes/api/content/[...path].ts");
-        expect(route?.content).toContain('import { content } from "../../../content"');
+        expect(route?.content).toContain('import content from "../../../content"');
         expect(route?.content).toContain("export default defineContentHandler(content)");
       } else {
         expect(route).toBeUndefined();
@@ -231,7 +231,7 @@ describe("database landing examples", () => {
   it.each(DatabasesLanding.variants)("loads the $label schema using the database package", async (variant) => {
     const root = await mkdtemp(new URL("../.database-landing-", import.meta.url));
     try {
-      const definition = variant.files.find((file) => /(?:src\/database|server\/databases\/config)\.ts$/.test(file.path));
+      const definition = variant.files.find((file) => /(?:src\/database|server\/databases\/default)\.ts$/.test(file.path));
       expect(definition).toBeDefined();
       const path = join(root, "database.mjs");
       await writeFile(path, definition!.content);

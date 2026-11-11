@@ -2,15 +2,17 @@
 import { onMounted, ref } from "vue";
 import * as v from "valibot";
 import {
+  envActivityLabel,
+  envActivitySchema,
   envInspectionSchema,
   envPermissionSchema,
   envPreviewSchema,
   requestEnvManagement,
 } from "../client/env-management";
 import { ConsoleRequestError } from "../client/request";
-import ConsoleEnvActivity from "./console-env-activity.vue";
+import ConsoleCredentialActivity from "./console-credential-activity.vue";
 import ConsoleEnvAccess from "./console-env-access.vue";
-import { consoleDateTime } from "../client/time";
+import { consoleDateTime } from "../client/format";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 const readonly = ref(false);
@@ -112,6 +114,9 @@ function replace() {
     }
   });
 }
+async function loadActivity(before?: string) {
+  return (await requestEnvManagement(props.endpoint, props.path, "activity", envActivitySchema, before ? { before } : {})).events;
+}
 onMounted(load);
 </script>
 
@@ -120,21 +125,17 @@ onMounted(load);
     This provider is read-only in Console. Manage values in the connected store.
   </p>
   <div v-else class="mt-8 space-y-4 border-t border-default pt-5">
-    <div v-if="access?.admin" class="flex gap-2" aria-label="Credential views">
-      <UButton
-        v-for="item in [
-          { value: 'credential', label: 'Credential' },
-          { value: 'activity', label: 'Activity' },
-          { value: 'access', label: 'Access' },
-        ]"
-        :key="item.value"
-        :label="item.label"
-        color="neutral"
-        :variant="tab === item.value ? 'soft' : 'ghost'"
-        :aria-pressed="tab === item.value"
-        @click="tab = item.value"
-      />
-    </div>
+    <UTabs
+      v-if="access?.admin"
+      v-model="tab"
+      :items="[
+        { value: 'credential', label: 'Credential' },
+        { value: 'activity', label: 'Activity' },
+        { value: 'access', label: 'Access' },
+      ]"
+      :content="false"
+      aria-label="Credential views"
+    />
     <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
     <p v-if="warning" role="alert" class="text-sm text-warning">{{ warning }}</p>
     <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
@@ -153,7 +154,7 @@ onMounted(load);
                   : "Credential unavailable"
           }}
         </p>
-        <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="load" />
+        <UButton label="Reload" variant="ghost" :loading="busy" @click="load" />
       </div>
       <p v-if="inspection?.metadata" class="text-xs text-muted">
         Updated {{ consoleDateTime(inspection.metadata.updatedAt) }}
@@ -162,7 +163,6 @@ onMounted(load);
         <code v-if="preview" class="break-all text-sm">{{ preview }}</code>
         <UButton
           :label="preview ? 'Hide preview' : 'Show masked preview'"
-          color="neutral"
           variant="outline"
           :disabled="busy"
           @click="preview ? (preview = undefined) : showPreview()"
@@ -189,10 +189,13 @@ onMounted(load);
         <UButton type="submit" label="Save credential" :loading="busy" :disabled="!value" />
       </form>
     </template>
-    <ConsoleEnvActivity
+    <ConsoleCredentialActivity
       v-else-if="tab === 'activity' && access?.admin"
-      :endpoint="endpoint"
-      :path="path"
+      description="Persisted operations. Retrieval does not mean a credential was used."
+      empty-title="No recorded activity"
+      empty-description="Retrievals, uses, and access changes of this credential show here."
+      :label="envActivityLabel"
+      :load="loadActivity"
     />
     <ConsoleEnvAccess
       v-else-if="tab === 'access' && access?.admin"

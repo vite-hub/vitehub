@@ -82,7 +82,7 @@ async function sharedFiles() {
  * One server process: its own State client, journal client, Chat adapter, and Agent, like a Node instance on a shared database.
  * `prompts` collects the input of every Driver run of every process in the test.
  */
-async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prompts: string[], options: { blockFirstRun?: boolean } = {}) {
+async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prompts: string[], options: { blockFirstRun?: boolean; storeTimeoutMs?: number } = {}) {
   const state = createLibsqlAgentState({ url: files.state })
   const store = createLibsqlAgentInvocationStore({ url: files.journal })
   // A recovery that finds a claim it cannot take waits one claim lease (30 s) for the owner to renew it.
@@ -109,7 +109,7 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
         return "done"
       },
     },
-    invocations: defineAgentInvocations({ store: journal }),
+    invocations: defineAgentInvocations({ store: journal, storeTimeoutMs: options.storeTimeoutMs }),
     name: "support",
   })
   // SAFETY: The test Agent supplies the route contract through defineAgent.
@@ -141,13 +141,14 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
 }
 
 /** Writes what a process leaves when it stops during a chat turn: the restart record and a running Invocation. */
-async function writeInterruptedTurn(files: Awaited<ReturnType<typeof sharedFiles>>, runId: string) {
+async function writeInterruptedTurn(files: Awaited<ReturnType<typeof sharedFiles>>, runId: string, messageId = 3001, chatId = 456) {
   const state = createLibsqlAgentState({ url: files.state })
   const store = createLibsqlAgentInvocationStore({ url: files.journal })
   await state.connect()
   const startedAt = new Date(Date.now() - 60_000).toISOString()
-  const message = telegramMessage(3001, 456, "review the pull request")
+  const message = telegramMessage(messageId, chatId, "review the pull request")
   await state.set(indexKey, {
+    ...await state.get<Record<string, unknown>>(indexKey),
     [runId]: { agentName: "support", message: message.toJSON(), runId, startedAt, threadId: message.threadId, transcriptUserKey: null },
   })
   const id = await agentInvocationId(runId, "support")
@@ -221,6 +222,38 @@ describe("recovery at boot on processes that share one journal and one State", (
 
     await vi.waitFor(() => expect(prompts).toHaveLength(1), { timeout: 10_000 })
     expect(prompts[0]).toContain("[Retry after interruption]")
+    expect(logged.mock.calls.some(([message]) => typeof message === "string" && message.includes("claim check failed"))).toBe(true)
+    await vi.waitFor(async () => expect(await restarted.state.get(indexKey)).toBeNull(), { timeout: 5_000 })
+  })
+
+  it.each(["getSummary", "claim", "release"] as const)("recovers all interrupted turns when a probe's %s stays pending", async (operation) => {
+    const files = await sharedFiles()
+    await writeInterruptedTurn(files, "stalled-turn")
+    await writeInterruptedTurn(files, "other-turn", 3002, 789)
+    const prompts: string[] = []
+    const restarted = await startProcess(files, prompts, { storeTimeoutMs: 100 })
+    const id = await agentInvocationId("stalled-turn", "support")
+    // Stall only the Chat probe: the preceding Invocation recovery must finish normally.
+    if (operation === "getSummary") {
+      const getSummary = restarted.store.getSummary
+      vi.spyOn(restarted.store, "getSummary").mockImplementation(summaryId => summaryId === id
+        ? new Promise<never>(() => {}) : getSummary(summaryId))
+    }
+    else if (operation === "claim") {
+      const claim = restarted.store.claim
+      vi.spyOn(restarted.store, "claim").mockImplementation((claimedId, claimId, ...args) => claimedId === id && claimId.startsWith("probe_")
+        ? new Promise<never>(() => {}) : claim(claimedId, claimId, ...args))
+    }
+    else {
+      const release = restarted.store.release
+      vi.spyOn(restarted.store, "release").mockImplementation((claimedId, claimId) => claimedId === id && claimId.startsWith("probe_")
+        ? new Promise<never>(() => {}) : release(claimedId, claimId))
+    }
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    restarted.boot()
+
+    await vi.waitFor(() => expect(prompts).toHaveLength(2), { timeout: 10_000 })
+    expect(prompts.every(prompt => prompt.includes("[Retry after interruption]"))).toBe(true)
     expect(logged.mock.calls.some(([message]) => typeof message === "string" && message.includes("claim check failed"))).toBe(true)
     await vi.waitFor(async () => expect(await restarted.state.get(indexKey)).toBeNull(), { timeout: 5_000 })
   })
