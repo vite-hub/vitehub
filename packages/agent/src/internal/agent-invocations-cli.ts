@@ -141,9 +141,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "",
     "Options:",
     "  --url <url>               Deployed app URL, such as https://app.example.com. Uses the Console RPC endpoint.",
-    "                            Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and",
-    "                            CF_ACCESS_CLIENT_SECRET to authenticate. A localhost URL uses the Console only for a",
-    "                            /_vitehub path, such as http://localhost:3000/_vitehub.",
+    "                            Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. A localhost URL uses the",
+    "                            Console only for a /_vitehub path, such as http://localhost:3000/_vitehub.",
     "                            Other localhost URLs: the invocation endpoint for list, show, and tail",
     "                            (default http://localhost:5173/api/invocations), or the Development Server for cancel.",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
@@ -392,7 +391,7 @@ function consoleBaseUrl(value: string): URL | undefined {
     throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed Console, except for localhost." })
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE for credentials." })
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls." })
   }
   // Accept the app URL or a pasted Console page URL. The RPC endpoint is under the app base.
   const base = consolePath ? url.pathname.slice(0, consolePath.index) : url.pathname
@@ -457,8 +456,7 @@ interface ConsoleTarget {
 }
 
 function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
-    || Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
+  return Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */

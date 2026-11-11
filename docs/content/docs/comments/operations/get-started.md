@@ -112,7 +112,7 @@ pnpm vitehub comments list --json
 pnpm vitehub comments get --input '{"id":"<id>"}'
 ```
 
-You can also open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development), and choose **Comments**. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
+On a deployed app, the Comments section of the [Console](/docs/development/console) shows the same threads. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
 
 ::details{summary="What the Comments section of the Console does"}
 The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.

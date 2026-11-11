@@ -1,6 +1,6 @@
 /** The dev Setup endpoints of the Vite dev server, as the Setup section calls them. */
 
-import { consoleProject, resolveProjectUrl } from "./project"
+import { resolveProjectUrl } from "./project"
 import { ConsoleRequestError } from "./request"
 
 export type SetupLevel = "native" | "explicit" | "unsupported" | "unknown"
@@ -118,18 +118,13 @@ export async function readSetupSession(route: string): Promise<{ serverId: strin
 }
 
 export async function connectSetup(route: string): Promise<SetupClient> {
-  const project = consoleProject()
   const endpoint = resolveProjectUrl(route)
   const { serverId, token } = await readSetupSession(endpoint)
   const headers = { accept: "application/json", "x-vitehub-dev-token": token }
-  const requestHeaders = async (headers: Record<string, string>) => {
-    const authorization = await project.authorization?.()
-    return authorization ? { ...headers, authorization } : headers
-  }
   const request = async <T>(path: string, body?: unknown): Promise<T> => {
     const response = await fetch(`${endpoint}/${path}`, body === undefined
-      ? { cache: "no-store", credentials: "same-origin", headers: await requestHeaders(headers) }
-      : { body: JSON.stringify(body), cache: "no-store", credentials: "same-origin", headers: await requestHeaders({ ...headers, "content-type": "application/json" }), method: "POST" })
+      ? { cache: "no-store", credentials: "same-origin", headers }
+      : { body: JSON.stringify(body), cache: "no-store", credentials: "same-origin", headers: { ...headers, "content-type": "application/json" }, method: "POST" })
     const text = await response.text()
     let value: unknown
     try {
@@ -147,7 +142,7 @@ export async function connectSetup(route: string): Promise<SetupClient> {
     apply: async planId => await request<SetupPlanDocument>("apply", { planId }),
     catalog: async () => await request<SetupCatalogDocument>("catalog"),
     events: async (onEvent, signal) => {
-      const response = await fetch(`${endpoint}/events`, { cache: "no-store", credentials: "same-origin", headers: await requestHeaders({ ...headers, accept: "text/event-stream" }), signal })
+      const response = await fetch(`${endpoint}/events`, { cache: "no-store", credentials: "same-origin", headers: { ...headers, accept: "text/event-stream" }, signal })
       if (!response.ok || !response.body) throw new SetupRequestError(response.status, "The Setup event stream did not open.")
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
       let buffer = ""
