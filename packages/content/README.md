@@ -82,7 +82,7 @@ export default defineContent({
 ```
 
 ```ts fragment
-await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, checkedAt, webhook }
+await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, checkedAt, webhook, cache, views }
 await content.sources.advance("docs") // move to the latest commit of main when every document parses
 await content.sources.pin(sha, "docs") // serve this commit until unpin(), for example to roll back
 await content.sources.unpin("docs")
@@ -119,6 +119,67 @@ The route checks `X-Hub-Signature-256` against the raw body in constant time, wi
 A Source without `ref` follows the default branch in the payload. `content.sources.head()` shows the last delivery in `webhook`: `{ id, at, sha, result }`, where `id` is the `X-GitHub-Delivery` id and `result` is `moved`, `kept`, `rejected`, `pinned`, or `failed` with `error`. `vitehub kv get content:webhook:docs` shows the same record. A delivery with a bad signature writes nothing, so only the log shows it.
 
 ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route.
+
+### Commit cache
+
+The files of a commit never change. Content downloads and parses each commit once, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so no cache entry goes stale and nothing purges a cache, on any host.
+
+- A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, and the Source options. A change to a plugin gives new keys, so you do not bump a parser version.
+- Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache.
+- Each server instance holds the last 4 commits in memory.
+- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
+
+### Read a branch, a pull request, or a commit
+
+`content.sources.at(ref, source?)` returns a read view of a `github()` Source at one commit. The view has `get()`, `list()`, `navigation()`, and `search()` for that Source only.
+
+```ts fragment
+const view = await content.sources.at("pr/12", "docs")
+view // { source: "docs", ref: "pr/12", kind: "pull", sha, pull: { number: 12, fork: false, labels: ["preview:enabled"], head: "feat/x", base: "main", ... } }
+await view.get("/guide")
+
+await content.sources.at("feat/new-guide", "docs") // kind: "branch"
+await content.sources.at("9c1e4f…", "docs") // kind: "commit", a full 40-character SHA
+```
+
+- A ref is a full 40-character commit SHA, `pr/<number>` for the head commit of a pull request, or a branch name. A branch name has up to 200 characters: letters, digits, and `. _ - /`. It follows `git check-ref-format`, and it cannot have a part that is only `-`. A branch named `pr/<number>` cannot open. An invalid ref fails with `CONTENT_R0027` before Content asks GitHub.
+- Content resolves the ref to a commit SHA on GitHub. A branch must match its full name. It holds a branch or pull request lookup for 30 seconds, so a push shows after 30 seconds at most. A ref that the repository does not have fails with `CONTENT_R0028`, and a failed GitHub lookup, such as a rate limit, with `CONTENT_R0029`.
+- The view reads the commit through the commit cache, so it validates like a head. When a document does not parse, `at()` fails with `CONTENT_R0030`. Refs at the same commit share one view and one download.
+- Each server instance holds 8 views open, and closes the least recently used one. A closed view opens again on its next read, from the commit cache. `head().views` lists the open commits.
+- A view works without a token or KV for a public repository. GitHub then allows 60 lookups per hour.
+- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
+
+### Who may read a ref
+
+GitHub serves the commits of a fork pull request through your repository, and the CMS keeps drafts on a branch of the same repository. So a route that serves `at()` must ask `content.sources.allow(ref, request, source?)` first. It decides before Content downloads the commit:
+
+```ts fragment
+const access = await content.sources.allow("pr/12", request, "docs")
+if (!access.allowed) {
+  console.warn(access.error) // CONTENT_R0031, with the reason
+  return new Response("Not Found", { status: 404 })
+}
+const view = await content.sources.at(access.target) // the commit that allow() checked
+```
+
+| Ref | Public | Reason |
+| --- | --- | --- |
+| A commit, a branch, or a pull request whose commit the published branch contains | Yes | `published` |
+| The head commit of an open or merged pull request from the same repository | Yes | `pull` |
+| The head commit of an open or merged fork pull request with the `preview:enabled` label | Yes | `label` |
+| A fork pull request without the label | No | `fork` |
+| A pull request that was closed without a merge, unless the published branch contains its head | No | `closed` |
+| A private branch, such as the CMS draft branch or a CMS publish branch (`vitehub/publish/*`), and a same-repository pull request from it | No | `private` |
+| A branch or commit with no allowed pull request and outside the published history | No | `unpublished` |
+| An invalid ref, or one that the repository does not have | No | `missing` |
+
+- The published branch is the `ref` of the `github()` Source, or the default branch of the repository. Content asks GitHub `compare/<branch>...<sha>` and counts `behind` and `identical`.
+- A request passes every rule with the preview cookie of `content.preview.enable()` (reason `console`), or with a link from `content.sources.sign(ref, source?, { maxAge })` (reason `token`). A link carries `?vitehub-content-token=<token>`, signs one ref of one Source, and expires after `maxAge` seconds: one hour by default, 24 hours at most. Both use `VITEHUB_CONTENT_KEY`. `sign()` is trusted server API: check `content.can()` or Console access before you call it.
+- The `cms` preset with a GitHub store makes its `draftBranch` private. The pull requests that the CMS opens with `publish: "pr"` come from `vitehub/publish/*` branches, and these are always private: they hold drafts that nobody reviewed yet. A preset sets other private branches with `privateBranches`.
+- Content holds each decision from GitHub for 10 minutes on each server instance. A removed label or a closed pull request shows after 10 minutes at most. A failed GitHub call holds nothing and throws `CONTENT_R0032`.
+- Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
+- Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
 
 ## Types
 
