@@ -103,7 +103,7 @@ await content.sources.unpin("docs")
 The files of a commit never change. Content downloads and parses each commit once, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so no cache entry goes stale and nothing purges a cache, on any host.
 
 - A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
-- `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, and the Source options. A change to a plugin gives new keys, so you do not bump a parser version.
+- `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, the Source options, and the build. A change to a plugin or its options gives new keys, so you do not bump a parser version. Each build of the app downloads a commit once more, because plugin options in closures are not visible to the hash.
 - Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache. A rejected commit or a failed download stays out of memory too, so `advance()` downloads it again.
 - Each server instance holds the last 4 commits in memory.
 - `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.

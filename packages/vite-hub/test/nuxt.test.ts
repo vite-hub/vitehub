@@ -802,7 +802,7 @@ describe("ViteHub Nuxt integration", () => {
     module!.setup({ options })
     const plugin = options.rollupConfig.plugins.find(candidate => candidate.name === "@vite-hub/content/nitro-kv")!
     const transform = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
-    expect(await Reflect.apply(transform, {}, ["export default {}", file])).toMatchObject({ code: expect.stringContaining("__vitehubRegisterContentKV(__vitehubContentKV)") })
+    expect(await Reflect.apply(transform, {}, ["export default {}", file])).toMatchObject({ code: expect.stringContaining("__vitehubRegisterContentKV(__vitehubContentKV, ") })
   })
 
   it.each(["application", "layer", "contribution"])("infers Postgres KV from a %s Database when Nuxt skips the Vite build", async (source) => {

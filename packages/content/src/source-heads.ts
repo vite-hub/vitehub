@@ -6,7 +6,7 @@ import type { CacheArtifact, ComarkContent, ContentOptions } from "comark-conten
 import { formatDiagnostic } from "nostics"
 
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
-import { contentSourceDefinition, createContentInstance } from "./content-source.ts"
+import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
@@ -125,6 +125,11 @@ export interface ContentKV {
 }
 
 let installedKV: ContentKV | undefined
+/**
+ * The build that registered KV. Plugin options can live in closures that the parser hash cannot read, so each build
+ * gets its own commit cache keys.
+ */
+let installedBuild: string | undefined
 
 /** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
 const kvFailures = new WeakSet<object>()
@@ -139,8 +144,9 @@ function isKVFailure(error: unknown): error is KVFailure {
  * Give Content the KV store that keeps the heads of `github()` Sources. When the app enables ViteHub KV, the build
  * calls it at the top of `server/content.ts`; you do not call it yourself. Without it, no Source is live.
  */
-export function registerContentKV(store: ContentKV | undefined): void {
+export function registerContentKV(store: ContentKV | undefined, build?: string): void {
   installedKV = store
+  installedBuild = build
 }
 
 /** The head state of one Content runtime. */
@@ -237,19 +243,21 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
 
   /** Parse the files of one commit. Returns the commit, or why it is invalid. */
   async function parseCommit(state: HeadState, files: LoadedCommit["files"]): Promise<LoadedCommit> {
-    const parsed = await parse(state.name, { items: async () => files })
+    // The Source options, such as `prefix` and `schema`, change the parsed documents.
+    const { prefix, schema } = contentSource(state.input)
+    const parsed = await parse(state.name, contentSource({ items: async () => files }, { prefix, schema }))
     if (typeof parsed !== "string") return { files, commit: { files, ...parsed } }
     // Parse errors, such as YAML errors, do not name the document. Parse each document alone to find it.
     for (const item of files) {
       const single: Source<string, unknown, object> = { name: state.definition.name, getKeys: async () => [item.key], getItem: async () => item }
-      const error = await parse(state.name, single)
+      const error = await parse(state.name, contentSource(single, { prefix, schema }))
       if (typeof error === "string") return { files, reason: `${item.path ?? item.key}: ${error}` }
     }
     return { files, reason: parsed }
   }
 
   function hashOf(state: HeadState): Promise<string> {
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null })
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, build: installedBuild ?? null })
     return state.hash
   }
 

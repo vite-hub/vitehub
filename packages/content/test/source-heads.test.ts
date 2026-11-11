@@ -405,6 +405,31 @@ describe("commit cache", () => {
     expect(await parserHash({ plugins: [plugin(1)] })).toBe(await parserHash({ plugins: [plugin(1)] }))
   })
 
+  it("uses another key for each build, because plugin options in closures do not change the parser hash", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "build-1")
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide")
+    const { key } = (await content.sources.head("docs")).cache
+    registerContentKV(kv, "build-2")
+    const next = server()
+    expect(await title(next, "/guide")).toBe("Guide")
+    expect((await next.sources.head("docs")).cache).toMatchObject({ hits: { kv: 0 }, misses: 1 })
+    expect((await next.sources.head("docs")).cache.key).not.toBe(key)
+  })
+
+  it("keeps the Source prefix and schema in the cached commit", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const docs = () => contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs" })
+    const content = defineContent({ sources: { docs: docs() }, logger: false })
+    cleanup.push(() => content.dispose())
+    expect((await content.get("/docs/guide"))?.data.title).toBe("Guide")
+    const cold = defineContent({ sources: { docs: docs() }, logger: false })
+    cleanup.push(() => cold.dispose())
+    expect((await cold.get("/docs/guide"))?.data.title).toBe("Guide")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
   it("holds a bounded number of commits in memory", async () => {
     const shas = [fake.commit("main", { "guide.md": page("Guide 0") })]
     const content = server()
@@ -448,7 +473,7 @@ describe("hubContent() and KV", () => {
   it("gives server/content.ts the app's KV store when the app enables KV", async () => {
     const result = await transform(["@vite-hub/kv/vite"])
     expect(result?.code).toContain(`import { kv as __vitehubContentKV } from "@vite-hub/kv"`)
-    expect(result?.code).toContain("__vitehubRegisterContentKV(__vitehubContentKV)")
+    expect(result?.code).toContain("__vitehubRegisterContentKV(__vitehubContentKV, ")
   })
 
   it("imports no KV when the app does not enable it", async () => {
