@@ -1,11 +1,9 @@
-import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installStandardContext } from "@vite-hub/runtime/h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
 import { defineCommentSubject } from "../src/index.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
-import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { ada, anchor, createComments } from "./harness.ts"
 
 import type { CommentsIdentifyContext, DefineCommentsOptions } from "../src/types.ts"
@@ -106,20 +104,6 @@ describe("Comments MCP tools", () => {
     expect(after?.status).toBe("resolved")
   })
 
-  it("registers MCP tools that trust the Console user, as the ViteHub MCP server checks Console access", async () => {
-    const comments = await createComments({ identify: undefined, authorize: undefined })
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      defineCommentsPlugin({ comments, database: () => undefined, overlay: "/api/_vitehub/comments/assets/overlay.js" })(null)
-      const tool = getViteHubMcpTools().find(tool => tool.name === "comments_list_threads")!
-      expect((await tool.call({}, { user: ada, event: event() })).isError).toBeUndefined()
-      expect((await tool.call({}, { user: null, event: event() })).isError).toBe(true)
-    }
-    finally {
-      warn.mockRestore()
-    }
-  })
-
   it("keeps anonymous callers anonymous for every action", async () => {
     const { comments, call } = await setup({ authorize: ({ user }) => user !== null })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
@@ -191,7 +175,7 @@ describe("Comments MCP tools", () => {
 
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
+    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
     expect((await tools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: null, event: request })).isError).toBeUndefined()
     expect((await tools[3]!.call({ id: thread!.id }, { user: null, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)

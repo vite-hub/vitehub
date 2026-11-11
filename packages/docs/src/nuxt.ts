@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { createRequire } from "node:module"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { createRequire, findPackageJSON } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import {
   addComponent,
@@ -34,7 +34,8 @@ import { toRawMarkdown } from "./raw.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
 import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
-import { docsAppConfigUi, docsUi, type DocsThemeUi } from "./theme.ts"
+import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
+import { docsThemeCss } from "./theme-css.ts"
 
 import type { Nuxt } from "nuxt/schema"
 
@@ -45,6 +46,7 @@ import type { DocsPage } from "./types.ts"
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
 export { DocsCommentsSetupError } from "./comments-nuxt.ts"
 export { DocsRedirectError } from "./redirects.ts"
+export type { DocsThemeScope } from "./theme.ts"
 export { DocsSeoError } from "./seo-audit.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
@@ -227,10 +229,10 @@ interface NitroOptions {
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
   experimental?: { asyncContext?: boolean }
-  externals?: { inline?: Array<string | RegExp> | boolean }
 }
 
 interface AgentDiscoveryOptions {
+  errors?: boolean
   siteUrl?: string
   source?: string
   siteName?: string
@@ -297,10 +299,23 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
   },
   async setup(options, nuxt) {
+    // @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1, and Nitro 3's runtime then cannot import `h3/rules`.
+    // Registered after every module's own hook, so the alias is gone before Nitro builds.
+    nuxt.hook("modules:done", () => {
+      nuxt.hook("nitro:config", (config) => {
+        const alias: unknown = Reflect.get(config, "alias")
+        const h3: unknown = alias instanceof Object ? Reflect.get(alias, "h3") : undefined
+        if (!(alias instanceof Object) || typeof h3 !== "string") return
+        const manifest = findPackageJSON(pathToFileURL(h3), import.meta.url)
+        const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+        const version: unknown = pkg instanceof Object ? Reflect.get(pkg, "version") : undefined
+        if (typeof version === "string" && version.startsWith("1.")) Reflect.deleteProperty(alias, "h3")
+      })
+    })
     const resolver = createResolver(import.meta.url)
     const runtime = resolver.resolve("./runtime")
-    // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so the
-    // runtime of this package, which imports `#imports`, must be listed itself.
+    // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so this
+    // package must be listed itself: its Vue app runtime ships as `.vue` and `.ts` source that imports `#imports`.
     const packageRoot = resolver.resolve("..")
     nuxt.options.build.transpile.push(packageRoot)
     // Nuxt auto-imports composables only outside node_modules. The shell components use them, so an app that installs
@@ -374,7 +389,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
-    moduleOptions.appConfig.ui = docsAppConfigUi(docsUi(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    // A docs site gets the design in its app config. An app with its own `app.vue` keeps its app config, and the docs
+    // layouts wrap the docs pages in `<UTheme>` with the design instead.
+    const design = docsUi(config.site.name)
+    moduleOptions.appConfig.ui = docsAppConfigUi(ownsApp ? design : docsThemeAdditions(design), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    nuxt.options.alias["#docs/theme"] = addTemplate({ filename: "docs/theme.mjs", write: true, getContents: () => `export default ${JSON.stringify(ownsApp ? { ui: {}, props: {} } : docsThemeScope(design))}\n` }).dst
+    addTemplate({ filename: "docs/theme.d.mts", write: true, getContents: () => `import type { DocsThemeScope } from "@vite-hub/docs/nuxt"\ndeclare const theme: DocsThemeScope\nexport default theme\n` })
+
     // The design system lists "Geist Variable" first, the font that the Console bundles. @nuxt/fonts, which Nuxt UI
     // installs, serves only the first family of a declaration, so it served no Geist. The docs ask for both families.
     const fonts = moduleOptions.fonts ??= {}
@@ -405,6 +426,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       },
     }
     const agentDiscoveryOptions: AgentDiscoveryOptions = defu(moduleOptions.agentDiscovery, discovery)
+    // Nuxt's inline HTML errors bypass Agent Discovery's Nitro Markdown error handler.
+    if (agentDiscoveryOptions.errors !== false) nuxt.options.experimental.inlineErrorRendering = false
     // A page outside the manifest has no Markdown twin, so by default only the manifest pages negotiate.
     if (!agentDiscoveryOptions.routes?.length) {
       const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")
@@ -539,6 +562,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       const getContents = ui?.getContents
       if (ui && getContents) ui.getContents = async (data) => `${await getContents(data)}\n${cssSources}\n`
     })
+    const sharedTheme = dependency("@vite-hub/ui/theme.css")
+    const scopedTheme = ownsApp ? null : addTemplate({
+      filename: "docs/theme.css",
+      write: true,
+      getContents: () => docsThemeCss(sharedTheme),
+    })
     const docsCss = addTemplate({
       filename: "docs/docs.css",
       write: true,
@@ -546,7 +575,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
         `@layer theme, base, comark, components, utilities;`,
         ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
-        `@import "${dependency("@vite-hub/ui/theme.css")}";`,
+        `@import "${scopedTheme?.dst ?? sharedTheme}";`,
         `@import "${join(runtime, "theme/design.css")}";`,
         "",
       ].join("\n"),
@@ -714,10 +743,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         }
       }
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
-      // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
-      // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
-      const inline = nitro.externals?.inline
-      if (inline !== true) nitro.externals = { ...nitro.externals, inline: [...Array.isArray(inline) ? inline : [], dirname(manifestFile)] }
       // Pages are read at runtime, so a host without a file system serves them too.
       nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
@@ -799,7 +824,8 @@ function setDocsHead(head: Nuxt["options"]["app"]["head"], siteName: string): vo
     meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
   }
   meta.push({ name: "color-scheme", content: "light dark" })
-  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
+  // The design applies below `.vh-docs`. A docs site has it on every page, the error page too.
+  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs, class: [head.htmlAttrs?.class, "vh-docs"].filter(Boolean).join(" ") }
   // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
   head.titleTemplate ??= `%s · ${siteName}`
 }

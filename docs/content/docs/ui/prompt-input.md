@@ -131,6 +131,7 @@ Renders a `<form>` with a textarea, attachments, and attach and submit buttons.
 | ------------- | ---------------------------------------------- | --------- | ---------------------------------------------------------------- |
 | `modelValue`  | `string`                                       | `""`      | The draft text. Use `v-model`.                                   |
 | `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and handling. |
+| `attachVariant` | `"outline" \| "ghost"`                       | `"outline"` | The attach button's look. `ghost` is a muted icon, for a box that has its own frame. |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files. Text stays editable. |
 | `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and rule. |

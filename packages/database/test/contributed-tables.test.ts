@@ -237,8 +237,8 @@ describe("contribution targets", () => {
       config!.generatedDrizzleConfigFile,
     ], { cwd: rootDir })
     const migrationsDir = join(rootDir, "server/databases/default/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const [migration] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `history_refs`", "CREATE TABLE `history_revisions`"])
   }, 60_000)
 })
@@ -324,7 +324,7 @@ describe("contributed Database Definitions", () => {
     await writeGeneratedDatabaseArtifacts(config)
     await execFileAsync(process.execPath, [join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"), "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
     const migrations = join(rootDir, "server/databases/default/migrations")
-    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    const sql = await readFile(join(migrations, (await readdir(migrations))[0]!, "migration.sql"), "utf8")
     expect(sql).toContain("CREATE TABLE `history_refs`")
   }, 60_000)
 
@@ -408,8 +408,8 @@ describe("contributed tables in generated artifacts", () => {
       config.generatedDrizzleConfigFile,
     ], { cwd: rootDir })
     const migrationsDir = join(rootDir, "server/databases/default/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const [migration] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
       "CREATE TABLE `audit_log`",
       "CREATE TABLE `history_refs`",

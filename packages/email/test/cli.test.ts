@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createEmailCliContributor, runEmailOutboxCli, runEmailPreviewCli } from "../src/cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { EmailOutboxMessage } from "../src/runtime/console.ts"
 
@@ -37,18 +38,18 @@ function context(root = rootDir) {
  * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
  */
 function devServer(result: unknown, init: { status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
-    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    if (status < 400) return operationRpcResponse(request?.body, { ok: true, value: result }, { status })
     const error = (result as { error: { code?: string, message: string } }).error
-    return Response.json({ ok: false, code: error.code ?? "EMAIL_FAILED", message: error.message, status }, { status })
+    return operationRpcResponse(request?.body, { ok: false, code: error.code ?? "EMAIL_FAILED", message: error.message, status })
   })
 }
 
 /** The operation and input that a command sent. */
 function sentCall(fetch: ReturnType<typeof devServer>) {
   const request = fetch.mock.calls[0]?.[1]
-  return { body: JSON.parse(String(request?.body)) as { input: unknown, operation: string }, headers: new Headers(request?.headers), method: request?.method }
+  return { body: operationRpcRequest(request?.body), headers: new Headers(request?.headers), method: request?.method }
 }
 
 const captured: EmailOutboxMessage = {
@@ -172,7 +173,7 @@ describe("vitehub email outbox", () => {
       "2 messages (limit 50).",
       "",
     ].join("\n"))
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc")
     const sent = sentCall(fetch)
     expect(sent).toMatchObject({ body: { input: {}, operation: "email.outbox-list" }, method: "POST" })
     expect(sent.headers.get("x-vitehub-console")).toBe("1")

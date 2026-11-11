@@ -1,0 +1,19 @@
+agent-surface: moved the Agent imports and options of 5 file(s) to the new names
+Dry run: no files were written.
+
+Files to change (5):
+  server/agents/babysitter/agent.ts
+  server/agents/calories/agent.ts
+  server/utils/host.ts
+  server/utils/journal.ts
+  vite.config.ts
+
+Manual follow-ups (2):
+  1. server/utils/journal.ts:3 `getAgent()` was removed. Use `loadAgent(name)` to load a discovered Agent Definition, and `runAgent()` or `streamAgent()` to run it.
+  2. server/utils/journal.ts:3 `isBlobValue` is no longer exported from the Agent root. It was an internal helper; remove the import or copy what you need.
+
+Notes:
+  - `input.context.actor` and the `actor` field of Agent callbacks are gone. ViteHub reads only `invoker`, so an `actor` the codemod did not see no longer sets the caller.
+
+Next steps:
+  - Run your typecheck. It reports the `actor` reads that the codemod could not rewrite.

@@ -1,6 +1,8 @@
 import { vitehubTheme } from "@vite-hub/ui/theme"
 import { defu } from "defu"
 
+export { docsThemeScope, type DocsThemeScope } from "../runtime/app/utils/docs-theme.ts"
+
 /** Nuxt UI app config of the docs design: color aliases, icons, and slot classes per component. */
 export type DocsThemeUi = Record<string, unknown>
 
@@ -252,4 +254,14 @@ export function docsUi(siteName: string): DocsThemeUi {
       },
     },
   }, vitehubTheme)
+}
+
+/** The part of the theme that only adds keys, so an app with its own `app.vue` gets it in its app config. */
+export function docsThemeAdditions(theme: DocsThemeUi): DocsThemeUi {
+  const prose = isRecord(theme.prose) ? theme.prose : {}
+  return isRecord(prose.codeIcon) ? { prose: { codeIcon: prose.codeIcon } } : {}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

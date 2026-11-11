@@ -12,7 +12,8 @@ icon: i-lucide-message-circle
 The parts show state and call a transport. They do not store data or check access. The transport talks to the server:
 
 - `createMemoryTransport()` from `@vite-hub/comments/testing` is for tests and examples.
-- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started).
+- `createRestTransport()` from `@vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
+- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
 
 The built-in live-site overlay uses a different thread and anchor format.
 
@@ -24,7 +25,7 @@ The built-in live-site overlay uses a different thread and anchor format.
 Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add the client:
 
 ```bash
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
 `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
@@ -70,6 +71,8 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A pin drops when the pointer goes up without moving. A touch that scrolls drops nothing.
 - In comment mode, `Enter` starts a comment on the focused element. The toolbar button "Comment on page" comments on the whole page.
 - A draft pin has no number. The server gives it one on send.
+- A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
+- With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
 
@@ -223,7 +226,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
-Transports accept attachment keys by default, including `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
+Transports accept attachment keys by default, including `createRestTransport()` and `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
 
 ```vue
 <script setup lang="ts">
@@ -293,6 +296,8 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+
 ## Anchors
 
 An anchor says where a comment sits. `createAnchor()` makes one from an element, a point, a selection, or `"page"`. `resolveAnchor()` finds it again.
@@ -334,6 +339,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
+| `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
 
 ### CommentPin
 
@@ -439,7 +445,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 
 ### CommentComposer
 
-The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prompt-input). At the bottom of a panel or thread, it is one row under a divider: attach, text, and send. Renders a `div` with `data-slot="comment-composer"`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"` and `data-layout`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -461,6 +467,7 @@ The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prom
 | `attachments` | `boolean` | `true` | Take files from paste, drop, and the file button. Edits never take files. |
 | `accept` | `string` | | File types to take, like a file input's `accept`. |
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
+| `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
 
 #### Events
 

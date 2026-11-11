@@ -184,7 +184,7 @@ description: Answer one Nuxt question from official sources.
       {
         path: "server/agents/research/agent.ts",
         label: "agent.ts",
-        content: `import { claudeCodeDriver, defineAgent, workflow } from "@vite-hub/agent"
+        content: `import { agentWorkflow, claudeCodeDriver, defineAgent } from "@vite-hub/agent"
 import { webChat } from "@vite-hub/agent/channels"
 import {
   browser,
@@ -196,7 +196,7 @@ import {
 
 export default defineAgent({
   driver: claudeCodeDriver(),
-  runtime: workflow("agent"),
+  runtime: agentWorkflow("agent"),
   workspace: {
     name: "research",
     mode: "write",
@@ -311,7 +311,7 @@ const driverOptions = [
 ] satisfies PlaygroundOption[]
 
 const runtimeOptions = [
-  { code: "workflow('agent')", icon: "i-lucide-workflow", key: "workflow", label: "Durable workflow" },
+  { code: "agentWorkflow('agent')", icon: "i-lucide-workflow", key: "workflow", label: "Durable workflow" },
   { code: "false", icon: "i-lucide-zap", key: "inline", label: "Inline execution" },
 ] satisfies PlaygroundOption[]
 
