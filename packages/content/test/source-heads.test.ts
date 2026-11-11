@@ -4,6 +4,10 @@ import { join } from "node:path"
 import { memory, readArtifact } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqlQuery from "comark-content/plugins/sql-query"
+import markdown from "comark-content/plugins/markdown"
+import schemaValidation from "comark-content/plugins/schema-validation"
+import headings from "comark/plugins/headings"
+import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
@@ -168,6 +172,110 @@ describe("content.sources", () => {
     await writer.sources.unpin("docs")
     vi.setSystemTime(Date.now() + 5_001)
     expect((await manifest()).items["/guide"]?.data.title).toBe("Guide v2")
+  })
+
+  it.each([
+    "list", "list names", "get", "navigation", "search",
+    "HTTP manifest", "HTTP manifest.json", "HTTP snapshot", "HTTP get", "HTTP bound get",
+    "HTTP list", "HTTP list names", "HTTP search", "HTTP query",
+  ])("keeps %s scoped when another Source cannot refresh", async (method) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    fake.commit("blog", { "guide.md": page("Blog") })
+    const sources = {
+      docs: github({ repo: "acme/docs", ref: "main" }),
+      blog: github({ repo: "acme/docs", ref: "blog" }),
+    }
+    const writer = server({ sources })
+    await writer.sources.head("docs")
+    await writer.sources.head("blog")
+    const database = sqlite()
+    const reader = server({ sources, plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database })] })
+    await reader.list()
+    async function read(name: string) {
+      if (method === "list") return await reader.list(name)
+      if (method === "list names") return await reader.list([name])
+      if (method === "get") return await reader.get(`/${name}/guide.md`)
+      if (method === "navigation") return await reader.navigation([name])
+      if (method === "search") return await reader.search([name], "Body")
+      const endpoints: Record<string, string> = {
+        "HTTP manifest": `manifest/${name}`,
+        "HTTP manifest.json": `manifest.json/${name}.json`,
+        "HTTP snapshot": `snapshot/${name}.json`,
+        "HTTP get": `get/${name}/guide.md`,
+        "HTTP bound get": `get/guide?instance=${name}`,
+        "HTTP list": `list/${encodeURIComponent(JSON.stringify(name))}`,
+        "HTTP list names": `list/${encodeURIComponent(JSON.stringify([name]))}`,
+        "HTTP search": `search/${encodeURIComponent(JSON.stringify({ sources: [name], query: "Body" }))}`,
+        "HTTP query": `query/${encodeURIComponent(JSON.stringify({ source: name }))}`,
+      }
+      const response = await reader.handler(new Request(`http://localhost/api/content/${endpoints[method]}`))
+      expect(response.status).toBe(200)
+      return await response.json()
+    }
+    // Warm artifacts and indexes too; a cache hit must still sync only the selected Source.
+    const before = await read("docs")
+    expect(before).toBeTruthy()
+    if (Array.isArray(before)) expect(before).not.toHaveLength(0)
+    const second = fake.commit("blog", { "guide.md": page("Blog v2") })
+    await writer.sources.advance("blog")
+    const failedFetch = vi.fn()
+    vi.stubGlobal("fetch", vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(input).includes(`/tarball/${second}`)) {
+        failedFetch()
+        throw new Error("blog archive unavailable")
+      }
+      return fake.fetch(input, init)
+    }))
+    vi.advanceTimersByTime(5_500)
+
+    expect(await read("docs")).toEqual(before)
+    expect(failedFetch).not.toHaveBeenCalled()
+    await expect(read("blog")).rejects.toThrow("blog archive unavailable")
+    await expect(reader.list()).rejects.toThrow("blog archive unavailable")
+  })
+
+  it.each(["search", "HTTP search"])("keeps cached shared-index %s scoped without hiding requested Source failures", async (method) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    fake.commit("news", { "news.md": page("News") })
+    fake.commit("blog", { "blog.md": page("Blog") })
+    const sources = {
+      docs: github({ repo: "acme/docs", ref: "main" }),
+      news: github({ repo: "acme/docs", ref: "news" }),
+      blog: github({ repo: "acme/docs", ref: "blog" }),
+    }
+    const writer = server({ sources })
+    for (const name of Object.keys(sources)) await writer.sources.head(name)
+    const reader = server({ sources, plugins: [sqliteFullTextSearch({ database: sqlite() })] })
+    await reader.list()
+    async function search(names = ["docs", "news"]) {
+      if (method === "search") return await reader.search(names, "Body")
+      const payload = encodeURIComponent(JSON.stringify({ sources: names, query: "Body" }))
+      const response = await reader.handler(new Request(`http://localhost/api/content/search/${payload}`))
+      expect(response.status).toBe(200)
+      return await response.json() as unknown
+    }
+    const before = await search()
+    expect(before).toHaveLength(2)
+    const second = fake.commit("blog", { "blog.md": page("Blog v2") })
+    await writer.sources.advance("blog")
+    vi.stubGlobal("fetch", vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(input).includes(`/tarball/${second}`)) throw new Error("blog archive unavailable")
+      return fake.fetch(input, init)
+    }))
+    vi.advanceTimersByTime(5_500)
+
+    expect(await search()).toEqual(before)
+    await expect(search(["blog", "news"])).rejects.toThrow("blog archive unavailable")
+    // Empty filters and public paths still select all Sources, as does the merged HTTP manifest.
+    for (const read of [
+      () => reader.list([]),
+      () => reader.navigation([]),
+      () => reader.search([], "Body"),
+      () => reader.get("/guide"),
+      () => reader.handler(new Request("http://localhost/api/content/manifest")),
+    ]) await expect(read()).rejects.toThrow("blog archive unavailable")
   })
 
   it("pins a commit until unpin()", async () => {
@@ -462,6 +570,63 @@ describe("commit cache", () => {
     cleanup.push(() => cold.dispose())
     expect((await cold.get("/docs/guide"))?.data.title).toBe("Guide")
     expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
+  it.each(["markdown", "content"] as const)("reparses cached files with changed %s plugin closures in the same build", async (kind) => {
+    fake.commit("main", { "guide.md": "# Guide\n\nDescription\n" })
+    registerContentKV(kv, "same-build")
+    const configured = (remove: boolean) => server(kind === "markdown"
+      ? { markdown: { plugins: [headings({ remove })] } }
+      : { plugins: [markdown({ comark: { plugins: [headings({ remove })] } })] })
+    const tags = async (content: ReturnType<typeof configured>) => (await content.get("/guide"))?.nodes?.map(node => Array.isArray(node) ? node[0] : null)
+    const warm = configured(false)
+    expect(await tags(warm)).toEqual(expect.arrayContaining(["h1", "p"]))
+    const key = (await warm.sources.head("docs")).cache.key
+
+    const cold = configured(true)
+    const removed = await tags(cold)
+    expect(removed).not.toContain("h1")
+    expect(removed).not.toContain("p")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ key, hits: { kv: 1 }, misses: 0 })
+    expect(downloads()).toBe(1)
+  })
+
+  it("isolates different Source prefixes in the same build", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "same-build")
+    const configured = (prefix: string) => server({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix }) } })
+    const docs = configured("/docs")
+    expect(await title(docs, "/docs/guide")).toBe("Guide")
+    const key = (await docs.sources.head("docs")).cache.key
+
+    const help = configured("/help")
+    expect((await help.list()).map(item => item.path)).toEqual(["/help/guide"])
+    expect(await title(help, "/help/guide")).toBe("Guide")
+    expect((await help.sources.head("docs")).cache.key).not.toBe(key)
+    const cold = configured("/help")
+    expect(await title(cold, "/help/guide")).toBe("Guide")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
+  it("isolates Source schemas and rejects a commit cached under a permissive schema", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "same-build")
+    const configured = (type: "string" | "number") => server({
+      sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs", schema: { type: "object", properties: { title: { type } } } }) },
+      plugins: [schemaValidation()],
+    })
+    const strict = configured("string")
+    expect(await title(strict, "/docs/guide")).toBe("Guide")
+    const key = (await strict.sources.head("docs")).cache.key
+    const bad = fake.commit("main", { "guide.md": page("123") })
+    const permissive = configured("number")
+    await permissive.sources.advance("docs")
+    const badKey = (await permissive.sources.head("docs")).cache.key
+    // Return the shared head to the valid commit, while retaining the numeric commit artifact in KV.
+    await strict.sources.pin(first, "docs")
+    expect(await strict.sources.unpin("docs")).toMatchObject({ sha: first, rejected: { sha: bad, reason: expect.stringContaining("guide.md") } })
+    expect(badKey).not.toBe(key!.replace(first, bad))
+    expect(await title(strict, "/docs/guide")).toBe("Guide")
   })
 
   it("holds a bounded number of commits in memory", async () => {

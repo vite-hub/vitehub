@@ -3,10 +3,10 @@ import type { CacheArtifact, ContentFile, Manifest, ParsedSource, Source as Coma
 import type { SourceItem } from "@vite-hub/source"
 
 /**
- * The commit cache of `github()` Sources. The files of a commit never change, so Content parses each commit once per
- * parser config and keeps the result under `content:<parserHash>:<sha>:<source>`. A new head reads new keys, so no
- * entry ever goes stale and nothing purges a cache, on any host. Reads try memory first, then the build snapshot of the
- * commit, then ViteHub KV, and only then download the archive.
+ * The commit cache of `github()` Sources. The files of a commit never change, so Content keeps them and the parsed
+ * documents under `content:<parserHash>:<sha>:<source>`. A new head reads new keys. Reads try memory first, then the
+ * build snapshot of the commit, then ViteHub KV, and only then download the archive. Custom plugins reparse cached KV
+ * files in each new runtime, because their effective configuration can be hidden in closures.
  */
 
 type ContentSourceItem = SourceItem<string, unknown, object>
@@ -95,7 +95,7 @@ export async function decodeCommit(artifact: CacheArtifact): Promise<ContentComm
 }
 
 /**
- * Plain JSON of a config. Functions count by their source text, so a changed plugin gives another hash. The walk stops
+ * Plain JSON of a config. Functions count by their source text, which cannot include captured values. The walk stops
  * at depth 8, because a plugin can hold a client with a large object graph.
  */
 function configText(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
@@ -122,7 +122,7 @@ function configText(value: unknown, depth = 0, seen = new WeakSet<object>()): un
 
 /**
  * A hash of the parser config: the Comark options, the source text of every Markdown and Content plugin, and the Source
- * fingerprint. A changed plugin or option gives new keys, so nobody bumps a parser version by hand.
+ * fingerprint. This cannot identify captured plugin options or implementations; callers must reparse their cached files.
  */
 export async function parserHash(config: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(configText(config))))

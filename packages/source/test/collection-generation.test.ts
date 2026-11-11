@@ -15,11 +15,15 @@ async function generatedRoutes(files: Record<string, string>) {
     }
     const handlers = await prepareSourceGeneration({ projectRoot })
     const contentRoute = await access(join(projectRoot, ".vitehub/content/route.mjs")).then(() => true, () => false)
+    const preview = join(projectRoot, ".vitehub/content/preview.mjs")
+    const contentPreview = handlers.some(handler => handler.plugin && handler.handler === preview)
+      ? await readFile(preview, "utf8")
+      : ""
     const collectionTypes = await readFile(join(projectRoot, ".vitehub/types/source/collections.d.ts"), "utf8").catch((error: unknown) => {
       if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return ""
       throw error
     })
-    return { collectionTypes, contentRoute, routes: handlers.flatMap(handler => handler.route ?? []) }
+    return { collectionTypes, contentRoute, contentPreview, routes: handlers.flatMap(handler => handler.route ?? []) }
   }
   finally {
     await rm(projectRoot, { recursive: true, force: true })
@@ -123,6 +127,18 @@ it.each([
   expect(generated.routes).toEqual(["/api/articles"])
   expect(generated.collectionTypes).toContain('"articles": typeof import(')
   expect(inspectCollectionModule("articles.mjs", source, "articles")).toEqual({ exported: true, routeEnabled: true })
+})
+
+it.each([
+  "sources: {}",
+  "sources: {}, collections: {}",
+  "sources: {}, route: false",
+])("installs cache isolation for Content without collections: %s", async (options) => {
+  const generated = await generatedRoutes({
+    "server/content.ts": `import { defineContent } from '@vite-hub/content'\nexport default defineContent({ ${options} })`,
+  })
+  expect(generated.contentPreview).toContain('import { defineContentPreviewPlugin } from "@vite-hub/content/preview"')
+  expect(generated.contentPreview).toContain("export default defineContentPreviewPlugin(() => import(")
 })
 
 // The call shape of joyandmaxi `server/content.ts`.
