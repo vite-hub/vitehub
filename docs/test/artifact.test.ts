@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
@@ -15,6 +15,14 @@ beforeAll(async () => {
 afterAll(() => server.close());
 
 describe("Cloudflare docs artifact", () => {
+  it("excludes Worker sourcemaps from the deployment", () => {
+    const serverDir = resolve(docsRoot, ".output/server");
+    const config: unknown = JSON.parse(readFileSync(resolve(serverDir, "wrangler.json"), "utf8"));
+    expect(config).toMatchObject({ upload_source_maps: false });
+    // Zero maps keeps the upload below Cloudflare's 60 MiB encoded-sourcemap limit.
+    expect(readdirSync(serverDir, { recursive: true }).filter(file => file.endsWith(".map"))).toEqual([]);
+  });
+
   it.each([
     { name: "HTML docs", path: "/docs", status: 200, type: "text/html", content: "<title", accept: "text/html" },
     { name: "raw Markdown", path: "/raw/docs/getting-started.md", status: 200, type: "text/markdown", content: "# Introduction", accept: "text/markdown" },

@@ -7,6 +7,8 @@ export default defineNuxtConfig({
   modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
   // Motion components must use the same Vue runtime as Nuxt's server renderer.
   build: { transpile: ["motion-v"] },
+  // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
+  sourcemap: { server: false },
   docs: {
     site: {
       name: "ViteHub",
@@ -305,6 +307,7 @@ export default defineNuxtConfig({
         compatibility_date: "2026-07-19",
         workers_dev: false,
         preview_urls: true,
+        upload_source_maps: false,
         d1_databases: [
           {
             binding: "DB",
