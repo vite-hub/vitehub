@@ -2,11 +2,8 @@
 import { runViteHubCliEntrypoint } from "@vite-hub/cli"
 import { createSandboxCliNamespace } from "./sandbox-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
-import { isAgentCliEnabled } from "./internal/runtime-feature-guard.ts"
 import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { secretCliFeatures } from "@vite-hub/env/cli"
-import { createConnectionsCliContributor } from "@vite-hub/connections/cli"
-import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli"
 
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
@@ -19,6 +16,19 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   name: "agent",
 }
 
+// Connections and Decisions are optional peers. Their commands exist when the app installed the package.
+// The Connections commands load jose and valibot, so only `vitehub connections` imports them.
+const [connectionsCli, decisionsCli] = await Promise.all([
+  process.argv[2] === "connections" ? importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/cli")) : undefined,
+  importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
+])
+
+// `vitehub kv get` and the other KV commands call the running dev server, like `connections`.
+const kvCli = process.argv[2] === "kv" ? await importOptionalOwner("@vite-hub/kv", () => import("@vite-hub/kv/cli")) : undefined
+
+// `vitehub bundle` reads the report of the last build in .vitehub/bundle/, so it does not load the project.
+const bundleCli = process.argv[2] === "bundle" ? await import("@vite-hub/bundle/cli") : undefined
+
 const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
   description: "Generate and derive app secrets without loading project configuration.",
   features: secretCliFeatures,
@@ -27,9 +37,13 @@ const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
 
 runViteHubCliEntrypoint({
   loadConfig: loadViteHubCliConfig,
-  runtimeFeatureGuard: (namespace, feature, cwd) => namespace !== "agent" || feature !== "invocations" || isAgentCliEnabled(cwd),
-  // `connections` commands only call the running app. Loading the project runs every ViteHub plugin, and the server
-  // files that they generate make the running dev server rebuild while the command waits for its answer.
-  runtimeFeatures: [agentRuntimeFeatures, ...createConnectionsCliContributor().namespaces],
-  runtimeNamespaces: [createDecisionsCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
+  runtimeFeatureGuard: async (namespace, feature, cwd) => {
+    if (namespace !== "agent" || feature !== "invocations") return true
+    const { isAgentCliEnabled } = await import("./internal/runtime-feature-guard.ts")
+    return isAgentCliEnabled(cwd)
+  },
+  // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the
+  // server files that they generate make the running dev server rebuild while the command waits for its answer.
+  runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? []],
+  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createSandboxCliNamespace(), secretRuntimeNamespace],
 })

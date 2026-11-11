@@ -1,4 +1,3 @@
-import { pushUnique } from "@vite-hub/internal/arrays"
 import { readProvisionedId } from "@vite-hub/internal/provision-state"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
@@ -7,7 +6,7 @@ import type { ResolvedKVModuleOptions } from "../types.ts"
 interface CloudflareKVTarget {
   cloudflare?: {
     wrangler?: {
-      kv_namespaces?: Array<{ binding: string, id?: string }>
+      kv_namespaces?: Array<{ binding: string, id?: string, remote?: boolean, experimental_remote?: boolean }>
     }
   }
 }
@@ -16,6 +15,7 @@ interface CloudflareKVTarget {
 export const KV_CLOUDFLARE_PROVISION_CATEGORY = "kv"
 
 // A configured namespaceId wins. Otherwise the id recorded by `vitehub provision run` for the store is used.
+// Only `vite dev` resolves a store with `remote: true`, so only the dev binding asks Wrangler for the real namespace.
 export function configureCloudflareKV(
   target: CloudflareKVTarget,
   config: ResolvedKVModuleOptions,
@@ -31,10 +31,18 @@ export function configureCloudflareKV(
     target.cloudflare.wrangler ||= {}
     target.cloudflare.wrangler.kv_namespaces ||= []
 
-    pushUnique(
-      target.cloudflare.wrangler.kv_namespaces,
-      { binding, ...(namespaceId ? { id: namespaceId } : {}) },
-      entry => entry.binding,
-    )
+    const namespaces = target.cloudflare.wrangler.kv_namespaces
+    const existing = namespaces.find(entry => entry.binding === binding)
+    if (existing) {
+      // Reconcile both Wrangler spellings as one development policy; builds preserve user fields.
+      if (store.remote || store.localBase) {
+        delete existing.experimental_remote
+        if (store.remote) existing.remote = true
+        else delete existing.remote
+      }
+    }
+    else {
+      namespaces.push({ binding, ...(namespaceId ? { id: namespaceId } : {}), ...(store.remote ? { remote: true } : {}) })
+    }
   }
 }

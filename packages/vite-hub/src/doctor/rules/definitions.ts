@@ -11,8 +11,8 @@ type NamedCall = { modules: readonly string[], names: readonly string[], kind: D
 
 /** Runtime Helpers that take a Definition name as their first argument. */
 const namedCalls: readonly NamedCall[] = [
-  { modules: ["queue"], names: ["runQueue", "deferQueue", "getQueue"], kind: "queue", label: "Queue" },
-  { modules: ["workflow"], names: ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow"], kind: "workflow", label: "Workflow" },
+  { modules: ["queue"], names: ["sendQueue", "deferQueue", "useQueue"], kind: "queue", label: "Queue" },
+  { modules: ["workflow"], names: ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow"], kind: "workflow", label: "Workflow" },
   { modules: ["database/drizzle"], names: ["useDatabase"], kind: "database", label: "Database" },
   { modules: ["channels", "channels/server"], names: ["useChannel"], kind: "channel", label: "Channel" },
   { modules: ["browser"], names: ["runBrowser"], kind: "browser", label: "Browser" },
@@ -119,7 +119,7 @@ const definitionFactories: readonly Factory[] = [
   { module: "schedule", name: "defineSchedule", kind: "schedule" },
   { module: "browser", name: "defineBrowser", kind: "browser" },
   { module: "realtime", name: "defineRealtime", kind: "realtime" },
-  { module: "channels", name: "defineOutboundChannel", kind: "channel" },
+  { module: "channels", name: "defineChannel", kind: "channel" },
   { module: "agent", name: "defineAgent", kind: "agent" },
   { module: "connections", name: "defineConnection", kind: "connection" },
   { module: "sandbox/task", name: "defineSandboxTask", kind: "sandboxTask" },
@@ -167,8 +167,8 @@ export const definitionLocation: DoctorRule = createRule({
 const queueOptionKeys = new Set(["delaySeconds", "idempotencyKey", "retentionSeconds", "contentType"])
 
 function isQueueEnqueue(reference: ViteHubReference | undefined): boolean {
-  if (isExport(reference, ["queue"], ["runQueue", "deferQueue"])) return true
-  return reference?.module === "queue" && reference.name === "dynamicQueue" && reference.path.length === 1 && ["run", "defer"].includes(reference.path[0] ?? "")
+  if (isExport(reference, ["queue"], ["sendQueue", "deferQueue"])) return true
+  return reference?.module === "queue" && reference.name === "dynamicQueue" && reference.path.length === 1 && ["send", "defer"].includes(reference.path[0] ?? "")
 }
 
 export const queuePayloadOptions: DoctorRule = createRule({
@@ -190,7 +190,7 @@ export const queuePayloadOptions: DoctorRule = createRule({
         if (!options.length) return
         ctx.report(diagnostics.VHUB0016({
           why: `This call sends \`{ payload, ${options.join(", ")} }\` as the job payload. ViteHub does not read enqueue options from the payload, so \`${options.join("`, `")}\` has no effect.`,
-          fix: "Pass the payload and the options as separate arguments: `runQueue(name, payload, { delaySeconds })`.",
+          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delaySeconds })`.",
         }), { range: ctx.range(args[1]) })
       },
     }
@@ -198,8 +198,8 @@ export const queuePayloadOptions: DoctorRule = createRule({
 })
 
 const dispatchCalls: readonly { modules: readonly string[], names: readonly string[] }[] = [
-  { modules: ["queue"], names: ["runQueue", "deferQueue", "getQueue"] },
-  { modules: ["workflow"], names: ["runWorkflow", "deferWorkflow"] },
+  { modules: ["queue"], names: ["sendQueue", "deferQueue", "useQueue"] },
+  { modules: ["workflow"], names: ["startWorkflow", "deferWorkflow"] },
   { modules: ["sandbox/task"], names: ["runSandboxTask"] },
   { modules: ["browser"], names: ["runBrowser"] },
 ]
@@ -234,10 +234,9 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflowSignal"])
-    || isExport(reference, ["queue"], "getQueue")
+  if (isExport(reference, ["workflow"], ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
+    || isExport(reference, ["queue"], "useQueue")
     || isExport(reference, ["schedule/runtime"], "runSchedule")) return { name: reference.name, kind: "value" }
-  // `runAgent(agent, context, input)` returns the Agent's output, which can be an array, so it is not checked.
 }
 
 function arrayPatternTarget(awaited: AstNode): AstNode | undefined {
@@ -336,19 +335,20 @@ function stepPropertyName(file: string): string {
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
 /**
- * The handler of a folder Workflow index: the function passed to `defineWorkflow()`, or the default-exported function.
- * `context` names the whole first parameter (`ctx.steps`), and `steps` names its destructured `steps` property.
+ * The handler of a folder Workflow index: the function passed to `defineWorkflow(name, handler)`, or the
+ * default-exported function. A handler gets `(payload, context)`: `context` names the whole second parameter
+ * (`ctx.steps`), and `steps` names its destructured `steps` property.
  */
 function workflowHandler(ctx: RuleContext, r: Resolver): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
-  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[0]) : value
-  // `defineWorkflow(onboard)` names a function declared in this file.
+  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[1]) : value
+  // `defineWorkflow("onboard", onboard)` names a function declared in this file.
   if (isIdentifier(fn)) {
     const declaration = r.binding(fn)?.declaration
     fn = isNodeType(declaration, "VariableDeclarator") ? unwrap(declaration.init) : declaration
   }
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  let param = unwrap(fn.params[0])
+  let param = unwrap(fn.params[1])
   if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
   if (isIdentifier(param)) return { fn, context: param.name }
   const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []
@@ -481,7 +481,7 @@ export const validScheduleCron: DoctorRule = createRule({
       ScriptNode(node) {
         if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["schedule"], "defineSchedule")) return
         const [first] = callArguments(node)
-        const cronNode = stringValue(first) === undefined ? objectValue(first, "cron") : first
+        const cronNode = objectValue(first, "cron")
         const cron = stringValue(cronNode)
         if (cron === undefined) return
         const problems = cronProblems(cron)
@@ -524,10 +524,12 @@ export const manualScheduleRun: DoctorRule = createRule({
   },
 })
 
-export const validOutboundChannel: DoctorRule = createRule({
+const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
+
+export const validChannel: DoctorRule = createRule({
   meta: {
-    id: "vitehub/valid-outbound-channel",
-    title: "Configure each outbound Channel connector",
+    id: "vitehub/valid-channel",
+    title: "Give each Channel an adapter that fits its targets",
     category: "correctness",
     severity: "error",
     requires: { script: true },
@@ -536,29 +538,27 @@ export const validOutboundChannel: DoctorRule = createRule({
     const r = resolver(ctx)
     return {
       ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["channels"], "defineOutboundChannel")) return
-        const definition = callArguments(node)[0]
-        const connectors = unwrap(objectValue(definition, "connectors"))
-        if (!isNodeType(connectors, "ObjectExpression")) return
-        const properties = objectProperties(connectors)
-        if (properties.some(property => property.type === "SpreadElement" || propertyName(property) === undefined)) return
+        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["channels"], "defineChannel")) return
+        const definition = unwrap(callArguments(node)[0])
+        if (!isNodeType(definition, "ObjectExpression") || objectProperties(definition).some(property => property.type === "SpreadElement")) return
         const fail = (target: unknown, why: string, fix: string) => ctx.report(diagnostics.VHUB0023({ why, fix }), { range: ctx.range(target) })
-        if (!properties.length) {
-          fail(connectors, "`defineOutboundChannel()` has no connectors, so the Channel cannot send. It throws `CHANNELS_C0003` when it loads, and `send()` returns that error.", "Add at least one connector with a `send(text, options)` function.")
+        const adapter = unwrap(objectValue(definition, "adapter"))
+        if (!adapter) {
+          fail(definition, "`defineChannel()` has no `adapter`. It throws `CHANNELS_C0007` when it loads, and `send()` returns that error.", "Add an adapter, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`.")
           return
         }
-        for (const property of properties) {
-          const value = unwrap(property.value)
-          const name = propertyName(property)
-          if (isNodeType(value, "ObjectExpression") && !objectValue(value, "send") && !objectProperties(value).some(entry => entry.type === "SpreadElement")) {
-            fail(property, `The connector \`${name}\` has no \`send\` function. The Channel throws \`CHANNELS_C0004\` when it loads, and \`send()\` returns that error.`, `Add \`send(text, options)\` to the \`${name}\` connector.`)
-          }
+        if (isNodeType(adapter, "ObjectExpression") && !objectValue(adapter, "kind") && !objectProperties(adapter).some(property => property.type === "SpreadElement")) {
+          fail(adapter, "The adapter has no `kind`. `defineChannel()` throws `CHANNELS_C0007` when it loads.", "Add `kind`, the name of the platform, such as `kind: 'alerts'`.")
         }
-        const defaultConnectorNode = objectValue(definition, "defaultConnector")
-        const defaultConnector = stringValue(defaultConnectorNode)
-        const names = properties.map(property => propertyName(property))
-        if (defaultConnector !== undefined && !names.includes(defaultConnector)) {
-          fail(defaultConnectorNode, `\`defaultConnector: "${defaultConnector}"\` is not one of the connectors. The Channel throws \`CHANNELS_C0005\` when it loads, and \`send()\` returns that error.`, `Set \`defaultConnector\` to one of ${quoteList(names.filter((name): name is string => name !== undefined))}.`)
+        const chatAdapter = isNodeType(adapter, "CallExpression") && chatAdapterNames.some(name => isExport(r.callee(adapter), ["agent/channels"], name))
+        if (!chatAdapter && !isNodeType(adapter, "ObjectExpression")) return
+        const on = unwrap(objectValue(definition, "on"))
+        if (!isNodeType(on, "ObjectExpression")) return
+        for (const property of objectProperties(on)) {
+          if (property.type === "SpreadElement") continue
+          const value = unwrap(property.value)
+          if (!isNodeType(value, "ArrowFunctionExpression") && !isNodeType(value, "FunctionExpression")) continue
+          fail(property, `The \`on\` handler \`${propertyName(property) ?? "?"}\` needs an adapter that receives webhooks. \`defineChannel()\` throws \`CHANNELS_C0010\` when it loads.`, "Use `webhook()` or `stripe()` as the adapter, or `defineChannelTrigger()` for a chat Channel. Chat messages go to the Agent that lists the Channel.")
         }
       },
     }
@@ -576,5 +576,5 @@ export const rules: DoctorRule[] = [
   workflowStepNames,
   validScheduleCron,
   manualScheduleRun,
-  validOutboundChannel,
+  validChannel,
 ]

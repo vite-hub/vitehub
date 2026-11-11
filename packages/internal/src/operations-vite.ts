@@ -1,15 +1,17 @@
 import { resolve } from "node:path"
 import { writeFileIfChanged } from "./definition-catalog.ts"
+import { addViteHubDevPeerDevHandler } from "./dev-peer.ts"
 import { createNitroServerKit } from "./nitro-kit.ts"
 import { collectOperationContributions, operationRpcPath } from "./operations.ts"
 import { flattenPluginOptions } from "./contributions.ts"
 import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "./cli.ts"
 
-const owners = new Set(["@vite-hub/kv/operations", "@vite-hub/blob/operations", "@vite-hub/email/operations", "@vite-hub/rate-limit/operations"])
+// The first of these plugins hosts the shared RPC. Its operations module also exports the handler factory.
+const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite", "@vite-hub/forms/vite"])
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
-  config: { root: string, base: string, server: { https?: unknown } }
+  config: { root: string, base: string, server: { https?: unknown, middlewareMode?: unknown } }
   httpServer: {
     address(): string | { address: string, family: string, port: number } | null
     listening: boolean
@@ -21,7 +23,8 @@ interface OperationDevServer {
 /** Publish only the elected standalone transport; other Console policies retain their own discovery hook. */
 export function publishStandaloneOperationServer(server: OperationDevServer): void {
   const http = server.httpServer
-  if (!http || Reflect.get(server, discoveryInstalled)) return
+  // In middleware mode another server owns the listener and publishes it.
+  if (!http || server.config.server.middlewareMode || Reflect.get(server, discoveryInstalled)) return
   const root = resolve(server.config.root)
   const handlers: unknown = Reflect.get(Object(Reflect.get(server.config, "nitro")), "handlers")
   if (!Array.isArray(handlers) || !handlers.some(handler => handler?.handler === resolve(root, ".vitehub/nitro/operations/rpc.mjs"))) return
@@ -54,11 +57,13 @@ export async function installStandaloneOperationRpc(config: { root?: string, plu
   const plugins = await flattenPluginOptions(config.plugins)
   if (plugins.some(plugin => Reflect.get(plugin, "name") === "vite-hub/dependencies" || Reflect.get(plugin, "name") === "vite-hub/console")) return
   const contributions = (await collectOperationContributions(plugins)).filter(source => source.runtime !== false)
-  if (contributions.find(source => owners.has(source.module))?.module !== module) return
+  const owner = contributions.find(source => owners.has(source.plugin))
+  if (!owner || !contributions.some(source => source.module === module && owners.has(source.plugin))) return
+  // Refresh after each owner reads its config: a later plugin may discover more operations, such as Forms.
   const root = resolve(config.root ?? process.cwd())
   const handler = resolve(root, ".vitehub/nitro/operations/rpc.mjs")
   const source = [
-    `import { createStandaloneOperationHandler } from ${JSON.stringify(module)}`,
+    `import { createStandaloneOperationHandler } from ${JSON.stringify(owner.module)}`,
     ...contributions.map((entry, index) => `import * as source${index} from ${JSON.stringify(entry.module)}`),
     `export default createStandaloneOperationHandler([${contributions.map((entry, index) => `{ operations: source${index}[${JSON.stringify(entry.export)}], plugin: ${JSON.stringify(entry.plugin)} }`).join(", ")}], ${JSON.stringify(root)})`,
     "",
@@ -66,5 +71,10 @@ export async function installStandaloneOperationRpc(config: { root?: string, plu
   await writeFileIfChanged(handler, source)
   const kit = createNitroServerKit(Reflect.get(config, "nitro"))
   kit.addHandler({ handler, route: operationRpcPath })
+  // Nitro's dev worker never sees the client's address. The Vite process signs loopback requests for the route.
+  const devHandlers: unknown = kit.config.devHandlers
+  const signed: Array<{ handler?: unknown, route?: string }> = Array.isArray(devHandlers) ? [...devHandlers] : []
+  addViteHubDevPeerDevHandler(signed)
+  kit.config.devHandlers = signed
   Reflect.set(config, "nitro", kit.config)
 }

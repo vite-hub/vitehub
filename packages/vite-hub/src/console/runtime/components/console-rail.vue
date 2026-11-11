@@ -9,15 +9,16 @@ import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
-import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
-import { projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
+import { isRemoteProject, projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
+import { signOutConsoleProject, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleProjectSwitcher from "./console-project-switcher.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 
 const props = defineProps<{
@@ -29,7 +30,6 @@ const props = defineProps<{
 const route = useRoute();
 const router = useRouter();
 const navigation = shallowRef<ConsoleNavigation>();
-const updateReady = useConsoleUpdate();
 const navigationFailed = ref(false);
 // Loading again cannot help without a session, so the rail offers no retry then. The page says how to sign in.
 const signedOut = ref(false);
@@ -44,7 +44,13 @@ const signInURL = projectUrl("/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 let unsubscribe: (() => void) | undefined;
 
-const projectName = computed(() => navigation.value?.projectName || "ViteHub");
+const projects = useConsoleProjects();
+// The app session and the Console build belong to the app origin. A Console on another origin reads neither.
+const remote = isRemoteProject();
+// The embedded Console of an `auth: "token"` app keeps the token in this browser. Sign out removes it.
+// The embedded app signs out of its Console token. A hosted Console signs out of the OAuth tokens of the open project.
+const tokenSignedIn = computed(() => projects.mode === "embedded" ? Boolean(projects.current.value?.token) : Boolean(projects.current.value?.oauth));
+const projectName = computed(() => navigation.value?.projectName || projects.info.value?.name || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
@@ -82,6 +88,10 @@ const userMenuItems = computed<DropdownMenuItem[]>(() => {
     if (items.length > 0) items.push({ type: "separator" });
     items.push(...appearanceItems.value);
   }
+  if (tokenSignedIn.value) {
+    if (items.length > 0) items.push({ type: "separator" });
+    items.push({ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsoleProject() });
+  }
   if (signedIn.value) {
     items.push({ type: "separator" }, {
       icon: signingOut.value ? "i-lucide-loader-circle" : "i-lucide-log-out",
@@ -92,10 +102,6 @@ const userMenuItems = computed<DropdownMenuItem[]>(() => {
   }
   return items;
 });
-
-function reload(): void {
-  window.location.reload();
-}
 
 async function open(routeName: string): Promise<void> {
   const name = resolveConsoleRouteName(route.name, routeName);
@@ -162,7 +168,7 @@ function showNavigation(result: ConsoleNavigation): void {
   navigation.value = result;
   navigationFailed.value = false;
   signedOut.value = false;
-  if (!first) return;
+  if (!first || remote) return;
   if (result.auth === "cloudflare-access") void loadAccessIdentity();
   else if (result.auth) void loadAuthSession();
 }
@@ -241,7 +247,6 @@ onMounted(() => {
   window.addEventListener("blur", invalidateGoToStart);
   unsubscribe = subscribeConsoleNavigation(props.sectionsBase, showNavigation);
   void loadNavigation();
-  watchConsoleBuild(props.sectionsBase);
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", trackGoToStart, true);
@@ -265,6 +270,7 @@ onBeforeUnmount(() => {
           <ConsoleMark class="size-[1.125rem]" />
         </PrimitiveRailItem>
       </UTooltip>
+      <ConsoleProjectSwitcher v-if="projects.mode === 'hosted'" />
     </template>
 
     <template #default="{ expanded }">
@@ -297,16 +303,6 @@ onBeforeUnmount(() => {
     </template>
 
     <template #footer="{ expanded }">
-      <!-- A newer Console is deployed. The item stays until a reload, and the status region announces it once. -->
-      <UTooltip v-if="updateReady" text="Update ready. Reload to use the new Console." :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem class="vitehub-console__rail-update" label="Update ready, reload" @click="reload">
-          <UIcon name="i-lucide-rotate-cw" class="size-[1.125rem]" />
-          <template #label>
-            Update ready <span class="vitehub-console__rail-update-action">Reload</span>
-          </template>
-        </PrimitiveRailItem>
-      </UTooltip>
-      <span role="status" class="sr-only">{{ updateReady ? "A new Console version is ready. Reload to use it." : "" }}</span>
       <UTooltip text="Connect an agent" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem
           :current="route.name === 'vitehub-console-connect'"
@@ -331,7 +327,7 @@ onBeforeUnmount(() => {
         </UDashboardSearchButton>
       </UTooltip>
       <UDropdownMenu
-        v-if="appearance || signedIn"
+        v-if="appearance || signedIn || tokenSignedIn"
         :items="userMenuItems"
         :content="{ side: 'right', align: 'end', sideOffset: 8 }"
         :ui="{ content: 'min-w-52' }"
@@ -354,43 +350,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-.vh-primitive-rail .vitehub-console__rail-update {
-  color: var(--ui-text-highlighted);
-}
-
-/* A dot in the corner of the icon box marks the update while the rail is collapsed. The ring cuts it from the icon. */
-.vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon {
-  position: relative;
-}
-
-.vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: var(--vh-bg-muted);
-  background: var(--ui-info);
-  border-radius: 9999px;
-  box-shadow: 0 0 0 2px var(--vitehub-console-rail-update-ring);
-  content: "";
-  inset-block-start: 0.375rem;
-  inset-inline-end: 0.375rem;
-  position: absolute;
-  height: 0.375rem;
-  width: 0.375rem;
-}
-
-.dark .vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: #000;
-}
-
-@media (hover: hover) {
-  .vh-primitive-rail .vitehub-console__rail-update:hover .vh-primitive-rail__icon::after {
-    --vitehub-console-rail-update-ring: var(--vh-bg-elevated);
-  }
-}
-
-.vh-primitive-rail .vitehub-console__rail-update-action {
-  color: var(--ui-text-dimmed);
-  margin-inline-start: 0.25rem;
-}
-
 .vh-primitive-rail .vitehub-console__rail-home {
   color: var(--ui-text-highlighted);
 }

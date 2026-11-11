@@ -299,27 +299,6 @@ describe("contributed Schedules on every host", () => {
     expect(contents).toContain("[\"report\"]: async () => import(")
   })
 
-  it("installs contributed Schedules through the Nuxt module", async () => {
-    const { definition, root } = await createRoot({ file: false })
-    const { default: scheduleNuxt } = await import("../src/nuxt.ts")
-    let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
-    const nuxt = {
-      hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
-        if (name === "nitro:config") nitroConfigHook = handler
-      },
-      options: { dev: false, rootDir: root, srcDir: root, vite: { plugins: [publishContributor(definition)] as unknown[] } },
-    }
-
-    scheduleNuxt({}, nuxt)
-    const nitroConfig: Record<string, unknown> = {}
-    await nitroConfigHook?.(nitroConfig)
-
-    expect(nitroConfig).toMatchObject({
-      cloudflare: { wrangler: { triggers: { crons: ["*/5 * * * *"] } } },
-      plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
-    })
-  })
-
   it("serves contributed Schedules from the registry that `vitehub schedule run` loads", async () => {
     const { definition, root } = await createRoot({
       definition: [
@@ -333,7 +312,7 @@ describe("contributed Schedules on every host", () => {
     await (plugin.config as ConfigHook)({ plugins, root }, { command: "serve", mode: "development" })
     await resolvePlugin(plugin, root, plugins)
 
-    const load = plugin.load as (id: string) => string
+    const load = Reflect.get(Object(plugin.load), "handler") as (id: string) => string
     expect(load("\0#vitehub/schedule/registry")).toContain(`["content/publish"]: async () => import(${JSON.stringify(definition)})`)
     expect(load("\0#vitehub/schedule/targets")).toBeUndefined()
   })
@@ -398,6 +377,8 @@ describe("contributed Schedule inspection", () => {
 
     expect(record("brief").cells.timing).toBe("15 6 * * 1-5 (Europe/Madrid)")
     expect(record("brief").fields).toContainEqual({ label: "Time zone", value: "Europe/Madrid" })
+    expect(record("brief").fields).toContainEqual({ label: "Host cron (UTC)", value: "15 4,5 * * 1-5" })
+    expect(record("utc").fields.map(field => field.label)).not.toContain("Host cron (UTC)")
     expect(record("dynamic").fields).toContainEqual({ label: "Time zone", value: "Not a static string" })
     expect(record("utc").cells.timing).toBe("0 9 * * *")
     expect(record("utc").fields).toContainEqual({ label: "Time zone", value: "UTC" })

@@ -61,7 +61,7 @@ describe("support matrix and feature catalog", () => {
     }
   });
 
-  it.each(["comments", "connections", "console"])("qualifies %s with its hosted Database requirement", (id) => {
+  it.each(["comments", "connections"])("qualifies %s with its hosted Database requirement", (id) => {
     const row = catalogRows().find((entry) => entry.id === id)!;
     expect("values" in row).toBe(true);
     if (!("values" in row)) return;
@@ -73,6 +73,18 @@ describe("support matrix and feature catalog", () => {
     }
     for (const host of ["local", "cloudflare", "node"] as const) {
       expect(row.values[host].status, `${id}:${host}`).toBe("available");
+    }
+  });
+
+  it("supports Console without a Database prerequisite", () => {
+    const row = catalogRows().find((entry) => entry.id === "console")!;
+    expect("values" in row).toBe(true);
+    if (!("values" in row)) return;
+    for (const host of ["local", "cloudflare", "vercel", "netlify", "deno", "node"] as const) {
+      const cell = row.values[host];
+      expect(cell.status, host).toBe("available");
+      expect(cell.display, host).toBe("Nitro");
+      expect(cell.detail, host).not.toContain("database.connection");
     }
   });
 

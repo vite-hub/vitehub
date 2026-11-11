@@ -1,4 +1,5 @@
 import { Editor } from "@tiptap/core"
+import Blockquote from "@tiptap/extension-blockquote"
 import Image from "@tiptap/extension-image"
 import Document from "@tiptap/extension-document"
 import { TableKit } from "@tiptap/extension-table"
@@ -12,6 +13,16 @@ import { Frontmatter } from "./frontmatter.ts"
 
 const RealtimeDocument = Document.extend({ content: "frontmatter? block+" })
 
+// @tiptap/markdown escapes every bracket in text, so it writes `> [!NOTE]` as `> \[!NOTE\]`, which is a plain quote.
+const escapedAlertMarker = /^> \\\[!(note|tip|important|warning|caution)\\\](?=\n|$)/i
+
+/** A blockquote that writes a GitHub alert's first line (`> [!NOTE]`) as it read it, so the alert stays an alert. */
+const RealtimeBlockquote = Blockquote.extend({
+  renderMarkdown(node, helpers, context) {
+    return (this.parent?.(node, helpers, context) ?? "").replace(escapedAlertMarker, "> [!$1]")
+  },
+})
+
 const emptyRealtimeEditorDocument: JSONContent = { type: "doc", content: [{ type: "paragraph" }] }
 
 function createMarked(): typeof import("marked").marked {
@@ -24,7 +35,8 @@ function createMarked(): typeof import("marked").marked {
 export function createRealtimeEditorExtensions(options: { collaborative?: boolean } = {}) {
   return [
     // Each collaborator's trailing node appends its own empty paragraph to the shared document, and the room keeps them all.
-    StarterKit.configure({ document: false, trailingNode: options.collaborative === true ? false : undefined, undoRedo: false }),
+    StarterKit.configure({ blockquote: false, document: false, trailingNode: options.collaborative === true ? false : undefined, undoRedo: false }),
+    RealtimeBlockquote,
     RealtimeDocument,
     Image,
     TableKit,

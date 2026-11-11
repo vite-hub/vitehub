@@ -1,22 +1,25 @@
 import { consoleRequest } from "./access.ts"
-import consoleMcpMetadataHandler from "./mcp-metadata.ts"
-import consoleMcpAuthorizationServerHandler from "./mcp-authorization-server.ts"
+import consoleMcpMetadataRoute from "./mcp-metadata.ts"
+import consoleMcpAuthorizationServerRoute from "./mcp-authorization-server.ts"
 
-import type { H3Event } from "h3"
+import type { ConsoleRequestEvent } from "./request.ts"
 
-/** Public OAuth discovery must run before global app Auth, including when Nitro separates routed middleware. */
-export function createConsoleMcpDiscoveryHandler(delegatedPaths: readonly string[] = []): (event: H3Event) => Promise<Response | undefined> {
+/**
+ * Public OAuth discovery must run before global app Auth, including when Nitro separates routed middleware. It stays
+ * an H3 middleware, so it returns nothing to pass the request on, and calls the Fetchable discovery routes itself.
+ */
+export function createConsoleMcpDiscoveryHandler(delegatedPaths: readonly string[] = []): (event: ConsoleRequestEvent) => Promise<Response | undefined> {
   return async (event) => {
     const request = consoleRequest(event)
     if (request.method !== "GET") return
     const pathname = new URL(request.url).pathname
     if (delegatedPaths.includes(pathname)) return
-    for (const [prefix, handler] of [
-      ["/.well-known/oauth-protected-resource", consoleMcpMetadataHandler],
-      ["/.well-known/oauth-authorization-server", consoleMcpAuthorizationServerHandler],
+    for (const [prefix, route] of [
+      ["/.well-known/oauth-protected-resource", consoleMcpMetadataRoute],
+      ["/.well-known/oauth-authorization-server", consoleMcpAuthorizationServerRoute],
     ] as const) {
       if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-        const response = await handler(event)
+        const response = await route.fetch(request)
         // Another resource or issuer on this origin belongs to the application's handlers and Auth policy.
         return response.status === 404 ? undefined : response
       }
@@ -24,6 +27,6 @@ export function createConsoleMcpDiscoveryHandler(delegatedPaths: readonly string
   }
 }
 
-const consoleMcpDiscoveryHandler: (event: H3Event) => Promise<Response | undefined> = createConsoleMcpDiscoveryHandler()
+const consoleMcpDiscoveryHandler: (event: ConsoleRequestEvent) => Promise<Response | undefined> = createConsoleMcpDiscoveryHandler()
 
 export default consoleMcpDiscoveryHandler

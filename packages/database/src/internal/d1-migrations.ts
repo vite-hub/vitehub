@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 
 import { join } from "pathe"
 
-/** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub db migrate` share it. */
+/** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub database migrate` share it. */
 export const defaultD1MigrationsTable = "d1_migrations"
 
 // Drizzle Kit's ledger. ViteHub used it for D1 HTTP before it used Wrangler's ledger.
@@ -22,7 +22,7 @@ export interface D1Ledger {
   applied: ReadonlySet<string>
   /**
    * Set when the ledger table does not exist yet. Names of the migrations that Drizzle Kit applied before, which the
-   * first `vitehub db migrate` writes into the new ledger.
+   * first `vitehub database migrate` writes into the new ledger.
    */
   missing?: { adopted: readonly string[] }
   table: string
@@ -74,7 +74,7 @@ export function listD1MigrationFiles(migrationsDir: string): string[] {
 
 /**
  * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the journal entries that
- * Drizzle Kit applied count as applied, so a database that `vitehub db migrate` migrated before keeps its state.
+ * Drizzle Kit applied count as applied, so a database that `vitehub database migrate` migrated before keeps its state.
  */
 export async function readD1Ledger(
   query: D1Query,

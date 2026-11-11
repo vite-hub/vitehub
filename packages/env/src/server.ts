@@ -4,19 +4,22 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import {
   asyncServerEnvRequired,
   envSourceFailed,
+  invalidEnvDeclaration,
   invalidRuntimeEnvValue,
   missingRequiredEnv,
 } from "./core/errors.ts"
-import { createEnvBridgeHandler } from "./http.ts"
+import { createEnvBridgeHandler, type EnvBridgeRequestOptions } from "./http.ts"
 import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
 import type { RuntimeEnvEntry, RuntimeProviderEntry } from "./core/registry.ts"
 import { envValueTypeName, parseEnvValue, stringValueSchema } from "./core/values.ts"
+import type { EnvValueParseResult } from "./core/values.ts"
 
 import type {
   EnvProvider,
@@ -33,6 +36,9 @@ import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
 
 export type { ServerEnvInspection, ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "./types.ts"
+// The generated `#vitehub/env/server` module builds its `seal()` and `unseal()` with it.
+export { createSealing, seal, unseal } from "./seal-value.ts"
+export type { SealOptions, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 
 type RuntimeEnv = Record<string, unknown>
 
@@ -69,8 +75,9 @@ export function runWithCloudflareEnv<T>(env: RuntimeEnv, callback: () => T): T {
   return runWithActiveCloudflareEnv(env, callback)
 }
 
+/** In app tests, the values of `setEnv()` from `vite-hub/test` win over every other source. */
 function runtimeEnv(event?: ViteHubContext): RuntimeEnv {
-  return { ...processEnv(), ...cloudflareEnv(event) }
+  return { ...processEnv(), ...cloudflareEnv(event), ...getViteHubTestMode()?.env }
 }
 
 let warnedGeneratedSecret = false
@@ -126,6 +133,72 @@ function missingRuntimeValueMessage(entry: RuntimeEnvEntry | RuntimeProviderEntr
   return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${fix}`
 }
 
+interface BoundStandardSchema {
+  "~standard": { validate: (value: unknown) => unknown }
+}
+
+const boundSchemas = new WeakMap<object, BoundStandardSchema>()
+
+/**
+ * Attach the schemas that `env.schemaFrom()` declarations name. The generated `#vitehub/env/server` module imports
+ * each schema module and calls this once, so a missing or wrong export fails when the server starts.
+ */
+export function bindServerEnvSchemas(registry: EnvRuntimeRegistry, modules: Readonly<Record<string, Readonly<Record<string, unknown>>>>): void {
+  for (const { entry, path } of runtimeRegistryEntries(registry)) {
+    if (!(isRuntimeEnvEntry(entry) || isRuntimeProviderEntry(entry)) || !entry.schemaModule) continue
+    const reference = entry.schemaModule
+    const module = Object.hasOwn(modules, reference.module) ? modules[reference.module] : undefined
+    const schema = module && Object.hasOwn(module, reference.export) ? module[reference.export] : undefined
+    if (!isBoundStandardSchema(schema)) {
+      throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(${JSON.stringify(reference.module)}, ${JSON.stringify(reference.export)}), but that export is not a Standard Schema.`)
+    }
+    boundSchemas.set(entry, schema)
+  }
+}
+
+function isBoundStandardSchema(value: unknown): value is BoundStandardSchema {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return false
+  const standard = (value as { "~standard"?: unknown })["~standard"]
+  return typeof standard === "object" && standard !== null && typeof (standard as { validate?: unknown }).validate === "function"
+}
+
+function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, path: string): EnvValueParseResult {
+  if (!entry.schemaModule) return parseEnvValue(entry.schema ?? stringValueSchema, value)
+  const schema = boundSchemas.get(entry)
+  if (!schema) {
+    throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(), but no schema module was loaded for it. Only env.server declarations of hubEnv() support env.schemaFrom().`)
+  }
+  let result: unknown
+  try {
+    result = schema["~standard"].validate(value)
+  }
+  catch (error) {
+    return { message: `The schema threw: ${error instanceof Error ? error.message : String(error)}`, success: false }
+  }
+  if (isPromiseLike(result)) {
+    Promise.resolve(result).catch(() => undefined)
+    return { message: "The schema is async. Server Env runs schemas synchronously.", success: false }
+  }
+  const issues = isRecord(result) ? result.issues : undefined
+  if (Array.isArray(issues) && issues.length) return { message: formatSchemaIssues(issues), success: false }
+  if (!isRecord(result) || !("value" in result)) return { message: "The schema returned no value.", success: false }
+  return { data: result.value, success: true }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as { then?: unknown }).then === "function"
+}
+
+function formatSchemaIssues(issues: readonly unknown[]): string {
+  return issues.map((issue) => {
+    const message = isRecord(issue) && typeof issue.message === "string" ? issue.message : "Invalid value."
+    const segments = isRecord(issue) && Array.isArray(issue.path)
+      ? issue.path.map(segment => isRecord(segment) ? segment.key : segment).filter(segment => typeof segment === "string" || typeof segment === "number")
+      : []
+    return segments.length ? `${segments.join(".")}: ${message}` : message
+  }).join("; ")
+}
+
 function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string, snapshot = false): unknown {
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
@@ -134,10 +207,13 @@ function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, val
     }
     return undefined
   }
-  const parsed = parseEnvValue(entry.schema ?? stringValueSchema, resolved)
+  const parsed = parseRuntimeValue(entry, resolved, path)
   if (!parsed.success) {
     // A secret must not list its allowed values, even though the registry rejects secret enums.
-    const message = entry.secret ? "The value does not match its declared type." : parsed.message
+    // Schema issue messages can quote the input, so a secret hides them too.
+    const message = entry.secret
+      ? entry.schemaModule ? "The value does not match its schema." : "The value does not match its declared type."
+      : parsed.message
     throw invalidRuntimeEnvValue(entry.source.kind, `Invalid ${path} from ${entry.source.kind}. ${message}`, path)
   }
   const data = snapshot ? snapshotValue(parsed.data) : parsed.data
@@ -397,10 +473,13 @@ function inspectionStatus(
   entry: RuntimeEnvEntry | RuntimeProviderEntry,
   value: unknown,
   found: boolean,
+  path: string,
 ): ServerEnvInspectionEntry["status"] {
-  if (!found && typeof entry.default !== "undefined") return "defaulted"
+  if (!found && typeof entry.default !== "undefined") {
+    return !entry.schemaModule || parseRuntimeValue(entry, entry.default, path).success ? "defaulted" : "invalid"
+  }
   if (!found || typeof value === "undefined") return "missing"
-  return parseEnvValue(entry.schema ?? stringValueSchema, value).success ? "available" : "invalid"
+  return parseRuntimeValue(entry, value, path).success ? "available" : "invalid"
 }
 
 function inspectionPath(path: string): { path?: string } {
@@ -426,7 +505,7 @@ async function inspectRegistryEntry(
   }
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    entries.push({ masked: value.secret, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found), ...runtimeSourceOrigin(value, env, source) })
+    entries.push({ masked: value.secret, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found, path), ...runtimeSourceOrigin(value, env, source) })
     return
   }
   if (isRuntimeProviderEntry(value)) {
@@ -438,7 +517,7 @@ async function inspectRegistryEntry(
         ...inspectionProvider(value),
         required: value.required,
         source: "provider",
-        status: inspectionStatus(value, resolved, typeof resolved !== "undefined"),
+        status: inspectionStatus(value, resolved, typeof resolved !== "undefined", path),
       })
     }
     catch (error) {
@@ -459,7 +538,8 @@ function reusableEnvNames(registry: object): readonly string[] | null {
   let names: string[] | null = []
   for (const { entry } of runtimeRegistryEntries(registry)) {
     if (!isRuntimeEnvEntry(entry)) continue
-    if (entry.schema?.kind === "array" || entry.schema?.kind === "object") {
+    // A schema from env.schemaFrom() can return an object, and a call must not share it.
+    if (entry.schemaModule || entry.schema?.kind === "array" || entry.schema?.kind === "object") {
       names = null
       break
     }
@@ -472,7 +552,8 @@ function reusableEnvNames(registry: object): readonly string[] | null {
 /** The values of every name the registry reads, as one string. Undefined when the result must not be reused. */
 function serverEnvKey(registry: object, event: ViteHubContext | undefined): string | undefined {
   const names = reusableEnvNames(registry)
-  if (!names) return undefined
+  // Test values change between tests, so a test reads the env again on each call.
+  if (!names || getViteHubTestMode()) return undefined
   const host = processEnv()
   const cloudflare = cloudflareEnv(event) ?? {}
   let key = ""
@@ -538,7 +619,7 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
         secret: value.secret,
         required: value.required,
         hasDefault: value.default !== undefined,
-        type: value.secret && value.schema?.kind === "enum" ? "enum" : envValueTypeName(value.schema ?? stringValueSchema),
+        type: value.schemaModule ? "unknown" : value.secret && value.schema?.kind === "enum" ? "enum" : envValueTypeName(value.schema ?? stringValueSchema),
       })
     }
   }
@@ -570,7 +651,7 @@ export async function inspectServerEnv(
 }
 
 /** Limit management to safe, declared provider paths. Host variables stay read-only. */
-export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request) => Promise<Response> {
+export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response> {
   const targets = new Map<string, { key: string; management: EnvManagement }>()
   for (const { entry, path } of runtimeRegistryEntries(registry)) {
     if (!isRuntimeProviderEntry(entry)) continue

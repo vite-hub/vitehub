@@ -1,23 +1,21 @@
 ---
 title: Skills
-description: Make a Workspace or external Source Skill available to an Agent, and verify how the Agent loads and uses the Skill.
+description: Give an Agent a Skill file from the Workspace or from an external Source, and check that the Agent loads it.
 navigation.title: Skills
 navigation.order: 160
 navigation.group: Capabilities
 icon: i-lucide-scroll-text
 ---
 
-`skills()` makes a Skill file in the [Workspace](/docs/workspace), or from an external [Source](/docs/source), available to an Agent Invocation. It adds no model-facing tools unless `shellExecution` is set. Then model-backed Agents receive the Workspace Shell tools in that mode.
+A Skill is a `SKILL.md` file that tells an Agent how to do a task. `skills()` gives an Agent a Skill from the [Workspace](/docs/workspace) (the Agent's files) or an external [Source](/docs/source). It adds no tools unless you set `shellExecution`, which gives model-backed Agents the Workspace Shell tools in that mode. App code uses the [Workspace server API](/docs/workspace/server-api) and [Source server API](/docs/source/server-api).
 
-The [Workspace server API](/docs/workspace/server-api) and [Source server API](/docs/source/server-api) cover application code. This page covers how an Agent receives a Skill.
-
-Agent-owned Skills do not need this Capability. Use a folder Agent Definition whose entry file is `agent.ts`, `agent.js`, `index.ts`, or `index.js` (including the `c` and `m` variants), and place `skills/` beside that entry file. ViteHub discovers and materializes those files. Flat files such as `server/agents/support.ts` do not discover sibling Skills.
+A Skill owned by one Agent does not need this Capability. Make the Agent a folder with an `agent.ts`, `agent.js`, `index.ts`, or `index.js` entry file (`c` and `m` variants work), and put `skills/` next to it. ViteHub finds and materializes those files. A flat file such as `server/agents/support.ts` does not.
 
 ## Configure a Skill
 
-The default path is `skills/SKILL.md`. Pass a custom `path` when the Workspace stores the Skill somewhere else.
+The default path is `skills/SKILL.md`. Pass `path` for another location.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { skills } from 'vite-hub/agent/capabilities'
 
@@ -30,9 +28,9 @@ export default defineAgent({
 })
 ```
 
-Mount a remote Skill Source when the Skill file is outside the project:
+Mount a remote Source when the Skill is outside the project:
 
-```ts [server/agents/review/browser.ts]
+```ts [server/agents/review/browser.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { skills } from 'vite-hub/agent/capabilities'
 import { github } from 'vite-hub/workspace'
@@ -55,48 +53,46 @@ export default defineAgent({
 })
 ```
 
-To add more than one Skill, give each additional `skills()` call a unique `id` that starts with `skills.`, for example `skills.browser`. Duplicate Capability ids fail at definition time. Agent inspection uses the `skills` id or `skills.` prefix to check Skill instruction coverage.
+For more Skills, give each extra `skills()` call a unique `id` starting with `skills.`, such as `skills.browser`. Duplicate ids fail at definition time. Inspection uses the `skills` id or `skills.` prefix to check instruction coverage.
 
 ## How Skills are loaded
 
-ViteHub validates the Workspace path requirement before the Agent Driver runs. The path can point to a directory or directly to a `SKILL.md` file.
-
-With `source`, ViteHub adds the Source to the Agent Workspace at definition time and mounts it at the Skill directory. `path` is the canonical mount, even when the Source helper has its own default mount. ViteHub uses normal Workspace Source materialization, visibility, and Agent inspection metadata. `skills()` does not fetch Source files at invocation time.
-
-For Provider Drivers, `skills()` adds the Skill directory to the Provider Workspace session. It adds no instructions or tools.
-
-With `shellExecution`, model-backed and custom-run-backed Agents receive the Workspace Shell tools in that mode. With `shellExecution: 'write'`, Workspace Shell writes commit Workspace Session changes back into the Workspace.
+- Before the Driver runs, ViteHub checks that the path, a folder or a `SKILL.md` file, exists in the Workspace.
+- With `source`, ViteHub adds the Source to the Workspace at definition time, mounted at `path`, even when the Source helper has its own default mount. It loads and inspects like any Workspace Source. `skills()` fetches nothing at run time.
+- For Provider Drivers, `skills()` adds the Skill folder to the Provider Workspace session, with no instructions or tools.
+- `shellExecution` gives model-backed and custom-run-backed Agents the Workspace Shell tools. With `'write'`, Shell changes are saved back to the Workspace.
 
 ### Instruction coverage
 
-Put model-facing guidance for a Skill in Agent Driver Instructions or in deterministic imported instruction Markdown. Wrap that guidance in an explicit `::skill{path="..."}` coverage block. For model-backed and custom-run-backed Agents, Agent inspection warns when a configured Skill has no coverage block. Provider-backed Agents do not get this warning.
+Tell the model when to use the Skill in the Agent Driver Instructions or deterministic imported instruction Markdown, inside a `::skill{path="..."}` block. For model-backed and custom-run-backed Agents, inspection warns when a Skill has no block. Provider-backed Agents get no warning.
 
 ## Requirements
 
 - An explicit Workspace with read access to the configured Skill path. `shellExecution: 'write'` requires write access.
-- A directory-capable Source for a Skill directory. File Sources are single-file and root-confined. Use `github()`, `custom()`, or a root-confined `glob()` Source for a directory.
+- For a Skill folder, a Source that holds folders: `github()`, `custom()`, or a root-confined `glob()`. File Sources hold one root-confined file.
 
 ## Security and approval
 
-`skills()` has no `policy` option. A Skill file is guidance for the Agent. Treat a Skill Source as trusted input, and point it at a repository and root that you control or review.
+`skills()` has no `policy` option. The Agent follows a Skill, so point a Skill Source only at a repository and root you control or review.
 
-`shellExecution` tools are not limited to the Skill directory. `shellExecution: 'read'` lets the Agent inspect the whole visible Workspace. `shellExecution: 'write'` also lets it change any path that Workspace rules allow, without approval.
+> [!WARNING]
+> `shellExecution` tools are not limited to the Skill folder. `'read'` can read the whole visible Workspace. `'write'` can also change any path Workspace rules allow, without approval.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Validates the Skill path requirement. Reads the Skill through Workspace tools when tools are available. Receives Workspace Shell tools with `shellExecution`. |
-| Provider-backed | Mounts the Skill into the Provider Workspace session. Receives no Workspace Shell tools, even with `shellExecution`. |
-| Custom-run-backed | Validates the Skill path requirement before `driver.run`. Receives Workspace Shell tools in `driver.run({ tools })` with `shellExecution`. |
+| Model-backed | Checks the Skill path. Reads the Skill through Workspace tools when available. Gets Shell tools with `shellExecution`. |
+| Provider-backed | Mounts the Skill into the Provider Workspace session. No Shell tools, even with `shellExecution`. |
+| Custom-run-backed | Checks the Skill path before `driver.run`. Gets Shell tools in `driver.run({ tools })` with `shellExecution`. |
 
 ## Verify the Skill
 
-1. Run `vitehub agent info --agent <name> --json` and confirm that the Capability metadata shows the normalized `path` and `skillPath`, plus `sourceKey` when `source` is set.
-2. Check `warnings` for an `instruction-coverage:skill:<path>` entry. Add a `::skill{path="<path>"}` block to clear it.
-3. Remove the Skill file and run the Agent. Confirm that it fails before model execution with a Workspace path requirement error.
+1. Run `vitehub agent info --agent <name> --json` and check that the metadata shows the normalized `path` and `skillPath`, plus `sourceKey` with `source`.
+2. Clear any `instruction-coverage:skill:<path>` entry in `warnings` with a `::skill{path="<path>"}` block.
+3. Remove the Skill file and check that the run fails before the model runs, with a Workspace path requirement error.
 
-Enable the Workspace integration with `vitehub({ preset: 'node', agent: true, workspace: true })` first. See [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace) for the Vite config. Then exercise both checks without changing the Agent's code. With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
+To try this, enable the Workspace with `vitehub({ preset: 'node', agent: true, workspace: true })` (see [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace)). With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -118,14 +114,14 @@ export default defineAgent({
 })
 ```
 
-Start the Vite Development Server and inspect the Capability:
+Start the Vite development server and inspect the Capability:
 
 ```bash [Terminal]
 pnpm vitehub agent info --agent support --json \
   | jq '.capabilities[] | select(.id == "skills") | .metadata'
 ```
 
-The output includes the normalized paths:
+The output has the normalized paths:
 
 ```json
 {
@@ -134,17 +130,17 @@ The output includes the normalized paths:
 }
 ```
 
-Delete `.vitehub/workspaces/support/skills/review/SKILL.md`, then run `pnpm vitehub agent dev --agent support --prompt "check"`. The invocation must stop before model execution with `skills() requires workspace path skills/review/SKILL.md`.
+Delete `.vitehub/workspaces/support/skills/review/SKILL.md` and run `pnpm vitehub agent dev --agent support --prompt "check"`. It must stop before the model runs with `skills() requires workspace path skills/review/SKILL.md`.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. A directory resolves to `<path>/SKILL.md`. |
-| `id` | `string` | `"skills"` | Capability id. Use a unique id such as `skills.browser` for each additional Skill. |
-| `shellExecution` | `"read" \| "write"` | none | Workspace Shell mode for model-backed and custom-run-backed Agents. |
-| `source` | `WorkspaceSourceInput` | none | Workspace Source to mount at the Skill directory. |
-| `sourceKey` | `string` | derived from `path` | Workspace Source key used with `source`, for example `skill.agent-browser` for `skills/agent-browser`. |
+| `path` | `string` | `"skills"` | Required folder or `SKILL.md` path. A folder means `<path>/SKILL.md`. |
+| `id` | `string` | `"skills"` | Capability id. Use a unique one, such as `skills.browser`, for each extra Skill. |
+| `shellExecution` | `"read" \| "write"` | none | Shell mode for model-backed and custom-run-backed Agents. |
+| `source` | `WorkspaceSourceInput` | none | Source to mount at the Skill folder. |
+| `sourceKey` | `string` | derived from `path` | Source key, such as `skill.agent-browser` for `skills/agent-browser`. |
 
 ## Related pages
 

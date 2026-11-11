@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { TableColumn, TableRow } from "@nuxt/ui";
 import type { ConnectionInspection } from "@vite-hub/connections";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
@@ -9,6 +10,7 @@ import {
   connectionCredentialLabel,
   connectionListSchema,
   connectionNextStep,
+  connectionNotices,
   connectionStatusTone,
   connectionStatusLabel,
   requestConnectionsManagement,
@@ -19,8 +21,8 @@ import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
+import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 type DetailsTab = "activity" | "approvals" | "details";
 
@@ -32,6 +34,9 @@ const props = defineProps<{
   searchBase: string;
   sectionsBase: string;
 }>();
+
+// The connect flow needs the app session, so it runs on the app origin.
+const remote = isRemoteProject();
 const connections = ref<readonly ConnectionInspection[]>([]);
 const pending = ref(new Map<string, number>());
 // The search, open connection, and its tab live in the URL, so a reload or a shared link opens the same view.
@@ -67,10 +72,11 @@ const columns: TableColumn<ConnectionInspection>[] = [
   { accessorKey: "name", header: "Connection" },
   { id: "credential", header: "Type" },
   { id: "status", header: "Status" },
-  { id: "account", header: "Account" },
+  // The account column gives up its width first and truncates, so the row stays on one line in a narrow page.
+  { id: "account", header: "Account", meta: { class: { td: "max-w-0 w-1/4" } } },
   { id: "action", header: "Action", meta: { class: { th: "sr-only", td: "w-px whitespace-nowrap text-right" } } },
 ];
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const notices = (connection: ConnectionInspection) => connectionNotices(connection, pending.value.get(connection.name));
 
 function open(name: string, tab: DetailsTab = "details", keyForm = false) {
   selectedTab.value = tab;
@@ -115,15 +121,13 @@ onBeforeUnmount(() => request?.abort());
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
-    <UDashboardPanel id="connections" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="connections">
       <ConsolePageHeader title="Connections" :toggle="false">
         <template #right>
           <UTooltip text="Refresh Connections">
             <UButton
               aria-label="Refresh Connections"
-              color="neutral"
               icon="i-lucide-refresh-cw"
-              size="sm"
               variant="ghost"
               :disabled="loading"
               @click="refresh"
@@ -136,7 +140,6 @@ onBeforeUnmount(() => request?.abort());
           v-model="search"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           placeholder="Filter Connections…"
           aria-label="Filter Connections"
         />
@@ -148,7 +151,7 @@ onBeforeUnmount(() => request?.abort());
               :href="setupURL"
               target="_blank"
               rel="noopener"
-              class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-primary"
+              class="rounded-md text-muted underline-offset-2 hover:text-highlighted hover:underline"
               >Add a Connection<span class="sr-only"> (opens in a new tab)</span></a
             >
           </template>
@@ -168,7 +171,7 @@ onBeforeUnmount(() => request?.abort());
         >
           <pre
             aria-label="Example Connection Definition"
-            class="max-w-full overflow-x-auto rounded-md bg-elevated/50 px-3 py-2.5 text-left font-mono text-[11px] leading-5 text-toned"
+            class="max-w-full overflow-x-auto rounded-lg bg-muted px-3 py-2.5 text-left font-mono text-xs leading-5 text-toned"
           ><code>// server/connections/crm.ts
 import { apiKey, defineConnection } from 'vite-hub/connections'
 
@@ -178,15 +181,15 @@ export default defineConnection({
         </ConsoleState>
         <div v-else class="mx-auto w-full max-w-5xl p-4 sm:p-6">
           <UTable
-            class="rounded-md border border-default"
+            class="rounded-lg border border-default"
             :data="rows"
             :columns="columns"
             :on-select="selectRow"
             empty="No matching Connections."
             :ui="{
-              thead: 'bg-elevated/30',
-              th: 'h-9 py-0 text-xs font-medium text-muted',
-              tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
+              // Tall enough for an action button, so a row without one has the same height.
+              td: 'h-10',
+              tr: 'group cursor-pointer',
             }"
           >
             <template #name-cell="{ row }"
@@ -198,7 +201,7 @@ export default defineConnection({
               ></template
             >
             <template #credential-cell="{ row }"
-              ><span class="inline-flex items-center gap-1.5 text-xs text-muted"
+              ><span class="flex items-center gap-1.5 text-xs text-muted"
                 ><UIcon
                   :name="row.original.credential === 'api-key' ? 'i-lucide-key-round' : 'i-lucide-log-in'"
                   class="size-3.5 shrink-0"
@@ -206,30 +209,44 @@ export default defineConnection({
               ></template
             >
             <template #status-cell="{ row }"
-              ><div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <ConsoleStatus
+              ><div class="flex items-center gap-2 whitespace-nowrap">
+                <Status
                   :label="connectionStatusLabel(row.original.status)"
                   :tone="connectionStatusTone(row.original.status)"
                 />
-                <ConsoleStatus
-                  v-if="row.original.scopes.missing.length"
-                  :label="plural(row.original.scopes.missing.length, 'missing scope')"
-                  tone="warning"
-                />
-                <UButton
-                  v-if="pending.get(row.original.name)"
-                  color="warning"
-                  :label="plural(pending.get(row.original.name) ?? 0, 'pending approval')"
-                  :aria-label="`Review ${plural(pending.get(row.original.name) ?? 0, 'pending approval')} for ${row.original.name}`"
-                  size="xs"
-                  variant="soft"
-                  @click.stop="open(row.original.name, 'approvals')"
-                /></div
+                <!-- Pending approvals and missing scopes stay on the status line as one count. The tooltip lists
+                them and describes the button, so the accessible name only counts them. The button opens the tab
+                that shows them. -->
+                <UTooltip
+                  v-if="notices(row.original)"
+                  :delay-duration="150"
+                  :content="{ side: 'top' }"
+                  :ui="{ content: 'h-auto' }"
+                >
+                  <UButton
+                    color="warning"
+                    icon="i-lucide-circle-alert"
+                    :label="String(notices(row.original)?.count)"
+                    :aria-label="`Review ${notices(row.original)?.summary} for ${row.original.name}`"
+                    class="h-5 gap-1 px-1.5 tabular-nums"
+                    size="xs"
+                    variant="soft"
+                    @click.stop="open(row.original.name, notices(row.original)?.tab)"
+                  />
+                  <template #content>
+                    <ul class="grid gap-0.5 py-1 text-xs">
+                      <li v-for="item in notices(row.original)?.items" :key="item">{{ item }}</li>
+                    </ul>
+                  </template>
+                </UTooltip></div
             ></template>
             <template #account-cell="{ row }"
-              ><span v-if="row.original.account" class="break-all text-xs text-muted">{{
-                row.original.account.email ?? row.original.account.id
-              }}</span></template
+              ><span
+                v-if="row.original.account"
+                class="block truncate text-xs text-muted"
+                :title="row.original.account.email ?? row.original.account.id"
+                >{{ row.original.account.email ?? row.original.account.id }}</span
+              ></template
             >
             <template #action-cell="{ row }"
               ><div class="flex items-center justify-end gap-2">
@@ -238,18 +255,16 @@ export default defineConnection({
                     v-if="connectionNextStep(row.original)?.kind === 'cli'"
                     label="Sign in with CLI"
                     :aria-label="`Show sign-in command for ${row.original.name}`"
-                    color="neutral"
                     size="xs"
                     variant="outline"
                     @click.stop="open(row.original.name, 'details')"
                   />
                   <UButton
                     v-else-if="connectionNextStep(row.original)?.kind === 'connect'"
-                    :label="connectionNextStep(row.original)?.label"
-                    :aria-label="`${connectionNextStep(row.original)?.label} ${row.original.name}`"
+                    :label="remote ? 'Connect in the app' : connectionNextStep(row.original)?.label"
+                    :aria-label="`${remote ? 'Connect in the app:' : connectionNextStep(row.original)?.label} ${row.original.name}`"
                     :to="connectionConnectURL(managementBase, row.original.name, returnTo)"
                     external
-                    color="neutral"
                     size="xs"
                     trailing-icon="i-lucide-arrow-up-right"
                     variant="outline"
@@ -259,7 +274,6 @@ export default defineConnection({
                     v-else
                     :label="connectionNextStep(row.original)?.label"
                     :aria-label="`${connectionNextStep(row.original)?.label} for ${row.original.name}`"
-                    color="neutral"
                     icon="i-lucide-key-round"
                     size="xs"
                     variant="outline"

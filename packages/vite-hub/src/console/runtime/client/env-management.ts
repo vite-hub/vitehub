@@ -1,7 +1,7 @@
 import type { EnvActor, EnvPermission, EnvSecretMetadata, EnvActivity, EnvGrant } from "@vite-hub/env/bridge"
 import * as v from "valibot"
-import { projectFetch } from "./project"
-import { ConsoleNetworkError, consoleResponseError } from "./request"
+import { isRemoteProject, projectFetch } from "./project"
+import { ConsoleNetworkError, ConsoleRequestError, consoleResponseError } from "./request"
 
 export const envPermissionSchema: v.GenericSchema<unknown, EnvPermission> = v.picklist(["inspect", "preview", "replace", "use"])
 export const envActorSchema: v.GenericSchema<unknown, EnvActor> = v.object({ id: v.string(), kind: v.picklist(["user", "agent", "service"]) })
@@ -11,7 +11,16 @@ export const envInspectionSchema: v.GenericSchema<unknown, { metadata: EnvSecret
 export const envActivitySchema: v.GenericSchema<unknown, { events: EnvActivity[] }> = v.object({ events: v.array(v.object({ id: v.string(), operationId: v.string(), key: v.string(), timestamp: v.string(), actor: envActorSchema, action: v.picklist(["inspect", "preview", "replace", "resolve", "use", "grant", "revoke"]), outcome: v.picklist(["started", "succeeded", "failed", "denied"]), revision: v.optional(v.string()), target: v.optional(envActorSchema), permissions: v.optional(v.array(envPermissionSchema)), operation: v.optional(v.string()), traceId: v.optional(v.string()), invocationId: v.optional(v.string()) })) })
 export const envGrantsSchema: v.GenericSchema<unknown, { grants: EnvGrant[] }> = v.object({ grants: v.array(v.object({ key: v.string(), actor: envActorSchema, permissions: v.array(envPermissionSchema) })) })
 
+/** A short label for an Env activity action. */
+export function envActivityLabel(action: EnvActivity["action"]): string {
+  return action === "resolve" ? "Retrieve credential" : action === "use" ? "Use credential" : action
+}
+
 export async function requestEnvManagement<T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(endpoint: string, path: string, action: string, schema: T, input: Record<string, unknown> = {}): Promise<v.InferOutput<T>> {
+  // The Env bridge accepts only browser calls from the app origin.
+  if (isRemoteProject()) {
+    throw new ConsoleRequestError(403, { message: "Env management accepts only requests from the app origin, so the Console cannot manage this value." })
+  }
   const body = JSON.stringify({ ...input, path, action })
   let response: Response
   try {

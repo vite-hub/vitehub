@@ -19,7 +19,7 @@ function bytes(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(value.match(/../g)!, (byte) => Number.parseInt(byte, 16));
 }
 
-/** Imports a 32-byte AES-GCM key for `seal` and `unseal`. */
+/** Imports a 32-byte AES-GCM key for `sealWithKey` and `unsealWithKey`. */
 export function importSealKey(key: Uint8Array): Promise<SealKey> {
   if (key.byteLength !== 32) throw sealError();
   return crypto.subtle.importKey("raw", new Uint8Array(key), "AES-GCM", false, [
@@ -34,8 +34,11 @@ export async function sealKeyId(key: Uint8Array): Promise<string> {
   return hex(new Uint8Array(digest).slice(0, 8));
 }
 
-/** Encrypts `plaintext` with AES-GCM and binds it to `additionalData`. */
-export async function seal(
+/**
+ * Encrypts `plaintext` with AES-GCM under a key that the caller owns, and binds it to `additionalData`.
+ * To seal an app value with a key derived from `VITEHUB_SECRET`, use `seal()` from `@vite-hub/env`.
+ */
+export async function sealWithKey(
   key: SealKey,
   additionalData: Uint8Array<ArrayBuffer>,
   plaintext: string,
@@ -49,8 +52,8 @@ export async function seal(
   return `${hex(iv)}:${hex(new Uint8Array(encrypted))}`;
 }
 
-/** Decrypts a value from `seal`. Fails when the key or `additionalData` differs. */
-export async function unseal(
+/** Decrypts a value from `sealWithKey`. Fails when the key or `additionalData` differs. */
+export async function unsealWithKey(
   key: SealKey,
   additionalData: Uint8Array<ArrayBuffer>,
   payload: string,

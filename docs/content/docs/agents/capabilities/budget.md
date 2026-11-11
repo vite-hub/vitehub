@@ -1,17 +1,17 @@
 ---
 title: Budget
-description: Bound Agent Invocation tokens and estimated model cost with one inspectable policy.
+description: Limit the tokens and the model cost of each Agent run with one policy you can inspect.
 navigation.title: Budget
 navigation.order: 324
 navigation.group: Capabilities
 icon: i-lucide-wallet-cards
 ---
 
-`budget()` gives one Agent Invocation a token and cost policy. It composes with `usage()`, Driver capacity, and host admission. The policy is per invocation, so it covers the model calls and repair calls made by that invocation.
+`budget()` limits the tokens and cost of one Invocation (one Agent run), including its model and repair calls. It works with `usage()`, Driver capacity, and host admission.
 
 ## Add a budget
 
-Use the top-level `budget` option when every invocation of the Agent has the same policy:
+Use the top-level `budget` option when every run has the same limits:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -33,13 +33,14 @@ export default defineAgent({
 })
 ```
 
-`tokens: 20_000` is shorthand for a total-token limit. `usd` accepts a non-negative number or decimal string. Cost is compared in USD, not in provider credits.
+- `tokens: 20_000` limits total tokens.
+- `usd` takes a non-negative number or decimal string. Cost is in USD, not provider credits.
+- Optional `capacity` sets how many runs the host starts at once and how many queue, with the Driver capacity rules. It is not a usage limit, and works alone for concurrency control. If both `budget.capacity` and `driver.capacity` are set, the budget value wins.
 
-The optional top-level `capacity` field uses the Driver capacity queue and concurrency contract. It is a host admission setting, not a model usage limit. It can be used by itself when an Agent only needs concurrency control. When both `budget.capacity` and `driver.capacity` are set, the budget value is used.
-
-Use the Capability form when the policy is selected at invocation time or when it is part of a reusable Capability list:
+Use the Capability form to choose limits per run or to reuse a Capability list:
 
 ```ts
+import { defineAgent } from 'vite-hub/agent'
 import { budget } from 'vite-hub/agent/capabilities'
 
 const reviewBudget = budget({
@@ -53,25 +54,32 @@ export default defineAgent({
 })
 ```
 
-The top-level option is the usual choice. When it contains `tokens` or `usd`, ViteHub turns it into the same `budget` Capability internally, so inspection and finish extensions have one contract. A capacity-only top-level option configures the Driver admission queue and does not install a `budget` Capability or a `budget` finish extension.
+Most Agents use the top-level option. With `tokens` or `usd`, ViteHub turns it into the same `budget` Capability, so inspection and finish extensions match. With only `capacity`, it sets the Driver admission queue and adds no `budget` Capability or finish extension.
 
 ## Inspect the policy
 
-Run the Agent inspection command while the Vite development server is running:
+With the Vite development server running, inspect the Agent:
 
 ```bash
 vitehub agent info --agent support --json
 ```
 
-For a token or USD policy, the JSON `capabilities` list contains an entry with `id: "budget"` and its configured `metadata`, including the policy kind and mode. Inspection sanitizes secret-shaped keys, so a `tokens` metadata value can appear as `[redacted]`; treat the Agent source as the authority for its numeric token limits. The `budget` Capability metadata describes configuration only. It does not contain usage from a previous Invocation. Read per-invocation `usage` from the finish extension or persisted Invocation record; the persisted record does not store the computed `exceeded` list, so capture that list in the finish hook or derive it from the limits and recorded usage.
+For a token or USD policy, the JSON `capabilities` list has an `id: "budget"` entry whose `metadata` shows the configuration, including policy kind and mode. It shows no usage from earlier runs.
 
-For a capacity-only policy, inspect `config.driver.capacity` instead. The human-readable command reports the active count, admitted limit, hard concurrency maximum, and queue state. That policy can be shared only by Agent Definitions that use the same process-local capacity object; it does not create usage accounting.
+> [!NOTE]
+> Inspection hides secret-shaped keys, so `tokens` can show as `[redacted]`. Read token limits in the Agent source.
+
+Read a run's `usage` from the finish extension or the saved Invocation record. The record does not store the `exceeded` list, so save it in the finish hook or compute it from the limits and usage.
+
+For a `capacity`-only policy, inspect `config.driver.capacity`. The text output shows the active count, admitted limit, hard concurrency maximum, and queue state. Agent Definitions share this policy only through the same capacity object in one process. It counts no usage.
 
 ## Observe or enforce
 
-The default mode is `observe`. The Invocation completes and the `budget` finish extension reports any exceeded limits. Set `mode: 'enforce'` to fail the Invocation after usage is known:
+In the default `observe` mode, the run completes and the `budget` finish extension reports each exceeded limit. Set `mode: 'enforce'` to fail the run once usage is known:
 
 ```ts
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'gpt-5.6-sol' },
   budget: {
@@ -81,52 +89,66 @@ export default defineAgent({
 })
 ```
 
-Enforcement is a terminal check. It cannot undo a provider request that already ran. The output-token limit is also passed to AI SDK model calls when the provider supports `maxOutputTokens`; cumulative input, output, total-token, and cost checks use the normalized usage record after the call.
+> [!WARNING]
+> `enforce` checks at the end. It cannot undo a provider request that already ran.
+
+If the provider supports `maxOutputTokens`, AI SDK model calls also get the output-token limit. Input, output, total-token, and cost checks use the normalized usage record after the call.
 
 Read the result from a finish hook:
 
-```ts
-hooks: {
-  'agent:finish'(event) {
-    const budget = event.extensions.get('budget')
-    if (budget?.exceeded.length) {
-      console.log(budget.exceeded)
-    }
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'gpt-5.6-sol' },
+  budget: { tokens: 40_000 },
+  hooks: {
+    'agent:finish'(event) {
+      const budget = event.extensions.get('budget')
+      if (budget?.exceeded.length) {
+        console.log(budget.exceeded)
+      }
+    },
   },
-}
+})
 ```
 
-The snapshot contains the configured `limits`, the normalized `usage` record when one is available, and an `exceeded` list with `inputTokens`, `outputTokens`, `totalTokens`, or `usd` entries.
+The snapshot has the configured `limits`, the normalized `usage` record when available, and an `exceeded` list of `inputTokens`, `outputTokens`, `totalTokens`, or `usd` entries.
 
 ## Cost sources
 
-Provider-reported cost is used as supplied. When only tokens are reported, the default pricing resolver estimates cost from Models.dev, like [`usage()`](/docs/agents/capabilities/usage). Set `pricing: false` when token limits are enough or outbound catalog access is not wanted. A custom resolver can return `{ usd, estimated, source }` for application-owned rates.
+- A provider-reported cost is used as is.
+- With only tokens, the default resolver estimates cost from Models.dev, like [`usage()`](/docs/agents/capabilities/usage).
+- A custom resolver can return `{ usd, estimated, source }` for your own prices.
 
-An unknown cost does not count as an exceedance. A hard USD ceiling requires a provider or gateway that reserves and settles spend before a request. `budget()` cannot promise that guarantee from post-call telemetry alone.
+Set `pricing: false` when token limits are enough or you want no Models.dev calls.
+
+> [!WARNING]
+> An unknown cost never exceeds the limit. A hard USD limit needs a provider or gateway that reserves spend before the request. `budget()` sees usage only after the call.
 
 ## Combine resource limits
 
-Invocation budgets and host resources answer different questions:
+A budget limits one run. Host limits protect the machine:
 
 | Policy | Scope | Result |
 | --- | --- | --- |
-| `budget.tokens` and `budget.usd` | One Invocation | Bounds model usage and reports or rejects after usage is known. |
-| `budget.capacity` | One host process | Queues Invocations and limits concurrent Drivers from the same top-level policy. |
-| Driver `capacity` | One host process | The lower-level capacity option when the policy is configured on a Driver. |
+| `budget.tokens` and `budget.usd` | One Invocation | Limits model usage. Reports or rejects once usage is known. |
+| `budget.capacity` | One host process | Queues Invocations and limits concurrent Drivers. |
+| Driver `capacity` | One host process | The same limit, set on a Driver. |
 | Babysitter `options.admission` | Babysitter host and time window | Delays new model passes when retained journal usage or host checks cross a threshold. |
 | `options.capacity` | Babysitter process host | Admits work using memory, CPU, and fallback concurrency. |
 
-Use all of them when an Agent needs both spend visibility and safe host concurrency. A host admission decision does not cancel active work, and an Invocation budget does not reserve host memory.
+Combine them to see spend and keep the host safe. Host admission does not cancel running work, and a budget reserves no host memory.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Applies `maxOutputTokens` where the AI SDK provider accepts it and checks normalized usage and cost. |
-| Provider-backed | Checks the usage record reported by the provider Driver. Provider-specific process limits stay in Driver and Sandbox options. |
+| Model-backed | Applies `maxOutputTokens` where supported, and checks usage and cost. |
+| Provider-backed | Checks the Driver's usage record. Process limits stay in Driver and Sandbox options. |
 | Custom-run-backed | Checks the `usage` or `usageRecord` returned by `driver.run`. |
 
-If a Driver reports no usage, ViteHub cannot compare token or cost limits. The invocation remains successful in `observe` mode.
+If a Driver reports no usage, limits are not checked. In `observe` mode the run still succeeds.
 
 ## Options
 
@@ -134,7 +156,7 @@ If a Driver reports no usage, ViteHub cannot compare token or cost limits. The i
 | --- | --- | --- | --- |
 | `tokens` | `number \| { input?, output?, total? }` | No token limit | Limits normalized input, output, or total tokens. A number sets `total`. |
 | `usd` | `number \| string` | No cost limit | Compares provider-reported or estimated cost in US dollars. Decimal strings preserve exact limits. |
-| `capacity` | `AgentDriverCapacityOptions` | Driver setting | Configures process-local admission for the top-level Agent option. It is not a usage limit, and `budget({ capacity })` on the reusable Capability does not configure Driver admission. |
-| `mode` | `'observe' \| 'enforce'` | `'observe'` | Reports exceedance or rejects the terminal Invocation after usage is available. |
-| `pricing` | `AgentUsagePricing \| false` | Models.dev pricing when `usd` is set; disabled for token-only budgets | Resolves missing cost, or disables estimation. Provider-reported cost remains available when set to `false`. |
-| `id` | `string` | `'budget'` | Changes the Capability id when using the reusable Capability form. |
+| `capacity` | `AgentDriverCapacityOptions` | Driver setting | Process-local admission, top-level option only. Not a usage limit. `budget({ capacity })` does not set Driver admission. |
+| `mode` | `'observe' \| 'enforce'` | `'observe'` | Report or reject once usage is known. |
+| `pricing` | `AgentUsagePricing \| false` | Models.dev pricing when `usd` is set; disabled for token-only budgets | Fills missing cost. `false` stops estimates but keeps provider-reported cost. |
+| `id` | `string` | `'budget'` | Capability id in the reusable form. |

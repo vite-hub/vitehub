@@ -7,14 +7,19 @@ import {
   consoleImpersonation,
   consoleRequest,
   withConsoleAccess,
+  consoleScopeRejection,
+  consoleScopesAllow,
   type ConsoleAccess,
   type ConsoleAccessRoute,
 } from "./access.ts";
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts";
 import {
   assertConsoleRequest,
   consoleRequestError,
   consoleRequestJSON,
+  consoleRoute,
   type ConsoleRequestEvent,
+  type ConsoleRoute,
 } from "./request.ts";
 import { getConsoleSections } from "./sections.ts";
 
@@ -104,19 +109,31 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   const site = request.headers.get("sec-fetch-site");
   // Browser-controlled Fetch Metadata survives trusted TLS termination, as in Console RPC.
   if (
-    origin === "null" ||
-    site === "cross-site" ||
-    site === "same-site" ||
-    (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)
+    (origin === "null" ||
+      site === "cross-site" ||
+      site === "same-site" ||
+      (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)) &&
+    !isConsoleCrossOriginCall(request, access)
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
+  const command = v.safeParse(v.union([read, mutation, stop]), input);
+  if (!command.success)
+    return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
+  const { output } = command;
+  // A missing OAuth scope gets the insufficient_scope challenge, so the Console can ask for the scope again. It is
+  // checked before Better Auth opens, and apart from the section grant below.
+  const call = { kind: "operation" in output ? "read" : "write" } as const;
+  if (!consoleScopesAllow(access, call))
+    return consoleScopeRejection(call, call.kind === "read" ? "reading Auth data" : "changing Auth data");
   const impersonation = consoleImpersonation();
-  const api = getAuthConsoleForRequest(request, event, { impersonation });
+  const api = getAuthConsoleForRequest(request, event, {
+    impersonation,
+    ...(access.via === "oauth" && access.user ? { bearer: { user: access.user, sessionId: access.sessionId } } : {}),
+  });
   try {
-    const command = v.safeParse(read, input);
-    if (command.success) {
-      const { operation, query, id, activity } = command.output;
+    if ("operation" in output) {
+      const { operation, query, id, activity } = output;
       if ((operation === "user" || operation === "organization") && !id)
         return Response.json({ message: "An id is required." }, { status: 400 });
       const [error, data] =
@@ -134,20 +151,23 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
       if (error) return failure(error);
       return Response.json(data, { headers: { "cache-control": "no-store" } });
     }
-    const action = v.safeParse(v.union([mutation, stop]), input);
-    if (!action.success)
-      return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
     // A read-only grant (`"auth:read"`) lists Auth data. It never changes it.
     if (!consoleAccessWrites(access, "auth"))
       return Response.json(
         { message: "This Console access can read Auth data but not change it." },
         { status: 403, headers: { "cache-control": "no-store" } },
       );
-    const { output } = action;
     if ((output.action === "impersonate" || output.action === "stopImpersonating") && !impersonation)
       return Response.json(
         { message: "Impersonation is off. Set console.impersonation to true to enable it." },
         { status: 404, headers: { "cache-control": "no-store" } },
+      );
+    // Impersonation swaps the session cookie on the app origin. A bearer call has no session to swap, and a Console
+    // token names no administrator that the record could name.
+    if ((output.action === "impersonate" || output.action === "stopImpersonating") && access.via !== undefined)
+      return Response.json(
+        { message: "Impersonation needs a signed-in administrator on the app origin. A bearer token cannot start or stop it." },
+        { status: 403, headers: { "cache-control": "no-store" } },
       );
     const [error, response] =
       output.action === "stopImpersonating"
@@ -166,4 +186,7 @@ const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, {
   section: "auth",
   user: true,
 });
-export default guarded;
+
+/** `POST <base>/_vitehub/auth/manage` */
+const consoleAuthManageRoute: ConsoleRoute = consoleRoute(withConsoleCors(guarded));
+export default consoleAuthManageRoute;

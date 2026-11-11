@@ -3,26 +3,28 @@ import { readFile } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
 import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
+import { isRecord } from "@vite-hub/internal/object"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
+import { ConfigEditor, removeModuleEntry } from "../shared/config-editor.ts"
+import { detectNuxtModule } from "../shared/detect.ts"
+import { findModuleEntry, literalValue, loadNuxtConfig, readNuxtConfig } from "../shared/nuxt-config.ts"
+import { editPackageJson } from "../shared/package-json.ts"
 import { CodemodError } from "../types.ts"
 import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
-import { findModuleEntry, literalValue, loadNuxtConfig, loadSchemaModule, moduleName, readNuxtConfig, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
-import { editPackageJson } from "./package-json.ts"
+import { loadSchemaModule, moduleName, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
 
+import type { ObjectProperty } from "@babel/types"
+import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 import type { EnvSource } from "./config-edit.ts"
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
-import type { NuxtConfigFile, StaticOptions } from "./nuxt-config.ts"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+import type { StaticOptions } from "./nuxt-config.ts"
 
 interface ResolvedOptions {
   envSchema?: { file: string, paths: Record<string, string> }
@@ -153,7 +155,7 @@ async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): P
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
-  const moduleEntry = findModuleEntry(config)
+  const moduleEntry = findModuleEntry(config, moduleName)
   const safeProperty = findProperty(config.root, "safeRuntimeConfig")
   if (!moduleEntry && !safeProperty) {
     throw new CodemodError(`${config.fileName} does not use ${moduleName}: it has no "${moduleName}" module and no safeRuntimeConfig key.`)
@@ -161,7 +163,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const options = await resolveOptions(config, mergeStatic(readStaticOptions(safeProperty?.value), readStaticOptions(moduleEntry?.inlineOptions)))
   const hasSchema = options.schemaPath !== undefined || options.schema !== undefined
   if (options.envSchema && hasSchema) throw new CodemodError("safeRuntimeConfig sets both envSchema and $schema. The module accepts only one. Remove one, then run the codemod again.")
-  if (!options.envSchema && !hasSchema) throw new CodemodError("safeRuntimeConfig has no envSchema and no $schema, so there is nothing to migrate. Remove the module by hand.")
+  if (!options.envSchema && !hasSchema) return removeUnusedModule(cwd, config, safeProperty)
 
   const planned: PlannedFollowUp[] = []
   const notes: string[] = []
@@ -199,7 +201,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (runtimeProperty && !runtime.object) {
       planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
     }
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: runtime.values })
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema, cwd), issues: schemaIssues(schema), runtimeConfig: runtime.values })
     fields = plan.fields
     unmigrated = plan.unmigrated
     planned.push(...plan.followUps)
@@ -213,7 +215,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edited = editNuxtConfig({ config, env, migrated })
   const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
-  const packageResult = await editPackageJson(cwd, packageJson.version, { env: env.kind === "env-schema" })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: env.kind === "env-schema" ? ["vite-hub", "@vite-hub/env"] : ["vite-hub"] })
 
   const envLine = (field: EnvField) => edited.lineOf(["vitehub", "env", field.section, ...field.envPath])
   const configFollowUps: FollowUp[] = planned.map(({ anchor, message }) => {
@@ -271,9 +273,43 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
 }
 
+/** Remove a schema-free module only when no layer can supply options or composable calls. */
+async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safeProperty: ObjectProperty | undefined): Promise<CodemodResult> {
+  const editor = new ConfigEditor(config)
+  removeModuleEntry(editor, config, moduleName)
+  const layers = await glob(["layers/*"], { cwd, onlyDirectories: true })
+  const inheritsConfig = config.root.properties.some(property => property.type === "SpreadElement"
+    || (keyName(property.key, property.computed) === "extends"
+      && !(property.type === "ObjectProperty" && property.value.type === "ArrayExpression" && property.value.elements.length === 0)))
+  if (inheritsConfig || layers.length) {
+    throw new CodemodError(`${config.fileName} uses layers or a root spread. Schema-free removal cannot verify inherited schemas or useSafeRuntimeConfig() calls. Review the layer options and calls, then remove ${moduleName} by hand or declare the schema in the app config and run the codemod again.`)
+  }
+  const sources = await glob(["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", config.fileName] })
+  for (const file of sources.sort()) {
+    const lines = (await readFile(join(cwd, file), "utf8")).split("\n")
+    const index = lines.findIndex(text => text.includes("useSafeRuntimeConfig"))
+    if (index >= 0) {
+      throw new CodemodError(`safeRuntimeConfig has no envSchema and no $schema, but ${file}:${index + 1} calls useSafeRuntimeConfig(). Add the schema, then run the codemod again, or replace the call with useRuntimeConfig() and remove the module by hand.`)
+    }
+  }
+  if (safeProperty) editor.removeItem(safeProperty)
+  editor.removeUnusedBindings()
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: [] })
+  const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: editor.output.toString() }]
+  if (packageResult.edit) edits.push(packageResult.edit)
+  return {
+    summary: `removed ${moduleName}: it had no envSchema and no $schema, so it validated nothing.`,
+    edits,
+    followUps: [],
+    notes: ["To validate environment variables with ViteHub Env, declare them under vitehub.env. See https://vitehub.dev/docs/env."],
+    nextSteps: [`Run \`${packageResult.installCommand}\` to remove ${moduleName}.`],
+  }
+}
+
 export const nuxtSafeRuntimeConfig: Codemod = {
   name: moduleName,
   description: "Move a Nuxt app from nuxt-safe-runtime-config to ViteHub Env through vite-hub/nuxt.",
   usage: "[dir]",
+  detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["safeRuntimeConfig"]),
   run: migrate,
 }

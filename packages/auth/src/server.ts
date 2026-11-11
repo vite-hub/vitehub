@@ -1,23 +1,29 @@
 import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
 import type { AuthConsoleHostOptions, AuthConsoleOptions } from "./console-types.ts";
-import discoveredDefinition from "#vitehub/auth/definition"
-import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
+import { HTTPError } from "h3"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
-import { unwrapAuthRequest } from "./request.ts"
-import { resolveAuthOptions, trustsProxyHeaders } from "./runtime-options.ts"
-import { throwAuthenticationProviderError } from "./errors.ts"
+import { authRequestEvent, unwrapAuthRequest } from "./request.ts"
+import { resolveAuthOptions } from "./runtime-options.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
 import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
+import {
+  authForRequest,
+  createAuthenticationProvider,
+  createBetterAuthOptions,
+  envResolverFor,
+  getAuthForDefinition,
+  resolveDefaultDefinition,
+} from "./auth-instance.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
-import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
-import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
+import type { AuthAccessIdentityResolver } from "./runtime-state.ts"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import type {
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
@@ -30,7 +36,6 @@ import type {
   AuthDefinition,
   AuthFor,
   AuthGuardedHandler,
-  AuthMiddleware,
   AuthRequest,
   AuthRequestInput,
   AuthRuntimeOptions,
@@ -41,30 +46,9 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+export { createBetterAuthOptions, getAuthForDefinition } from "./auth-instance.ts"
 export { resetAuth } from "./runtime-state.ts"
 export { setAuthAccessIdentityResolver, setAuthRuntimeEnvResolver } from "./runtime/server.ts"
-
-declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
-
-function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
-  return Boolean(options && Object.keys(options).length > 0)
-}
-
-function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
-  if (typeof definition.options === "function") return true
-  const runtime = definition.options.runtime
-  return typeof runtime === "function" || trustsProxyHeaders(definition.options) || trustsProxyHeaders(runtime)
-}
-
-function hasConfiguredPublicUrl(): boolean {
-  return typeof __VITEHUB_PUBLIC_URL__ !== "undefined"
-    && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
-}
-
-
-
-function envResolverFor(definition: AuthDefinition): AuthRuntimeEnvResolver | undefined {
-  return getAuthRuntimeState().envResolvers?.get(definition as object) ?? getAuthRuntimeState().envResolver}
 
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
@@ -246,36 +230,11 @@ export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
   runtimeOptions: AuthRuntimeOptions = {},
-  event?: unknown,
+  event?: ViteHubContext,
 ): AuthRuntimeOptions {
 
 
   return resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).requestRuntimeOptions}
-
-function resolveDefaultDefinition(): AuthDefinition {
-  if (!discoveredDefinition) {
-    throw authErrorDiagnostics.AUTH_R0005({ message: "[vitehub] No Auth Definition was discovered. Add `server/auth.ts` or `server.auth.ts`." })
-  }
-  return discoveredDefinition
-}
-
-export function createBetterAuthOptions(
-  definition: AuthDefinition,
-  runtimeOptions: AuthRuntimeOptions = {},
-): AuthBetterAuthRuntimeOptions {
-
-
-  return resolveAuthOptions(definition, { runtimeOptions, env: envResolverFor(definition) }).providerOptions}
-
-function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
-  try {
-    // SAFETY: callers pass the options of the Auth Definition that TAuth is inferred from.
-    return withSessionMarker(withClientAddress(betterAuth(options))) as TAuth
-  }
-  catch (cause) {
-    throwAuthenticationProviderError(cause, "get-auth-for-request")
-  }
-}
 
 export function createAuth(
   definition: AuthDefinition,
@@ -288,7 +247,7 @@ export function createAuthForRequest(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event?: ViteHubContext,
 ): ViteHubAuth {
 
 
@@ -298,15 +257,15 @@ export function handleAuthRequest(
   definition: AuthDefinition,
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event: unknown = input,
+  event: ViteHubContext = authRequestEvent(input),
 ): Promise<Response> {
   const request = unwrapAuthRequest(input)
-  // Better Auth limits requests per client IP. It gets the address that the host reports for the event.
+  // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
 }
 
-/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+/** Return a Web Request itself, or the request in the Standard Context of a request event. */
 export function toAuthRequest(input: AuthRequestInput): AuthRequest {
   return unwrapAuthRequest(input)
 }
@@ -321,52 +280,26 @@ export function createAuthHandler(
     auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
-export function getAuthForDefinition<TDefinition extends AuthDefinition>(
-  definition: TDefinition,
-  runtimeOptions?: AuthRuntimeOptions,
-): AuthFor<TDefinition> {
-  if (hasRuntimeOptions(runtimeOptions)) {
-    return createAuthenticationProvider<AuthFor<TDefinition>>(createBetterAuthOptions(definition, runtimeOptions))
-  }
-
-  return cachedAuth(definition)
-}
-
-function cachedAuth<TAuth>(definition: AuthDefinition): TAuth {
-  const state = getAuthRuntimeState()
-  if (!state.auth || state.definition !== definition) {
-    state.auth = createAuthenticationProvider(createBetterAuthOptions(definition))
-    state.definition = definition
-  }
-  // SAFETY: state.auth is the instance of `definition`, the Auth Definition that TAuth is inferred from.
-  return state.auth as TAuth
-}
-
 export function getAuth(runtimeOptions?: AuthRuntimeOptions): RegisteredAuth {
   return getAuthForDefinition(resolveDefaultDefinition(), runtimeOptions) as RegisteredAuth
 }
 
-/** Return the Better Auth instance of the app's Auth Definition, typed with its plugins by the generated types. */
-export function getAuthForRequest(
-  request: Pick<Request, "headers" | "url">,
-  runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
-): RegisteredAuth {
-  const definition = resolveDefaultDefinition()
-  if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
-    return getAuthForDefinition(definition) as RegisteredAuth
-  }
-
-
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)}
+/**
+ * Return the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`.
+ * The generated types give it the endpoints and fields of the Definition's plugins, so `useAuth(event).api.banUser`
+ * type-checks when `server/auth.ts` uses `admin()`.
+ */
+export function useAuth(event: AuthRequestInput): RegisteredAuth {
+  return authForRequest(unwrapAuthRequest(event), undefined, authRequestEvent(event))
+}
 
 export async function assertAuthOrigin(
   request: Pick<Request, "headers" | "url">,
-  event?: unknown,
+  event?: ViteHubContext,
 ): Promise<RegisteredAuth> {
   const origin = request.headers.get("origin")
   if (!origin) throw authErrorDiagnostics.AUTH_R0006({ message: "The request origin is required." })
-  const auth = getAuthForRequest(request, undefined, event)
+  const auth = authForRequest(request, undefined, event)
   if (!(await auth.$context).isTrustedOrigin(origin)) {
     throw authErrorDiagnostics.AUTH_R0007({ message: "The request origin is not trusted." })
   }
@@ -377,7 +310,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -449,7 +382,7 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   const request = unwrapAuthRequest(input)
 
 
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: envResolverFor(definition) })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -816,56 +749,79 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   }
 }
 
-// The middleware attaches this grant to the event. Only getAuthorization() reads it, so other code cannot set it.
-const authorizationGrant = defineGrant("vitehub.auth.authorization", (authorization: AuthAuthorization) => authorization)
-
-function authMiddleware(check: (event: AuthRequestInput) => Promise<AuthCheck>): AuthMiddleware {
-  return async (event, next) => {
-    const result = await check(event)
-    if (result.response) return result.response
-    authorizationGrant.attach(event, authorizationGrant.issue(result.authorization))
-    return next()
-  }
-}
-
 /**
- * Route middleware for H3 2 that lets the request continue only with a signed-in Auth Session.
- * It rejects like `withAuth()`: `401`, or the `access.signIn` redirect for HTML requests.
- * The route handler reads the checked authorization with `getAuthorization(event)`.
+ * The `HTTPError` that an inline guard throws for a rejection `Response`. It keeps the status and headers, such as
+ * `location` and `set-cookie` of a sign-in redirect. JSON object fields stay in the error body; other JSON values
+ * become `data`. Text becomes the error message, with H3's JSON content type.
  */
-export function requireAuth(definition?: AuthDefinition): AuthMiddleware {
-  return authMiddleware(event => checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
+async function rejectionError(response: Response): Promise<HTTPError> {
+  const headers = new Headers(response.headers)
+  headers.delete("content-length")
+  const isJson = headers.get("content-type")?.toLowerCase().includes("json") === true
+  if (!isJson) headers.delete("content-type")
+  const text = await response.text()
+  let body: unknown
+  if (isJson) {
+    try {
+      body = JSON.parse(text)
+    }
+    catch { /* Keep a malformed JSON response as the error message. */ }
+  }
+  const jsonBody = body !== null && typeof body === "object" && !Array.isArray(body) ? { ...body } : undefined
+  let message = typeof body === "string" ? body : body === undefined ? text : undefined
+  if (body !== null && typeof body === "object") {
+    if ("error" in body && typeof body.error === "string") message = body.error
+    else if ("message" in body && typeof body.message === "string") message = body.message
+  }
+  return new HTTPError({
+    body: jsonBody,
+    data: jsonBody === undefined ? body : undefined,
+    headers,
+    message: message || undefined,
+    status: response.status,
+    statusText: response.statusText || undefined,
+  })
+}
+
+async function requireCheck(check: Promise<AuthCheck>): Promise<AuthAuthorization> {
+  const result = await check
+  if (result.response) throw await rejectionError(result.response)
+  return result.authorization
 }
 
 /**
- * Route middleware for H3 2 that lets the request continue only after `authorize` accepts it.
- * It rejects like `withAuthorization()`: `401` without a session, `403` when `authorize` returns `false`,
- * or the callback's `Response`. It never redirects to sign-in.
- * The route handler reads the checked authorization with `getAuthorization(event)`.
+ * Return the checked request, Session, and user of a signed-in caller, or throw an `HTTPError`.
+ * It rejects like `withAuth()`: `401`, or the `access.signIn` redirect for an HTML request.
+ *
+ * ```ts [server/api/profile.get.ts]
+ * export default defineHandler(async (event) => {
+ *   const { user } = await requireAuth(event)
+ *   return { id: user.id }
+ * })
+ * ```
+ */
+export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition): Promise<AuthAuthorization> {
+  return requireCheck(checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
+}
+
+/**
+ * Return the checked request, Session, and user after `authorize` accepts the request, or throw an `HTTPError`.
+ * It rejects like `withAuthorization()`: `401` without a session, `403` when `authorize` returns `false`, or the
+ * status and headers of the callback's `Response`. It never redirects to sign-in.
  */
 export function requireAuthorization(
+  event: AuthRequestInput,
   authorize: AccessAuthorizeOption,
   definition?: AuthDefinition,
-): AuthMiddleware {
+): Promise<AuthAuthorization> {
   if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  return authMiddleware(event => checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
+  return requireCheck(checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
 }
 
-/**
- * Return the checked request, Session, and user that `requireAuth()` or `requireAuthorization()` attached to `event`.
- * Throws when no Auth middleware accepted this event, so a route without the middleware fails closed.
- */
-export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
-  const grant = authorizationGrant.attached(event)
-  if (!grant) {
-    throw authErrorDiagnostics.AUTH_R0017({ message: "[vitehub] getAuthorization() found no checked Auth Session for this event. Add requireAuth() or requireAuthorization() to the route middleware." })
-  }
-  return authorizationGrant.verify(grant)
-}
-
-// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
+// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check. The key is
+// the Request of the Standard Context, so an H3 middleware and the Fetchable route of one request share the check.
 const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
 
 async function checkAuthAccessRequest(
@@ -876,13 +832,14 @@ async function checkAuthAccessRequest(
   options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean, signIn?: AuthSignInURLs } = {},
 ): Promise<Response | undefined> {
   const key = JSON.stringify([routeIndexes, requiredAuthorizeRouteIndexes])
-  let definitions = reusableAccessChecks.get(input)
+  const request = unwrapAuthRequest(input)
+  let definitions = reusableAccessChecks.get(request)
   let accepted = definitions?.get(definition)
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(unwrapAuthRequest(input).url).pathname), options.signIn)
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(request.url).pathname), options.signIn)
   if (!response && (options.reuse || options.remember)) {
-    if (!definitions) reusableAccessChecks.set(input, definitions = new WeakMap())
+    if (!definitions) reusableAccessChecks.set(request, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
     accepted.set(key, options.reuse === true)
   }
@@ -932,7 +889,17 @@ export async function requireAuthAccessRoutes(
   return await checkAuthAccessRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options)
 }
 
-export default handleAuth
+/**
+ * The Auth route that ViteHub mounts at `/api/auth/**`, as a Fetchable. It reads the client address and the
+ * Cloudflare bindings from the Standard Context of the Request.
+ */
+const authRoute = {
+  fetch(request: Request): Promise<Response> {
+    return handleAuth(request)
+  },
+}
+
+export default authRoute
 
 export const auth = new Proxy({}, {
   get(_target, property, receiver) {
@@ -971,7 +938,7 @@ export async function aggregateAuthEvents(window: AuthEventWindow, definition?: 
  * Resolve the primary Definition once, with the same request context for the provider and Console policy.
  * `host.impersonation` lets the Console start impersonation. It is off by default.
  */
-export function getAuthConsoleForRequest(request: Request, event?: unknown, host?: AuthConsoleHostOptions): AuthConsole {
+export function getAuthConsoleForRequest(request: Request, event?: ViteHubContext, host?: AuthConsoleHostOptions): AuthConsole {
   const definition = resolveDefaultDefinition()
   const resolved = resolveAuthOptions(definition, {
     request,

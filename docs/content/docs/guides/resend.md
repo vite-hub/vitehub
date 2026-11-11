@@ -7,18 +7,59 @@ navigation.group: Server work
 icon: i-lucide-mail
 ---
 
-Use the built-in Resend driver to send transactional email from a ViteHub app.
-The server calls `email.send()`. The deployment configuration supplies the
-provider and credential.
+Use the built-in Resend driver to send transactional email. Your server calls
+`email.send()`, and the config picks the provider and key.
 
-Complete [Send your first Email](/docs/email/get-started) for a local message.
-You need a Resend API key, a verified sender, and an inbox you control.
-Sending a message uses your Resend account and can incur charges.
+First, complete [Send your first Email](/docs/email/get-started). You need a
+Resend API key, a verified sender, and an inbox you control. Each message uses
+your Resend account and can cost money.
 
 ## Keep the credential in server secrets
 
-Use a runtime Env source instead of a literal key:
+Read the key from the environment at runtime, not from a literal:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	preset: 'vercel',
+  	email: {
+  		driver: 'resend',
+  		options: {
+  			apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+  		},
+  	},
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+	plugins: [vitehub({
+		preset: 'vercel',
+		email: {
+			driver: 'resend',
+			options: {
+				apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+			},
+		},
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -36,38 +77,37 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
-Set `RESEND_API_KEY` in the deployed server environment. Keep the same explicit
-driver if you change to `node`, `netlify`, or another supported host.
-On Cloudflare, `email: true` selects Cloudflare Email, so keep the explicit
-`resend` configuration when Resend is the intended provider.
+Set `RESEND_API_KEY` in the server environment. Keep `driver: 'resend'` when
+you move to `node`, `netlify`, or another host. On Cloudflare, `email: true`
+picks Cloudflare Email instead.
 
 ## Send a deployment check
 
-Keep the welcome route from the Email tutorial. Replace its sender with an
-address on your verified domain and its recipient with your test inbox.
-
-Set `APP_URL` to the deployment URL and send one request:
+In the tutorial's welcome route, set the sender to an address on your verified
+domain and the recipient to your test inbox. Set `APP_URL` to the deployment
+URL and send one request:
 
 ```bash [Terminal]
 curl --fail-with-body -X POST "$APP_URL/api/welcome"
 ```
 
-The response contains a provider message ID and `driver: 'resend'`. Check that
-ID in Resend's delivery log and confirm the message in the inbox. An accepted
-ID alone does not prove delivery.
+The response has a message ID and `driver: 'resend'`. Find that ID in
+Resend's delivery log and the message in the inbox. An ID alone does not prove
+delivery.
 
 ## Diagnose delivery problems
 
-- For an authentication failure, check the key in the deployed environment.
-- For a sender error, check the domain and sender in Resend.
-- For an accepted message with no inbox delivery, inspect the provider events
-  and the recipient's spam folder.
+- Authentication failure: check the key in the deployed environment.
+- Sender error: check the domain and sender in Resend.
+- Accepted but not in the inbox: check the provider events and the spam folder.
 
-The tutorial route sends a message on every request. Add access control before
-using it in a public app. For retried jobs, record your send decision and use
-the provider's supported deduplication controls to prevent duplicate messages.
+The tutorial route sends a message on every request, so add access control
+before you make it public. In retried jobs, save your send decision and use
+the provider's deduplication to avoid duplicates.
 
-Read [Email hosts](/docs/email/hosts) for development capture and provider
-behavior, and [Resend documentation](https://resend.com/docs) for domain
-verification, delivery events, and limits.
+See [Email hosts](/docs/email/hosts) for dev capture and provider behavior, and
+the [Resend docs](https://resend.com/docs) for domains, delivery events, and
+limits.

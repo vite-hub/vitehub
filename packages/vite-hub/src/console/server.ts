@@ -1,9 +1,5 @@
 import {
-  createConsoleInvocations,
-  createConsoleFixtureInvocations,
   getConsoleInvocations,
-  getConsoleInvocationsDatabase,
-  installConsoleFixtureInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
 import { encodeAgentRouteParam } from "./runtime/console-route.ts"
@@ -17,8 +13,6 @@ import { getConsoleBlob, installConsoleBlob } from "./runtime/server/blob.ts"
 import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/server/definitions.ts"
 import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
 
-import type { ConsoleInvocationsDatabase } from "./runtime/server/invocations.ts"
-import type { AgentInvocations } from "@vite-hub/agent"
 import { consoleInvocationUrl, resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -27,30 +21,14 @@ export interface ConsoleInvocationLink {
   id: string
 }
 
+/** The Console Runtime Capability. Read the Agent Invocation journal with `getAgentInvocations()` from `vite-hub/agent`. */
 export interface ConsoleRuntime {
-  /** The Console journal. */
-  invocations: AgentInvocations
-  /**
-   * Opens the journal database for Drizzle queries on first use.
-   * Resolves to `undefined` for the in-memory journal of a Worker without D1 or a remote libSQL URL.
-   */
-  invocationsDatabase: () => Promise<ConsoleInvocationsDatabase | undefined>
   invocationUrl: (invocation: ConsoleInvocationLink | Record<string, unknown>) => string
 }
 
 export const console = {
   resolve(context: RuntimeHostContext<unknown>): ConsoleRuntime {
     return {
-      invocations: getConsoleInvocations(),
-      async invocationsDatabase() {
-        try {
-          return await getConsoleInvocationsDatabase()
-        }
-        catch (error) {
-          if (error instanceof Error && error.message.includes("R0064")) return undefined
-          throw error
-        }
-      },
       invocationUrl(invocation) {
         if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
           throw viteHubErrorDiagnostics.VITE_HUB_R0074({ message: "[vitehub] Console invocation URLs require an invocation with agentName and id." })
@@ -65,19 +43,15 @@ export const console = {
 }
 
 export {
-  createConsoleInvocations,
-  createConsoleFixtureInvocations,
   getConsoleBlob,
   getConsoleAgents,
   getConsoleDefinitions,
   getConsoleDatabase,
   getConsoleInvocations,
-  getConsoleInvocationsDatabase,
   getConsoleSections,
   getConsoleProjectName,
   installConsoleAgentDefinitions,
   installConsoleAgents,
-  installConsoleFixtureInvocations,
   installConsoleDefinitions,
   installConsoleDatabase,
   installConsoleInvocations,

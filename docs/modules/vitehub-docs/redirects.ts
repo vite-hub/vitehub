@@ -1,7 +1,6 @@
 /**
  * Removed docs pages and the page that now owns their content.
  * Keep each entry: published package versions and external sites link to these URLs.
- * `/docs/reference/diagnostics` is also the `docsBase` of every package diagnostic catalog.
  */
 
 /** Server Primitive pages that moved from `/docs/server-primitives/<id>` to their own product section. */
@@ -59,15 +58,15 @@ const startGroups = {
 const agentCapabilities = {
   "access": "access",
   "chat": "chat",
-  "chat-summary": "chat-summary",
+  "chat-summary": "official",
   "custom-capabilities": "custom",
   "diagnostics": "diagnostics",
   "fetch": "fetch",
   "git": "git",
   "gmail": "gmail",
   "input-commands": "input-commands",
-  "llm-gate": "llm-gate",
-  "llm-route": "llm-route",
+  "llm-gate": "official",
+  "llm-route": "official",
   "mcp": "mcp",
   "memory": "memory",
   "official-capabilities": "official",
@@ -99,7 +98,10 @@ export const docsPageRedirects = {
   "/blog/build-ai-chatbot": "/docs/agents/build-a-chat-app",
   "/blog/introducing-vitehub": "/docs/getting-started",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
+  "/docs/agents/capabilities/chat-summary": "/docs/agents/capabilities/official",
   "/docs/agents/capabilities/code-host": "/docs/agents/capabilities/forge",
+  "/docs/agents/capabilities/llm-gate": "/docs/agents/capabilities/official",
+  "/docs/agents/capabilities/llm-route": "/docs/agents/capabilities/official",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
@@ -113,7 +115,6 @@ export const docsPageRedirects = {
   "/docs/concepts/server-primitives-for-any-host": "/docs/getting-started/server-primitives",
   "/docs/console/usage": "/docs/development/console",
   "/docs/reference/channels": "/docs/channels",
-  "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",
