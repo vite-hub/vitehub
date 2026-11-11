@@ -42,7 +42,7 @@ export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig)
     do {
       const [next, page] = await client.scan(cursor, "MATCH", pattern(`${escapeRedisGlob(prefix ?? "")}*`), "COUNT", 1000)
       cursor = next
-      keys.push(...page)
+      for (const key of page) keys.push(key)
     } while (cursor !== "0")
     return keys
   }
@@ -70,7 +70,9 @@ export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig)
     getKeys: async base => (await scanAll(base)).map(unprefixed),
     async clear(base) {
       const keys = await scanAll(base)
-      if (keys.length > 0) await client.unlink(...keys)
+      for (let offset = 0; offset < keys.length; offset += 1000) {
+        await client.unlink(...keys.slice(offset, offset + 1000))
+      }
     },
     async setIfAbsentItem(key, value, ttl) {
       const result = ttl === undefined

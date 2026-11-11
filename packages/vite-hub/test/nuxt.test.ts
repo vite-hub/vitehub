@@ -782,6 +782,42 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it.each(["application", "layer", "contribution"])("infers Postgres KV from a %s Database when Nuxt skips the Vite build", async (source) => {
+    const plugin = hubKv(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node" })
+    mocks.vitehub.mockReturnValue([plugin])
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const root = await mkdtemp(resolve(tmp, "kv-database-"))
+    const directory = source === "application" ? resolve(nuxt.options.serverDir!, "databases") : resolve(root, "server/databases")
+    await mkdir(directory, { recursive: true })
+    const definition = resolve(directory, "config.ts")
+    await writeFile(definition, `import { defineDatabase } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/database")))}\nexport default defineDatabase({ dialect: "postgresql", schema: {} })`)
+    if (source === "layer") Object.assign(nuxt.options, { _layers: [{ config: { rootDir: root }, cwd: root }] })
+    if (source === "contribution") nuxt.options.vite.plugins!.push({
+      name: "test/database-contribution",
+      vitehub: { databases: [{ name: "default", definition }] },
+    } as Plugin)
+
+    try {
+      await viteHubNuxtModule({ database: true, kv: true, preset: "node" }, nuxt)
+      const database = (nuxt.options.vite.plugins as Plugin[]).find(candidate => candidate.name === "@vite-hub/database/vite")
+      expect(database?.api.getConfig()).toBeUndefined()
+      const config: Record<string, unknown> = {}
+      // A cache hit goes straight to separate Nitro bundling: no Vite configResolved or buildStart.
+      await runNitroConfigHook(config)
+      const { plugins } = config.rollupConfig as { plugins: Plugin[] }
+      const resolver = plugins.find(candidate => candidate.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+      const load = typeof resolver?.load === "function" ? resolver.load : resolver?.load?.handler
+      if (!load) throw new TypeError("Expected the Nitro KV load hook.")
+      const output = await Reflect.apply(load, {}, ["\0#vitehub/kv/config"])
+      expect(output).toContain('"driver":"database"')
+      expect(output).toContain('export const loadDatabases = () => import("vite-hub/database/drizzle").then(module => module.databases);')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
     let resolvedKv: unknown
     let resolvedBlob: unknown

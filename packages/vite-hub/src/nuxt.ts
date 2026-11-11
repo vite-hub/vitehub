@@ -423,13 +423,20 @@ function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Pl
 }
 
 function asReplayResolvedConfig(config: UserConfig): ResolvedConfig {
+  // Vite normally converts alias records before configResolved. The separate Nitro build skips that step.
+  if (config.resolve?.alias && !Array.isArray(config.resolve.alias)) {
+    config.resolve.alias = Object.entries(config.resolve.alias).map(([find, replacement]) => ({ find, replacement }))
+  }
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
   return config as unknown as ResolvedConfig
 }
 
 async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig): Promise<void> {
-  for (const plugin of plugins) {
-    if (!nitroConfigResolvedNames.has(plugin.name)) continue
+  // Nuxt can reuse its Vite build cache and only build Nitro. Resolve the Database owner first so consumers such as
+  // KV can read its Definitions, layers, and contributions without waiting for Vite's configResolved or buildStart.
+  const databaseOwners = plugins.filter(plugin => plugin.name === "@vite-hub/database/vite")
+  const consumers = plugins.filter(plugin => nitroConfigResolvedNames.has(plugin.name))
+  for (const plugin of [...databaseOwners, ...consumers]) {
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
     // SAFETY: Rollup supplies an opaque plugin context; the replayed hook does not read it.

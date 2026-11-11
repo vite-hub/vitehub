@@ -56,6 +56,7 @@ export interface RedisKVStoreConfig {
   url?: string
   /**
    * Prefix of every key in Redis. Default `vitehub:kv:<store>`, which keeps keys that are not ViteHub's apart.
+   * The generated store segment escapes `%`, `:`, `/`, `\`, and `?`; an empty store name uses `%`.
    * Two ViteHub apps on one Redis database share this default, so give each app its own database or `base`.
    * An empty value uses the default.
    */
