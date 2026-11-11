@@ -1,5 +1,7 @@
 <template>
-  <UMain>
-    <slot />
-  </UMain>
+  <DocsAppShell layout>
+    <UMain>
+      <slot />
+    </UMain>
+  </DocsAppShell>
 </template>

@@ -1,10 +1,12 @@
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
+
+import { authAbilitiesCandidates } from "./discovery.ts"
 
 import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
@@ -20,8 +22,11 @@ export interface AuthNuxtModuleOptions {
 }
 
 type NuxtLike = {
+  callHook?: (name: "restart") => Promise<void>
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
   options: {
+    dev?: boolean
+    watch?: string[]
     runtimeConfig?: { public?: Record<string, unknown> }
     plugins?: Array<string | { src: string, order?: number }>
     _layers?: NuxtServerDirOptions["_layers"]
@@ -46,10 +51,27 @@ type NuxtLike = {
   }
 }
 
-const composables = ["useAuthClient", "useSession", "useUserSession"]
+type NuxtComponent = {
+  chunkName: string
+  export: string
+  filePath: string
+  global: boolean
+  kebabName: string
+  meta: Record<string, unknown>
+  mode: "all"
+  pascalName: string
+  prefetch: boolean
+  preload: boolean
+  priority: number
+  shortPath: string
+}
+
+const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
+const componentsRegistered = new WeakSet<object>()
+const abilitiesWatchRegistered = new WeakSet<object>()
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
@@ -101,11 +123,12 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       // Nitro can run before Vite's configResolved hook. Resolve discovery
       // directly from the Nuxt/Vite inputs so the virtual definition alias is
       // available during Nitro setup.
-      const definitionHandler = resolveAuthConfig()?.definition.handler
-      if (definitionHandler) {
+      const authConfig = resolveAuthConfig()
+      if (authConfig) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
-          "#vitehub/auth/definition": definitionHandler,
+          "#vitehub/auth/definition": authConfig.definition.handler,
+          ...(authConfig.abilities ? { "#vitehub/auth/abilities": authConfig.abilities } : {}),
         }
       }
       Object.assign(nitroConfig, createAuthNitroConfig(authPlugin as ReturnType<typeof hubAuth>, {
@@ -141,6 +164,29 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
+  if (!componentsRegistered.has(nuxt) && nuxt.hook) {
+    componentsRegistered.add(nuxt)
+    const filePath = options.importsFrom || "@vite-hub/auth/vue"
+    // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
+    ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
+      if (components.some(component => component.pascalName === "Can")) return
+      components.push({
+        chunkName: "components/can",
+        export: "Can",
+        filePath,
+        global: false,
+        kebabName: "can",
+        meta: {},
+        mode: "all",
+        pascalName: "Can",
+        prefetch: false,
+        preload: false,
+        priority: 0,
+        shortPath: filePath,
+      })
+    })
+  }
+
   nuxt.options.imports ??= {}
   nuxt.options.imports.imports ??= []
   for (const name of composables) {
@@ -150,6 +196,23 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
         name,
       })
     }
+  }
+
+  if (nuxt.options.dev && options.auth !== false && nuxt.hook && !abilitiesWatchRegistered.has(nuxt)) {
+    abilitiesWatchRegistered.add(nuxt)
+    const files = authAbilitiesCandidates(viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
+    nuxt.options.watch ??= []
+    for (const directory of new Set([...files.app, ...files.layers].map(dirname))) {
+      if (!nuxt.options.watch.includes(directory)) nuxt.options.watch.push(directory)
+    }
+    // Nitro's abilities alias is set during startup, so adding or removing a file needs a restart.
+    ;(nuxt.hook as unknown as (name: "builder:watch", handler: (event: string, path: string) => Promise<void>) => void)("builder:watch", async (event, path) => {
+      if (event !== "add" && event !== "unlink") return
+      const candidates = authAbilitiesCandidates(viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
+      if ([...candidates.app, ...candidates.layers].includes(resolve(nuxt.options.rootDir || viteRoot, path))) {
+        await nuxt.callHook?.("restart")
+      }
+    })
   }
 
   if (options.env === false) return

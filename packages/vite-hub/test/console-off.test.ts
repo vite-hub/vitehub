@@ -30,21 +30,18 @@ async function devConsoleRoutes(value: ViteHubOptions["console"]): Promise<strin
 }
 
 describe("console option in development", () => {
-  it("serves only the operation routes when console is unset", async () => {
+  it("serves only the operation RPC when console is unset", async () => {
     const routes = await devConsoleRoutes(undefined)
-    expect(routes).toEqual(expect.arrayContaining(["/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp"]))
-    expect(routes).not.toContain("/_vitehub")
+    expect(routes).toEqual(["/_vitehub/rpc"])
   })
 
   it("serves no /_vitehub route with console: false", async () => {
     await expect(devConsoleRoutes(false)).resolves.toEqual([])
   })
 
-  it("serves the operation routes for the hosted Console when the Console is on", async () => {
+  it("serves the operation RPC when the Console is on", async () => {
     const routes = await devConsoleRoutes({ auth: false })
-    expect(routes).toEqual(expect.arrayContaining(["/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp"]))
-    expect(routes).not.toContain("/_vitehub")
-    expect(routes).not.toContain("/_vitehub/**")
+    expect(routes).toEqual(["/_vitehub/rpc"])
   })
 
   it.each([[undefined, 1], [false, 0], [true, 1]] as const)("installs the Console plugin with console: %o (%i)", (value, count) => {
