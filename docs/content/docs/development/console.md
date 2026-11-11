@@ -16,7 +16,7 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 
 Agents connect to the ViteHub MCP of the Console, not to your app. See [ViteHub MCP](/docs/development/mcp).
 
-### Call format
+## Call format
 
 Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
 

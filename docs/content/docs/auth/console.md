@@ -14,7 +14,7 @@ Turn on and protect the [Console](/docs/development/console). The section id for
 
 Each page and action of the section is an operation on the Console RPC: `auth.describe`, `auth.overview`, `auth.activity`, `auth.users`, `auth.user`, `auth.sessions`, `auth.organizations`, `auth.organization`, and `auth.agents` read, and `auth.ban`, `auth.unban`, `auth.remove`, `auth.revoke-sessions`, `auth.revoke-session`, `auth.set-role`, `auth.edit-field`, and `auth.revoke-consent` change. `auth.impersonate` and `auth.stop-impersonating` return a [one-time link](/docs/development/console#one-time-links), because impersonation sets the session cookie on the app origin.
 
-### Who makes the change
+## Who makes Auth changes
 
 The Console [signs](/docs/development/console#sign-console-requests) the person who calls, with their email. Changes run as the app user with that email, with the newest app session of that user that is not an impersonation, so Better Auth checks the permissions of that account and Activity records it as the actor. The session never leaves the server.
 
