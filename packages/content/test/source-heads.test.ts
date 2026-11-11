@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { memory } from "comark-content"
+import { memory, readArtifact } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqlQuery from "comark-content/plugins/sql-query"
 import { kv } from "@vite-hub/kv"
@@ -15,6 +15,7 @@ import { contentSource, defineContent, generateContentTypes, registerContentKV }
 import { hubContent } from "../src/vite.ts"
 
 import type { MockInstance } from "vitest"
+import type { CacheArtifact, Manifest } from "comark-content"
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -134,6 +135,39 @@ describe("content.sources", () => {
     vi.advanceTimersByTime(1_500)
     expect(await title(reader, "/guide")).toBe("Guide v2")
     expect((await reader.sources.head("docs")).sha).toBe(second)
+  })
+
+  it.each(["manifest/docs", "manifest/docs.json", "manifest"])("updates a warm HTTP %s after another writer moves or pins the head", async (endpoint) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const reader = server()
+    const writer = server()
+    async function manifest() {
+      const response = await reader.handler(new Request(`http://localhost/api/content/${endpoint}`))
+      expect(response.status).toBe(200)
+      const artifact = await response.json() as CacheArtifact
+      return await readArtifact<Manifest>(artifact)
+    }
+    expect((await manifest()).items["/guide"]?.data.title).toBe("Guide")
+    expect((await manifest()).items["/guide"]?.data.title).toBe("Guide")
+
+    const second = fake.commit("main", { "guide.md": page("Guide v2"), "new.md": page("New") })
+    expect(await writer.sources.advance("docs")).toMatchObject({ sha: second })
+    expect((await manifest()).items["/guide"]?.data.title).toBe("Guide")
+
+    vi.setSystemTime(Date.now() + 5_001)
+    expect((await manifest()).items["/guide"]?.data.title).toBe("Guide v2")
+    expect((await manifest()).items["/new"]?.data.title).toBe("New")
+
+    await writer.sources.pin(first, "docs")
+    vi.setSystemTime(Date.now() + 5_001)
+    const rolledBack = await manifest()
+    expect(rolledBack.items["/guide"]?.data.title).toBe("Guide")
+    expect(rolledBack.items["/new"]).toBeUndefined()
+
+    await writer.sources.unpin("docs")
+    vi.setSystemTime(Date.now() + 5_001)
+    expect((await manifest()).items["/guide"]?.data.title).toBe("Guide v2")
   })
 
   it("pins a commit until unpin()", async () => {
