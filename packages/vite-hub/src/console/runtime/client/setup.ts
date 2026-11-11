@@ -1,6 +1,7 @@
 /** The dev Setup endpoints of the Vite dev server, as the Setup section calls them. */
 
 import { consoleProject, resolveProjectUrl } from "./project"
+import { ConsoleRequestError } from "./request"
 
 export type SetupLevel = "native" | "explicit" | "unsupported" | "unknown"
 
@@ -101,12 +102,10 @@ export interface SetupClient {
 }
 
 /** An answer that is not a setup document, such as a 403 from the guard. */
-export class SetupRequestError extends Error {
-  readonly status: number
+export class SetupRequestError extends ConsoleRequestError {
   constructor(status: number, message: string) {
-    super(message)
+    super(status, message)
     this.name = "SetupRequestError"
-    this.status = status
   }
 }
 

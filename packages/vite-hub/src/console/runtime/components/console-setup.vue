@@ -2,6 +2,7 @@
 import { MultiFileDiff } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
+import { ConsoleRequestError } from "../client/request";
 import { loadConsoleNavigation } from "../client/sections";
 import { connectSetup, setupCommand, waitForSetupRestart } from "../client/setup";
 import { rememberConsoleSection } from "../sections";
@@ -144,7 +145,7 @@ async function load(): Promise<void> {
     const navigation = await loadConsoleNavigation(props.sectionsBase);
     route.value = navigation?.setup;
     readOnly.value = navigation?.readOnly.includes("setup") ?? true;
-    if (!route.value) throw new Error("This Console has no Setup endpoints. The Setup section runs only on a development server.");
+    if (!route.value) throw new ConsoleRequestError(404, "This Console has no Setup endpoints. The Setup section runs only on a development server.");
     client.value = await connectSetup(route.value);
     const [catalogDocument, statusDocument] = await Promise.all([client.value.catalog(), client.value.status()]);
     catalog.value = catalogDocument.features;

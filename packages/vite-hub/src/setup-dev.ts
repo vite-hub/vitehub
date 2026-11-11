@@ -170,6 +170,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
     size += buffer.length
+    // Internal invariant: the guarded endpoint catches this size sentinel and returns a 400 CLI_R0003 document.
     if (size > maxBodyBytes) throw new RangeError("The request body is too large.")
     chunks.push(buffer)
   }
