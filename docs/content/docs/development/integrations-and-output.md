@@ -78,7 +78,7 @@ vitehub({
   preset: "node",
   dataDir: "/var/lib/app",
   agent: true,
-  console: { auth: { provider: "github", org: "acme" }, authorize: "./server/console-authorize.ts" },
+  console: { authorize: "./server/console-authorize.ts" },
   kv: true,
   blob: true,
   workspace: true,
@@ -91,7 +91,7 @@ Turned-on integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv
 The host must give a persistent, writable filesystem at this path. The option does not create a volume or make a temporary filesystem durable. Other presets reject it. For hosted storage, keep your provider configuration.
 ::
 
-To keep an existing storage location, use `agent.providers.state.url`, `console.databaseUrl`, `console.auth.databasePath`, or each store's path option. Runtime database URL overrides still win. Changing the directory does not move stored data.
+To keep an existing storage location, use `agent.providers.state.url`, `agent.invocations.databaseUrl`, or each store's path option. Runtime database URL overrides still win. Changing the directory does not move stored data.
 
 ## Public URL
 
@@ -164,4 +164,4 @@ vitehub({
 ViteHub leaves routing to you when `nitro.cloudflare.wrangler` or the project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` sets `route`, `routes`, or `workers_dev`. Nitro merges these keys from both places, so keep all routing in one place. Without `publicUrl`, or with a `workers.dev` origin, the Worker keeps its `workers.dev` host.
 
 
-Use `agent.providers.state.url`, `agent.invocations.databaseUrl`, `console.auth.databasePath`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.
+Use `agent.providers.state.url`, `agent.invocations.databaseUrl`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.
