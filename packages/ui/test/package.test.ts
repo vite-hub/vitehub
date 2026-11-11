@@ -148,6 +148,7 @@ describe("@vite-hub/ui package contract", () => {
     "./nuxt",
     "./primitive-rail",
     "./vite",
+    "./playground-render",
     ...workspaceEntries,
   ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
@@ -186,6 +187,16 @@ describe("@vite-hub/ui package contract", () => {
     expect(withChunks("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
     expect(withChunks("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
     expect(withChunks("playground-container.js")).not.toMatch(/from\s*"@(?:codemirror|xterm)\//);
+  });
+
+  it("loads Shiki for PlaygroundRender only after its first render", () => {
+    const dist = new URL("../dist/", import.meta.url);
+    const entry = readFileSync(new URL("playground-render.js", dist), "utf8");
+    expect(entry).not.toMatch(/from\s*"shiki/);
+    expect(readFileSync(new URL("index.js", dist), "utf8")).not.toContain("playground");
+    const chunk = entry.match(/import\("\.\/(highlight-[^"]+\.js)"\)/)?.[1];
+    expect(chunk).toBeDefined();
+    expect(readFileSync(new URL(chunk!, dist), "utf8")).toMatch(/from\s*"shiki\/core"/);
   });
 
   it("keeps Tiptap out of the root barrel and its own dependency", () => {

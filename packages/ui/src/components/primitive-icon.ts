@@ -1,12 +1,11 @@
 import { icons, type ViteHubIconName } from "@vite-hub/icons";
 import { defineComponent, h, type PropType } from "vue";
-import { hasRuntimeType } from "../internal/runtime-type.ts";
 
 /** Name of an icon in the `@vite-hub/icons` set: one for each Server Primitive, Console area, and docs area. */
 export type PrimitiveIconName = ViteHubIconName;
 
 export function isPrimitiveIconName(value: unknown): value is PrimitiveIconName {
-  return hasRuntimeType(value, "string") && Object.hasOwn(icons.icons, value);
+  return typeof value === "string" && Object.hasOwn(icons.icons, value);
 }
 
 export const primitiveIconNames: readonly PrimitiveIconName[] = Object.keys(icons.icons).filter(isPrimitiveIconName);
