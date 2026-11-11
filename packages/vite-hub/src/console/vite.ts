@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
-import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
@@ -20,27 +19,17 @@ import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
 import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild, type ConsoleNitroPluginOptions } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
-import { createConsoleCliNamespace } from "./cli.ts"
-import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
-import { consoleOpenAccessWarning } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 
-export function resolveGeneratedConsolePlugin(
-  root: string,
-  fixture: string | undefined,
-  state: ConsoleInvocationRootState | undefined,
-): string {
-  if (!fixture) return resolve(root, generatedConsolePlugin)
-  const binding = state?.binding ?? randomUUID()
-  if (state) state.binding = binding
-  return resolve(root, ".vitehub/nitro/console", `plugin-${binding}.mjs`)
+export function resolveGeneratedConsolePlugin(root: string): string {
+  return resolve(root, generatedConsolePlugin)
 }
 
 type ConsoleNitroConfig = {
@@ -52,7 +41,7 @@ type ConsoleNitroConfig = {
 
 /**
  * The Console options. `auth` is required in every environment, so the Console is never open by accident.
- * - `auth: false`: no sign-in. A production build and a production server log a warning.
+ * - `auth: false`: no sign-in, for development only. A production build fails.
  * - `auth: "app"`: the app Auth Session. The app Auth access routes or `authorize` decide who may use the Console.
  * - `auth: "token"`: `Authorization: Bearer` with a token whose SHA-256 is in the `VITEHUB_CONSOLE_TOKEN_SHA256` runtime env var.
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
@@ -76,8 +65,10 @@ export interface ConsoleOptions {
   /**
    * Browser origins that may call the Console data routes from another origin, such as a hosted or self-hosted Console.
    * Defaults to `["https://console.vitehub.dev"]`. `[]` turns cross-origin calls off. An entry is an `https://` origin,
-   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs `auth: "token"` and
-   * the token in `Authorization: Bearer`. Cookies never authorize a cross-origin call.
+   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a bearer token in
+   * `Authorization: Bearer`: the `auth: "token"` secret, or an OAuth access token for the Console resource from the app
+   * Auth. With `consoleMcpOAuth()`, it is also the allow list of OAuth clients: a client ID Metadata Document URL must be
+   * on a listed `https://` origin. Development without sign-in needs no token. Cookies never authorize a cross-origin call.
    */
   origins?: string[]
   /**
@@ -196,10 +187,6 @@ export interface ConsoleVitePluginOptions {
 export interface ConsoleInvocationRootState {
   binding?: string
   closed?: boolean
-  fixtureLifecycle?: {
-    close: () => Promise<void>
-    reopen: () => Promise<void>
-  }
   identity?: string
   projectRoot?: string
 }
@@ -208,25 +195,10 @@ export function createConsoleInvocationRootState(): ConsoleInvocationRootState {
   return { binding: randomUUID() }
 }
 
-export function configureConsoleFixtureLifecycle(
-  state: ConsoleInvocationRootState,
-  generatedPlugin: string,
-  refresh: () => Promise<void>,
-): void {
-  state.fixtureLifecycle = {
-    async close() {
-      await refresh().catch(() => undefined)
-      await rm(generatedPlugin, { force: true })
-    },
-    reopen: refresh,
-  }
-}
-
 export async function closeConsoleInvocationRootState(state: ConsoleInvocationRootState): Promise<void> {
   if (state.closed) return
   state.closed = true
   if (state.binding) releaseConsoleInvocationsBinding(state.binding)
-  await state.fixtureLifecycle?.close()
 }
 
 export function updateConsoleInvocationRootState(
@@ -317,14 +289,10 @@ function authRouteProtects(
   return targetBase === routeBase || (recursive && targetBase.startsWith(`${routeBase}/`))
 }
 
-/**
- * The warning that a production build logs for `auth: false`, or `undefined` when there is nothing to warn about.
- * Without `authorize`, anyone can use the Console. On Cloudflare, `authorize` alone does not verify the Cloudflare Access token.
- */
-export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset: string | undefined): string | undefined {
+/** Reject unauthenticated Console access in production, including host-managed access. */
+export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
   if (configured.auth !== false) return
-  if (!configured.authorize) return consoleOpenAccessWarning
-  if (preset === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
+  throw viteHubErrorDiagnostics.VITE_HUB_B0022({ message: '[vitehub] console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256 (create a token with openssl rand -hex 32, store printf %s "$TOKEN" | sha256sum), or auth: "app".' })
 }
 
 /** Resolve the `console.authorize` file. A configured path must exist. */
@@ -378,14 +346,14 @@ export function resolveConsoleAccessBuild(
     ...(authorize ? { authorize } : {}),
     ...(configured.impersonation === true ? { impersonation: true as const } : {}),
   })
-  // The hosted Console opens a development server without a token. In production, only the token mode accepts
-  // cross-origin calls, because it is the one mode that verifies a bearer token on the data routes.
-  if ("local" in configured && configured.local === true) return { mode: "local", origins: resolveConsoleOrigins(configured.origins) }
-  if (configured.auth === false || configured.auth === undefined) return withAccessOptions({ mode: "open", origins: resolveConsoleOrigins(configured.origins) })
-  if (configured.auth === "token") return withAccessOptions({ mode: "token", origins: resolveConsoleOrigins(configured.origins) })
+  // Hosted Consoles use bearer tokens, or development access without sign-in.
+  const origins = resolveConsoleOrigins(configured.origins)
+  if ("local" in configured && configured.local === true) return { mode: "local", origins }
+  if (configured.auth === false || configured.auth === undefined) return withAccessOptions({ mode: "open", origins })
+  if (configured.auth === "token") return withAccessOptions({ mode: "token", origins })
   if (configured.auth === "app") {
     return withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base) }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins }
       : { mode: "auth" })
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })
@@ -447,7 +415,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let scheduleDiscoveryRoot: string | undefined
   let workspaceDiscoveryRoot: string | undefined
   let resolvedPlugins: readonly unknown[] | undefined
-  let fixture: string | undefined
   let cliDiscovery = false
   let development = false
   let invoke = false
@@ -457,7 +424,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthHandlers: (() => Promise<void>) | undefined
   let inlineConsoleAuthConfig: ResolvedConsoleAuthConfig | undefined
-  let openAccessBuildWarning: string | undefined
   const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
   let baseURL = "/"
   let applicationBase = "/"
@@ -474,12 +440,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     authConfig: ResolvedConsoleAuthConfig
     handlers?: ConsoleAuthHandlers
     blobStores: typeof blobStores
-    fixture?: string
     invoke: boolean
     consoleAuthMode: true | "cloudflare-access" | false
     runtimeCapabilityImports: typeof options.runtimeCapabilityImports
     development: boolean
-    invocationBinding?: string
     invocationState?: ConsoleInvocationRootState
   }
 
@@ -495,10 +459,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       active: () => !options.invocationRootState?.closed,
       blobStores,
       development,
-      fixture,
       independentAuth: consoleAuthMode,
       invoke,
-      runtimeBinding: options.invocationRootState?.binding,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
     }
@@ -609,7 +571,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         development: !isProductionBuild(config, environment),
         sections,
       })
-      openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
+      if (isProductionBuild(config, environment) && !cliDiscovery) assertConsoleProductionAuth(configured)
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
@@ -636,24 +598,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           })
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
-      const configuredFixture = viteConfig.vitehubCliDiscovery
-        ? undefined
-        : process.env[consoleFixtureEnvironmentVariable]
-      fixture = undefined
-      if (configuredFixture) {
-        if (environment.command === "build") {
-          throw viteHubErrorDiagnostics.VITE_HUB_B0007({ message: "[vitehub] Console fixture mode is development-only." })
-        }
-        fixture = resolve(projectRoot, configuredFixture)
-        readConsoleFixture(fixture)
-      }
       const build = environment.command === "build"
-      invoke = !fixture && (configured.invoke ?? !build)
-      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
-      if (fixture && options.invocationRootState) {
-        configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
-      }
-      if (!cliDiscovery && !fixture) {
+      invoke = configured.invoke ?? !build
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
+      if (!cliDiscovery) {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
         const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
@@ -683,7 +631,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       }
     },
     async configResolved(config) {
-      if (openAccessBuildWarning) config.logger.warn(openAccessBuildWarning)
       root = config.root
       const resolvedConfigState: DeferredConsoleState | undefined = inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github"
         ? {
@@ -699,12 +646,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             authConfig: inlineConsoleAuthConfig,
             handlers: consoleAuthHandlers,
             blobStores,
-            fixture,
             invoke,
             consoleAuthMode,
             runtimeCapabilityImports: options.runtimeCapabilityImports,
             development,
-            invocationBinding: options.invocationRootState?.binding,
             invocationState: options.invocationRootState,
           }
         : undefined
@@ -741,8 +686,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 sections: callbackState.sections,
                 catalog: callbackState.catalog,
                 blobStores: callbackState.blobStores,
-                fixture: callbackState.fixture,
-                runtimeBinding: callbackState.invocationBinding,
                 invoke: callbackState.invoke,
                 active: () => !callbackState.invocationState?.closed,
                 independentAuth: callbackState.consoleAuthMode,
@@ -820,18 +763,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         ...(connectionsActor ? { alias: { ...alias, [consoleConnectionsActorId]: connectionsActor } } : {}),
         publicAssets,
       }
-      generatedPlugin = fixture && generatedPlugin
-        ? generatedPlugin
-        : resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      if (!cliDiscovery && !fixture) await refreshConsoleCatalog()
-    },
-    buildStart: {
-      order: "post",
-      async handler() {
-        if (!cliDiscovery && fixture) await refreshConsoleCatalog()
-      },
+      if (!cliDiscovery) await refreshConsoleCatalog()
     },
     configureServer(server) {
       publishDevServer(server)
@@ -844,7 +779,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           if (notice) server.config.logger[notice.level](notice.message)
         })
       }
-      if (fixture) server.watcher.add(fixture)
       const refresh = async () => {
         try {
           await refreshConsoleCatalog()
@@ -860,9 +794,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       server.watcher.on("unlink", refresh)
     },
     vitehub: {
-      cli: {
-        namespaces: [createConsoleCliNamespace()],
-      },
       // The Console runtime already holds these operations. The CLI and `vitehub inspect` read them from here.
       operations: [{
         export: "consoleOperations",
@@ -934,7 +865,6 @@ export function consoleInvocationRootPlugin(
   const activeEnvironments = new Set<Environment>()
   let projectRoot = configuredProjectRoot
   let identity = configuredIdentity
-  let fixtureConfigured = false
 
   function rememberFrameworkAgent(id: string): void {
     frameworkAgentEntries.add(normalizeModuleId(id))
@@ -956,25 +886,8 @@ export function consoleInvocationRootPlugin(
     },
     async configResolved(config) {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      // SAFETY: ViteHub extends Vite's resolved config with its CLI discovery marker.
-      const configuredFixture = (config as typeof config & { vitehubCliDiscovery?: true }).vitehubCliDiscovery
-        ? undefined
-        : process.env[consoleFixtureEnvironmentVariable]
-      const fixture = configuredFixture ? resolve(projectRoot, configuredFixture) : undefined
-      fixtureConfigured = Boolean(fixture)
-      const revision = fixture ? consoleFixtureRevision(readConsoleFixture(fixture)) : undefined
-      const resolvedIdentity = createConsoleInvocationsIdentity(
-        projectRoot,
-        fixture,
-        revision,
-        state.binding,
-      )
-      const activeIdentity = state.identity ?? identity
-      if (fixture && activeIdentity && activeIdentity !== resolvedIdentity && state.fixtureLifecycle) {
-        await state.fixtureLifecycle.reopen()
-      }
-      identity = state.identity ?? resolvedIdentity
-      if (!fixture) updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
+      identity = state.identity ?? createConsoleInvocationsIdentity(projectRoot)
+      updateConsoleInvocationRootState(state, projectRoot, identity)
     },
     async closeBundle() {
       await closeEnvironment(this.environment)
@@ -986,13 +899,9 @@ export function consoleInvocationRootPlugin(
       if (this.environment) activeEnvironments.add(this.environment)
       if (state.closed) {
         state.closed = false
-        if (state.fixtureLifecycle) await state.fixtureLifecycle.reopen()
-        else if (state.binding && state.identity && state.projectRoot) {
+        if (state.binding && state.identity && state.projectRoot) {
           bindConsoleInvocationsIdentity(state.binding, state.identity, state.projectRoot)
         }
-      }
-      else if (fixtureConfigured && projectRoot && identity) {
-        updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
       }
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
       if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)

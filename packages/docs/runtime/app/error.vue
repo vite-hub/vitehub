@@ -54,7 +54,6 @@ useSeoMeta({
           class="mt-8"
           icon="i-lucide-search"
           label="Search the docs"
-          color="neutral"
           variant="outline"
           @click="openSearch = true"
         />

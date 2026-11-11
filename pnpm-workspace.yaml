@@ -1,5 +1,4 @@
 packages:
-  - ".github/ci-tools"
   - "docs"
   - "fixtures/tutorials/chat-app"
   - "packages/*"
@@ -16,6 +15,8 @@ catalog:
   proper-lockfile: 4.1.2
   comark-chat: 0.10.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
+  # `@cloudflare/vitest-plugin` depends on this exact Wrangler, so CI and the docs use the same one.
+  wrangler: 4.147.0
 
 catalogMode: prefer
 linkWorkspacePackages: true
@@ -38,6 +39,7 @@ catalogs:
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
+    "@better-auth/cimd": 1.7.15
     "@better-auth/oauth-provider": ^1.7.15
     "@better-auth/passkey": 1.7.15
     "@noble/hashes": ^2.2.0
@@ -62,8 +64,6 @@ catalogs:
     drizzle-kit: ^0.31.11
     drizzle-orm: ^0.45.3
     postgres: ^3.4.9
-  effect:
-    effect: 4.0.0-rc.112
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:

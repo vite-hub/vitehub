@@ -195,7 +195,7 @@ describe("Content snapshot build", () => {
     await mkdir(join(root, "server"), { recursive: true })
     await writeFile(join(root, "package.json"), "{ \"type\": \"module\" }\n")
     await writeFile(join(root, "server/content.ts"), contentModule)
-    await writeFile(join(root, "server/entry.ts"), "export { content } from \"./content.ts\"\n")
+    await writeFile(join(root, "server/entry.ts"), "export { default } from \"./content.ts\"\n")
     return root
   }
 
@@ -204,7 +204,7 @@ describe("Content snapshot build", () => {
     `import { defineContent } from ${JSON.stringify(importBase)}`,
     "import { files } from \"@vite-hub/source\"",
     "",
-    `export const content = defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
+    `export default defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
     "",
   ].join("\n")
 
@@ -230,7 +230,7 @@ describe("Content snapshot build", () => {
     expect(output).toContain("entry.mjs")
     expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
 
-    const { content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    const { default: content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
     const live = defineContent({ sources: { docs: files(docs) } })
     // A live Source lists from a frontmatter-only parse. The snapshot holds full parses, so its entries are not partial.
     expect((await live.list("docs")).map(item => item.meta.partial)).toEqual([true, true])

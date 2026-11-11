@@ -308,64 +308,19 @@ When you serve that folder:
 
 On Cloudflare, `packages/vite-hub/console.hosted.wrangler.jsonc` is the configuration of console.vitehub.dev: a Worker with static assets and no Worker script. Copy it into the same folder, because `assets.directory` is relative to the file. Change `name` and `routes`, build, and run `wrangler deploy --config <file>`.
 
-## Develop against a fixture
-
-Use `vitehub console dev` to get the same Agent Invocations (Agent runs) on every restart. It validates a versioned JSON fixture, then runs the command after `--` with an in-memory Console journal. It does not write the default Agent journal at `.vitehub/data/agent-invocations.sqlite`.
-
-```bash [Terminal]
-pnpm vitehub console dev \
-  --fixture test/fixtures/console.fixture.json \
-  -- pnpm dev
-```
-
-Fixture paths start at the Vite project root. List records oldest first, so the session list shows newest first. A version 1 fixture holds complete `AgentInvocationRecord` values. `cursor` is optional, because fixture mode sets it from the array order.
-
-```json [test/fixtures/console.fixture.json]
-{
-  "version": 1,
-  "invocations": [
-    {
-      "id": "fixture_support_reply",
-      "traceId": "fixture_trace_support",
-      "agentName": "support",
-      "status": "completed",
-      "createdAt": "2026-08-27T10:00:00.000Z",
-      "updatedAt": "2026-08-27T10:00:02.000Z",
-      "completedAt": "2026-08-27T10:00:02.000Z",
-      "observations": [
-        {
-          "name": "agent.message",
-          "type": "run",
-          "sequence": 1,
-          "timestamp": "2026-08-27T10:00:01.000Z",
-          "attributes": {
-            "message.role": "assistant",
-            "message.content": "Your fixture is ready."
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-The command exits with the child's exit status. A child stopped by a signal gives `128 + signal number`. Bad arguments, unreadable files, bad JSON, unsupported versions, duplicate invocation ids, and invalid records print a diagnostic to stderr and exit `1` before the development command starts. Fixture mode is for development only. A production build rejects the fixture environment before it writes server output.
-
-Fixtures often contain prompts and model output. Use fake or cleaned records before you commit them.
-
 ## Protect the Console route
 
 The Console endpoint is the RPC under `/_vitehub/rpc/**`, the MCP endpoint, and the data routes of some sections. The skill files under `/_vitehub/.well-known/skills/` need no sign-in. ViteHub sends `X-Robots-Tag: noindex, nofollow` on these routes. This does not block access, so choose an access policy with `console.auth`:
 
 | `auth` | Who can call the endpoint |
 | --- | --- |
-| `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
+| `false` | Development only. Accepts local requests and calls from `console.origins`. A production build fails. |
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. The hosted Console, the CLI, and agents. This is the only mode that the hosted Console can use in production. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth), such as the CLI with a session cookie, and MCP clients that sign in with [OAuth](/docs/development/mcp#set-up-oauth). |
 | `{ ... }` | Users of a separate Console Auth: GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
 > [!WARNING]
-> `auth: false` also works in a production build. The build and the server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`.
+> A production build with `auth: false` fails with `VITE_HUB_B0022`, including when `authorize` is set. Use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. Development, CLI discovery, and `nuxi prepare` still accept `auth: false`.
 
 When `console` is missing or `false`, a production build registers no Console route, and the host returns its normal not-found response. A development server without `console` serves only the Operations endpoint.
 
@@ -391,6 +346,63 @@ The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, wit
 ```bash [Terminal]
 VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
 ```
+
+A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the hash in its environment:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub kv list --url http://localhost:3000
+```
+
+To use the commands and the Console at `/_vitehub` without a token during development, set `auth: false` for the dev server only. The build keeps `auth: 'token'`. A dev server without sign-in answers only requests from this machine.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  },
+  $development: {
+    vitehub: { console: { auth: false } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  }), nitro()],
+}))
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  })],
+}))
+```
+:::
+::
 
 A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
 
@@ -479,14 +491,15 @@ export default defineConfig({
 
 The server accepts a cross-origin call only when `console.origins` lists the `Origin` of the request, and one of these is true:
 
-- `console.auth` is `'token'`, and the request sends a correct token as `Authorization: Bearer`.
+- The request sends a bearer token as `Authorization: Bearer`, and the access check accepts it: the Console token with `auth: 'token'`, or an OAuth access token for the Console resource when the app Auth [signs Consoles in with OAuth](#sign-a-console-in-with-oauth).
+
 - The app runs on the development server with `auth: false` or without a `console` option. No token is necessary.
 
-Cookies never authorize a cross-origin call, so another site cannot use a signed-in browser session. A call from an origin that is not listed gets `403` with `CONSOLE_ORIGIN_REJECTED`. In production, the other `auth` modes keep every Console route same-origin.
+Cookies never authorize a cross-origin call, so another site cannot use a signed-in browser session. A call from an origin that is not listed gets `403` with `CONSOLE_ORIGIN_REJECTED`. Cloudflare Access and session calls keep every Console data route same-origin.
 
-The rule covers the RPC at `/_vitehub/rpc/__call` and `/_vitehub/rpc/__upload`, Auth management at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, Channel replay at `/_vitehub/channels/replay`, and Schedule runs at `/_vitehub/schedules/run`. A Schedule run with a signed dispatch keeps the signature as its own authority.
+The rule covers the Console data routes: the RPC at `/_vitehub/rpc/__call` and `/_vitehub/rpc/__upload`, Auth management at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, Channel replay at `/_vitehub/channels/replay`, and Schedule runs at `/_vitehub/schedules/run`. Env management still authenticates the request with its provider and checks the provider permissions. A Schedule run with a signed dispatch keeps the signature as its own authority. Without a signature, the route takes a bearer token as `Authorization: Bearer`, the Console token or an OAuth access token with `vitehub:write`, and needs the full `schedules` grant. A session runs a Schedule through the RPC instead.
 
-The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Access-Control-Expose-Headers: WWW-Authenticate`, and `Origin` in `Vary`. They never carry `Access-Control-Allow-Credentials`. A Nitro plugin answers the `OPTIONS` preflight of these routes before every app middleware, including the files in `server/middleware/`, and before app Auth. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. The actual call then goes through your middleware as usual, so middleware that requires a session must let the Console routes through and leave the check to the Console.
+The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Access-Control-Expose-Headers: WWW-Authenticate`, and `Origin` in `Vary`, so the Console can read the challenge of a `401`. They never carry `Access-Control-Allow-Credentials`. A Nitro plugin answers the `OPTIONS` preflight of these routes before every app middleware, including the files in `server/middleware/`, and before app Auth. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. The actual call then goes through your middleware as usual, so middleware that requires a session must let the Console data routes through and leave the check to the Console.
 
 Check the setup with curl:
 
@@ -504,9 +517,113 @@ curl -i https://app.example.com/_vitehub/rpc/__call \
 
 A same-origin call must come from the app origin. The route rejects opaque origins and browser requests marked `same-site` or `cross-site`. When a client sends no `Origin` and no Fetch Metadata, it must send `x-vitehub-console: 1`. A foreign page cannot add this header without a CORS preflight. The marker is not a credential: authentication and authorization still apply.
 
+### Sign a Console in with OAuth
+
+With `console: { auth: 'app' }` and [`consoleMcpOAuth()`](/docs/development/mcp#set-up-oauth) in the app Auth, the Console data routes accept OAuth bearer tokens from a client on an origin in `console.origins`. The app's Better Auth is the authorization server. The client uses no client secret. Install `@better-auth/cimd` at the version of `better-auth` that ViteHub uses. `consoleMcpOAuth()` loads it when the Auth starts. Without it, the server logs a warning, MCP sign-in keeps working, and no Console client can sign in.
+
+The hosted Console and the built-in project linker support this OAuth sign-in flow. See [Sign in from the hosted Console](#sign-in-from-the-hosted-console). A custom OAuth client must implement the flow below and host its own client metadata document.
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { consoleMcpOAuth } from 'vite-hub/console/auth'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  plugins: [...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' })],
+})
+```
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.example.com'] },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.example.com'] },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.example.com'] },
+  })],
+})
+```
+:::
+::
+
+The Console resource is `<origin><base>/_vitehub`, such as `https://app.example.com/_vitehub`. It is one OAuth resource for the RPC and the other Console data routes. MCP keeps its own resource, `<origin><base>/_vitehub/mcp`. A token for one resource is rejected on the other with `401` and `error="invalid_token"`.
+
+The client flow:
+
+1. A signed-out call to a Console data route gets `401` with `WWW-Authenticate: Bearer realm="vitehub-console", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/_vitehub"`.
+2. The Console reads that protected resource metadata (RFC 9728) and the authorization server metadata at `/.well-known/oauth-authorization-server/api/auth`. Both answer CORS for listed origins.
+3. The browser opens the authorization endpoint, `/api/auth/oauth2/authorize`, as a top-level page with `client_id`, `redirect_uri`, `resource`, `scope`, `state`, and PKCE `code_challenge` with `code_challenge_method=S256`. The person signs in and allows the Console on the app origin.
+4. The Console exchanges the code with the `code_verifier` at `/api/auth/oauth2/token`. It sends no client secret.
+5. The Console calls the data routes with `Authorization: Bearer <access token>`.
+
+The client is public. Its `client_id` is the URL of a client ID Metadata Document (CIMD), such as `https://console.example.com/oauth-client.json`. Better Auth's [`cimd()` plugin](https://www.better-auth.com/docs/plugins/cimd) reads the document and creates the client. `console.origins` is the client allow list:
+
+- The document URL must be on an `https://` origin that `console.origins` lists. The server checks this before it reads the document, and again at each authorization, token, and revocation request. An `http://localhost` entry allows bearer calls, but not an OAuth client.
+- Each `redirect_uri` must be on the same origin as the `client_id`.
+- PKCE with `S256` is required. The document must use `token_endpoint_auth_method: 'none'`.
+- Only a client from the list can ask for the Console resource. Dynamically registered MCP clients cannot.
+
+The server reads the document with the platform `fetch`, and never follows a redirect. It reads only from listed origins, which the app trusts, but it does not pin the DNS answer. On Node.js, pass `fetchClientMetadataResource` from `@better-auth/cimd/node` as `consoleMcpOAuth({ clientMetadataFetch })` to also refuse a host that resolves to a private address.
+
+The token endpoint and the revocation endpoint, `/api/auth/oauth2/revoke`, answer CORS for listed origins, with no credentials. Consent stays on the app origin.
+
+#### Scopes
+
+| Scope | Allows |
+| --- | --- |
+| `vitehub:read` | `read` operations, and calls that only read |
+| `vitehub:write` | `write` and `destructive` operations, uploads, Channel replay, and Auth management changes |
+| `offline_access` | A refresh token |
+
+A call that needs a scope that the token does not have gets `403` with `CONSOLE_ACCESS_DENIED`. RPC calls and uploads include a `WWW-Authenticate` Bearer challenge with `error="insufficient_scope"` and the required `scope`. The token's user still goes through `console.authorize`, which decides the sections. A bearer call never starts or stops impersonation.
+
+Auth management changes also need the user's Better Auth admin permissions and the live login session named by the token's `sid`. Auth uses that session for its plugin APIs and the action's actor. It sends no session cookie to the remote Console. Browser cookies on the request cannot change the OAuth actor.
+
+#### Token lifetime and revocation
+
+Console access tokens are signed JWTs that are valid for 15 minutes. A refresh token is valid for 7 days, and each refresh replaces it. MCP tokens keep Better Auth's defaults: 1 hour for an access token and 30 days for a refresh token.
+
+- Revoking a refresh token at `/api/auth/oauth2/revoke` stops the next refresh.
+- Revoking a refresh token does not invalidate an access token already issued: it can stay valid until it expires, at most 15 minutes after issuance. The server does not keep an access-token revocation list.
+- A banned or deleted user loses access at once: each call reads the user from the Auth.
+- Deleting or disabling the issuing client stops its Console access tokens at once. A token with a `sid` claim also stops when that login session is deleted or expires.
+- Removing an origin from `console.origins` stops new sign-ins, refreshes, and calls from that origin after the next deploy.
+
 ### Use the app Auth
 
-`auth: 'app'` reuses the app's server Auth Definition. Signed-in users reach the endpoint with their app session: the CLI with [`VITEHUB_CONSOLE_COOKIE`](/docs/development/cli), and MCP clients through [MCP OAuth](/docs/development/mcp#set-up-oauth). The hosted Console cannot use this mode. Use `auth: 'token'` for it.
+`auth: 'app'` reuses the app's server Auth Definition. Signed-in users reach the endpoint with their app session: the CLI with [`VITEHUB_CONSOLE_COOKIE`](/docs/development/cli), and MCP clients through [MCP OAuth](/docs/development/mcp#set-up-oauth). The hosted Console signs each person in with OAuth, as in [Sign in from the hosted Console](#sign-in-from-the-hosted-console).
 
 `console: true` is the same as `auth: 'app'` with the access policy in `server/auth.ts`. Add access routes that decide who can use the Console:
 
@@ -596,6 +713,40 @@ A relative `authorize` path starts at the project root (the folder of `nuxt.conf
 
 App Auth and the Console endpoint must use the same public origin, with the same protocol and port.
 
+#### Sign in from the hosted Console
+
+With `auth: 'app'`, each person signs in to the hosted Console with their own app account, so you do not share a token. The app Auth needs:
+
+- [`consoleMcpOAuth()`](/docs/development/mcp#set-up-oauth). It issues access tokens for MCP at `<origin>/_vitehub/mcp` and for the Console at `<origin>/_vitehub`.
+- `cimd()` from `@better-auth/cimd`. The hosted Console is an OAuth client whose `client_id` is the URL of its metadata document, `https://console.vitehub.dev/oauth-client.json`.
+- The Console origin in `console.origins`. The default, `["https://console.vitehub.dev"]`, allows the hosted Console.
+
+Install `@better-auth/cimd` at the same version as the app's Better Auth (`1.7.15` in this example):
+
+```sh
+pnpm add @better-auth/cimd@1.7.15
+```
+
+On Node, pass the package's secure metadata transport to `cimd()`. It validates public HTTPS destinations and redirects to prevent server-side request forgery. Other runtimes need a supported transport with the same protections; do not substitute ordinary `fetch`.
+
+```ts [server/auth.ts]
+import { cimd } from '@better-auth/cimd'
+import { fetchClientMetadataResource } from '@better-auth/cimd/node'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { consoleMcpOAuth } from 'vite-hub/console/auth'
+
+export default defineAuth(() => ({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  plugins: [cimd({ fetchClientMetadataResource }), ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' })],
+}))
+```
+
+Select **Link project** and enter the app URL. The Console reads the challenge of the app, opens `/_vitehub/sign-in`, and asks you to allow it. Then it calls the app with the access token.
+
+The app accepts a token for `<origin>/_vitehub` only from an origin in `console.origins`, and only on the data routes. Same-origin requests and the CLI keep using the session. A token with only `vitehub:read` runs read operations; changes need `vitehub:write`. The access routes of the app Auth and `console.authorize` still decide what each person may use.
+
 ### Use Console Auth
 
 Console Auth has its own Better Auth session and does not need the app's Auth. It protects the endpoint for the CLI and MCP clients. People sign in at `/_vitehub/sign-in`. On a Node host, the inline GitHub setup lets in only verified emails in `allowedEmails`:
@@ -652,7 +803,7 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 
 ### Use another authentication library
 
-With another authentication library, set `auth: false` and give the Console an `authorize` function:
+In development, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`. In production, use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. `authorize` still runs after authentication.
 
 ```ts
 import { vitehub } from 'vite-hub'
@@ -738,8 +889,8 @@ Each Console route checks access itself. The Console Auth middleware stays as a 
 
 | Configuration | Check in each Console route |
 | --- | --- |
-| `auth: false` | Allows the request. A production build and server log a warning. On the development server, accepts a call from `console.origins`. |
-| `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. |
+| `auth: false` | Allows development access, including calls from `console.origins`. A production build fails with `VITE_HUB_B0022`. |
+| `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. With `consoleMcpOAuth()`, also accepts an OAuth access token for the Console resource, also from `console.origins`. |
 | `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
 | `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback. Returns `401` or `403`. |
 | `auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so the development server allows the request. |
@@ -800,13 +951,12 @@ A finished session shows **Abort stale execution**. It sends an abort signal to 
 
 Nuxt needs no SEO module for the `X-Robots-Tag` default. If the app uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route rules so its robots and sitemap modules skip the Console routes:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  routeRules: {
-    '/_vitehub': { robots: false },
-    '/_vitehub/**': { robots: false },
-  },
-})
+```ts [nuxt.config.ts] fragment
+// With @nuxtjs/robots or @nuxtjs/seo in `modules`
+routeRules: {
+  '/_vitehub': { robots: false },
+  '/_vitehub/**': { robots: false },
+},
 ```
 
 Do not use `robots.txt` as access control. Crawlers can ignore it, and a blocked URL can still be listed. Read [Auth](/docs/auth/server-api#authorize-access-routes) for the full callback contract.

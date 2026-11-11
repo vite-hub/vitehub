@@ -49,6 +49,7 @@ describe("public package export contracts", () => {
       expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
     }
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
     expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
@@ -83,16 +84,19 @@ describe("public package export contracts", () => {
       ["@vite-hub/schedule/runtime/kv", "@vite-hub/kv"],
       ["@vite-hub/schedule/vite", "vite"],
       ["@vite-hub/source/client", "vue"],
+      ["@vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
       ["@vite-hub/ui/vite", "vite"],
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/forge", "@vite-hub/forge"],
       ["vite-hub/i18n", "@vite-hub/i18n"],
       ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
       ["vite-hub/i18n/server", "@vite-hub/i18n"],
       ["vite-hub/i18n/vue", "@vite-hub/i18n"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
+      ["vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
       ["vite-hub/ui", "vue"],
       ["vite-hub/ui/headless", "vue"],
       ["vite-hub/ui/vite", "vite"],
@@ -168,8 +172,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/agent", "@vite-hub/workflow"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
-      ["@vite-hub/browser/internal/chromium", "playwright-core"],
-      ["@vite-hub/browser/internal/chromium.workerd", "playwright-core"],
       ["@vite-hub/browser/vite", "vite"],
       ["@vite-hub/kv/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],

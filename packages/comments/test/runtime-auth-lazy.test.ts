@@ -8,7 +8,7 @@ vi.mock("@vite-hub/auth/server", () => {
   return {
     createAuthForRequest: () => { throw new Error("GitHub sign-in is not configured in this test.") },
     getAuth: () => ({ $context: Promise.resolve({ internalAdapter: { listUsers: async () => [user] } }) }),
-    getAuthForRequest: () => ({ api: { getSession: async () => ({ user }) } }),
+    useAuth: () => ({ api: { getSession: async () => ({ user }) } }),
   }
 })
 

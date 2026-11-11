@@ -16,11 +16,21 @@ icon: i-lucide-circle-alert
 - `docs`: a link to the code in [Queue diagnostics](/docs/queue/diagnostics)
 - `cause`: the provider error
 
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload }) => {
+  console.log(`Welcome ${payload.email}`)
+})
+```
+
 ```ts [server/api/signup.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ email: string }>(event)
+  const body = await readValidatedBody(event, v.parser(v.object({ email: v.string() })))
   const [error, result] = await sendQueue('welcome-email', { email: body.email })
   if (error) {
     console.error(error.code, error.why, error.cause)

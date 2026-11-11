@@ -1,12 +1,11 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
 // (`agentRuntimeModule()` in `./vite`). They are not public exports.
 const privateEntryExports = new Set([
-  "./eve",
   "./internal/workspace/internal/runtime/hosted",
   "./internal/workspace/internal/runtime/hosted-vercel-blob",
   "./internal/workspace/runtime",
@@ -32,7 +31,7 @@ function alwaysBundle(id: string, importer: string | undefined): boolean {
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle,
       neverBundle: [
@@ -71,7 +70,6 @@ export default defineConfig({
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",
-      "src/eve.ts",
       "src/observability.ts",
       "src/observability/host.ts",
       "src/observability/posthog.ts",
@@ -80,6 +78,8 @@ export default defineConfig({
       "src/invocations/d1.ts",
       "src/invocations/database.ts",
       "src/invocations/default.ts",
+      "src/invocations/default-core.ts",
+      "src/invocations/default-libsql.ts",
       "src/invocations/drizzle.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
@@ -116,10 +116,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

@@ -1,4 +1,4 @@
-import type { BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
+import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
 import { defineErrors, type Result } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
 import { adminClaimPluginId } from "./admin-claim.ts";
@@ -320,7 +320,13 @@ function adminClaimAccess(plugins: BetterAuthOptions["plugins"]): string[] {
 }
 
 export function createAuthConsole(
-  auth: { api: object; $context: Promise<{ adapter: ConsoleAdapter; options: BetterAuthOptions }> },
+  auth: {
+    api: object;
+    $context: Promise<
+      { adapter: ConsoleAdapter; options: BetterAuthOptions } &
+      Partial<Pick<AuthContext, "authCookies" | "secret">>
+    >;
+  },
   policy: AuthConsoleOptions = {},
   events?: AuthEventStore,
   host: AuthConsoleHostOptions = {},
@@ -331,6 +337,33 @@ export function createAuthConsole(
       : undefined;
   async function context() {
     return await auth.$context;
+  }
+  /** Give Better Auth its own stored session, only inside this API. Never return its cookie to the remote Console. */
+  async function actingRequest(request: Request): Promise<Request> {
+    if (!host.bearer) return request;
+    const { user, sessionId } = host.bearer;
+    const session = sessionId ? await find("session", equality("id", sessionId)) : null;
+    const ctx = await context();
+    if (
+      !session || session.userId !== user.id ||
+      !(new Date(date(session.expiresAt)).getTime() > Date.now()) || !string(session.token)
+    )
+      throw new AuthConsoleError(401, "Auth changes need the OAuth user's live login session.");
+    if (session.impersonatedBy)
+      throw new AuthConsoleError(403, "An impersonation session cannot run bearer Auth changes.");
+    if (!ctx.authCookies || !ctx.secret)
+      throw new AuthConsoleError(409, "The Auth provider cannot resolve the OAuth login session.");
+    // Better Auth signs its session cookie with HMAC-SHA256. The request contains no client cookies or bearer header.
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw", encoder.encode(ctx.secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    );
+    const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(string(session.token))));
+    const signed = encodeURIComponent(`${string(session.token)}.${btoa(String.fromCharCode(...signature))}`);
+    const headers = new Headers(request.headers);
+    headers.delete("authorization");
+    headers.set("cookie", `${ctx.authCookies.sessionToken.name}=${signed}`);
+    return new Request(request.url, { method: request.method, headers });
   }
   /** Role per user id: the app's computed role, else the stored one. */
   async function rolesOf(rows: Row[]): Promise<Map<string, string>> {
@@ -406,9 +439,11 @@ export function createAuthConsole(
     await Promise.all(
       authConsoleActionNames.map(async (action) => {
         let reason =
-          action === "impersonate" && !host.impersonation
-            ? "Impersonation is off in the Console configuration."
-            : undefined;
+          action === "impersonate" && host.bearer
+            ? "Impersonation needs the browser's app session."
+            : action === "impersonate" && !host.impersonation
+              ? "Impersonation is off in the Console configuration."
+              : undefined;
         reason ??=
           policyReason(policy.actions?.[action]) ??
           (action === "setRole" ? policyReason(policy.roles) : undefined);
@@ -481,6 +516,7 @@ export function createAuthConsole(
   }
   /** Better Auth refuses banned users and, unless the admin plugin allows it, administrators. */
   async function impersonationTarget(row: Row, request?: Request): Promise<AuthConsoleCapability> {
+    if (host.bearer) return disabled("Impersonation needs the browser's app session.");
     const ban = new Date(date(row.banExpires) || NaN).getTime();
     if (row.banned === true && !(ban < Date.now()))
       return disabled("Better Auth does not open sessions for banned users.");
@@ -1048,6 +1084,8 @@ export function createAuthConsole(
     );
   }
   async function stopImpersonating(request: Request): Promise<Response> {
+    if (host.bearer)
+      throw new AuthConsoleError(403, "Impersonation needs the browser's app session.");
     if (!host.impersonation)
       throw new AuthConsoleError(403, "Impersonation is off in the Console configuration.");
     const response = await call("stopImpersonating", request, undefined, true);
@@ -1066,7 +1104,8 @@ export function createAuthConsole(
     return Response.json({ action: "stopImpersonating", ok: true }, { headers });
   }
   return {
-    describe: (request) => result(() => describe(request)),
+    describe: (request) =>
+      result(async () => describe(request ? await actingRequest(request) : undefined)),
     overview: () => result(overview),
     activity: (query) => result(() => activity(query)),
     users: (query) => result(() => users(query)),
@@ -1076,13 +1115,16 @@ export function createAuthConsole(
     organization: (id, query) => result(() => organization(id, query)),
     agents: (query) => result(() => agents(query)),
     execute: (input, request) =>
-      result(async () => await mutate(input, request, await authorize(input, request))),
+      result(async () => {
+        const acting = await actingRequest(request);
+        return await mutate(input, acting, await authorize(input, acting));
+      }),
     stopImpersonating: (request) => result(() => stopImpersonating(request)),
   };
 }
 
 /** A short device label. The full user agent is never returned to the browser. */
-export function authConsoleDevice(userAgent: string): string {
+function authConsoleDevice(userAgent: string): string {
   const browser = /Edg\//.test(userAgent)
     ? "Edge"
     : /Firefox\//.test(userAgent)
