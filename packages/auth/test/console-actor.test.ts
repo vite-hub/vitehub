@@ -73,6 +73,16 @@ describe("Auth changes for a signed Console person", () => {
       get: async (key) => cache.get(key) ?? null,
       set: async (key, value) => { cache.set(key, value); },
       delete: async (key) => { cache.delete(key); },
+      getAndDelete: async (key) => {
+        const value = cache.get(key) ?? null;
+        cache.delete(key);
+        return value;
+      },
+      increment: async (key) => {
+        const value = Number(cache.get(key) ?? 0) + 1;
+        cache.set(key, String(value));
+        return value;
+      },
     };
     const fixture = await app({ secondaryStorage });
     // The stored session keeps the user as it was at sign-in, so the operator signs in again after getting the admin role.
