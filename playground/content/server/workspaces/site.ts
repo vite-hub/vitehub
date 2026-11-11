@@ -1,5 +1,5 @@
 import { blob } from "vite-hub/blob"
-import { runQueue } from "vite-hub/queue"
+import { sendQueue } from "vite-hub/queue"
 import { defineWorkspace } from "vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore } from "vite-hub/workspace/blob-database"
 
@@ -17,7 +17,7 @@ export default defineWorkspace({
     "write:after": async ({ operation, path, ref }) => {
       const id = ref === "draft" && operation === "writeFile" ? /^docs\/en\/(.+)\.md$/.exec(path)?.[1] : undefined
       if (!id) return
-      const [error] = await runQueue("translate", { id })
+      const [error] = await sendQueue("translate", { id })
       // The commit is already saved. Report the failed enqueue instead of failing the save.
       if (error) console.error(`[translate] Could not enqueue the translation of docs/en/${id}.md:`, error)
     },

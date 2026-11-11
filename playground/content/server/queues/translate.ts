@@ -11,6 +11,6 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
   // The English page was deleted since the change: nothing to translate.
   if (!english?.source) return
   const prompt = `Translate the docs page with id "${payload.id}" into Spanish. The source digest of the English version to translate is ${english.source.digest}.`
-  const [error] = await runAgent(translator, { prompt }, { output: "drained" })
+  const [error] = await runAgent(translator, { prompt })
   if (error) throw error
 })

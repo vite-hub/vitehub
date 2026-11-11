@@ -725,7 +725,7 @@ describe("content capability", () => {
       logger: false,
     })
     cleanup.push(() => runtime.dispose())
-    // The hook of playground/content/server/workspaces/site.ts, with a list in place of runQueue("translate", { id }).
+    // The hook of playground/content/server/workspaces/site.ts, with a list in place of sendQueue("translate", { id }).
     const queued: string[] = []
     cleanup.push(registerWorkspacePlugin(workspace, {
       id: "translate",

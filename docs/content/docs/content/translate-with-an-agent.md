@@ -21,7 +21,8 @@ The [content playground](https://github.com/vite-hub/vitehub/tree/main/playgroun
 The collection needs [locales](/docs/content/configure#locales). This page uses the `docs` collection with English as the source locale:
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cmsContentAuthorize } from 'vite-hub/cms/access'
 import { z } from 'zod'
 
@@ -39,15 +40,41 @@ export const content = defineContent({
 })
 ```
 
-Turn on Agents and Queue in the existing `vitehub()` options, and set `AI_GATEWAY_API_KEY` in the server environment for the model. See [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver).
+Turn on Agents and Queue in the app config. Keep the other options of your app, and set `AI_GATEWAY_API_KEY` in the server environment for the model. See [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver).
 
-```diff [vite.config.ts]
- vitehub({
-+  agent: true,
-+  queue: true,
-   workspace: true,
- })
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { agent: true, queue: true, workspace: true },
+})
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ agent: true, queue: true, workspace: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ agent: true, queue: true, workspace: true })],
+})
+```
+:::
+::
 
 ## Define the translator
 
@@ -91,7 +118,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
   const english = await content.collection('docs').get(payload.id, { ref: 'draft' })
   if (!english?.source) return
   const prompt = `Translate the docs page with id "${payload.id}" into Spanish. The source digest of the English version to translate is ${english.source.digest}.`
-  const [error] = await runAgent(translator, { prompt }, { output: 'drained' })
+  const [error] = await runAgent(translator, { prompt })
   if (error) throw error
 })
 ```
@@ -101,7 +128,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
 `write:after` runs once for each changed file after a commit, on every ref. Content saves, Console edits, and `vitehub push` all commit to `draft`. Add the hook to the Workspace that `defineContent({ workspace })` names:
 
 ```ts [server/workspaces/site.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
@@ -110,7 +137,7 @@ export default defineWorkspace({
     'write:after': async ({ operation, path, ref }) => {
       const id = ref === 'draft' && operation === 'writeFile' ? /^docs\/en\/(.+)\.md$/.exec(path)?.[1] : undefined
       if (!id) return
-      const [error] = await runQueue('translate', { id })
+      const [error] = await sendQueue('translate', { id })
       if (error) console.error(`Could not enqueue the translation of ${path}:`, error)
     },
   },
