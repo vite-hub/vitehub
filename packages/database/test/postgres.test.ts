@@ -101,7 +101,6 @@ describe("Postgres Database Definitions", () => {
       cloudflare: { hyperdriveId: "hyperdrive-id" },
       connection: { url: "postgres://localhost/app" },
       dialect: "postgresql",
-      drizzle: { casing: "snake_case" },
       name: "app",
       schema: { notes },
     })
@@ -110,7 +109,6 @@ describe("Postgres Database Definitions", () => {
       cloudflare: { hyperdriveId: "hyperdrive-id" },
       connection: { url: "postgres://localhost/app" },
       dialect: "postgresql",
-      drizzle: { casing: "snake_case" },
       name: "app",
       schema: { notes },
     })
@@ -304,7 +302,6 @@ describe("Postgres build configuration", () => {
 describe("Postgres runtime", () => {
   const definition = {
     dialect: "postgresql" as const,
-    drizzle: {},
     name: "default",
     schema: { notes },
   }
