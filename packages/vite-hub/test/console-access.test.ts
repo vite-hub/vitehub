@@ -340,7 +340,10 @@ describe("generated Console access", () => {
   })
 
   it("installs signed access for console: true", async () => {
-    await expect(generatedPlugin({ console: {} }, "build")).resolves.toContain('installConsoleAccess({ mode: "token" })')
+    const plugin = await generatedPlugin({ console: {} }, "build")
+    expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
+    // Without app Auth, there are no Auth access routes to leave the Console RPC out of.
+    expect(plugin).not.toContain("vitehubExcludeAuthAccessPath")
   })
 
   it("serves development operations without Console pages or assets", async () => {

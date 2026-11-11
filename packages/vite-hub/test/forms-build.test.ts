@@ -9,7 +9,7 @@ import { getStandardContext } from "@vite-hub/runtime"
 
 import { vitehub } from "../src/index.ts"
 import { resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
-import { startBuiltServer } from "./content-preview-fixture.ts"
+import { freePort, startBuiltServer } from "./content-preview-fixture.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -74,7 +74,9 @@ describe("Forms in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // No `database` option: `server/forms/` turns it on.
-    const app = () => vitehub({ console: true, preset: "node" })
+    const port = await freePort()
+    const publicUrl = `http://127.0.0.1:${port}`
+    const app = () => vitehub({ console: true, preset: "node", publicUrl })
     const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])
@@ -95,10 +97,10 @@ describe("Forms in a built Nitro 3 app", () => {
     expect(consolePlugin).toMatch(/installConsoleSections\([^)]*"forms"/)
     expect(consolePlugin).toContain('"operation":"forms.list"')
 
-    const server = await startBuiltServer(root, ci.env)
+    const server = await startBuiltServer(root, ci.env, { port })
     try {
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const signed = await signedRpcRequest({ input, key: ci.key, operation, url: `http://127.0.0.1:${server.port}/_vitehub/rpc` })
+        const signed = await signedRpcRequest({ input, key: ci.key, operation, url: `${publicUrl}/_vitehub/rpc` })
         const response = await server.fetch("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)

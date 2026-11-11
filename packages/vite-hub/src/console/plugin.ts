@@ -2,6 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
 
 
 import type { ConsoleBuildCatalog } from "./build.ts"
@@ -117,6 +118,8 @@ function renderConsoleNitroPlugin(
 ): string {
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
+  // The Auth section is on when the app has ViteHub Auth.
+  const excludeAppAuth = Boolean(access) && configuredSections.includes("auth")
   const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
@@ -177,10 +180,14 @@ function renderConsoleNitroPlugin(
   return [
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
+    ...(excludeAppAuth ? ['import { excludeAuthAccessPath as vitehubExcludeAuthAccessPath } from "vite-hub/auth/runtime/server"'] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
     ...accessCode.install,
+    // The Console route checks its own access, and a signed caller has no app session. App Auth access routes such as
+    // `/**` leave it to that check.
+    ...(excludeAppAuth ? [`vitehubExcludeAuthAccessPath(${JSON.stringify(operationRpcPath)})`] : []),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,

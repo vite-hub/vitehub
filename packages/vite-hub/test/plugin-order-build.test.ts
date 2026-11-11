@@ -58,7 +58,8 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-      const hub = vitehub({ preset: "node", console: true })
+      const publicUrl = "http://app.example.com"
+      const hub = vitehub({ preset: "node", publicUrl, console: true })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
@@ -67,12 +68,12 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await builder.buildApp()
       expect(existsSync(join(root, ".output/public/_vitehub/assets"))).toBe(false)
 
-      await withBuiltServer(root, async (fetchServer, origin) => {
+      await withBuiltServer(root, async (fetchServer) => {
         // Apps no longer serve the Console page; this SPA serves its own fallback instead.
         const page = await fetchServer("/_vitehub")
         expect(page.status).toBe(200)
         expect(await page.text()).not.toContain("ViteHub Console")
-        const signed = await signedRpcRequest({ key: ci.key, url: `${origin}/_vitehub/rpc` })
+        const signed = await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` })
         const rpc = await fetchServer("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         expect(rpc.status, await rpc.clone().text()).toBe(200)
         expect(await operationRpcResponseResult(rpc)).toMatchObject({ ok: true })

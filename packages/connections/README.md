@@ -184,7 +184,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 The actor module default-exports one of these policies:
 
 - A function `(request) => string | Response | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request (`403`), or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the Standard Context of the event, so `getStandardContext(request)` and the Auth helpers accept it. Relative module paths resolve from the project root.
-- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
+- The string `"development"`. It allows a request from this machine as `user:local`, but only when `NODE_ENV` is `development`. A request from another machine, such as a LAN address of `vite --host` or a tunnel, returns `403` with `CONNECTIONS_FORBIDDEN`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
 

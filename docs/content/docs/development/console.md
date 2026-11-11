@@ -34,6 +34,8 @@ A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `st
 
 The sections are Auth, Env, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
 
+The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
+
 - **Channels** lists the Channels of your Agents, their threads, and each conversation with its attachments and the runs that answered. You can download a conversation as Markdown or JSON. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
 - **Content** shows when `server/content.ts` defines document collections. It saves drafts, publishes, and restores revisions. `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console).
 - **Comments** shows when the app turns on [Comments](/docs/comments/configure#turn-comments-on-in-a-vitehub-app). It lists the threads that people left on the app's pages.
@@ -305,9 +307,9 @@ The second line is the method, the third line is the path and query that the app
 
 When no key variable is set, every request gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`. When one of them is not a key, every request gets `500` with `CONSOLE_KEY_MALFORMED`, and the message names it. Signed requests reach only `POST /_vitehub/rpc`.
 
-The app origin is the origin of `vitehub({ publicUrl })` when it is set. Without it, it is the URL of the request as the host routed it. The server never reads `Host` or `X-Forwarded-*` headers for this, because any caller can set them. A Node.js server behind a proxy that ends TLS sees `http:`, so set `publicUrl` to its public URL. The origin stops a request signed for one app, such as a preview, from working on another app with the same key. Inside the 5 minutes, the same request can run again on the same app. TLS keeps others from reading it.
+The app origin is the origin of `vitehub({ publicUrl })` when it is set. Node.js adapters build the request URL from `Host`, which the caller controls, so signed requests on Node require `publicUrl`. Without a matching configured origin, they fail with `500 CONSOLE_SIGNATURE_ORIGIN`. Use the string form for one deployment origin; the function form permits its configured Agent origins. Other hosts can use the request URL as routed by the platform. Forwarding headers never supply the app origin. The origin stops a request signed for one app, such as a preview, from working on another app with the same key. Inside the 5 minutes, the same request can run again on the same app. TLS keeps others from reading it.
 
-A command without `--url` calls the dev server of its project and does not sign, so a dev server with `console: true` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the public key in its environment:
+A command without `--url` calls the dev server of its project and does not sign, so a dev server with `console: true` rejects the command. Pass `--url` with the origin of the dev server. On Node, also set `publicUrl` to that origin in the development configuration. The dev server also needs the public key in its environment:
 
 ```bash [Terminal]
 VITEHUB_CONSOLE_PRIVATE_KEY_CI=<private key> vitehub kv list --url http://localhost:3000
@@ -400,7 +402,7 @@ To rotate a key with no downtime, make a key pair with a new name, add its publi
 Earlier releases let the app sign people in to the Console with `console: { auth: 'app' }`, a Console Auth config (`auth: { ... }` with a server file, GitHub, or Cloudflare Access), or a bearer token with `auth: 'token'`. These options are removed, and so are `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed`. A build that sets one of them fails with `VITE_HUB_B0020`, and the message names the fix. The app no longer serves `/_vitehub/mcp`, `/_vitehub/sign-in`, `/_vitehub/api/auth/**`, `/_vitehub/env/manage`, or OAuth discovery for the Console.
 
 1. Remove `auth`, `origins`, `mcp`, and `signInPage` from the `console` options, or set `console: true`.
-2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user.
+2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc`: a signed call has no app session, and the route checks its own access.
 3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/development/app-mcp).
 4. Link the app in [console.vitehub.dev](#in-production), and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows. Invite the people who used the app's Console to your team.
 5. For the CLI, make a key with `vitehub secret console-key`, and replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.

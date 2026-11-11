@@ -24,6 +24,17 @@ export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccess
   else state.accessIdentityResolvers.delete(path)
 }
 
+/**
+ * Leave one exact path below the application base path out of the Auth access routes, such as `/_vitehub/rpc` for
+ * `/docs/_vitehub/rpc` in an app served below `/docs`. Only a ViteHub primitive whose route checks its own access calls
+ * it: the Console RPC accepts signed requests that carry no app session.
+ */
+export function excludeAuthAccessPath(path: string): void {
+  const state = getAuthRuntimeState()
+  state.accessExcludedPaths ??= new Set()
+  state.accessExcludedPaths.add(path)
+}
+
 export interface AuthAccessRouteMatch {
   index: number
   authorize: boolean
@@ -47,6 +58,8 @@ export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccess
   return (input) => {
     const request = unwrapAuthRequest(input)
     const pathname = new URL(request.url).pathname
+    const excluded = getAuthRuntimeState().accessExcludedPaths
+    if (excluded && [...excluded].some(path => resolveAuthMountPath(path) === pathname)) return []
     const method = request.method.toUpperCase()
     return rules
       .filter(rule =>
