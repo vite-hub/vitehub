@@ -10,6 +10,7 @@ import { createFakeGitHub, fakeSha } from "../../workspace/test/fake-github.ts"
 import { defineContent, registerContentKV } from "../src/index.ts"
 import { MAX_SOURCE_VIEWS } from "../src/source-heads.ts"
 
+import type { ContentPlugin } from "comark-content"
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 import type { ContentSourceView } from "../src/index.ts"
 
@@ -225,7 +226,7 @@ describe("content.sources.at()", () => {
           resources.add(resource)
           context.onDispose(() => { resources.delete(resource) })
         },
-      }],
+      } satisfies ContentPlugin],
     })
     cleanup.push(() => content.dispose())
     const view = await content.sources.at(sha, "docs")
@@ -259,7 +260,7 @@ describe("content.sources.at()", () => {
             expect(disposed).not.toHaveBeenCalled()
           })
         },
-      }],
+      } satisfies ContentPlugin],
     })
     cleanup.push(() => content.dispose())
     const view = await content.sources.at(sha, "docs")
