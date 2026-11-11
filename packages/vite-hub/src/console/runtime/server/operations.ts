@@ -7,7 +7,7 @@ import { consoleAttachmentRequestBytes, consoleDocumentActionNames, consoleMedia
 import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
-import { authConsoleActionOperations, authConsoleReadOperations } from "../auth-operations.ts"
+import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../auth-operations.ts"
 
 import type { AuthConsole, AuthConsoleErrorCode, AuthConsoleMutation } from "@vite-hub/auth/console-runtime"
 import type { AnyOperation, OperationContext, OperationDefinition, OperationKind } from "@vite-hub/internal/operations"
@@ -186,12 +186,12 @@ function authRead<Input>(
     kind: "read",
     mcp: false,
     name: authConsoleReadOperations[name],
-    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth.ts"))).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
     section: "auth",
   })
 }
 
-/** One action of the Auth section. Impersonation is not one: it stays on `POST /_vitehub/auth/manage`. */
+/** One action of the Auth section. Impersonation has its own operations, which return a one-time link. */
 function authAction<Input>(
   action: keyof typeof authConsoleActionOperations,
   description: string,
@@ -207,7 +207,7 @@ function authAction<Input>(
     kind,
     mcp: false,
     name: authConsoleActionOperations[action],
-    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleAction(context, mutation(value)),
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth.ts"))).runAuthConsoleAction(context, mutation(value)),
     section: "auth",
   })
 }
@@ -235,6 +235,24 @@ const authOperations = [
   authAction("editField", "Change one field of a user.", "write", v.strictObject({ field: authId, userId: authId, value: authValue }), input => ({ action: "editField", ...input }), "userId"),
   authAction("revokeSession", "End one session.", "destructive", v.strictObject({ id: authId }), input => ({ action: "revokeSession", ...input }), "id"),
   authAction("revokeConsent", "Revoke the access that a user granted an Agent client.", "destructive", v.strictObject({ id: authId }), input => ({ action: "revokeConsent", ...input }), "id"),
+  defineConsoleOperation({
+    description: "Return a one-time link that opens the app in the browser as a user. The browser must be signed in to the app with the email of the person who asks.",
+    input: v.strictObject({ userId: authId }),
+    kind: "write",
+    mcp: false,
+    name: authConsoleImpersonationOperations.start,
+    run: async ({ userId }, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth.ts"))).issueImpersonationTicket(context, userId),
+    section: "auth",
+  }),
+  defineConsoleOperation({
+    description: "Return a one-time link that ends the impersonation of the browser that opens it and restores the administrator's session.",
+    input: v.strictObject({}),
+    kind: "write",
+    mcp: false,
+    name: authConsoleImpersonationOperations.stop,
+    run: async (_input, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth.ts"))).issueImpersonationTicket(context),
+    section: "auth",
+  }),
 ]
 
 const databasesBrowse = defineConsoleOperation({
@@ -311,6 +329,16 @@ const documentsAction = defineConsoleOperation({
     const result = actionResult(await documents.default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
     return result.value
   },
+  section: input => input.section,
+})
+
+const documentsPreview = defineConsoleOperation({
+  mcp: false,
+  description: "Return a one-time link that opens the page of a document with its draft, on the app origin.",
+  input: v.strictObject({ collection: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)), section: text }),
+  kind: "read",
+  name: "documents.preview",
+  run: async ({ collection, id, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : import("./documents.ts"))).issueConsoleDocumentPreview(context, { collection, id, section }),
   section: input => input.section,
 })
 
@@ -520,6 +548,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   databasesTables,
   definitionsList,
   documentsAction,
+  documentsPreview,
   envGet,
   invocationsCancel,
   invocationsCapabilities,

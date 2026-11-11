@@ -12,6 +12,7 @@ import { readMigrations, readPendingMigration } from "../src/internal/migration-
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
 
+import type { StartMigrationDatabase } from "../src/runtime/migrate-on-start.ts"
 import type { ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
@@ -49,14 +50,14 @@ it.each([false, true])("checks the execution order for shared-file migrations of
   const first = createClient({ url })
   const second = createClient({ url })
   try {
-    await migrateOnStart([{ db: drizzle({ client: first }), migrations: startupMigrations(database.migrationsDir), name: "original" }], { log: () => {} })
+    await migrateOnStart([{ db: drizzle({ client: first }), dialect: "sqlite", migrations: startupMigrations(database.migrationsDir), name: "original" }], { log: () => {} })
     await first.execute("INSERT INTO notes VALUES (1, 'customer data')")
     await folder(database.migrationsDir, "20260101000000_a_drop", "DROP TABLE notes;")
     await folder(replacementDir, "20260101000000_z_recreate", "CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT);")
     const databases = [
-      { db: drizzle({ client: second }), migrations: startupMigrations(replacementDir), name: "replacement" },
-      { db: drizzle({ client: first }), migrations: startupMigrations(database.migrationsDir), name: "original" },
-    ]
+      { db: drizzle({ client: second }), dialect: "sqlite", migrations: startupMigrations(replacementDir), name: "replacement" },
+      { db: drizzle({ client: first }), dialect: "sqlite", migrations: startupMigrations(database.migrationsDir), name: "original" },
+    ] satisfies StartMigrationDatabase[]
     if (reverse) databases.reverse()
     await expect(migrateOnStart(databases, { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
     expect((await first.execute("SELECT title FROM notes")).rows.map(row => row[0])).toEqual(["customer data"])
@@ -90,9 +91,9 @@ it.each([[false, false], [true, false], [true, true]])("backfills distinct NULL-
     if (pending) await folder(database.migrationsDir, "20231114221321_body", "ALTER TABLE notes ADD COLUMN body TEXT;")
     const migrations = startupMigrations(database.migrationsDir)
     const databases = [
-      { db: drizzle({ client: first }), migrations: migrations.slice(0, 1), name: "original" },
-      { db: drizzle({ client: second }), migrations: migrations.slice(1), name: "rest" },
-    ]
+      { db: drizzle({ client: first }), dialect: "sqlite", migrations: migrations.slice(0, 1), name: "original" },
+      { db: drizzle({ client: second }), dialect: "sqlite", migrations: migrations.slice(1), name: "rest" },
+    ] satisfies StartMigrationDatabase[]
     await migrateOnStart(databases, { log: () => {} })
     expect((await first.execute("SELECT name FROM __drizzle_migrations ORDER BY name")).rows.map(row => row[0])).toEqual(migrations.map(migration => migration.name))
     // Both startup and the real RC.5 Kit must now find nothing to replay.
@@ -128,7 +129,7 @@ it("refuses overlapping legacy backfills before Kit can replay destructive SQL",
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toMatchObject({ code: "DATABASE_MIGRATION_CHECK_FAILED", why: expect.stringContaining("overlapping") })
     expect(plan).toBeUndefined()
-    await expect(migrateOnStart([{ db: drizzle({ client }), migrations: startupMigrations(database.migrationsDir), name: "default" }])).rejects.toThrow("overlapping")
+    await expect(migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite", migrations: startupMigrations(database.migrationsDir), name: "default" }])).rejects.toThrow("overlapping")
     expect((await client.execute("SELECT value FROM cache")).rows.map(row => row[0])).toEqual(["customer data"])
     expect((await client.execute("PRAGMA table_info(__drizzle_migrations)")).rows.map(row => row.name)).not.toContain("name")
 

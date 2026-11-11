@@ -59,7 +59,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
       const publicUrl = "http://app.example.com"
-      const hub = vitehub({ preset: "node", publicUrl, console: { auth: "token" } })
+      const hub = vitehub({ preset: "node", publicUrl, console: true })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
