@@ -404,6 +404,18 @@ export function createAuthConsole(
     const rows: unknown = await ctx.internalAdapter.listSessions(userId);
     return Array.isArray(rows) ? rows.map(record) : [];
   }
+  /**
+   * The acting request for a check that only reads, such as whether the actor may impersonate a user. Without an app
+   * account or a live session of the actor, the check runs without a request and refuses, as describe() does.
+   */
+  async function readingRequest(request: Request): Promise<Request | undefined> {
+    try {
+      return await actingRequest(request);
+    } catch (cause) {
+      if (host.actor && cause instanceof AuthConsoleError && cause.status < 500) return undefined;
+      throw cause;
+    }
+  }
   /** A request with only the signed session cookie of a stored session. It holds no client cookie or bearer header. */
   async function sessionRequest(request: Request, session: Row): Promise<Request> {
     const ctx = await context();
@@ -1201,7 +1213,7 @@ export function createAuthConsole(
     overview: () => result(overview),
     activity: (query) => result(() => activity(query)),
     users: (query) => result(() => users(query)),
-    user: (id, request) => result(() => user(id, request)),
+    user: (id, request) => result(async () => user(id, request && (await readingRequest(request)))),
     sessions: (query) => result(() => sessions(query)),
     organizations: (query) => result(() => organizations(query)),
     organization: (id, query) => result(() => organization(id, query)),

@@ -1,3 +1,6 @@
+import { admin } from "better-auth/plugins";
+import { adminAc, defaultStatements } from "better-auth/plugins/admin/access";
+import { createAccessControl } from "better-auth/plugins/access";
 import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
@@ -82,6 +85,24 @@ describe("Auth changes for a signed Console person", () => {
     const [error, response] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
     expect(error?.cause ?? error).toBeUndefined();
     expect(await response?.json()).toMatchObject({ action: "ban", actor: `user:${fixture.operator.id}`, ok: true });
+  });
+
+  it("checks an impersonation target with the actor's session, as describe() does", async () => {
+    const statements = { ...defaultStatements, user: [...defaultStatements.user, "impersonate-admins"] } as const;
+    const ac = createAccessControl(statements);
+    const superadmin = ac.newRole({ ...adminAc.statements, user: [...adminAc.statements.user, "impersonate-admins"] });
+    const fixture = await app({ plugins: [admin({ ac, roles: { superadmin, user: ac.newRole({}) }, adminRoles: ["superadmin"] })], operatorRole: "superadmin" });
+    fixture.database.sqlite.prepare("UPDATE user SET role = 'superadmin' WHERE id = ?").run(fixture.member.id);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" }, impersonation: true });
+    const [, description] = await api.describe(signedCall());
+    expect(description?.actions.impersonate).toEqual({ enabled: true });
+    const [error, detail] = await api.user(fixture.member.id, signedCall());
+    expect(error).toBeUndefined();
+    expect(detail?.impersonation).toEqual({ enabled: true });
+    // Without an app account for the person, the target check refuses an administrator.
+    const stranger = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "stranger@example.com" }, impersonation: true });
+    const [, refused] = await stranger.user(fixture.member.id, signedCall());
+    expect(refused?.impersonation).toMatchObject({ enabled: false });
   });
 
   it("says why when the app keeps sessions only in cookies", async () => {
