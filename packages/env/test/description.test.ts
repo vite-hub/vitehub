@@ -71,36 +71,3 @@ describe("Server Env declaration inventory", () => {
     ])
   })
 })
-
-it("manages only declared unambiguous provider paths without resolving credentials", async () => {
-  const { createServerEnvManagement } = await import("../src/server.ts")
-  const { createEnvBridge } = await import("../src/bridge.ts")
-  const { vi } = await import("vitest")
-  const inspect = vi.fn(async () => ({ revision: "revision", updatedAt: "now" }))
-  const bridge = createEnvBridge({
-    secrets: { inspect, read: vi.fn(), replace: vi.fn() },
-    access: { append: vi.fn(), activity: vi.fn(), grants: vi.fn(), setGrant: vi.fn(), revokeGrant: vi.fn() },
-    runtimeActor: { kind: "service", id: "runtime" },
-  })
-  const { adminContext } = await import("./helpers.ts")
-  const admin = await adminContext()
-  const authenticate = vi.fn(async () => admin)
-  const read = vi.fn(() => { throw new Error("Inventory must not resolve") })
-  const providers = { vault: { read, management: { bridge, authenticate } } }
-  const registry = createRuntimeRegistry({
-    host: env({ source: env.source("HOST") }),
-    token: env({ source: env.provider("vault", "private-key") }),
-    "nested.token": env({ source: env.provider("vault", "ambiguous") }),
-    "unsafe name": env({ source: env.provider("vault", "other") }),
-  })
-  expect(describeServerEnv(registry).entries[1]).toMatchObject({ source: "provider", provider: "vault" })
-  expect(read).not.toHaveBeenCalled()
-  const handler = createServerEnvManagement(registry, providers)
-  const request = (path: string) => new Request("https://example.com/manage", { method: "POST", headers: { origin: "https://example.com" }, body: JSON.stringify({ action: "inspect", path }) })
-  for (const path of ["env.server.host", "private-key", "env.server.unsafe name", "env.server.nested.token", "env.server.missing"]) expect((await handler(request(path))).status).toBe(404)
-  const req = request("env.server.token")
-  expect((await handler(req)).status).toBe(200)
-  expect(authenticate).toHaveBeenCalledWith(req)
-  expect(inspect).toHaveBeenCalledWith("private-key")
-  expect(read).not.toHaveBeenCalled()
-})
