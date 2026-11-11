@@ -834,7 +834,9 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
+    expect(integrationMocks.hubKv).toHaveBeenCalledWith(undefined, { hosting: "cloudflare-module" })
+    // With `kv` unset, the list also has the KV case for a `github()` Content Source.
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "node-server" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -2013,8 +2015,8 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "node", blob: false }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
-    // Only the `cms` preset case of the default list builds Blob.
-    expect(integrationMocks.hubBlob).toHaveBeenCalledOnce()
+    // Only the `cms` preset case of the default list builds Blob, once without and once with KV for `github()` Sources.
+    expect(integrationMocks.hubBlob).toHaveBeenCalledTimes(2)
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
