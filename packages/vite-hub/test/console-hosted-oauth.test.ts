@@ -14,7 +14,6 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
 import consoleAuthManageHandler from "../src/console/runtime/server/auth-manage.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
-import consoleChannelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
 import consoleEnvManageHandler from "../src/console/runtime/server/env-manage.ts"
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
@@ -230,7 +229,6 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     for (const [handler, path, body] of [
       [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "ban", userId: "someone" }],
       [consoleEnvManageHandler, "/_vitehub/env/manage", {}],
-      [consoleChannelReplayHandler, "/_vitehub/channels/replay", {}],
       [consoleScheduleRunHandler, "/_vitehub/schedules/run", {}],
     ] as const) {
       const response = await handler.fetch(new Request(`${app}${path}`, {

@@ -133,6 +133,29 @@ const agentsInvoke = defineConsoleOperation({
   section: "agents",
 })
 
+const channelsReplay = defineConsoleOperation({
+  // The hand-written `vitehub channels replay` command pages through the history and calls this operation with --url.
+  cli: { command: "replay", namespace: "channels" },
+  description: "Replay one page of a Channel's history through its trigger, or describe its history query with describe: true.",
+  input: v.strictObject({
+    agent: v.pipe(text, v.minLength(1)),
+    channel: v.pipe(text, v.minLength(1)),
+    cursor: optionalText,
+    describe: v.optional(v.boolean()),
+    dryRun: v.optional(v.boolean()),
+    force: v.optional(v.boolean()),
+    label: v.optional(v.pipe(text, v.check(label => label.trim() !== "", "Use a label with text."), v.maxLength(512))),
+    limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+    query: v.optional(v.record(v.string(), v.union([text, v.array(text)]))),
+  }),
+  kind: "write",
+  mcp: false,
+  name: "channels.replay",
+  readOnlyWhen: input => input.describe === true,
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./channel-replay.ts"))).replayConsoleChannel(input, context),
+  section: "agents",
+})
+
 const databasesBrowse = defineConsoleOperation({
   cli: { namespace: "database", command: "rows", positional: ["table"] },
   description: "Read the rows of a database table, one page at a time. Without a table it reads the tables only.",
@@ -390,6 +413,7 @@ async function searchError(response: Response): Promise<Error> {
 export const consoleOperations: readonly AnyOperation[] = [
   agentsInvoke,
   agentsList,
+  channelsReplay,
   databasesBrowse,
   databasesTables,
   definitionsList,
