@@ -12,6 +12,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const createProviderRuntime = vi.hoisted(() => vi.fn());
+const threadComment = { databaseId: 501, body: "Review feedback", author: { login: "reviewer", __typename: "User" }, createdAt: "2026-11-07T00:00:00Z", url: "https://github.com/acme/app/pull/12#discussion_r501" };
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }));
 vi.mock("../../agent/src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
@@ -161,6 +162,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         stderr: "",
       };
     if (args.includes("graphql")) {
+      if (text.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { viewer: { login: "repair-bot" }, node: { comments: { nodes: [], pageInfo } } } }), stderr: "" };
       if (abortOperation && !text.includes("reviewThreads")) {
         checkoutController.abort(new DOMException("Checkout cancelled", "AbortError"));
         request?.signal?.throwIfAborted();
@@ -194,6 +196,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     }
     if (text.includes("-X PATCH")) return { stdout: JSON.stringify(pr()), stderr: "" };
     const path = args.find((arg) => arg.startsWith("repos/")) ?? "";
+    if (/\/comments\/\d+\/replies$/.test(path)) return { stdout: JSON.stringify({ id: 900, body: args.find(arg => arg.startsWith("body="))?.slice(5) ?? "", user: { login: "repair-bot", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r900" }), stderr: "" };
     if (/^repos\/acme\/app\/branches\/[^/]+$/.test(path)) return { stdout: JSON.stringify({ name: pr().base.ref, protected: false }), stderr: "" };
     if (path.includes("pulls?state=all&head="))
       return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
@@ -424,7 +427,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
           }
           if (preset.resolveAfterPush) {
             await runtime.inbox.ingest("push-before-resolution", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: pr() });
-            const result = await client.callTool({ name: "resolveReviewThread", arguments: { id: preset.resolveAfterPush } });
+            const result = await client.callTool({ name: "resolveReviewThread", arguments: { id: preset.resolveAfterPush, outcome: "fixed" } });
             expect(result.isError, JSON.stringify(result)).not.toBe(true);
           }
         } finally {
@@ -959,10 +962,10 @@ describe("Babysitter preset runtime", () => {
     f.command.mockImplementation(async (args, request) => {
       const query = args.join(" ");
       if (query.includes("reviewThreads")) return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
-        nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
+        nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [threadComment], pageInfo: { hasNextPage: false, endCursor: null } } }],
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
+      if (query.includes("node(id:") && !query.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         resolved = true;
         return { stdout: JSON.stringify({ data: { resolveReviewThread: { thread: { id: "PRRT_1" } } } }), stderr: "" };
@@ -2619,16 +2622,16 @@ describe("Babysitter preset runtime", () => {
     const head = "a".repeat(40);
     const f = await fixture(false, false, { result: { disposition: "park", text: "Reviewed this head.", reviewedHead: head,
       wait: { kind: "checks", headSha: head } } });
-    f.choose("resolveReviewThread", { id: "PRRT_1" });
+    f.choose("resolveReviewThread", { id: "PRRT_1", outcome: "fixed" });
     let resolved = alreadyResolved;
     const command = f.command.getMockImplementation()!;
     f.command.mockImplementation(async (args, request) => {
       const query = args.join(" ");
       if (query.includes("reviewThreads")) return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
-        nodes: [{ id: "PRRT_1", isResolved: false, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
+        nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [threadComment], pageInfo: { hasNextPage: false, endCursor: null } } }],
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
+      if (query.includes("node(id:") && !query.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         resolved = true;
         return { stdout: JSON.stringify({ data: { resolveReviewThread: { thread: { id: "PRRT_1" } } } }), stderr: "" };
@@ -2647,7 +2650,7 @@ describe("Babysitter preset runtime", () => {
   });
 
   it.each([false, true])("keeps owned thread resolutions while fencing external reopens=%s", async reopen => {
-    const f = await fixture(false, false, { operationCount: 2, operationInputs: [{ id: "PRRT_1" }, { id: "PRRT_2" }],
+    const f = await fixture(false, false, { activityBarrier: Promise.resolve(), operationCount: 2, operationInputs: [{ id: "PRRT_1", outcome: "fixed" }, { id: "PRRT_2", outcome: "fixed" }],
       ...(reopen ? { expectedOperationErrorAt: 1 } : {}) });
     f.choose("resolveReviewThread");
     const resolved = new Set<string>();
@@ -2655,10 +2658,16 @@ describe("Babysitter preset runtime", () => {
     f.command.mockImplementation(async (args, request) => {
       const query = args.join(" ");
       if (query.includes("reviewThreads")) return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
-        nodes: ["PRRT_1", "PRRT_2"].map(id => ({ id, isResolved: resolved.has(id), comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } })),
+        nodes: ["PRRT_1", "PRRT_2"].map(id => ({ id, isResolved: resolved.has(id), comments: { nodes: [threadComment], pageInfo: { hasNextPage: false, endCursor: null } } })),
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: args.find(arg => arg.startsWith("id="))!.slice(3), pullRequest: { id: "PR_12" }, isResolved: false } } }), stderr: "" };
+      if (query.includes("node(id:") && !query.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { node: { id: args.find(arg => arg.startsWith("id="))!.slice(3), pullRequest: { id: "PR_12" }, isResolved: false } } }), stderr: "" };
+      if (query.includes("/comments/501/replies")) {
+        await f.runtime.inbox.ingest(`owned-answer-${resolved.size}`, "pull_request_review_comment", {
+          repository: { full_name: "acme/app" }, action: "created", pull_request: f.pr(),
+          comment: { id: 900 + resolved.size, body: args.find(arg => arg.startsWith("body="))!.slice(5), user: { login: "repair-bot", type: "Bot" } },
+        });
+      }
       if (query.includes("resolveReviewThread(input:")) {
         const id = args.find(arg => arg.startsWith("id="))!.slice(3);
         resolved.add(id);

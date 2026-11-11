@@ -25,6 +25,8 @@ const bundledPreviewPackages = /^(?:@vite-hub\/internal|@t3tools\/(?:provider-ru
 const bundledPreviewImporters = /[\\/]node_modules[\\/](?:@t3tools[\\/](?:provider-runtime|contracts)|forges|effect)[\\/]/;
 
 function alwaysBundle(id: string, importer: string | undefined): boolean {
+  // The default invocation journal must work without the optional Database package.
+  if (id === "@vite-hub/database/runtime/libsql-drizzle") return true;
   if (bundledPreviewPackages.test(id)) return true;
   return !!importer && bundledPreviewImporters.test(importer) && !isBuiltin(id);
 }

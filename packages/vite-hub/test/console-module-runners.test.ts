@@ -30,12 +30,11 @@ it("shows the sections that one module runner installs in the Console of another
   const route = await moduleRunner(() => import("../src/console/runtime/server/sections.ts"))
   expect(route.installConsoleSections).not.toBe(generated.installConsoleSections)
 
-  generated.installConsoleSections("/project", ["agents", "kv"], true)
+  generated.installConsoleSections("/project", ["agents", "kv"])
   generated.installConsoleProjectName("/project", "app")
 
   expect(route.getConsoleSections()).toEqual(["agents", "kv"])
   expect(route.getConsoleProjectName()).toBe("app")
-  expect(route.getConsoleAuth()).toBe(true)
 })
 
 it("shows an Agent invocation from one module runner in the Console of another", async () => {
