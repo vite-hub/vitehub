@@ -1508,6 +1508,15 @@ describe("ViteHub Nuxt integration", () => {
     await discovery.runCloseHook()
   })
 
+  it.each([undefined, false] as const)("passes console: %o to vitehub(), which decides on the development operation RPC", async (value) => {
+    const application = createNuxt(true)
+    await viteHubNuxtModule({ console: value, env: false, preset: "node" }, application.nuxt)
+
+    const options: unknown = mocks.vitehub.mock.lastCall?.[0]
+    expect(options).toHaveProperty("console", value)
+    await application.runCloseHook()
+  })
+
   it.each([false, true])("carries the Node data directory into the Nuxt Agent journal with the Console on: %s", async (consoleOn) => {
     await rm(agentJournalPlugin, { force: true })
     const application = createNuxt(false)
