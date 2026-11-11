@@ -22,6 +22,7 @@ import {
   type CommentRowSlotScope,
 } from "../src/index.ts";
 import { mentionQuery, rankPeople } from "../src/internal/comment-mentions.ts";
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
 const ben: CommentUser = { id: "ben", name: "Ben Soto" };
@@ -198,6 +199,20 @@ describe("composer mentions", () => {
     await field.trigger("keydown", { key: "Escape" });
     await flushPromises();
     expect(wrapper.emitted("cancel")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("keeps the text while Esc is held down", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    await field.trigger("keydown", { key: "Escape" });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
     await field.trigger("keydown", { key: "Escape" });
     await flushPromises();
     expect(wrapper.emitted("cancel")).toHaveLength(1);
@@ -617,8 +632,8 @@ describe("layer draft uploads", () => {
 describe("RPC attachments", () => {
   it.each<Component>([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const { operation, input } = JSON.parse(String(init?.body));
-      return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
+      const { operation, input } = operationRpcRequest(init?.body) as { operation: string, input: { attachments: string[], body: string } };
+      return operationRpcResponse(init?.body, { ok: true, value: operation === "comments.list" ? [] : thread(1, {
         messages: [message("message-1", { attachments: input.attachments, body: input.body })],
       }) });
     });
@@ -646,7 +661,7 @@ describe("RPC attachments", () => {
   });
 
   it.each<Component>([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
-    const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+    const transport = createRpcTransport({ fetch: async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: [] }) });
     transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });
     const upload = vi.fn(async () => ["uploads/shot.png"]);
@@ -984,7 +999,11 @@ describe("composer layout", () => {
     document.documentElement.style.fontSize = "";
   });
 
-  async function draftLayer() {
+  async function draftLayer(width = 288) {
+    // happy-dom has no layout. Supply the measured width, independently of CSS and the root font size.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "comment-layer-popover" ? width : 0;
+    });
     const comments = client();
     let state!: ReturnType<typeof useComments>;
     const wrapper = keep(mount(defineComponent({
@@ -1030,10 +1049,12 @@ describe("composer layout", () => {
     { viewport: 1024, rem: 16, x: 900, left: 604, flipped: true },
     { viewport: 240, rem: 16, x: 100, left: 8, flipped: false },
     { viewport: 400, rem: 20, x: 50, left: 30, flipped: false },
-  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, x, left, flipped }) => {
+    { viewport: 375, rem: 16, width: 300, x: 100, left: 67, flipped: false },
+    { viewport: 375, rem: 10, width: 300, x: 180, left: 70, flipped: false },
+  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, width = Math.min(18 * rem, viewport - rem), x, left, flipped }) => {
     vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
     document.documentElement.style.fontSize = `${rem}px`;
-    const { state, wrapper } = await draftLayer();
+    const { state, wrapper } = await draftLayer(width);
     const target = document.createElement("div");
     document.body.append(target);
     state.startDraft(target, { point: { x, y: 100 } });
