@@ -194,9 +194,10 @@ their filesystems are temporary.
 ## Keep SQLite transcripts
 
 Pass `transcripts: { retention: 'forever' }` to `createLibsqlAgentState()` from
-`vite-hub/agent/state/sqlite`. Startup cleanup then clears transcript expiry,
-also on rows that already expired, and later transcript TTLs are ignored. Other
-cached state expires as usual. Rows deleted before you set this are lost.
+`vite-hub/agent/state`. The adapter then clears transcript expiry during
+startup cleanup, including rows that already expired, and ignores later
+transcript TTLs. Other cached state keeps its normal expiry. ViteHub cannot
+recover rows that it deleted before you enabled this option.
 
 ## Inspect the result
 
