@@ -32,6 +32,14 @@ describe("diagnostic catalogs", () => {
     expect(code("QUEUE_PROVIDER_FAILED").group).toBe("Runtime errors")
   })
 
+  it("reads the `code(why, fix, docs, action)` helper of the Console catalog", () => {
+    expect(code("CONSOLE_SIGNATURE_STALE")).toMatchObject({
+      pkg: "vite-hub",
+      why: "The request was signed more than 5 minutes before or after the app clock.",
+      fix: "Sync the clock of the machine that signs, then send the request again.",
+    })
+  })
+
   it("reads the message that a call site passes to a numbered code", () => {
     expect(code("BLOB_R0001")).toMatchObject({ why: null, sites: [expect.objectContaining({ file: "packages/blob/src/drivers/cloudflare-native.ts", message: "R2 binding \"<binding>\" not found" })] })
   })
@@ -82,6 +90,26 @@ describe("catalog object references", () => {
   it.each(["loadCodes()", "missing", "cycle"])("fails explicitly for unreadable codes: %s", (expression) => {
     expect(() => readFixture(`const cycle = cycle; defineDiagnostics({ codes: ${expression} });`))
       .toThrow("Cannot read diagnostic codes in packages/example/src/diagnostics.ts:1")
+  })
+
+  it("reads `why` and `fix` that a same-file helper takes by parameter name", () => {
+    const found = readFixture(`
+      const guide = "https://example.com/guide";
+      const code = (why: string, fix: string, docs: string, action: string) => ({ why: () => why, fix, docs, data: { action } });
+      function guidance(fix: string) { return { fix }; }
+      defineDiagnostics({ codes: {
+        EXAMPLE_FAILED: code("Failed.", \`Set \${guide}.\`, guide, "docs"),
+        EXAMPLE_RETRY: guidance("Retry."),
+        EXAMPLE_COMPUTED: code(reason, fixText, guide, "docs"),
+        EXAMPLE_UNKNOWN: imported("Not read."),
+      } });
+    `)
+    expect(found.map(({ code, why, fix }) => ({ code, why, fix }))).toEqual([
+      { code: "EXAMPLE_COMPUTED", why: null, fix: null },
+      { code: "EXAMPLE_FAILED", why: "Failed.", fix: "Set <guide>." },
+      { code: "EXAMPLE_RETRY", why: null, fix: "Retry." },
+      { code: "EXAMPLE_UNKNOWN", why: null, fix: null },
+    ])
   })
 
   it.each(['docs: "https://example.com/guide#failed"', "docs"])("reads per-code URL overrides: %s", (property) => {

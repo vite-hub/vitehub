@@ -11,8 +11,6 @@ import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
 import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 
-import { resolveConsoleOrigins } from "./console/vite.ts"
-
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { SetupCommandRunner, SetupSession, SetupSessionResult } from "@vite-hub/cli/setup"
 import type { ViteHubDevEndpointServer } from "@vite-hub/internal/dev-endpoint"
@@ -28,8 +26,6 @@ const label = "Setup"
 const maxBodyBytes = 64 * 1024
 
 export interface SetupDevPluginOptions {
-  /** The same exact browser origins as `console.origins`. Defaults to the hosted Console. */
-  origins?: readonly string[]
   /** Runs the package manager. Tests pass a fake runner. */
   run?: SetupCommandRunner
 }
@@ -71,10 +67,11 @@ function isLoopbackPeer(req: IncomingMessage): boolean {
 }
 
 /**
- * Loopback `Host` and `Origin`, explicit Console origins, and host names that `server.allowedHosts` lists one by one. An IP literal of the
- * network, `allowedHosts: true`, or `server.https` does not open the Setup endpoints, because they write files.
+ * Loopback `Host` and `Origin`, and host names that `server.allowedHosts` lists one by one. An IP literal of the network,
+ * `allowedHosts: true`, or `server.https` does not open the Setup endpoints, because they write files. The dev endpoint
+ * guard then accepts only the origin of this server.
  */
-export function isSetupDevRequestAllowed(server: Pick<ViteHubDevEndpointServer, "config">, req: Pick<IncomingMessage, "headers">, origins: readonly string[] = []): boolean {
+export function isSetupDevRequestAllowed(server: Pick<ViteHubDevEndpointServer, "config">, req: Pick<IncomingMessage, "headers">): boolean {
   const allowed = server.config.server.allowedHosts
   const explicit = Array.isArray(allowed) ? allowed.map(host => host.toLowerCase()).filter(host => !host.startsWith(".")) : []
   const accepts = (name: string) => isLoopback(name) || explicit.includes(name)
@@ -82,7 +79,6 @@ export function isSetupDevRequestAllowed(server: Pick<ViteHubDevEndpointServer, 
   if (!host || !accepts(hostname(host))) return false
   const origin = req.headers.origin
   if (origin === undefined) return true
-  if (origins.includes(origin)) return true
   try {
     // The URL parser keeps the brackets of an IPv6 host, as in `[::1]`.
     return accepts(new URL(origin).hostname.toLowerCase())
@@ -103,6 +99,8 @@ async function authorizeSetupApply(server: ViteDevServer, req: IncomingMessage):
   if (!address || !port) return new Response("The Console access check is unavailable.", { status: 503 })
   const headers: Record<string, string | string[]> = {}
   const transportHeaders = new Set(["connection", "content-length", "transfer-encoding", "content-encoding", "expect", "upgrade", "keep-alive", "te", "trailer"])
+  // Setup takes only same-origin calls, so the browser headers pass the same-origin check of the Console RPC as they are.
+  // A caller without Origin or Fetch Metadata, such as a local tool with the dev token, gets the RPC header instead.
   for (const [name, value] of Object.entries(req.headers)) {
     if (value !== undefined && !transportHeaders.has(name)) headers[name] = value
   }
@@ -215,38 +213,8 @@ function openEvents(state: SetupDevState, req: IncomingMessage, res: ServerRespo
   res.once("close", close)
 }
 
-function register(server: ViteDevServer, state: SetupDevState, origins: readonly string[]): void {
-  const methods: Readonly<Record<string, string>> = { session: "GET", catalog: "GET", status: "GET", plan: "POST", apply: "POST", events: "GET" }
-  const allowedHeaders = ["accept", "authorization", "content-type", "x-vitehub-setup", viteHubDevTokenHeader]
-  // A hosted Console may reach a local project only through its explicit origin list and a local TCP connection.
-  // Preflights carry no token. They grant only permission to send the headers that the endpoint checks below.
-  server.middlewares.use((req, res, next) => {
-    const path = new URL(req.url || "/", "http://localhost").pathname
-    const method = Object.entries(methods).find(([route]) => path === `${setupDevRoute}/${route}`)?.[1]
-    const origin = req.headers.origin
-    if (!method || !origin || !origins.includes(origin)) return next()
-    if (!isSetupDevRequestAllowed(server, req, origins) || !isLoopbackPeer(req)) {
-      res.statusCode = 403
-      res.end("Open Setup through a local connection or an SSH port forward.")
-      return
-    }
-    res.setHeader("access-control-allow-origin", origin)
-    res.setHeader("vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers")
-    res.setHeader("cache-control", "no-store")
-    if (req.method !== "OPTIONS") return next()
-    const requested = String(req.headers["access-control-request-headers"] ?? "").toLowerCase().split(",").map(header => header.trim()).filter(Boolean)
-    if (req.headers["access-control-request-method"] !== method || requested.some(header => !allowedHeaders.includes(header))) {
-      res.statusCode = 403
-      res.end("Forbidden Setup preflight.")
-      return
-    }
-    res.setHeader("access-control-allow-methods", method)
-    res.setHeader("access-control-allow-headers", allowedHeaders.join(", "))
-    if (req.headers["access-control-request-private-network"] === "true") res.setHeader("access-control-allow-private-network", "true")
-    res.statusCode = 204
-    res.end()
-  })
-  const authorize = (req: IncomingMessage) => isSetupDevRequestAllowed(server, req, origins) ? undefined : forbidden()
+function register(server: ViteDevServer, state: SetupDevState): void {
+  const authorize = (req: IncomingMessage) => isSetupDevRequestAllowed(server, req) ? undefined : forbidden()
   const guarded = (route: string, method: "GET" | "POST", handle: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void) => registerViteHubDevEndpoint(server, {
     authorize: async req => authorize(req) ?? (route === "apply" ? await authorizeSetupApply(server, req) : undefined),
     handle: (req, res) => {
@@ -259,28 +227,26 @@ function register(server: ViteDevServer, state: SetupDevState, origins: readonly
     headerValue: state.token,
     label,
     methods: [method],
-    origins,
     route: `${setupDevRoute}/${route}`,
   })
   const respond = (res: ServerResponse, result: SetupSessionResult) => writeJson(res, setupHttpStatus(result), result.body)
 
   // Only a local TCP peer can bootstrap the credential; Host and Fetch Metadata can be forged by network clients.
-  // The non-simple header forces a browser preflight across origins. The shared guard checks the exact Origin list,
-  // and Fetch Metadata, when present, adds another check. HTTP hostnames can omit that metadata.
+  // The shared guard accepts only the origin of this server, and Fetch Metadata, when present, adds another check.
+  // HTTP hostnames can omit that metadata.
   registerViteHubDevEndpoint(server, {
     authorize: (req) => {
       const rejection = authorize(req)
       if (rejection) return rejection
       if (!isLoopbackPeer(req)) return new Response("Open Setup through a local connection or an SSH port forward.", { status: 403 })
       const site = req.headers["sec-fetch-site"]
-      return site === undefined || site === "same-origin" || (req.headers.origin !== undefined && origins.includes(req.headers.origin)) ? undefined : new Response(`Forbidden ${label} request.`, { status: 403 })
+      return site === undefined || site === "same-origin" ? undefined : new Response(`Forbidden ${label} request.`, { status: 403 })
     },
     handle: (_req, res) => writeJson(res, 200, { route: setupDevRoute, schemaVersion: 1, serverId: state.serverId, token: state.token }),
     header: "x-vitehub-setup",
     headerValue: "session",
     label,
     methods: ["GET"],
-    origins,
     route: `${setupDevRoute}/session`,
   })
   guarded("catalog", "GET", (_req, res) => respond(res, state.session.catalog()))
@@ -301,13 +267,14 @@ function register(server: ViteDevServer, state: SetupDevState, origins: readonly
  * The dev Setup endpoints below `/__vitehub/setup`, on the Vite dev server only (`apply: "serve"`). They do what
  * `vitehub status`, `catalog`, `add`, and `remove` do, with the same engine and documents:
  *
- * - `GET session`: the server id and the token, for a same-origin page or a listed Console origin on a local connection (`x-vitehub-setup: session`).
+ * - `GET session`: the server id and the token, for a same-origin page on a local connection (`x-vitehub-setup: session`).
  * - `GET catalog`, `GET status`: the `--json` documents.
  * - `POST plan`: `{ action, features, ... }` gives the `--dry-run --json` plan with a `planId`.
  * - `POST apply`: `{ planId }` applies that plan once, when no file that it read has changed.
  * - `GET events`: Server-Sent Events: `hello` with the server id, then install `log` lines and `applied`.
  *
- * Every route except `session` needs the `x-vitehub-dev-token` header. The server owns the project root: a request
+ * Every route except `session` needs the `x-vitehub-dev-token` header. Only pages of this dev server, such as its DevTools,
+ * and local tools that read the token file may call them: there is no CORS. The server owns the project root: a request
  * never names a path or a command. Remote servers need local port forwarding to bootstrap a session.
  */
 export function setupDevPlugin(options: SetupDevPluginOptions = {}): Plugin {
@@ -325,7 +292,7 @@ export function setupDevPlugin(options: SetupDevPluginOptions = {}): Plugin {
         session: createSetupSession({ env: process.env, root, run: options.run ?? runSetupCommand }),
         token,
       }
-      register(server, state, resolveConsoleOrigins(options.origins))
+      register(server, state)
       const close = server.close.bind(server)
       server.close = async () => {
         for (const res of state.events) res.end()

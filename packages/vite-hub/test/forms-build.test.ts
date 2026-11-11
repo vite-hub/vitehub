@@ -76,7 +76,7 @@ describe("Forms in a built Nitro 3 app", () => {
     // No `database` option: `server/forms/` turns it on.
     const port = await freePort()
     const publicUrl = `http://127.0.0.1:${port}`
-    const app = () => vitehub({ console: { auth: "token" }, preset: "node", publicUrl })
+    const app = () => vitehub({ console: true, preset: "node", publicUrl })
     const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])

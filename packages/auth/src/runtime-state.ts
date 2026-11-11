@@ -23,6 +23,17 @@ export interface AuthRuntimeState {
   adminClaimQueues?: Map<string, Promise<boolean>>
 }
 
+/**
+ * Marks the database that Auth adds to a Definition without one. It keeps rows in the memory of one process, so a value
+ * that another instance must see, such as a one-time ticket, cannot live there.
+ */
+export const authProcessMemoryDatabase: unique symbol = Symbol.for("vitehub.auth.processMemoryDatabase")
+
+/** Whether a Better Auth `database` option is the process memory database that Auth adds. */
+export function isAuthProcessMemoryDatabase(database: unknown): boolean {
+  return database instanceof Object && Reflect.get(database, authProcessMemoryDatabase) === true
+}
+
 export function getAuthRuntimeState(): AuthRuntimeState {
   // SAFETY: only this module writes the private `vitehub.auth.runtime` symbol, and it always stores an AuthRuntimeState.
   const globalScope = globalThis as typeof globalThis & {
