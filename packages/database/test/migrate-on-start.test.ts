@@ -14,7 +14,7 @@ import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/int
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
 import { hubDb } from "../src/nuxt.ts"
-import { migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
+import { ensureDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
 import { hubDb as hubDbVite } from "../src/vite.ts"
 
 import type { PostgresMigrationSql } from "../src/runtime/migrate-on-start.ts"
@@ -55,8 +55,14 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
   return dir
 }
 
-/** Runs the Nuxt module and bundles a production or prerender entry that imports Nitro's plugins first. */
-async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = [], prerender = false) {
+const selectUsers = [
+  'import { useDatabase } from "@vite-hub/database/drizzle"',
+  'const { db, schema } = useDatabase("default")',
+  "console.log(JSON.stringify(await db.select().from(schema.users)))",
+]
+
+/** Runs the Nuxt module and bundles a production or prerender entry that imports Nitro's plugins first, then runs `body`. */
+async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = [], prerender = false, body = selectUsers) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
   await hubDb(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
@@ -70,11 +76,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
-    ...prerender ? ['console.log("prerendered")'] : [
-      'import { useDatabase } from "@vite-hub/database/drizzle"',
-      'const { db, schema } = useDatabase("default")',
-      "console.log(JSON.stringify(await db.select().from(schema.users)))",
-    ],
+    ...prerender ? ['console.log("prerendered")'] : body,
   ].join("\n"))
   const output = join(root, "server.output.mjs")
   await build({
@@ -485,6 +487,104 @@ describe("database.migrateOnStart", () => {
     await expect(migrateOnStart([{ db: { $client: client }, dialect: "sqlite" as const, migrations: [], name: "remote" }])).rejects.toMatchObject({
       code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
       why: expect.stringContaining("libSQL over https"),
+    })
+  })
+})
+
+describe("ensureMigrations", () => {
+  // Parallel calls and a later call, then the rows of `users`.
+  const ensureThenSelect = [
+    'import { ensureMigrations } from "@vite-hub/database/drizzle"',
+    'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
+    "await ensureMigrations()",
+    ...selectUsers,
+  ]
+
+  it("applies the migrations once from a server without the start plugin", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init, seed])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    // SQLite does not migrate on start unless the app sets `migrateOnStart: true`.
+    const server = await buildNodeServer(root, { connection: { url } }, [], false, ensureThenSelect)
+    expect(server.config.plugins).toBeUndefined()
+
+    expect((await server.start()).stdout.trim().split("\n")).toEqual([
+      '[vitehub] Database "default": applied 20231114221320_init.',
+      '[vitehub] Database "default": applied 20231114221321_seed.',
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+    // A new process reads the ledger and finds nothing pending.
+    expect((await server.start()).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
+  })
+
+  it("shares the run of the start plugin", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init, seed])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    // Without the ledger, a run of its own would apply `init` again and fail on the existing table.
+    const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true }, [], false, [
+      'import { useDatabase as useStartDatabase } from "@vite-hub/database/drizzle"',
+      'await useStartDatabase("default").db.$client.execute("DROP TABLE __drizzle_migrations")',
+      ...ensureThenSelect,
+    ])
+    expect(server.config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect((await server.start()).stdout.trim().split("\n")).toEqual([
+      '[vitehub] Database "default": applied 20231114221320_init.',
+      '[vitehub] Database "default": applied 20231114221321_seed.',
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+  })
+
+  it("forgets a failed run, so the next call applies the migrations", async () => {
+    const root = await createProject()
+    const client = createClient({ url: `file:${join(root, "retry.sqlite")}` })
+    try {
+      const gated = { dataLoss: [], hash: "gated", name: "20231114221320_gated", statements: ["INSERT INTO `gate` (`id`) VALUES (1)"], when: init.when }
+      let loads = 0
+      const context = {
+        databases: { sqliteRetry: { db: drizzle({ client }) } },
+        load: async () => {
+          loads++
+          return { allowDataLoss: false, databases: { sqliteRetry: { dialect: "sqlite" as const, migrations: [gated] } } }
+        },
+      }
+      await expect(ensureDatabaseMigrations(context)).rejects.toThrow("no such table: gate")
+      expect((await client.execute("SELECT name FROM sqlite_master WHERE name = '__drizzle_migrations'")).rows).toEqual([])
+
+      await client.execute("CREATE TABLE `gate` (`id` integer)")
+      await ensureDatabaseMigrations(context, ["sqliteRetry"])
+      await ensureDatabaseMigrations(context, ["sqliteRetry"])
+      // The failed run and one new run: the third call shares the second.
+      expect(loads).toBe(2)
+      expect((await client.execute("SELECT count(*) FROM gate")).rows[0]?.[0]).toBe(1)
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("ships the migrations to `ensureMigrations()` in a Vite build, and none to Cloudflare", async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init])
+    const load = async (config: Record<string, unknown>) => {
+      const plugin = hubDbVite({ migrateOnStart: { allowDataLoss: true } })
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root, ...config })
+      const id = (plugin.resolveId as (id: string) => string | undefined)("#vitehub/database/migrations")
+      const code = (plugin.load as (id: string) => string | undefined)(id!)!
+      return JSON.parse(code.replace(/^export default /, ""))
+    }
+    const node = await load({ command: "build", nitro: { preset: "node-server" } })
+    expect(node).toMatchObject({ allowDataLoss: true, databases: { default: { dialect: "sqlite", migrations: [{ name: init.tag, when: init.when }] } } })
+    expect(await load({ command: "build", nitro: { preset: "cloudflare-module" } })).toEqual({ allowDataLoss: false, databases: {}, unsupported: "The build targets cloudflare." })
+  })
+
+  it("rejects a Database that is not configured, and a build that cannot migrate", async () => {
+    const load = async () => ({ allowDataLoss: false, databases: {}, unsupported: "The build targets cloudflare." })
+    await expect(ensureDatabaseMigrations({ databases: {}, load }, ["missing"])).rejects.toMatchObject({ code: "DATABASE_NOT_FOUND" })
+    await expect(ensureDatabaseMigrations({ databases: { sqliteUnsupported: { db: {} } }, load })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
+      why: expect.stringContaining("The build targets cloudflare."),
     })
   })
 })

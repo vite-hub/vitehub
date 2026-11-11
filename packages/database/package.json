@@ -43,6 +43,7 @@
       "default": "./dist/runtime/definition-local.js"
     },
     "#vitehub/database/libsql": "./dist/runtime/libsql.js",
+    "#vitehub/database/migrations": "./dist/runtime/virtual-migrations.js",
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {

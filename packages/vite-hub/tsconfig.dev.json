@@ -10,6 +10,7 @@
       "#vitehub/agent/provider-agent": ["../../packages/agent/src/provider-agent.ts"],
       "#vitehub/auth/definition": ["../../packages/auth/src/runtime/empty-definition.ts"],
       "#vitehub/database/databases": ["../../packages/database/src/runtime/virtual-databases.ts"],
+      "#vitehub/database/migrations": ["../../packages/database/src/runtime/virtual-migrations.ts"],
       "#vitehub/database/schema": ["../../packages/database/src/runtime/virtual-schema.ts"],
       "#vitehub-sandbox-task-provider-loader": ["../../packages/sandbox/src/task/runtime/provider-loader.ts"],
       "#vitehub-sandbox-task-registry": ["../../packages/sandbox/src/task/runtime/empty-registry.ts"],

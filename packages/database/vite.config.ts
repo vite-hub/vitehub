@@ -17,6 +17,7 @@ const privateEntries = new Set([
   "./runtime/postgres",
   "./runtime/use-database",
   "./runtime/virtual-databases",
+  "./runtime/virtual-migrations",
   "./runtime/virtual-schema",
 ]);
 
@@ -29,7 +30,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
+      neverBundle: ["vite", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql", "#vitehub/database/migrations"],
       onlyBundle: false,
     },
     plugins: [{
@@ -70,6 +71,7 @@ export default defineConfig({
       "src/runtime/state.ts",
       "src/runtime/use-database.ts",
       "src/runtime/virtual-databases.ts",
+      "src/runtime/virtual-migrations.ts",
       "src/runtime/virtual-schema.ts",
     ],
     exports: {
