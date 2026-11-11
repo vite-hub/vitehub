@@ -94,6 +94,32 @@ Set `mcp: { auth: false }` for a public server in an app with Auth.
 | --- | --- | --- |
 | `route` | `/mcp` | The path of the server below the application base. |
 | `auth` | `true` with `auth` | Require an access token from `mcpOAuth()`. |
+| `publicRoute` | none | A second path that serves the tools with `public: true` without sign-in. |
+
+## Serve public tools without sign-in
+
+MCP clients do not sign in on an address that answers without a token. To give some tools to anyone and all tools to people who sign in, serve two addresses:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true, mcp: { route: '/mcp/account', publicRoute: '/mcp' } })],
+})
+```
+
+```ts [server/mcp/tools/search.ts]
+import { defineMcpTool } from 'vite-hub/mcp'
+
+export default defineMcpTool({
+  description: 'Search the public pages.',
+  public: true,
+  handler: () => 'results',
+})
+```
+
+`/mcp` lists only the tools with `public: true`. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
 
 ## Connect an Agent
 

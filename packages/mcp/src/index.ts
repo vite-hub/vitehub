@@ -37,6 +37,10 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
   input?: TInput
   annotations?: McpToolAnnotations
   /**
+   * Also serve the tool at `mcp.publicRoute`, where anyone may call it without sign-in. There, `caller` is `undefined`.
+   */
+  public?: boolean
+  /**
    * Runs the call. A string becomes one text block. Another value becomes JSON text, and an object is also the
    * `structuredContent`. An object with a `content` array of blocks, such as `{ content: [{ type: "image", ... }] }`, is
    * sent as the MCP tool result.
@@ -78,4 +82,9 @@ export interface McpOptions {
    * Set `false` for a public server, or to check callers in each handler.
    */
   auth?: boolean
+  /**
+   * A second route, such as `/mcp`, that serves only the tools with `public: true`, with no sign-in. MCP clients do not
+   * sign in on a route that answers without a token, so the tools that need a person stay on `route`.
+   */
+  publicRoute?: string
 }
