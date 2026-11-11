@@ -11,15 +11,35 @@ export interface ConsoleSessionAuthorizeContext {
   via?: undefined
 }
 
-/** The request that `console.authorize` checks with `auth: "token"`. It sent the Console token, so it has no user. */
-export interface ConsoleTokenAuthorizeContext {
+/**
+ * The request that `console.authorize` checks with `auth: "token"` when the ViteHub Console signed it. The Console signs
+ * the person who called, so the app can check who edits. The holder of the key asserts the person: trust it as much as
+ * the key.
+ */
+export interface ConsoleSignedConsoleAuthorizeContext {
+  request: Request
+  /** The person signed in to the Console. */
+  user: ConsoleUser
+  /** The Console team that linked the app, and the role of `user` in it, such as `owner`, `admin`, or `member`. */
+  team?: { id: string, role?: string }
+  /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` variable whose key verified the signature. */
+  key: string
+  /** `"mcp"` when the ViteHub MCP of the Console calls for `user`, such as from Claude Code. Not set for the Console page. */
+  surface?: "mcp"
+  via: "console"
+}
+
+/** The request that `console.authorize` checks with `auth: "token"` when the CLI signed it. The CLI has no user. */
+export interface ConsoleSignedCliAuthorizeContext {
   request: Request
   user?: undefined
-  via: "token"
+  /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` variable whose key verified the signature. */
+  key: string
+  via: "cli"
 }
 
 /**
- * The check for an Agent that calls Console operations as tools. No browser request and no token reach it: the request has
+ * The check for an Agent that calls Console operations as tools. No browser request and no signature reach it: the request has
  * no headers, and `user` is the person the Agent acts for, when there is one.
  */
 export interface ConsoleAgentAuthorizeContext {
@@ -29,10 +49,10 @@ export interface ConsoleAgentAuthorizeContext {
 }
 
 /**
- * The request that `console.authorize` checks. `via` is `"token"` when the caller sent a valid Console token, and
- * `"agent"` when an Agent calls Console operations as tools.
+ * The request that `console.authorize` checks. With `auth: "token"`, `via` is `"console"` or `"cli"`: who signed the
+ * request. `via` is `"agent"` when an Agent calls Console operations as tools.
  */
-export type ConsoleAuthorizeContext = ConsoleSessionAuthorizeContext | ConsoleTokenAuthorizeContext | ConsoleAgentAuthorizeContext
+export type ConsoleAuthorizeContext = ConsoleSessionAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext
 
 /**
  * What `console.authorize` returns for one request.
