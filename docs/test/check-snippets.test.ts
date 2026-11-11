@@ -552,7 +552,7 @@ export default defineDatabase({ schema: { users, posts }, relations: defineRelat
   users: { posts: r.many.posts() },
   posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },
 })) })`),
-      ...["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap((module, index) => [
+      ...["@vite-hub/database", "vite-hub/database"].flatMap((module, index) => [
         snippet(`valid-${index}.ts`, `import { useDatabase } from '${module}'
 export const rows: Promise<Array<{ id: number, posts: Array<{ id: number }> }>> = useDatabase('default').db.query.users.findMany({ with: { posts: true } })`),
         snippet(`wrong-relation-${index}.ts`, `import { useDatabase } from '${module}'
