@@ -7,7 +7,14 @@ export function mountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
 }
 
-type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route?: string }
+type NitroHandler = { handler: string; lazy?: boolean; meta?: Record<string, unknown>; method?: string | string[]; middleware?: boolean; route?: string }
+
+/**
+ * The route `meta` of the Console handler. App Auth access routes leave a request that Nitro routes to it to the
+ * Console's own check (`authAccessHandlerMeta` of `@vite-hub/auth/runtime/server`). The exception follows the dispatch,
+ * so an app route file on the same path keeps the app Auth access routes.
+ */
+export const consoleRouteMeta = { vitehubAuthAccess: "handler" } as const
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 
 /**
@@ -91,6 +98,8 @@ export function addConsoleRpcHandler(
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${route}" because that route already uses "${conflict.handler}".` })
     }
     const handler: NitroHandler = { handler: registration.handler, route }
+    // The RPC route checks its own access: a signed POST has no app session, and a ticket GET has the ticket as proof.
+    handler.meta = { ...consoleRouteMeta }
     // The Console's routes import Agents, Workspaces, Sources, and Comark. Loaded on their first request, they stay out
     // of every cold start of the app around them.
     handler.lazy = true

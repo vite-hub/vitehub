@@ -17,8 +17,6 @@ export interface AuthRuntimeState {
   envResolver?: AuthRuntimeEnvResolver
   envResolvers?: WeakMap<object, AuthRuntimeEnvResolver>
   accessIdentityResolvers?: Map<string, AuthAccessIdentityResolver>
-  /** `METHOD /route` entries that the access routes leave to their own handler. See `excludeAuthAccessRoute()`. */
-  accessExcludedRoutes?: Set<string>
   /** The in-memory tables of each Auth Definition without a database, shared by all of its Better Auth instances. */
   memoryDatabases?: WeakMap<object, Record<string, unknown[]>>
   /** Serializes claim reservations across Auth instances in this process. */
