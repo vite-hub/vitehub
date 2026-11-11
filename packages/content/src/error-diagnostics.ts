@@ -76,5 +76,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the `default` KV store of the app. On Cloudflare, bind a KV namespace as `KV`. On Vercel, set `KV_REST_API_URL` and `KV_REST_API_TOKEN`. `vitehub kv get <key>` reads the head.",
       why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] The KV store failed on ${JSON.stringify(key)} for Content source ${JSON.stringify(source)}: ${reason}. Reads do not fail: they serve the commit that this server already serves, or the latest commit of the branch without validation, and try KV again after 5 seconds.`,
     },
+    /** Content could not store a parsed commit in ViteHub KV, so other server instances download and parse it again. */
+    CONTENT_R0023: {
+      fix: "Check the `default` KV store. A host can limit the size of one value: Cloudflare KV takes up to 25 MiB. `content.sources.head()` shows the cache key and how many reads missed.",
+      why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] Content could not store ${key} of Content source ${JSON.stringify(source)} in KV: ${reason}`,
+    },
   },
 })
