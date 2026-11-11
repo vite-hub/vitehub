@@ -15,7 +15,7 @@ const originsKey: unique symbol = Symbol.for("vitehub.console.origins")
 const scope = globalThis as typeof globalThis & { [originsKey]?: readonly string[] }
 
 /** The Console data routes that answer a cross-origin call and accept a bearer token, below any application mount. */
-export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay", "/_vitehub/schedules/run"]
+export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc/__call", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/schedules/run"]
 
 /** The request headers that a listed origin may send. The CLI surface and project headers stay same-origin. */
 export const consoleCorsAllowedHeaders = "authorization, content-type, x-vitehub-console"

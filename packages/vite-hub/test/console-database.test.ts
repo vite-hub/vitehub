@@ -10,6 +10,9 @@ import {
   parseConsoleDatabase,
 } from "../src/console/runtime/components/console-database-model.ts";
 import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts";
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
 
 const users = sqliteTable("users", {
@@ -50,9 +53,29 @@ async function database(name = "default") {
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();
   delete consoleState().database;
+  delete consoleState().sections;
+  delete consoleState().navigationSections;
 });
 
 describe("Console database inspection", () => {
+  it("serves local table and row operations with Setup-only navigation", async () => {
+    installConsoleSections("/project", ["setup", "databases"], false, ["setup"]);
+    installConsoleDatabase("/project", { default: await database() }, ["default"]);
+    for (const [operation, input, expected] of [
+      ["sections.list", {}, { sections: ["setup"] }],
+      ["databases.tables", {}, { tables: [expect.objectContaining({ name: "posts" }), expect.objectContaining({ name: "users" })] }],
+      ["databases.browse", { table: "users" }, { table: "users", total: 3 }],
+    ] as const) {
+      const response = await handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc/__call", {
+        body: JSON.stringify({ input, operation }),
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      }), { remoteAddress: "127.0.0.1" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, value: expected });
+    }
+  });
+
   it("omits table controls from schema requests", () => {
     expect(
       consoleDatabaseRequestQuery({

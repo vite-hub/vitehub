@@ -11,7 +11,6 @@ import { requestEvent } from "./console-event.ts"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import consolePreflightPlugin from "../src/console/runtime/server/console-preflight.ts"
 import { consoleTokenMatchesHash } from "../src/console/runtime/server/console-token.ts"
 import { answerConsolePreflight, installConsoleOrigins, isConsoleCrossOriginCall, withConsoleCors } from "../src/console/runtime/server/cors.ts"
@@ -284,21 +283,6 @@ describe("console.origins", () => {
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
   })
-
-  it("lets Channel replay take a token call from a listed origin", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
-    install({ mode: "token" })
-    const replay = (origin: string) => channelReplayHandler.fetch(new Request(`${app}/_vitehub/channels/replay`, {
-      body: JSON.stringify({}),
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin },
-      method: "POST",
-    }))
-    const listed = await replay(consoleOrigin)
-    // The origin check passed: the route now asks for an Agent name.
-    expect(listed.status).toBe(400)
-    expect(listed.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
-    expect((await replay("https://evil.example")).status).toBe(403)
-  })
 })
 
 describe("Console preflight", () => {
@@ -306,7 +290,7 @@ describe("Console preflight", () => {
     return new Request(`${app}${path}`, { headers: { "access-control-request-headers": "authorization, content-type", "access-control-request-method": method, origin }, method: "OPTIONS" })
   }
 
-  it.each(["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay", "/portal/_vitehub/rpc/__call"])("answers a listed origin at %s", async (path) => {
+  it.each(["/_vitehub/rpc/__call", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/portal/_vitehub/rpc/__call"])("answers a listed origin at %s", async (path) => {
     installConsoleOrigins([consoleOrigin])
     const response = answerConsolePreflight(defineHandlerEvent(preflight(path, consoleOrigin)))
     expect(response?.status).toBe(204)

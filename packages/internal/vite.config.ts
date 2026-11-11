@@ -24,6 +24,7 @@ export default defineConfig({
       "src/deployment.ts",
       "src/dev-endpoint.ts",
       "src/dev-peer.ts",
+      "src/dev-token.ts",
       "src/dispatch.ts",
       "src/env.ts",
       "src/features.ts",

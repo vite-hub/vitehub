@@ -81,10 +81,14 @@ export interface ConsoleState {
   definitions?: ConsoleSectionCatalog
   /** Whether generated output was created for a development server. */
   development?: boolean
+  /** The Setup endpoint route, installed only in development output. */
+  setupRoute?: string
   documents?: ConsoleDocumentEditors
   env?: ConsoleEnvInspection
   projectName?: string
   sections?: readonly ConsoleSectionId[]
+  /** Sections shown in navigation when local operations have more runtime sections installed. */
+  navigationSections?: readonly ConsoleSectionId[]
 }
 
 export function consoleState(): ConsoleState {

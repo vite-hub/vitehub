@@ -161,7 +161,7 @@ export function consoleAuthConfig(options: ConsoleOptions | false | undefined): 
 }
 
 export interface ConsoleVitePluginOptions {
-  /** Serve only the RPC route. `vite dev` does this when the app sets no `console` option. */
+  /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
   contentImportBase?: string
   blobStores?: readonly string[]
@@ -463,6 +463,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       invoke,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
+      navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
     }
   }
 
@@ -515,6 +516,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     },
     async config(config, environment) {
       development = environment.command === "serve"
+      // The Setup section writes the project, so only a development server has it.
+      if (development) sections = insertConsoleSection(sections, "setup")
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
         sections = sections.filter(section => section !== "connections")
       }

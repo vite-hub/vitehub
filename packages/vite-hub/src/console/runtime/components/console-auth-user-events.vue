@@ -6,7 +6,7 @@ import ConsoleAuthEventList from "./console-auth-event-list.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleSection from "./console-section.vue";
 
-const props = defineProps<{ base: string; userId: string; revision: number }>();
+const props = defineProps<{ userId: string; revision: number }>();
 const data = shallowRef<AuthConsoleActivity>();
 const error = shallowRef<unknown>();
 const loading = ref(false);
@@ -19,7 +19,6 @@ async function refresh() {
   error.value = undefined;
   try {
     const result = await readAuthConsole(
-      props.base,
       "activity",
       { activity: { userId: props.userId, limit: 8 } },
       current.signal,

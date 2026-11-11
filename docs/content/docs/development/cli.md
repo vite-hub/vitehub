@@ -302,6 +302,10 @@ The package manager exited with an error. ViteHub did not write starter or confi
 
 The config file changed between the plan and the write. Run the command again.
 
+### `SETUP_PLAN_UNKNOWN`
+
+The dev Setup page applied a plan id that the dev server does not have. A plan applies once, and a restart of the dev server drops its plans. Plan the change again.
+
 ### `SETUP_NOT_A_PROJECT`
 
 The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Run the command in the folder of your Vite or Nuxt app.
@@ -341,9 +345,21 @@ Another enabled feature turns the feature on, such as Agent for Workflow, so del
 
 The app still uses the feature. `references` lists each file, with the line and the module for an import. Delete or move them and run the command again, or pass `--force` to turn the feature off and keep the files.
 
+### `SETUP_FEATURE_REQUIRED`
+
+An enabled feature's options require the feature, such as `cache: { driver: "kv" }` requiring KV. Remove both features in one command, or change the dependent options first. `--force` cannot remove these prerequisites.
+
 ### `SETUP_UNINSTALL_FAILED`
 
-The package manager exited with an error after ViteHub changed the config and deleted the starter files. Run the uninstall command by hand to see the error.
+The package manager exited with an error after ViteHub deleted the starter files. The terminal command changes the config before uninstalling. The development Setup page keeps the config unchanged until cleanup succeeds, so a config-triggered restart cannot interrupt cleanup. Run the uninstall command by hand to see the error, then plan the removal again.
+
+## Use Setup in the development Console
+
+Run `vite dev`, open its printed hosted Console link, and select **Setup** to plan and apply the same feature changes as `vitehub add` and `vitehub remove`. Setup is available only during development.
+
+No `console` option or local Console client package is needed. Setup connects to the selected project's development server. Only exact origins in `console.origins` may connect from another origin; the default is `https://console.vitehub.dev`. Set `console.origins: []` to turn cross-origin access off. Apply also requires writable Setup access under the project's Console policy.
+
+The page obtains its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then link `http://localhost:5173` in the hosted Console. A host name listed explicitly in `server.allowedHosts` also works over the local connection, including HTTP. Listing a host does not grant network clients access to the session token.
 
 ## Link a project to its host
 
@@ -804,7 +820,7 @@ A Chat SDK export holds only history the adapter or its State Adapter can give. 
 
 `vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox` records each run with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` for several values, as with `--filter`. Labels are not part of the history query. They must be non-empty, at most 512 characters. For a query field named `label`, use `--query label=value`.
 
-Replay needs the development project token or deployed Console authentication. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
+Replay needs the development project token or deployed Console authentication. With `--url`, the command calls the `channels.replay` operation on the Console RPC of the deployed app, one page per call. The Agent must allow Console invocation. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
 
 ## Manage Database migrations
 

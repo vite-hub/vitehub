@@ -543,7 +543,7 @@ describe("OAuth sign-in of a hosted Console", () => {
       request = projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
       await sent
     }
-    const upload = operation === "upload" ? await projectRequest("/_vitehub/rpc/__upload") : undefined
+    const upload = operation === "upload" ? await projectRequest("/_vitehub/rpc/__call") : undefined
     // The session can select a new project while an earlier request still owns the old transport.
     session.switchConsoleProject(other.id)
     expect(session.useConsoleProjects().current.value?.url).toBe(other.url)
@@ -551,7 +551,7 @@ describe("OAuth sign-in of a hosted Console", () => {
       expect(await transport.authorization?.()).toBe("Bearer access-a")
     }
     else if (upload) {
-      expect(upload.url).toBe(`${app.url}/_vitehub/rpc/__upload`)
+      expect(upload.url).toBe(`${app.url}/_vitehub/rpc/__call`)
       expect(await upload.renew('Bearer error="invalid_token"')).toEqual({ authorization: "Bearer access-1" })
     }
     else {
@@ -923,7 +923,7 @@ describe("project snapshot of a request", () => {
     open({ origin: "https://a.example.com", base: "", authorization: () => refresh, renew: renewed })
 
     const request = projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
-    const upload = projectRequest("/_vitehub/rpc/__upload", { "x-vitehub-console": "1" })
+    const upload = projectRequest("/_vitehub/rpc/__call", { "x-vitehub-console": "1" })
     // Project B opens while the token of project A is still refreshing.
     open({ origin: "https://b.example.com", base: "", authorization: () => "Bearer b-1" })
     refreshed("Bearer a-1")
@@ -933,7 +933,7 @@ describe("project snapshot of a request", () => {
     expect(sent).toEqual([["https://a.example.com/_vitehub/rpc/__call", "Bearer a-1"], ["https://a.example.com/_vitehub/rpc/__call", "Bearer a-2"]])
     expect(renewed).toHaveBeenCalledOnce()
     const prepared = await upload
-    expect({ url: prepared.url, headers: prepared.headers }).toEqual({ url: "https://a.example.com/_vitehub/rpc/__upload", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
+    expect({ url: prepared.url, headers: prepared.headers }).toEqual({ url: "https://a.example.com/_vitehub/rpc/__call", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
     // The renewal of the upload also belongs to project A.
     expect(await prepared.renew(null)).toEqual({ "x-vitehub-console": "1", authorization: "Bearer a-2" })
   })
@@ -957,6 +957,7 @@ describe("browser storage", () => {
 describe("media upload with OAuth", () => {
   it.each([false, true])("handles an upload rejected by the project with cancellation during renewal: %s", async (cancel) => {
     const sent: (string | undefined)[] = []
+    const bodies: unknown[] = []
     class FakeUpload {
       headers: Record<string, string> = {}
       listeners: Record<string, () => void> = {}
@@ -970,8 +971,9 @@ describe("media upload with OAuth", () => {
       setRequestHeader(name: string, value: string) { this.headers[name] = value }
       getResponseHeader(name: string) { return name === "www-authenticate" ? this.challenge : null }
       addEventListener(type: string, listener: () => void) { this.listeners[type] = listener }
-      send() {
+      send(body: string) {
         sent.push(this.headers.authorization)
+        bodies.push(JSON.parse(body))
         if (this.headers.authorization === "Bearer old") {
           this.status = 401
           this.challenge = `Bearer realm="vitehub-console", error="invalid_token", resource_metadata="${resourceMetadata}"`
@@ -1001,6 +1003,8 @@ describe("media upload with OAuth", () => {
     else {
       expect(await upload).toEqual({ duplicate: false, file: { pathname: "a.png" } })
       expect(sent).toEqual(["Bearer old", "Bearer new"])
+      // The file travels as base64 in one `media.upload` call.
+      expect(bodies[1]).toEqual({ input: { contentType: "image/png", data: "eA==", filename: "a.png", section: "docs" }, operation: "media.upload" })
     }
     expect(renew).toHaveBeenCalledOnce()
   })

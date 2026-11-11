@@ -144,7 +144,7 @@ interface ConsoleUploadRequest {
   open(method: string, url: string): void
   readonly response: unknown
   responseType: string
-  send(body: FormData): void
+  send(body: string): void
   setRequestHeader(name: string, value: string): void
   getResponseHeader(name: string): string | null
   readonly status: number
@@ -153,15 +153,28 @@ interface ConsoleUploadRequest {
   readonly upload: { addEventListener(type: "progress", listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void): void }
 }
 
-/** Sends one file as `multipart/form-data` with XMLHttpRequest, which reports upload progress and fetch does not. */
-async function uploadRequest(path: string, form: FormData, options: ConsoleMediaUploadOptions): Promise<unknown> {
+/** Base64 of a file. Chunks keep each `String.fromCharCode()` call below the argument limit of the engine. */
+async function fileBase64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
+}
+
+/**
+ * Sends one `media.upload` call with XMLHttpRequest, which reports upload progress and fetch does not. The file travels
+ * as base64 in the JSON body of the Console RPC.
+ */
+async function uploadRequest(input: Record<string, string>, options: ConsoleMediaUploadOptions): Promise<unknown> {
+  // The operation comes first so the server can find large calls within the first bytes.
+  const body = JSON.stringify({ operation: "media.upload", input })
   // The headers wait first, so an OAuth access token that is about to expire is refreshed before the upload starts.
-  const { url, headers, renew } = await projectRequest(path, { [consoleRpcHeader]: "1" })
-  const first = await sendUpload(url, headers, form, options)
+  const { url, headers, renew } = await projectRequest("/_vitehub/rpc/__call", { "content-type": "application/json", [consoleRpcHeader]: "1" })
+  const first = await sendUpload(url, headers, body, options)
   if (first.status !== 401) return settleUpload(first)
   // A project can refuse an OAuth access token before it expires. One refresh of the same project may fix it.
   const renewed = await renew(first.challenge)
-  return settleUpload(renewed ? await sendUpload(url, renewed, form, options) : first)
+  return settleUpload(renewed ? await sendUpload(url, renewed, body, options) : first)
 }
 
 interface ConsoleUploadAnswer {
@@ -181,7 +194,7 @@ function settleUpload(answer: ConsoleUploadAnswer): unknown {
   throw new ConsoleRequestError(answer.status || 502, String(message) === message ? message : answer.status === 413 ? "The file is too large for this server." : undefined, failure)
 }
 
-function sendUpload(url: string, headers: Record<string, string>, form: FormData, options: ConsoleMediaUploadOptions): Promise<ConsoleUploadAnswer> {
+function sendUpload(url: string, headers: Record<string, string>, body: string, options: ConsoleMediaUploadOptions): Promise<ConsoleUploadAnswer> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) {
       reject(new DOMException("The upload was cancelled.", "AbortError"))
@@ -202,7 +215,7 @@ function sendUpload(url: string, headers: Record<string, string>, form: FormData
     request.addEventListener("error", () => reject(new ConsoleRequestError(0, "The upload could not reach the server.")))
     request.addEventListener("abort", () => reject(new DOMException("The upload was cancelled.", "AbortError")))
     options.signal?.addEventListener("abort", () => request.abort(), { once: true })
-    request.send(form)
+    request.send(body)
   })
 }
 
@@ -227,15 +240,15 @@ export function createConsoleMediaClient(base: string, section: string): Console
     removeFolder: (path, force = false) => typed(call("removeFolder", { force, path })),
     update: (pathname, patch) => typed(call("update", { ...patch, pathname })),
     async upload(file, options = {}) {
-      const form = new FormData()
-      form.set("file", file)
+      const input: Record<string, string> = { data: await fileBase64(file), filename: file.name || "file", section }
+      if (file.type) input.contentType = file.type
       if (options.crop) {
-        form.set("crop", options.crop.name)
-        form.set("pathname", options.crop.pathname)
+        input.crop = options.crop.name
+        input.pathname = options.crop.pathname
       }
-      else if (options.folder) form.set("folder", options.folder)
-      // SAFETY: The upload route returns `{ duplicate, file }`.
-      return await uploadRequest(`/_vitehub/rpc/__upload?section=${encodeURIComponent(section)}`, form, options) as ConsoleMediaUploadResult
+      else if (options.folder) input.folder = options.folder
+      // SAFETY: The `media.upload` operation returns `{ duplicate, file }`.
+      return await uploadRequest(input, options) as ConsoleMediaUploadResult
     },
     async usage(pathnames) {
       const result = await call("usage", { pathnames: [...pathnames] })

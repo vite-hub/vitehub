@@ -1,18 +1,15 @@
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
-import { checkViteHubMcpInput, getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
-import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
+import { consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
-import { getConsoleSections } from "./sections.ts"
 
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
 import type { McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
-import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
@@ -21,14 +18,7 @@ const serverInfo = { name: "vitehub", title: "ViteHub MCP", version: "1" }
 // Each tool says how to use it. This text stays the same for every owner package, so the Console owns no workflow.
 const instructions = "ViteHub MCP gives Agents the operations and server primitives of this app, with the Console access of the person who connects. tools/list shows only the tools of the Console sections that this person may use. Tools marked destructive delete or publish: tell the person what you are about to do first. A failed call says what went wrong and how to fix it."
 
-const registeredToolRequestBytes = 256 * 1_024
 const inputSchemas = new WeakMap<AnyOperation, Record<string, unknown>>()
-
-/** What is wrong with the arguments, or nothing when they match the tool's schema. */
-function invalidInput(tool: ViteHubMcpTool, input: Record<string, unknown>): string | undefined {
-  const problem = checkViteHubMcpInput(tool.inputSchema, input)
-  return problem ? `Invalid arguments for ${tool.name}: ${problem}` : undefined
-}
 
 interface ToolContext {
   access: ConsoleAccess
@@ -38,8 +28,12 @@ interface ToolContext {
 
 
 
-function operationResult(value: unknown): McpToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(value ?? null) }], isError: false, ...(value instanceof Object && !Array.isArray(value) ? { structuredContent: { ...value } } : {}) }
+/** The result of a call: the text of the operation's `mcp.format`, else the value as JSON, and the value as structured content. */
+function operationResult(operation: AnyOperation, value: unknown): McpToolResult {
+  const format = operation.mcp ? operation.mcp.format : undefined
+  // SAFETY: The operation produced `value`, so it has the output type that its `format` takes.
+  const text = format ? (format as (output: unknown) => string)(value) : JSON.stringify(value ?? null)
+  return { content: [{ type: "text", text }], isError: false, ...(value instanceof Object && !Array.isArray(value) ? { structuredContent: { ...value } } : {}) }
 }
 
 function toolFailure(error: OperationFailure): McpToolResult {
@@ -58,11 +52,10 @@ function toolTitle(operation: AnyOperation): string {
 }
 
 /** A tool for each operation that MCP offers and the caller's sections show. The call checks the section again. */
-function operationTools(context: ToolContext, registeredNames: ReadonlySet<string>): McpTool[] {
+function operationTools(context: ToolContext): McpTool[] {
   const { access } = context
   return consoleOperationRegistry().list()
     .filter(operation => operation.mcp !== false
-      && !registeredNames.has(operationToolName(operation.name))
       // An operation that reads its section or scope from the input is checked again when it runs. `serveMcp()` checks
       // the scopes, so a call that lacks one gets the `insufficient_scope` challenge.
       && consoleOperationGranted(access, operation))
@@ -71,7 +64,7 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
       if (!inputSchema) inputSchemas.set(operation, inputSchema = { ...operationInputJsonSchema(operation), type: "object" })
       return {
         name: operationToolName(operation.name),
-        title: toolTitle(operation),
+        title: (operation.mcp ? operation.mcp.title : undefined) ?? toolTitle(operation),
         description: operation.description,
         inputSchema,
         annotations: { readOnlyHint: operation.kind === "read", destructiveHint: operation.kind === "destructive", openWorldHint: false },
@@ -101,7 +94,7 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
               env: standard.runtime?.cloudflare?.env,
               waitUntil: standard.waitUntil,
             }
-            return operationResult(await (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext))
+            return operationResult(operation, await (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext))
           }
           catch (error) {
             const failed = toOperationFailure(error)
@@ -113,43 +106,6 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
         },
       }
     })
-}
-
-/** The tools that owner packages register, such as Comments: their section is installed and in the user's Console access. */
-function registeredTools({ access, event }: ToolContext, tools: readonly ViteHubMcpTool[]): McpTool[] {
-  return tools
-    .filter(tool => tool.annotations?.readOnlyHint === true ? consoleAccessAllows(access, tool.section) : consoleAccessWrites(access, tool.section))
-    .map(tool => ({
-      name: tool.name,
-      title: tool.title,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      annotations: tool.annotations,
-      validate: input => invalidInput(tool, input),
-      maxRequestBytes: registeredToolRequestBytes,
-      scopes: [consoleOperationScope({ kind: tool.annotations?.readOnlyHint === true ? "read" : "write" })],
-      async handler(input) {
-        try {
-          const user = await readConsoleAccessUser(access)
-          const result = await tool.call(input, { user: user ? { ...user } : null, event })
-          return {
-            content: [{ type: "text", text: result.text }],
-            ...(result.structured ? { structuredContent: result.structured } : {}),
-            isError: result.isError === true,
-          }
-        }
-        catch (error) {
-          // A Console request error tells the Agent what to change without exposing server failures.
-          const status = Number(Reflect.get(Object(error), "statusCode"))
-          if (status >= 400 && status < 500 && error instanceof Error) {
-            const statusMessage = Reflect.get(error, "statusMessage")
-            return { content: [{ type: "text", text: typeof statusMessage === "string" ? statusMessage : error.message }], isError: true }
-          }
-          console.error(`[vitehub] ViteHub MCP tool ${tool.name} failed:`, error)
-          return { content: [{ type: "text", text: `${tool.name} failed on the server.` }], isError: true }
-        }
-      },
-    }))
 }
 
 async function oauthState(event: ConsoleRequestEvent) {
@@ -172,16 +128,10 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
 
 const guarded = withConsoleAccess(async (event: ConsoleRequestEvent, access: ConsoleAccess) => {
   const request = getStandardContext(event).req
-  const context = { access, event, request }
-  const installed = getConsoleSections()
-  const registered = getViteHubMcpTools().filter(tool => installed.includes(tool.section))
-  // Package tools keep their advertised contract when an operation has the same MCP name.
-  // Resolve names before access filtering, so a hidden registered tool cannot fall back to a different operation.
-  const registeredNames = new Set(registered.map(tool => tool.name))
   return serveMcp(request, {
     serverInfo,
     instructions,
-    tools: [...operationTools(context, registeredNames), ...registeredTools(context, registered)],
+    tools: operationTools({ access, event, request }),
     ...(access.scopes ? { scopes: access.scopes } : {}),
     challenge: async scopes => mcpChallenge(await oauthState(event), { description: "The access token lacks a scope that this tool needs.", error: "insufficient_scope", scope: scopes.join(" ") }),
   })
@@ -189,7 +139,7 @@ const guarded = withConsoleAccess(async (event: ConsoleRequestEvent, access: Con
 
 /**
  * `/_vitehub/mcp`: ViteHub MCP, a stateless Streamable HTTP MCP server. It runs with the Console access of the request,
- * a session or an OAuth access token, and lists the operations and registered tools that the person may use.
+ * a session or an OAuth access token, and lists the operations that the person may use.
  */
 const consoleMcpRoute: ConsoleRoute = consoleRoute(async (event) => {
   const response = await guarded(event)
