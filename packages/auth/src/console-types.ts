@@ -93,6 +93,12 @@ export interface AuthConsoleDescription {
 export interface AuthConsoleHostOptions {
   /** Let the Console start and stop Better Auth admin impersonation. Off by default. */
   impersonation?: boolean;
+  /**
+   * A verified OAuth user and the token's login session. Trusted server hosts set this only after checking the token
+   * and their access policy. Auth uses that stored session for its APIs; browser cookies cannot change the actor.
+   * Tokens without a login session cannot run Auth changes. Impersonation always needs the browser session.
+   */
+  bearer?: { user: Pick<User, "id">; sessionId?: string };
 }
 export interface AuthConsoleImpersonation {
   /** Seconds until an impersonation session ends. Better Auth's `admin({ impersonationSessionDuration })` sets it. */

@@ -17,7 +17,7 @@ export type {
   RealtimeHoldOptions,
   RealtimeIssue,
   RealtimeLoadedDocument,
-  RealtimeModuleOptions,
+  RealtimeOptions,
   RealtimePerson,
   RealtimePersistenceOptions,
   RealtimeReadOnlyReason,

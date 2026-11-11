@@ -1,9 +1,9 @@
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
@@ -18,7 +18,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/ai.ts",
       "src/blob-database.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
@@ -28,8 +27,6 @@ export default defineConfig({
       "src/index.ts",
       "src/lineage.ts",
       "src/loader.ts",
-      "src/mountx.ts",
-      "src/nitro.ts",
       "src/operations.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
@@ -77,10 +74,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 });

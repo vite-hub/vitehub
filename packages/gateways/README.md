@@ -114,7 +114,7 @@ The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "
 
 `chatgpt({ connection?: string })` is a credential-free descriptor for a ViteHub Codex Driver or a model-backed Driver (`driver: { model, gateway: chatgpt() }`). It defaults to the `chatgpt` Connection. The Agent runtime applies the Connection's read policy and resolves a fresh plan token. This descriptor has no `apiKey` callback or `ask()` method. Configure `chatgpt({ appName })` from `@vite-hub/connections/chatgpt` on the Connection and sign in with `vitehub connections connect chatgpt`. See [ChatGPT plan usage](https://vitehub.dev/docs/connections/chatgpt).
 
-A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Provider Drivers, ask Drivers, `llmGate()`, and `llmRoute()` supply Server Env, with the Cloudflare bindings of the request. `languageModel()` reads `process.env`, also in an AI SDK model Driver. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
+A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Provider Drivers and ask Drivers supply Server Env, with the Cloudflare bindings of the request. `languageModel()` reads `process.env`, also in an AI SDK model Driver. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
 
 Vercel keeps its credentials in separate Server Env fields: `vercel.apiKey` reads `AI_GATEWAY_API_KEY`, and `vercel.oidcToken` reads `VERCEL_OIDC_TOKEN`. The API key takes precedence; a token uses OIDC authentication even when an Env provider supplies it.
 
@@ -202,7 +202,7 @@ export const codexThroughCloudflare = defineAiGateway({
 
 ## Use with ViteHub Agents
 
-In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver, `llmGate()`, or `llmRoute()`. ViteHub then declares the preset's variables in Server Env. See [AI gateways](https://vitehub.dev/docs/agents/ai-gateways#use-with-agents) in the ViteHub docs.
+In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub then declares the preset's variables in Server Env. See [AI gateways](https://vitehub.dev/docs/agents/ai-gateways#use-with-agents) in the ViteHub docs.
 
 `@vite-hub/gateways/internal` is for ViteHub packages: model API route resolution and `ask()` with trace observers.
 

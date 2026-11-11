@@ -56,10 +56,21 @@
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js",
+      "default": "./dist/preview.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "workerd": "./dist/sqlite-workerd.js",
+      "import": "./dist/sqlite.js",
+      "default": "./dist/sqlite.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -72,10 +83,11 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/content#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/content#build && vp test"
+    "test": "vp run --cache -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
+    "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",

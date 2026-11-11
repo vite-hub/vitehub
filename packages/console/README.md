@@ -2,7 +2,7 @@
 
 The ViteHub Console as its own app. You deploy it once, sign in, and link your apps. The Console server calls each app's Operations endpoint with that app's token. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console.
 
-This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vite-hub console deploy` command come next.
+This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vitehub console deploy` command come next.
 
 ## How it works
 
@@ -35,10 +35,54 @@ Only users with the `admin` role can use the routes below. Others get `401` or `
 | `DELETE /api/projects/<id>` | Unlink a project. Remove its hash from the project's `VITEHUB_CONSOLE_TOKEN_SHA256` as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 
+## Deploy
+
+`vitehub console deploy` will run these steps for you. Until it ships, run them from `packages/console`. Each host keeps the Console's data in its own database, so run the same steps again to update.
+
+| Host | Database | Limits |
+| --- | --- | --- |
+| VPS (Node, Docker) | SQLite in `/data`, migrated when the server starts | You run TLS, such as Caddy. It can link apps on a private network with `VITEHUB_CONSOLE_ALLOW_PRIVATE=true`. |
+| Cloudflare Workers | D1 | Cannot reach private addresses. The build sets `global_fetch_strictly_public`, without which a Worker that fetches another Worker on the same zone gets error 1042. |
+| Vercel | Hosted libSQL, such as Turso from the Vercel Marketplace | Request bodies stop at 4.5 MB, so Blob and Media uploads above that fail through the Console. Cannot reach private addresses. |
+
+### VPS with Docker
+
+Build on Linux with glibc and Node.js 24, matching the CPU architecture (x64 or arm64) of the `node:24-slim` image on the server. The output contains the build machine's native libSQL module. Output built on macOS, Windows, or Linux with musl (such as Alpine) is incompatible with this image.
+
+```sh
+VITEHUB_DATA_DIR=/data vp build
+export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32)
+pnpm exec vitehub auth claim    # prints the code once, and the VITEHUB_ADMIN_CLAIM value to export
+docker compose up -d --build
+```
+
+Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the project tokens. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
+
+### Cloudflare
+
+```sh
+wrangler d1 create vitehub-console    # note the database id
+VITEHUB_HOSTING=cloudflare VITEHUB_CONSOLE_D1_ID=<id> vp build
+wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json
+wrangler secret put VITEHUB_CONSOLE_SECRET --config .output/server/wrangler.json   # and BETTER_AUTH_SECRET, VITEHUB_ADMIN_CLAIM
+wrangler deploy --config .output/server/wrangler.json
+```
+
+### Vercel
+
+Add a Turso database from the Vercel Marketplace to the project, so the project has `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Then:
+
+```sh
+VITEHUB_HOSTING=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub database migrate
+VITEHUB_HOSTING=vercel vp build
+vercel env add VITEHUB_CONSOLE_SECRET    # and BETTER_AUTH_SECRET, BETTER_AUTH_URL, VITEHUB_ADMIN_CLAIM
+vercel deploy --prebuilt --prod
+```
+
 ## Develop
 
 ```sh
-corepack pnpm --dir packages/console exec vitehub db migrate
+corepack pnpm --dir packages/console exec vitehub database migrate
 VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=true corepack pnpm --dir packages/console run dev
 corepack pnpm --dir packages/console run test
 ```

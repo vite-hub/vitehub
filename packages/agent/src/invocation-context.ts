@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInvocationContextStore } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
@@ -37,7 +36,7 @@ export function agentInvocationSourceContext(context: AgentInvocationContextStor
 }
 
 function assertContextId(id: unknown): asserts id is string {
-  if (!hasRuntimeType(id, "string") || !id.trim()) {
+  if (typeof id !== "string" || !id.trim()) {
     throw agentDiagnostics.AGENT_R0604({ message: "[vitehub] Invocation context values require a non-empty string id." })
   }
   if (!/^[a-z][a-z0-9-_.:]*$/i.test(id)) {

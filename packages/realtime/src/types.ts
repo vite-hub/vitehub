@@ -219,7 +219,7 @@ export interface DiscoveredRealtimeDefinition {
   source: "contributed" | "server-realtime"
 }
 
-export interface RealtimeModuleOptions {
+export interface RealtimeOptions {
   authority?: "auto" | "cloudflare" | "memory"
   projectRoot?: string
 }

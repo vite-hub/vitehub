@@ -1,66 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 4400ms; --scene-delay: -1452ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 <style>
-svg { color: #59636e; --ui-bg: #ffffff; }
-@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
-.primitive-motion {
-  overflow: visible;
-}
-.primitive-motion .line,
-.primitive-motion .job,
-.primitive-motion .command,
-.primitive-motion .budget {
-  opacity: 0.55;
-}
-.primitive-motion .soft {
-  opacity: 0.35;
-}
-.primitive-motion .ink,
-.primitive-motion .token,
-.primitive-motion .pointer {
-  opacity: 0.85;
-}
-.primitive-motion .token,
-.primitive-motion .band,
-.primitive-motion .ghost,
-.primitive-motion .q-in,
-.primitive-motion .blob-next {
-  opacity: 0;
-}
-.primitive-motion .a {
-  animation-duration: var(--cycle);
-  animation-delay: var(--scene-delay);
-  animation-iteration-count: infinite;
-  animation-fill-mode: both;
-  animation-timing-function: steps(3);
-}
-.primitive-motion:not(.is-playing) .a {
-  animation-play-state: paused;
-}
-.primitive-motion .sb-process { animation-name: sb-process; }
-.primitive-motion .sb-token { animation-name: sb-token; }
-.primitive-motion .sb-wall { animation-name: sb-wall; }
-@media (prefers-reduced-motion: reduce) {
-  .primitive-motion .a {
-    animation: none;
-  }
-}
-@keyframes sb-process {
-  0%, 8% { opacity: 0.35; }
-  14%, 60% { opacity: 0.85; }
-  74%, 100% { opacity: 0.35; }
-}
-@keyframes sb-token {
-  0%, 12% { opacity: 0; transform: translateX(0); }
-  16% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(3); }
-  30% { opacity: 0.85; transform: translateX(6px); animation-timing-function: steps(2); }
-  44% { opacity: 0.5; transform: translateX(2px); }
-  50%, 100% { opacity: 0; transform: translateX(0); }
-}
-@keyframes sb-wall {
-  0%, 28% { opacity: 0; }
-  32% { opacity: 0.8; }
-  56%, 100% { opacity: 0; }
-}
+svg { color: #59636e; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; } }
 </style>
-<path class="line" d="M2 6h2v2h-2zM6 6h2v2h-2zM10 6h2v2h-2zM14 6h2v2h-2zM18 6h2v2h-2zM22 6h2v2h-2zM26 6h2v2h-2zM0 8h2v2h-2zM28 8h2v2h-2zM0 12h2v2h-2zM28 12h2v2h-2zM0 16h2v2h-2zM28 16h2v2h-2zM0 20h2v2h-2zM28 20h2v2h-2zM0 24h2v2h-2zM28 24h2v2h-2zM0 28h2v2h-2zM28 28h2v2h-2zM0 32h2v2h-2zM28 32h2v2h-2zM2 34h2v2h-2zM6 34h2v2h-2zM10 34h2v2h-2zM14 34h2v2h-2zM18 34h2v2h-2zM22 34h2v2h-2zM26 34h2v2h-2z"/><path class="ink ghost a sb-wall" d="M28 8h2v2h-2zM28 10h2v2h-2zM28 12h2v2h-2zM28 14h2v2h-2zM28 16h2v2h-2zM28 18h2v2h-2zM28 20h2v2h-2zM28 22h2v2h-2zM28 24h2v2h-2zM28 26h2v2h-2zM28 28h2v2h-2zM28 30h2v2h-2zM28 32h2v2h-2z"/><path class="soft a sb-process" d="M12 18h6v2h-6zM12 20h6v2h-6zM12 22h6v2h-6z"/><path class="token a sb-token" d="M18 18h4v2h-4zM18 20h4v2h-4z"/><path class="soft" d="M38 14h12v2h-12zM38 16h12v2h-12zM38 18h12v2h-12zM38 20h12v2h-12zM38 22h12v2h-12zM38 24h12v2h-12z"/>
+  <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>
+  <g data-motion="">
+    <rect x="8" y="8" width="8" height="8" rx="1.5"/>
+  </g>
 </svg>
