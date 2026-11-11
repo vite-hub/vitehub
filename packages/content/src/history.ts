@@ -86,8 +86,18 @@ function revisionEntry(revision: ContentRevision): ContentHistoryEntry {
   }
 }
 
+/** What `createContentHistory()` gives the Content runtime. */
+export interface ContentHistoryApi {
+  /** `content.history()`. */
+  history(path: string, options?: ContentHistoryOptions): Promise<ContentHistoryResult | null>
+  /** The date of the latest commit of one Source page, or null without history or a GitHub token. */
+  latest(source: string, key: string): Promise<string | null>
+  /** The commit that the history of a Source reads up to, or null when the Source has no history to read. */
+  head(source: string): Promise<string | null>
+}
+
 /** Create `content.history()`. */
-export function createContentHistory(runtime: ContentHistoryRuntime) {
+export function createContentHistory(runtime: ContentHistoryRuntime): ContentHistoryApi {
   const pages = new Map<string, Promise<CommitPage>>()
   const warned = new Set<string>()
 
@@ -118,16 +128,21 @@ export function createContentHistory(runtime: ContentHistoryRuntime) {
     return await pending
   }
 
-  async function sourceHistory(source: string, key: string, limit: number, cursor: string | undefined): Promise<ContentHistoryResult> {
+  /** Whether a Source has history to read. Without a token it logs CONTENT_R0040 once per Source. */
+  async function readable(source: string): Promise<boolean> {
     const definition = runtime.github(source)
-    if (!definition?.history) return { entries: [] }
-    if (!await definition.authenticated()) {
-      if (!warned.has(source)) {
-        warned.add(source)
-        console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0040({ source })))
-      }
-      return { entries: [] }
+    if (!definition?.history) return false
+    if (await definition.authenticated()) return true
+    if (!warned.has(source)) {
+      warned.add(source)
+      console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0040({ source })))
     }
+    return false
+  }
+
+  async function sourceHistory(source: string, key: string, limit: number, cursor: string | undefined): Promise<ContentHistoryResult> {
+    if (!await readable(source)) return { entries: [] }
+    const definition = runtime.github(source)!
     // The cursor of a Source page is the number of commits that earlier calls returned.
     let position = cursor === undefined ? 0 : Number(cursor)
     if (cursor !== undefined && (!/^\d+$/.test(cursor) || !Number.isSafeInteger(position))) {
@@ -155,7 +170,7 @@ export function createContentHistory(runtime: ContentHistoryRuntime) {
   /**
    * The published history of the page at an app path, newest first. Null when no page has that path.
    */
-  return async function history(path: string, options: ContentHistoryOptions = {}): Promise<ContentHistoryResult | null> {
+  async function history(path: string, options: ContentHistoryOptions = {}): Promise<ContentHistoryResult | null> {
     if (typeof path !== "string" || !path) {
       throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.history() requires an app path such as \"/docs/guide\"." })
     }
@@ -175,5 +190,11 @@ export function createContentHistory(runtime: ContentHistoryRuntime) {
     }
     const page = await runtime.page(path)
     return page ? await sourceHistory(page.source, page.key, limit, options.cursor) : null
+  }
+
+  return {
+    history,
+    latest: async (source, key) => (await sourceHistory(source, key, 1, undefined)).entries[0]?.at ?? null,
+    head: async source => await readable(source) ? await runtime.published(source) : null,
   }
 }

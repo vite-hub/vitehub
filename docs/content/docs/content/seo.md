@@ -1,6 +1,6 @@
 ---
 title: Content SEO
-description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap and robots.txt.
+description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap, robots.txt, and RSS feed.
 navigation.title: SEO
 navigation.order: 12
 icon: i-lucide-search-check
@@ -14,6 +14,7 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`seo()`](#seo-fields) | Per-document title, description, social image, canonical URL, and `noindex`. |
 | [`contentHead()`](#head-tags) | Head tags from a document, its `seo()` values, and site defaults. |
 | [`defineContent({ seo })`](#sitemap-and-robotstxt) | Generated `/sitemap.xml` and `/robots.txt`. |
+| [`seo: { rss }`](#rss-feed) | A generated `/rss.xml` with the newest pages, dated from their history. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
 
 ## Document URLs
@@ -119,6 +120,7 @@ Nuxt has `useHead()` built in. In a Vue app, install `@unhead/vue`. In a plain s
 | `field` | The field that holds `seo()` values. Defaults to the `seo()` field of `collection`, then to `seo`. |
 | `resolveImage` | Turns an image value into a URL. By default, strings stay as they are, and a Blob reference of the `default` store becomes its [`blob.serve`](/docs/blob/configure) URL, with its `route` and `publicBaseUrl`. The default reads the generated Blob config, so it works on the server. In the browser, or for signed or CDN URLs, pass your own. |
 | `type` | `og:type`. Defaults to `article` for a document with a URL, else `website`. |
+| `rss` | `true` adds `<link rel="alternate" type="application/rss+xml">` for [`/rss.xml`](#rss-feed), titled with `site.name`. `{ href, title }` links another feed. |
 | `jsonLd` | `true` adds an `Article` or `WebPage` JSON-LD script. You can pass your own object. `<` is escaped, so document text cannot close the script. |
 
 The result has `description`, `robots: noindex` when set, Open Graph `og:title`, `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`, and `og:locale`, Twitter `summary_large_image` or `summary` card tags, and a `canonical` link. Empty tags are left out.
@@ -161,13 +163,14 @@ export default defineContent({
 | `site` | Public origin for absolute URLs. Defaults to the origin of each request. |
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves a `/robots.txt` that allows every crawler. `{ disallow }` keeps paths out. It names `/sitemap.xml` when the sitemap is on. |
+| `rss` | `true`, or `{ title, description, limit }`, serves [`/rss.xml`](#rss-feed). |
 
 In a collection with locales, the sitemap lists each published translation at its own URL, with `locale` on each entry. It leaves out pages that show the source locale as a fallback: their canonical link points to the source locale page.
 
 The sitemap lists:
 
 - Every published document with a URL in a routable collection, except documents with `seo.noindex` or a `seo.canonical` that points elsewhere. `lastmod` is its `updatedAt` on `published`. Drafts are never listed.
-- Every document of a Source with a [`url`](#source-urls), without `lastmod`. A Source without `url` is not listed.
+- Every document of a Source with a [`url`](#source-urls). For a `github()` Source, `lastmod` is the date of the latest commit that changed the file, from [`content.history()`](#rss-feed). Other Sources, and a `github()` Source without a GitHub token, have no `lastmod`. A Source without `url` is not listed.
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
@@ -185,6 +188,36 @@ export async function checkSeo() {
 ```
 
 In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
+
+## RSS feed
+
+`seo: { rss: true }` serves `/rss.xml`, an RSS 2.0 feed of the pages that the sitemap lists, Markdown pages only. The newest page comes first, by the date of its latest `content.history()` entry: the last publish of a collection document, or the last commit that changed the file of a `github()` Source page.
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), description: z.string() } }),
+  },
+  seo: { site: 'https://vitehub.dev', rss: { title: 'ViteHub blog', limit: 30 } },
+})
+```
+
+| `rss` option | Description |
+| --- | --- |
+| `title` | The feed title. Defaults to the host name of the site. |
+| `description` | The feed description. Defaults to the title. |
+| `limit` | The newest pages to list, from 1 to 500. Defaults to 20. |
+
+Each item has the page `title` (the `seo()` title, else the title field), its absolute `link`, the `description` field when there is one, a `guid` that is the link, so an edited page is not a new item, and a `pubDate`. A `github()` Source page without a GitHub token has no history. It uses its `date` frontmatter field, and without one it has no `pubDate` and goes last.
+
+The dates of `github()` Source pages cost one GitHub request per page for the first feed or sitemap after the head commit moves, at most 8 at a time. Content keeps them in memory and in ViteHub KV per head commit, so later requests, and other server instances, make no GitHub request. Collection dates come from the Workspace and cost no request.
+
+Add the feed to your pages with `contentHead(document, { rss: true })`. `content.rss()` returns the same XML. ViteHub generates `/rss.xml` like the sitemap; in another server, mount `defineContentRssHandler(content)`. `renderContentRss(channel, items)` renders your own items.
 
 ## Console
 

@@ -57,6 +57,11 @@ export interface ContentHeadOptions {
   type?: string
   /** Add JSON-LD for the page: `true` for a generated WebPage or Article, or your own object. */
   jsonLd?: boolean | Record<string, unknown>
+  /**
+   * Link the RSS feed of `defineContent({ seo: { rss } })` with `<link rel="alternate" type="application/rss+xml">`.
+   * `href` defaults to `/rss.xml`, `title` to the site name.
+   */
+  rss?: boolean | { href?: string, title?: string }
 }
 
 export interface ContentHeadMeta {
@@ -70,6 +75,9 @@ export interface ContentHeadLink {
   href: string
   /** The locale of an `alternate` link, or `x-default` for the page to show when no locale matches. */
   hreflang?: string
+  /** The media type of an `alternate` link, such as `application/rss+xml`. */
+  type?: string
+  title?: string
 }
 
 export interface ContentHeadScript {
@@ -204,6 +212,11 @@ export function contentHead(document: ContentHeadDocument | null | undefined, op
   if (alternates.length > 1) {
     for (const page of alternates) head.link.push({ rel: "alternate", hreflang: page.locale, href: absolute(page.url, site.url)! })
     head.link.push({ rel: "alternate", hreflang: "x-default", href: absolute(alternates[0]!.url, site.url)! })
+  }
+  if (options.rss) {
+    const rss = options.rss === true ? {} : options.rss
+    const feedTitle = text(rss.title) ?? siteName
+    head.link.push({ rel: "alternate", type: "application/rss+xml", href: absolute(text(rss.href) ?? "/rss.xml", site.url)!, ...(feedTitle ? { title: feedTitle } : {}) })
   }
   if (locale) head.htmlAttrs = { lang: locale }
   if (title) head.title = title
