@@ -60,15 +60,16 @@ export function matchLedger(rows: readonly LedgerRow[], migrations: readonly Led
   return { applied, backfill, unmatched }
 }
 
-/** Refuses updates that would invalidate per-row matches. D1 adoption does not run these updates. */
-export function assertLedgerUpgrade({ backfill }: LedgerMatch): void {
+/** Reports updates that would invalidate per-row matches. D1 adoption does not run these updates. */
+export function ledgerUpgradeProblem({ backfill }: LedgerMatch): string | undefined {
   for (const { column, name, value } of backfill) {
     // A hash update can overwrite a different row's timestamp match. Independent matches
     // then overstate the applied set and hide SQL that Kit will replay. Refuse before any write.
     if (backfill.some(({ row, name: other }) => (column === "created_at" ? row.createdAt : row[column]) === value && other !== name)) {
-      throw new Error("The Drizzle Kit 0.x ledger has overlapping backfill predicates for different migration names. Verify and upgrade the ledger on a database copy before retrying; Drizzle Kit could replay applied migrations.")
+      return "The Drizzle Kit 0.x ledger has overlapping backfill predicates for different migration names. Verify and upgrade the ledger on a database copy before retrying; Drizzle Kit could replay applied migrations."
     }
   }
+  return undefined
 }
 
 /** Reads one ledger row from an object row, such as a libSQL or postgres.js row. */

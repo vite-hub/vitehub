@@ -1,5 +1,5 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { assertLedgerUpgrade, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { LedgerMatch } from "../internal/migration-ledger.ts"
@@ -69,14 +69,9 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   const named = Array.from(columns.rows).some(column => column.name === "name")
   const result = await client.execute(`SELECT * FROM "${migrationsTable}"`)
   const rows = Array.from(result.rows).map(row => toLedgerRow({ ...row }))
-  let match: LedgerMatch
-  try {
-    match = matchLedger(rows, migrations)
-    assertLedgerUpgrade(match)
-  }
-  catch (error) {
-    throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem: error instanceof Error ? error.message : String(error) })
-  }
+  const match = matchLedger(rows, migrations)
+  const problem = ledgerUpgradeProblem(match)
+  if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
   // The hashes that the ledger stores for each applied folder name, including the names that the upgrade writes.
   const hashes = new Map<string, Set<string>>()
   const backfilled = new Map(match.backfill.map(({ row, name }) => [row, name]))
