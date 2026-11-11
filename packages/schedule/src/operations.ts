@@ -59,7 +59,7 @@ const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>
 })
 
 const run = defineScheduleOperation<{ at?: string, name: string }, ScheduleRunResult>({
-  cli: { command: "run", dispatch: "/_vitehub/schedules/run", format: formatRun, namespace: "schedule", positional: ["name"] },
+  cli: { command: "run", format: formatRun, namespace: "schedule", positional: ["name"] },
   description: "Run a Static Schedule Definition now. The definition must set `manual: true`. `at` runs it as if the cron fired at that ISO 8601 date-time.",
   input: v.object({ at: v.optional(v.string()), name: id }),
   invoke: true,

@@ -1,12 +1,18 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
 
+import type { Unstable_RawConfig } from "wrangler";
+
 const docsRoot = resolve(import.meta.dirname, "..");
+const serverRoot = resolve(docsRoot, ".output/server");
+const workerConfig: Unstable_RawConfig = JSON.parse(readFileSync(resolve(serverRoot, "wrangler.json"), "utf8"));
 const server = createTestHarness({
-  root: docsRoot,
-  workers: [{ configPath: ".output/server/wrangler.json" }],
+  root: serverRoot,
+  // Nitro 3 emits thousands of modules. Bundle them for the local runtime to avoid
+  // Miniflare's slow serialization of the separate modules into its config.
+  workers: [{ config: { ...workerConfig, no_bundle: false, rules: [] } }],
 });
 
 beforeAll(async () => {
@@ -15,6 +21,15 @@ beforeAll(async () => {
 afterAll(() => server.close());
 
 describe("Cloudflare docs artifact", () => {
+  it("excludes Worker sourcemaps from the deployment", () => {
+    const serverDir = resolve(docsRoot, ".output/server");
+    const config: unknown = JSON.parse(readFileSync(resolve(serverDir, "wrangler.json"), "utf8"));
+    expect(config).toMatchObject({ upload_source_maps: false });
+    // Zero maps keeps the upload below Cloudflare's 60 MiB encoded-sourcemap limit.
+    // Wrangler's test harness writes its own maps under .wrangler after server.listen().
+    expect(readdirSync(serverDir, { recursive: true }).filter(file => !file.startsWith(`.wrangler${sep}`) && file.endsWith(".map"))).toEqual([]);
+  });
+
   it.each([
     { name: "HTML docs", path: "/docs", status: 200, type: "text/html", content: "<title", accept: "text/html" },
     { name: "raw Markdown", path: "/raw/docs/getting-started.md", status: 200, type: "text/markdown", content: "# Introduction", accept: "text/markdown" },
