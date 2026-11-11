@@ -103,6 +103,7 @@ export const docsPageRedirects = {
   "/docs/agents/capabilities/llm-gate": "/docs/agents/capabilities/official",
   "/docs/agents/capabilities/llm-route": "/docs/agents/capabilities/official",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
+  "/docs/agents/actors": "/docs/agents/trusted-invokers",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
@@ -202,12 +203,12 @@ function rawMarkdownPath(path: string) {
 
 /** Permanent redirects for each removed HTML page, its trailing-slash form, and its raw Markdown copy. */
 export function createDocsRedirectRouteRules(redirects: Record<string, string> = docsPageRedirects) {
-  const routeRules: Record<string, { redirect: { statusCode: 301, to: string } }> = {};
+  const routeRules: Record<string, { redirect: { status: 301, to: string } }> = {};
 
   for (const [from, to] of Object.entries(redirects)) {
-    routeRules[from] = { redirect: { statusCode: 301, to } };
-    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
-    routeRules[rawMarkdownPath(from)] = { redirect: { statusCode: 301, to: rawMarkdownPath(to) } };
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}/`] = { redirect: { status: 301, to } };
+    routeRules[rawMarkdownPath(from)] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
   }
 
   for (const [from, to] of Object.entries({
@@ -216,8 +217,8 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     "/blog": "/learn",
     "/guides": "/learn",
   })) {
-    routeRules[from] = { redirect: { statusCode: 301, to } };
-    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}/`] = { redirect: { status: 301, to } };
   }
 
   return routeRules;

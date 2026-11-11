@@ -10,8 +10,8 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
 
 /**
- * The step after linking an app to an `account` Console: the app must keep the hash of its token. The page shows the
- * line to set, and asks the Console server to check the app again.
+ * The step after linking an app to an `account` Console: the app must keep the public key of the link. The page shows
+ * the line to set, and asks the Console server to check the app again.
  */
 const props = defineProps<{ project: ConsoleAccountProject }>();
 const emit = defineEmits<{ checked: [status: ConsoleAccountAppStatus] }>();
@@ -22,7 +22,7 @@ const result = ref<string>();
 const unlinking = ref(false);
 const host = computed(() => consoleProjectHost(props.project));
 const name = computed(() => props.project.label || host.value);
-const line = computed(() => `${props.project.tokenVariable}=${props.project.tokenSha256}`);
+const line = computed(() => `${props.project.keyVariable}=${props.project.publicKey}`);
 
 async function check(): Promise<void> {
   if (busy.value) return;
@@ -35,10 +35,10 @@ async function check(): Promise<void> {
       openAccountProject(props.project.id);
       return;
     }
-    if (answer.status === "setup") result.value = `Checked at ${time}. ${host.value} does not accept the token yet. Set this variable, redeploy, and check again.`;
+    if (answer.status === "setup") result.value = `Checked at ${time}. ${host.value} does not accept the signature yet. Set this variable, redeploy, and check again.`;
     else if (answer.status === "unreachable") result.value = `Checked at ${time}. The Console could not reach ${host.value}. Check the URL and that the app is deployed.`;
     else if (answer.code >= 500) result.value = `Checked at ${time}. ${host.value} returned a server error. Check its logs and try again.`;
-    else result.value = `Checked at ${time}. ${host.value} is not set up for the Console yet. Add console: { auth: 'token' }, redeploy, and check again.`;
+    else result.value = `Checked at ${time}. ${host.value} is not set up for the Console yet. Add console: true, redeploy, and check again.`;
   }
   catch {
     result.value = `Checked at ${time}. The Console did not answer. Check your connection and try again.`;
@@ -50,7 +50,7 @@ async function check(): Promise<void> {
 <template>
   <div class="grid max-w-2xl gap-6">
     <p class="text-sm text-pretty text-muted">
-      {{ host }} needs <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] whitespace-nowrap text-highlighted">console: { auth: 'token' }</code> in its config.
+      {{ host }} needs <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] whitespace-nowrap text-highlighted">console: true</code> in its config.
       Then add this environment variable to its deployment settings, redeploy, and check the connection.
     </p>
 

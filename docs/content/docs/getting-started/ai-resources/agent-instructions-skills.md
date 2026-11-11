@@ -69,7 +69,7 @@ An app with the [Console](/docs/development/console) endpoint also serves the sk
 npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code
 ```
 
-The skill files are static and need no Console sign-in, even in production. They hold only the public skill, no app data.
+The skill files are static and need no signature, even in production. They hold only the public skill, no app data.
 
 To serve your own app's skills for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/development/skills).
 

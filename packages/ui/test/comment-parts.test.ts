@@ -204,6 +204,20 @@ describe("composer mentions", () => {
     expect(wrapper.emitted("cancel")).toHaveLength(1);
   });
 
+  it("keeps the text while Esc is held down", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    await field.trigger("keydown", { key: "Escape" });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
   it("forgets the first Esc after two seconds, so a late Esc shakes again", async () => {
     vi.useFakeTimers();
     try {
@@ -977,5 +991,32 @@ describe("agent messages and replies since resolved", () => {
     expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
     expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
     expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
+});
+
+describe("composer layout", () => {
+  it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
+    const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
+    expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const comments = client([thread(1)]);
+    const panel = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(panel.get("[data-slot=comment-panel-composer] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const box = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get("[data-slot=comment-composer]").attributes("data-layout");
+    expect(box()).toBe("box");
+    expect(box("row")).toBe("row");
+  });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
   });
 });

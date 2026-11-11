@@ -1,16 +1,20 @@
 import { and, asc, eq } from "drizzle-orm"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
+import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 
-import { createProjectToken, openProjectToken, sealProjectToken, tokenSha256 } from "./token-box.ts"
+import { openProjectKey, sealProjectKey } from "./token-box.ts"
 
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
+import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
+
+import type { AnyRelations } from "drizzle-orm"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 
 /**
- * One row for each linked project. A project belongs to one team, the Better Auth organization in `team_id`.
- * `token_sealed` is the project token, encrypted with `VITEHUB_CONSOLE_SECRET`. `token_sha256` is the value that the
- * project keeps, so the Console can show it again.
+ * One row for each linked project. A project belongs to one team, the Better Auth organization in `team_id`. Each link
+ * has its own Ed25519 key pair: `key_sealed` is the private key, encrypted with `VITEHUB_CONSOLE_SECRET`, and
+ * `public_key` is the value that the project keeps, so the Console can show it again.
  */
 export const consoleProjects = sqliteTable("console_projects", {
   id: text("id").primaryKey(),
@@ -18,8 +22,8 @@ export const consoleProjects = sqliteTable("console_projects", {
   teamId: text("team_id").notNull().references(() => authSqliteSchema.organization.id, { onDelete: "cascade" }),
   url: text("url").notNull(),
   label: text("label"),
-  tokenSealed: text("token_sealed").notNull(),
-  tokenSha256: text("token_sha256").notNull(),
+  keySealed: text("key_sealed").notNull(),
+  publicKey: text("public_key").notNull(),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at").notNull(),
 }, table => [
@@ -31,42 +35,42 @@ export const consoleProjects = sqliteTable("console_projects", {
 export const consoleSchema = { consoleProjects }
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
-export type ConsoleDatabase = BaseSQLiteDatabase<"async", unknown, Record<string, unknown>>
+export type ConsoleDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>
 
-/** A linked project as the Console page sees it. It never holds the token. */
+/** A linked project as the Console page sees it. It never holds the private key. */
 export interface ConsoleProject {
   id: string
   teamId: string
   url: string
   label: string | null
-  /** The SHA-256 of the project token. The project keeps it in the variable `tokenVariable`. */
-  tokenSha256: string
+  /** The Ed25519 public key of the link, base64url. The project keeps it in the variable `keyVariable`. */
+  publicKey: string
   /**
-   * The variable of the project that holds `tokenSha256`, such as `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_3F9A12BC`. Each
-   * linked project has its own, so two teams can link one app, and unlinking one leaves the other.
+   * The variable of the project that holds `publicKey`, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`. Each linked
+   * project has its own, so two teams can link one app, and unlinking one leaves the other.
    */
-  tokenVariable: string
+  keyVariable: string
   createdBy: string
   createdAt: number
 }
 
-/** The token variable of a project: `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_` and the first 8 hex digits of its id. */
-export function projectTokenVariable(id: string): string {
-  return `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_${id.replace(/[^0-9a-f]/gi, "").slice(0, 8).toUpperCase()}`
+/** The key name of a project: `CONSOLE_` and the first 8 hex digits of its id. The app reads `VITEHUB_CONSOLE_KEY_<name>`. */
+export function projectKeyName(id: string): string {
+  return `CONSOLE_${id.replace(/[^0-9a-f]/gi, "").slice(0, 8).toUpperCase()}`
 }
 
 function toProject(row: typeof consoleProjects.$inferSelect): ConsoleProject {
-  return { id: row.id, teamId: row.teamId, url: row.url, label: row.label, tokenSha256: row.tokenSha256, tokenVariable: projectTokenVariable(row.id), createdBy: row.createdBy, createdAt: row.createdAt }
+  return { id: row.id, teamId: row.teamId, url: row.url, label: row.label, publicKey: row.publicKey, keyVariable: `VITEHUB_CONSOLE_KEY_${projectKeyName(row.id)}`, createdBy: row.createdBy, createdAt: row.createdAt }
 }
 
 /** The linked projects of one team. Each method sees only the projects of that team. */
 export interface ConsoleProjectStore {
   list(): Promise<ConsoleProject[]>
   get(id: string): Promise<ConsoleProject | undefined>
-  /** Link a project with a new token. Returns `undefined` when the team already linked the URL. */
+  /** Link a project with a new key pair. Returns `undefined` when the team already linked the URL. */
   create(input: { url: string, label?: string, createdBy: string }): Promise<ConsoleProject | undefined>
-  /** The project and its token, or `undefined` when there is no such project or the secret cannot open its token. */
-  target(id: string): Promise<{ project: ConsoleProject, token: string } | undefined>
+  /** The project and its signing key, or `undefined` when there is no such project or the secret cannot open its key. */
+  target(id: string): Promise<{ project: ConsoleProject, key: ConsoleSigningKey } | undefined>
   remove(id: string): Promise<boolean>
 }
 
@@ -86,14 +90,14 @@ export function createConsoleProjectStore(database: ConsoleDatabase | (() => Con
       const [existing] = await db().select({ id: consoleProjects.id }).from(consoleProjects).where(and(inTeam, eq(consoleProjects.url, url))).limit(1)
       if (existing) return undefined
       const id = crypto.randomUUID()
-      const token = createProjectToken()
+      const pair = await createConsoleKeyPair()
       const values = {
         id,
         teamId,
         url,
         label: label?.trim() || null,
-        tokenSealed: await sealProjectToken(secret, id, token),
-        tokenSha256: await tokenSha256(token),
+        keySealed: await sealProjectKey(secret, id, pair.privateKey),
+        publicKey: pair.publicKey,
         createdBy,
         createdAt: Date.now(),
       }
@@ -103,8 +107,8 @@ export function createConsoleProjectStore(database: ConsoleDatabase | (() => Con
     async target(id) {
       const found = await row(id)
       if (!found) return undefined
-      const token = await openProjectToken(secret, found.id, found.tokenSealed)
-      return token ? { project: toProject(found), token } : undefined
+      const privateKey = await openProjectKey(secret, found.id, found.keySealed)
+      return privateKey ? { project: toProject(found), key: { name: projectKeyName(found.id), privateKey } } : undefined
     },
     async remove(id) {
       const removed = await db().delete(consoleProjects).where(and(inTeam, eq(consoleProjects.id, id))).returning({ id: consoleProjects.id })
