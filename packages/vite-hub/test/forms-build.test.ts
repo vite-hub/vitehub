@@ -76,14 +76,15 @@ describe("Forms in a built Nitro 3 app", () => {
     // No `database` option: `server/forms/` turns it on.
     const port = await freePort()
     const publicUrl = `http://127.0.0.1:${port}`
-    const app = () => vitehub({ console: { auth: "token" }, preset: "node", publicUrl })
+    const app = () => vitehub({ console: true, preset: "node", publicUrl })
     const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrations = join(root, "server/databases/default/migrations")
-    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
+    const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)).toEqual(["CREATE TABLE `vitehub_form_submissions`"])
     const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")

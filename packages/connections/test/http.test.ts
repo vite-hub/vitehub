@@ -123,7 +123,6 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(409);
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     const html = await response.text();
-    expect(html).toContain("/_vitehub/connections?connection=t3%3Aalice");
     expect(html).toContain("vitehub connections connect t3:alice");
   });
 

@@ -35,7 +35,7 @@ const clients: Array<ReturnType<typeof createClient>> = [];
 async function database(name = "default") {
   const client = createClient({ url: "file::memory:" });
   clients.push(client);
-  const db = drizzle({ client, schema });
+  const db = drizzle({ client });
   await client.execute(
     "create table users (id integer primary key autoincrement, email text not null unique, full_name text)",
   );
@@ -60,7 +60,7 @@ afterEach(() => {
 
 describe("Console database inspection", () => {
   it("serves local table and row operations with Setup-only navigation", async () => {
-    installConsoleSections("/project", ["setup", "databases"], false, ["setup"]);
+    installConsoleSections("/project", ["setup", "databases"], ["setup"]);
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
     for (const [operation, input, expected] of [
       ["sections.list", {}, { sections: ["setup"] }],
@@ -133,7 +133,7 @@ describe("Console database inspection", () => {
     const client = createClient({ url: "file::memory:" });
     clients.push(client);
     const schema = { accounts };
-    installConsoleDatabase("/project", { default: { db: drizzle({ client, schema }), schema } }, ["default"]);
+    installConsoleDatabase("/project", { default: { db: drizzle({ client }), schema } }, ["default"]);
 
     const result = await browseConsoleDatabase({});
 

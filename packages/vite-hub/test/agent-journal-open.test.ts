@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-invocations"
 
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
@@ -67,6 +67,7 @@ describe("Default Agent journal open", () => {
     expect(other).toBe(database)
     if (database?.driver !== "libsql") throw new TypeError("Expected the libSQL journal.")
     await expect(database.db.select().from(database.schema.invocations)).resolves.toEqual([])
+    await expect(database.db.query.invocations.findMany()).resolves.toEqual([])
     expect(opens.count).toBe(1)
     expect(existsSync(join(directory, "journal.sqlite"))).toBe(true)
   })
