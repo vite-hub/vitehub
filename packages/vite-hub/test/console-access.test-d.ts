@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { cmsConsoleAuthorize } from "vite-hub/cms/access"
-import { getAuthForRequest } from "@vite-hub/auth/server"
+import { authForRequest } from "@vite-hub/auth/runtime/console"
 import { createConsoleAppAuthPages, defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
@@ -12,9 +12,24 @@ declare const event: ConsoleRequestEvent
 declare const access: ConsoleAccess
 
 describe("Console access types", () => {
+  it("preserves validated signed-user fields when narrowing the public authorize context", () => {
+    defineConsoleAuthorize((context) => {
+      if (context.via === "console") {
+        expectTypeOf(context.user.id).toEqualTypeOf<string>()
+        expectTypeOf(context.user.name).toEqualTypeOf<string | undefined>()
+        expectTypeOf(context.user.email).toEqualTypeOf<string | undefined>()
+        return context.user.email?.endsWith("@example.com") ?? false
+      }
+      if (context.via === "cli") expectTypeOf(context.user).toEqualTypeOf<undefined>()
+      // Session-based users keep their extensible fields.
+      if (context.via === undefined) expectTypeOf(context.user?.role).toEqualTypeOf<unknown>()
+      return false
+    })
+  })
+
   it("accepts synchronous and lazy app Auth resolvers", () => {
-    createConsoleAppAuthPages(getAuthForRequest)
-    createConsoleAppAuthPages(async (...input) => getAuthForRequest(...input))
+    createConsoleAppAuthPages(authForRequest)
+    createConsoleAppAuthPages(async (...input) => authForRequest(...input))
   })
 
   it("type checks", () => {

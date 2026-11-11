@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
@@ -58,15 +58,29 @@ const runtimeEntries = [
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
   // Generated code imports these modules by path. They are not package exports.
+  "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
+  "src/internal/disabled-redis-driver.ts",
   "src/task/operations.ts",
+  "src/comments/realtime.ts",
+  "src/comments/runtime/auth.ts",
+  "src/connections/agent.ts",
+  "src/console/auth-cloudflare-access.ts",
+  "src/console/auth-inline.ts",
+  "src/console/runtime/server/blob.ts",
+  "src/console/runtime/server/database.ts",
+  "src/console/runtime/server/definitions.ts",
+  "src/console/runtime/server/env.ts",
+  "src/console/runtime/server/operation-contributions.ts",
+  "src/console/runtime/server/sections.ts",
   "src/console/auth-types.ts",
   // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
   "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
+  "src/console/runtime/client/account.ts",
+  "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
-  "src/console/runtime/client/build.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
@@ -103,9 +117,9 @@ const runtimeEntries = [
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
   "src/console/runtime/client/sign-in.ts",
-  "src/console/runtime/client/time.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
+  "src/console/runtime/auth-operations.ts",
   "src/console/runtime/definitions.ts",
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
@@ -117,7 +131,6 @@ const runtimeEntries = [
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
-  "src/console/runtime/server/client.get.ts",
   "src/console/runtime/server/console-preflight.ts",
   "src/console/runtime/server/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
@@ -135,9 +148,6 @@ const runtimeEntries = [
   "src/console/runtime/server/mcp-discovery.ts",
   "src/console/runtime/server/mcp-authorization-server.ts",
   "src/console/runtime/server/mcp-metadata.ts",
-  "src/console/runtime/server/page.get.ts",
-  "src/console/runtime/server/page-session.ts",
-  "src/console/runtime/server/schedule-run.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sign-in.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -150,12 +160,12 @@ const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 // The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
-const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 export default defineConfig({
   pack: [
     {
-      tsconfig: "tsconfig.build.json",
+      ...packDefaults,
       // `project.get` reports this version, without the package manifest in the app's server output.
       define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
@@ -235,6 +245,46 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-invocation-composer.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-menu.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-setup.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-sign-in.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-settings.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-shell.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-home.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-snippet.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-team.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-unlink.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -356,7 +406,8 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-env-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-credential-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-activity-feed.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
         {
           from: "src/console/runtime/components/console-auth.vue",
@@ -372,6 +423,9 @@ export default defineConfig({
         },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
+        // The copied invocation helpers import the formatters as TypeScript.
+        { from: "src/console/runtime/client/format.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/highlight-languages.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
@@ -380,7 +434,6 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-code-text.vue", to: "dist/console/runtime/components" },
@@ -420,9 +473,12 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-date-input.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-facts.ts", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-section.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-stat-grid.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-confirm.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
@@ -478,8 +534,9 @@ export default defineConfig({
           delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
+          delete exports["./console/runtime/client/account"];
+          delete exports["./console/runtime/client/account-views"];
           delete exports["./console/runtime/client/appearance"];
-          delete exports["./console/runtime/client/build"];
           delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
@@ -516,9 +573,9 @@ export default defineConfig({
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
           delete exports["./console/runtime/client/sign-in"];
-          delete exports["./console/runtime/client/time"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
+          delete exports["./console/runtime/auth-operations"];
           delete exports["./console/runtime/definitions"];
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
@@ -527,7 +584,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
           delete exports["./console/runtime/server/channel-replay"];
-          delete exports["./console/runtime/server/client.get"];
           delete exports["./console/runtime/server/database"];
           delete exports["./console/runtime/server/database.get"];
           delete exports["./console/runtime/server/definitions"];
@@ -553,10 +609,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/runtime"];
-          delete exports["./console/runtime/server/page.get"];
-          delete exports["./console/runtime/server/page-session"];
-          delete exports["./console/runtime/server/page-tool"];
-          delete exports["./console/runtime/server/schedule-run"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sign-in"];
           delete exports["./console/runtime/server/sections.get"];
@@ -564,27 +616,18 @@ export default defineConfig({
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
-          delete exports["./console/auth-client"];
           delete exports["./console/auth-cloudflare-access"];
           delete exports["./console/auth-inline"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
           delete exports["./task/operations"];
+          delete exports["./comments/realtime"];
+          delete exports["./comments/runtime/auth"];
+          delete exports["./connections/agent"];
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
-            "./console/auth/client": "./dist/console/auth-client.js",
-            "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
-            "./console/auth/inline": "./dist/console/auth-inline.js",
-            "./console/blob": "./dist/console/runtime/server/blob.js",
-            "./console/database": "./dist/console/runtime/server/database.js",
-            "./console/definitions": "./dist/console/runtime/server/definitions.js",
-            "./console/documents": "./dist/console/runtime/server/documents.js",
-            "./console/env": "./dist/console/runtime/server/env.js",
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
-            "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
-            "./console/sections": "./dist/console/runtime/server/sections.js",
-            "./console/setup": "./dist/console/runtime/server/setup.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",
@@ -593,11 +636,6 @@ export default defineConfig({
         },
         inlinedDependencies: false,
       },
-      outExtensions: () => ({
-        dts: ".d.ts",
-        js: ".js",
-      }),
-      publint: "ci-only",
     },
     {
       clean: false,
@@ -622,16 +660,6 @@ export default defineConfig({
         },
       },
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    },
-    {
-      // The shared browser loader bundles independently of the Console's server chunks.
-      deps: { alwaysBundle: [/./], onlyBundle: false },
-      dts: false,
-      entry: { "console/runtime/page/loader": "src/console/page/loader.ts" },
-      minify: true,
-      outExtensions: () => ({ js: ".js" }),
-      platform: "browser",
-      tsconfig: "tsconfig.build.json",
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).

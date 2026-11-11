@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, isAbsolute, relative, resolve } from "pathe"
+import { dirname, join, relative, resolve } from "pathe"
 
 import {
   createDirectoryDefinitionSource,
@@ -47,7 +47,11 @@ export function serializeGeneratedRegistry(value: unknown): string {
   return JSON.stringify(value).replace(/"__proto__":/g, '["__proto__"]:')
 }
 
-const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
+const legacyConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
+const indexFilePattern = /^index\.(?:c|m)?[jt]s$/i
+const databaseSourcePattern = /\.(?:c|m)?[jt]s$/i
+const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
+const indexFileNames = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 /** The options object of `defineDatabase({ ... })`. With `exact`, the object cannot have a type assertion. */
@@ -630,22 +634,37 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
   }
 }
 
+function hasIndexFile(directory: string): boolean {
+  return indexFileNames.some(name => existsSync(join(directory, name)))
+}
+
+/**
+ * The Database name of a file in `server/databases/`: `<name>.ts` or `<name>/index.ts`. A folder with an `index.ts` is
+ * one Database, so its other files, such as schema modules and migrations, are not Definitions. Returns undefined for
+ * those files. Throws for the `config.ts` files of the former layout.
+ */
+export function serverDatabaseName(directory: string, file: string): string | undefined {
+  const path = relative(directory, file).replace(/\\/g, "/")
+  if (!databaseSourcePattern.test(path) || declarationFilePattern.test(path)) return
+  const parts = path.split("/")
+  const fileName = parts.at(-1)!
+  for (let depth = 1; depth < parts.length; depth++) {
+    if (!hasIndexFile(resolve(directory, ...parts.slice(0, depth)))) continue
+    return depth === parts.length - 1 && indexFilePattern.test(fileName) ? parts.slice(0, depth).join("/") : undefined
+  }
+  if (parts.includes("migrations")) return
+  if (legacyConfigFilePattern.test(fileName)) {
+    const folder = parts.slice(0, -1).join("/")
+    throw databaseErrorDiagnostics.DATABASE_LEGACY_CONFIG_FILE({ file, name: folder || "default" })
+  }
+  return path.replace(databaseSourcePattern, "")
+}
+
 function discoverServerDatabases(serverDir: string) {
   return discoverDefinitions<FoundDatabaseDefinition>("database", [
-    createDirectoryDefinitionSource("server-database-default", [serverDir], "databases", {
-      normalizeName(directory, file) {
-        if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
-        return dirname(file).replace(/\\/g, "/") === directory.replace(/\\/g, "/") ? "default" : undefined
-      },
-      createDefinition: ({ file, name }) => createDatabaseDefinition("server-database-default", file, name, "default"),
-    }),
-    createDirectoryDefinitionSource("server-databases-named", [serverDir], "databases", {
-      normalizeName(directory, file) {
-        if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
-        const name = relative(directory, dirname(file)).replace(/\\/g, "/")
-        return name && name !== "." ? name : undefined
-      },
-      createDefinition: ({ file, name }) => createDatabaseDefinition("server-databases-named", file, name, "named"),
+    createDirectoryDefinitionSource("server-databases", [serverDir], "databases", {
+      normalizeName: serverDatabaseName,
+      createDefinition: ({ file, name }) => createDatabaseDefinition("server-databases", file, name, name === "default" ? "default" : "named"),
     }),
   ])
 }
@@ -796,8 +815,7 @@ function createContributedDatabaseDefinition(
   const mode = contribution.name === "default" ? "default" : "named"
   const definition = createDatabaseDefinition(contributedDatabaseSource, contribution.definition, contribution.name, mode)
   // Migrations go where an app Definition with this name would keep them, so adding one later keeps the history.
-  const databasesDir = resolve(serverDirs?.[0] ?? resolve(rootDir, "server"), "databases")
-  definition.migrationsDir = resolve(databasesDir, ...(mode === "default" ? [] : [contribution.name]), "migrations")
+  definition.migrationsDir = resolve(serverDirs?.[0] ?? resolve(rootDir, "server"), "databases", contribution.name, "migrations")
   definition.contributor = contribution.plugin
   if (contribution.reason) definition.reason = contribution.reason
   return definition
@@ -821,9 +839,10 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
     const existing = found.find(entry => entry.definition.name === contribution.name)?.definition
     found.push({ definition: createContributedDatabaseDefinition(contribution, rootDir, serverDirs, existing), layer: 0 })
   }
-  const defaults = found.filter(entry => entry.definition.mode === "default")
-  const named = found.filter(entry => entry.definition.mode === "named")
-  if (defaults.length && named.length) {
+  // `src/database.ts` keeps its migrations beside it, where Vite suffix Definitions can keep theirs, so it stays alone.
+  const viteDefaults = found.filter(entry => entry.definition.source === "vite-database-default")
+  const named = found.filter(entry => entry.definition.name !== "default")
+  if (viteDefaults.length && named.length) {
     throw databaseErrorDiagnostics.DATABASE_MIXED_DEFINITIONS({ files: definitionFiles(found.map(entry => entry.definition)) })
   }
   const byName = new Map<string, typeof found>()
@@ -836,25 +855,17 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
-function isWithinDirectory(directory: string, file: string) {
-  const path = relative(directory, file)
-  return Boolean(path) && !path.startsWith("..") && !isAbsolute(path)
-}
-
 /**
- * Keeps migrations in the application, also when a Nuxt layer owns the database options. The implicit default
- * Database uses the directory that `server/databases/config.ts` would use.
+ * Database `<name>` keeps its migrations in `server/databases/<name>/migrations/` of the application, also when a Nuxt
+ * layer owns the database options. The implicit default Database uses the folder of `server/databases/default.ts`.
+ * The Vite forms keep their migrations beside the Definition file.
  */
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
-  const [appServerDir, ...layerServerDirs] = serverDirs ?? []
+  const appServerDir = serverDirs?.[0] ?? resolve(rootDir, "server")
+  const serverMigrations = resolve(appServerDir, "databases", definition.name, "migrations")
   if (definition.migrationsDir) return relative(rootDir, definition.migrationsDir)
-  if (isImplicitDefaultDatabase(definition)) return relative(rootDir, resolve(appServerDir ?? resolve(rootDir, "server"), "databases", "migrations"))
-  const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
-    && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
-  const directory = ownedByLayer
-    ? resolve(appServerDir, "databases", ...(definition.mode === "named" ? [definition.name] : []))
-    : dirname(definition.handler)
-  return relative(rootDir, resolve(directory, "migrations"))
+  if (isImplicitDefaultDatabase(definition) || definition.source === "server-databases") return relative(rootDir, serverMigrations)
+  return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
 }
 
 function normalizeCloudflareConfig(
@@ -960,7 +971,6 @@ export function resolveDBViteConfig(
       databases[definition.name] = {
         connection: url === undefined ? {} : { url },
         dialect: "postgresql",
-        drizzle: {},
         generatedSchemaFile,
         hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
         migrationsDir,
@@ -996,7 +1006,6 @@ export function resolveDBViteConfig(
       cloudflare,
       connection: resolveDefinitionConnection(definition.handler, definition.name, options?.connection),
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile,
       migrationsDir,
       mode: definition.mode,

@@ -6,13 +6,13 @@ navigation.order: 9
 icon: i-lucide-file-pen-line
 ---
 
-The Console's Content section at `/_vitehub/content` edits the [collections](/docs/content/configure#document-collections) of `server/content.ts`. Your public site needs no edit button or overlay.
+The Content section of the [Console](/docs/development/console) edits the [collections](/docs/content/configure#document-collections) of `server/content.ts`. Your public site needs no edit button or overlay.
 
 The section appears when `defineContent()` has `collections`, not with only read-only Sources. Discovery reads the file without running it. If it cannot follow the collections, such as an object imported from another file, it keeps the section and lists what the runtime defines. It shows every collection the signed-in user may read.
 
 ## Find your way around
 
-`/_vitehub/content` opens the dashboard:
+The section opens on the dashboard:
 
 - Counts of draft, changed, published, and deleted documents in the collections you may read.
 - **Needs publishing** lists each unpublished change, newest first. **Publish** in the header publishes all of them, exactly as shown. Writers see the list without the button.
@@ -20,15 +20,14 @@ The section appears when `defineContent()` has `collections`, not with only read
 - **Recent activity** shows who saved, deleted, restored, or published which document, and when. It shows the latest eight. **Show all** shows the rest.
 - **Collections** lists each collection with its draft, changed, and published counts, and **New** when you may edit it. A last **Settings** row counts the singletons and opens the Settings page.
 
-The sidebar lists the dashboard, each collection with its draft and changed counts, and **Settings** and **Media** under **Manage**. **Settings** appears when you define a [singleton](/docs/content/configure#singletons-and-data-files), and lists each one with its state. Singletons are not listed with the collections. Lists name a singleton by its `label`, not its file name. **Media** appears when Blob is on and opens the [media library](#media-library). Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
+The sidebar lists the dashboard, each collection with its draft and changed counts, and **Settings** and **Media** under **Manage**. **Settings** appears when you define a [singleton](/docs/content/configure#singletons-and-data-files), and lists each one with its state. Singletons are not listed with the collections. Lists name a singleton by its `label`, not its file name. **Media** appears when Blob is on and opens the [media library](#media-library).
 
 When the app lacks something a feature needs, the Console shows the fix in its place:
 
 - Without [`authorize`](/docs/content/configure#access) in `defineContent()`, nobody can read documents. The sidebar and dashboard ask you to add it.
 - Without a Schedule Definition that calls [`content.publishDue()`](/docs/content/scheduling#run-due-schedules), **Schedule…** is off, and an **Overdue** schedule shows the fix.
-- When Console data needs a signed-in user, such as with `console: { auth: 'app' }`, it asks you to sign in.
 
-<kbd>⌘</kbd> <kbd>K</kbd> searches all drafts by title, id, fields, and body. <kbd>Enter</kbd> opens a document. <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. Search also creates documents and reviews and publishes all changes. See [Search](/docs/development/console#search).
+<kbd>⌘</kbd> <kbd>K</kbd> searches all drafts by title, id, fields, and body. <kbd>Enter</kbd> opens a document. <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. Search also creates documents and reviews and publishes all changes.
 
 ## What editors can do
 
@@ -75,7 +74,7 @@ An invalid field still saves, so you lose nothing. The editor shows each message
 
 ## Editing together
 
-The Console shows who has a document open, and gives one tab at a time the [edit lease](/docs/content/editing-together). It needs `contentSessionsSchema` in the Workspace history Database. With Realtime on, Markdown documents open in a [live session](/docs/content/editing-together#live-editing) where everyone edits at once. The lease applies only without live editing.
+The Console shows who has a document open, and gives one tab at a time the [edit lease](/docs/content/editing-together). It needs `contentSessionsSchema` in the Workspace history Database. [Live editing](/docs/content/editing-together#live-editing) with Realtime needed the Console that the app served, which is removed.
 
 - **Avatars.** The header shows up to three people, then `+N`. Hover one for `Ana · Editing` or `Ana · Viewing`. List rows show one small avatar, such as `Ana is editing`. The dashboard lists them under **Open now**.
 - **First edit.** Opening does not lock a document. The first keystroke claims the lease, and the edit stays on screen meanwhile. Saving starts once this tab holds it.
@@ -90,13 +89,7 @@ The editor reports every 15 seconds, or 60 while hidden. After 15 minutes withou
 
 ## Preview the page
 
-For a collection with a `url`, the window button in the editor header opens the page in a side browser, as in an IDE. Its toolbar has the address, **Draft** or **Published**, **Desktop** or **Mobile**, **Reload**, and **Open in a new tab**. Drag the divider, or focus it and use the arrow keys, to resize. <kbd>Home</kbd> and <kbd>End</kbd> make the preview widest or narrowest. On a phone the preview covers the editor, and **Editor** goes back.
-
-- **Draft** renders the unsaved fields and body through your routes with a [preview frame](/docs/content/preview#preview-frames). Only this document is a draft. The rest of the page is published. Nothing is stored. Same-site redirects, such as locale or sign-in, keep the document on screen. A redirect to another site, or too many, shows **Retry**.
-- **Published** loads the page as a guest sees it, with `?vitehub-content-published`, also after same-site redirects. A [preview cookie](/docs/content/preview) does not make it a draft, and stays for your other tabs.
-- **Click to edit.** Elements with [`contentField()`](/docs/content/server-api#field-addresses) attributes select their field in the editor. In **Draft**, top-level text fields, such as the title, change in place. <kbd>Enter</kbd> ends the edit, and <kbd>Esc</kbd> undoes it. Focusing a field in the editor outlines it in the page.
-
-The page must allow a frame from its own origin. A page that sends `X-Frame-Options: DENY` or `frame-ancestors 'none'` cannot show in the side browser.
+The page preview (the side browser with **Draft** and **Published** views, and click to edit) needed the Console that the app served, which is removed.
 
 ## Translations
 
@@ -106,17 +99,16 @@ A collection with [`locales`](/docs/content/configure#locales) shows the locales
 - **Out of date.** A line above the title says the source changed after the translation, with a button that opens the source. Saves keep the translation out of date, so a typo fix does not hide a change in the source.
 - **Mark as up to date.** The button on that line shows the current source version. Confirm, and the save records that version as the source of the translation. If the source changed again while you checked it, the dialog shows the newer version and the translation stays out of date.
 - **Publish.** **Publish** publishes the translation on screen. **Schedule…** stays on the source locale.
-- **Not yet for translations.** Live editing, the edit lease, Local only, and the side browser work on the source locale. Saves of a translation still refuse to overwrite a newer version.
+- **Not yet for translations.** The edit lease and Local only work on the source locale. Saves of a translation still refuse to overwrite a newer version.
 
 ## Edit locally first
 
-The editing menu in the header switches between **Collaborative** and **Local only**. It is separate from the preview's Draft and Published views.
+The editing menu in the header switches between **Collaborative** and **Local only**.
 
-- **Collaborative** edits the shared draft. It saves as you type, in the live session when Realtime is on.
-- **Local only** keeps your edits in this tab. They never save or reach the live session, and nobody else sees them. A reload keeps them. Closing the tab asks first. The Draft view shows them as **Local draft**.
+- **Collaborative** edits the shared draft. It saves as you type.
+- **Local only** keeps your edits in this tab. They never save, and nobody else sees them. A reload keeps them. Closing the tab asks first.
 - **Apply to shared draft** saves them over the shared draft they started from. Edits made during the save stay local. If someone saved the shared draft since, nothing is saved, and a comparison opens with **Overwrite with mine**, **Discard mine**, and **Keep editing locally**. With one editor at a time, Apply borrows the edit lease for the save, even in read-only mode. It never takes the lease over: while someone else edits, the banner says who, and **Retry** applies when they stop.
 - **Discard** drops them. Switching to Collaborative or leaving with local edits asks you to apply or discard first.
-- Switching to Local only in a live session makes the room save first. Your local edits start from that version. Fields or text typed during the save stay local.
 - If someone deletes the shared draft, your local edits stay, even after a reload. The banner says so and offers **Copy**, **Discard**, and **Apply to shared draft**. Apply then opens a comparison, where **Create again from mine** saves your edits as a new draft. Publish is off until you apply or discard.
 - **Publish shared draft** publishes the shared draft, never local edits. It shows what would go live, and refuses if the shared draft changed during review. If the site also changed, the comparison shows both. **Keep the shared draft** and **Use the site version** save only that one, and refuse if either changed again. Local edits stay until you apply them.
 
@@ -130,7 +122,7 @@ Images from the `/` menu, or pasted or dropped into the body, go through the [me
 
 ## Media library
 
-**Media** at `/_vitehub/content/-/media` shows the files of the Blob Store that [`blob.serve`](/docs/blob/configure) serves, or the `default` store if none is served. It appears when Blob is on. Every change goes through [`blob.media`](/docs/blob/media), so the library and your server code see the same records.
+**Media** shows the files of the Blob Store that [`blob.serve`](/docs/blob/configure) serves, or the `default` store if none is served. It appears when Blob is on. Every change goes through [`blob.media`](/docs/blob/media), so the library and your server code see the same records.
 
 | Task | How |
 | --- | --- |
@@ -169,7 +161,7 @@ All collections share media, so access follows [`authorize` in `defineContent()`
 
 In the playground, writers upload and describe files, and editors also move and delete them. A request without access returns `403` with `MEDIA_FORBIDDEN`.
 
-MCP agents cannot use the library, because it is a Console page. To let an editor's agent list and upload media, also grant the library's Blob store, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then uses `blob_list`, `blob_put`, and `blob_media` on that store only. Other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+MCP agents cannot use the library, because it is part of the Console UI. To let an editor's agent list and upload media, also grant the library's Blob store, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then uses `blob_list`, `blob_put`, and `blob_media` on that store only. Other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
 
 ## Publishing publishes what you reviewed
 
@@ -254,7 +246,7 @@ export default defineConsoleAuthorize(({ user }) => {
 ```
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: { posts },
   // Writers save drafts. Only editors publish.
@@ -290,10 +282,9 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Recent activity shows the last 20 revisions, from at most 1,000 scanned per ref.
 - The dashboard and search publish one collection at a time. If a draft moved after the page loaded, that collection publishes nothing and the Console asks you to refresh.
 - History shows a document's last 20 saves and last 20 publishes, then older saves on request. Content scans at most 1,000 revisions per page.
-- Uploads take files up to 32 MB per request. Hosts can set a lower limit, such as 4.5 MB on Vercel Functions.
+- Uploads take files up to 32 MB per request. The file travels as base64 in the `media.upload` operation, so the request is a third larger than the file. The hosted Console sends files up to 9 MiB. Hosts can set a lower limit, such as 4.5 MB on Vercel Functions.
 - Media search scans at most 5,000 files below the open folder and shows at most 60 matches. Open a folder to narrow it.
 - **Used in** reads every document, on draft and published, of each collection the user may read. It finds bodies through the collection's [search fields](/docs/content/configure#define-collections), which include the body by default. It lists only documents the user may read, so the move or delete warning leaves out other documents that use the file. It does not tell which Blob Store a reference names.
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).
-- A live preview of the page is not available yet.
 - Autosave starts only after a document exists. Leaving the page right after typing saves first. Closing the tab asks.
-- The Nuxt module registers the page, but this editor is verified only in the Vite Console. Content supplies the Comark UI implementation and its editor dependencies.
+- Content supplies the Comark UI implementation and its editor dependencies.

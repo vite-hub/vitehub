@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { readFile, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -16,6 +16,7 @@ import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
@@ -266,6 +267,8 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
+  // `vite dev` writes the generated schemas in the background. The Database virtual modules wait for them.
+  let generatedArtifacts: Promise<unknown> = Promise.resolve()
   let serverDirs: string[] | undefined
   let contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] }
   let contributionFiles = new Set<string>()
@@ -303,7 +306,17 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     return {
       alias: viteStringAliases(resolved?.resolve?.alias),
       onFallback: strict ? undefined : message => logger ? logger.warn(message) : console.warn(message),
+      worker: !strict && resolved?.command === "serve",
     }
+  }
+
+  async function waitForGeneratedArtifacts() {
+    let generation: Promise<unknown>
+    do {
+      generation = generatedArtifacts
+      await generation
+      // A hot update may have queued another generation while this load was waiting.
+    } while (generation !== generatedArtifacts)
   }
 
   // `vitehub database generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
@@ -315,11 +328,15 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
-    if (runtimeConfig) {
-      await writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
-    } else {
-      await removeGeneratedDatabaseTypes(databaseRoot())
-    }
+    const config = runtimeConfig
+    const root = databaseRoot()
+    const schemaOptions = tableNameOptions(options.strict)
+    // Keep all shared artifact writes in order, including removal when Database is disabled. A failed generation
+    // still rejects its waiting imports, but must not prevent a later refresh from recovering.
+    generatedArtifacts = generatedArtifacts.catch(() => {}).then(() => config
+      ? writeGeneratedDatabaseArtifacts(config, schemaOptions)
+      : removeGeneratedDatabaseTypes(root))
+    await waitForGeneratedArtifacts()
     return runtimeConfig
   }
 
@@ -396,17 +413,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
   async function copyNitroMigrations(serverDir: string) {
     if (!nitroMigrations.length) return
     await rm(resolve(serverDir, NITRO_MIGRATIONS_DIR), { force: true, recursive: true })
-    await Promise.all(nitroMigrations.map(async ({ source, target }) => {
-      const outputDir = resolve(serverDir, target)
-      const entries = await readdir(source, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return []
-        throw error
-      })
-      await mkdir(outputDir, { recursive: true })
-      await Promise.all(entries
-        .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
-        .map(entry => copyFile(resolve(source, entry.name), resolve(outputDir, entry.name))))
-    }))
+    await Promise.all(nitroMigrations.map(({ source, target }) => copyD1MigrationFiles(source, resolve(serverDir, target))))
   }
 
   return {
@@ -503,7 +510,19 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
         // edits to regenerate the database during development.
         contributionDirectories.add(dirname(file))
       }
-      await refreshRuntimeConfig()
+      const refresh = refreshRuntimeConfig()
+      // `vite dev` lists the tables of each Definition in a worker thread and starts meanwhile. The Database virtual
+      // modules wait for the generated schemas. A failure shows now and again on that import.
+      if (config.command === "serve") {
+        refresh.catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          // SAFETY: Vite always sets `logger`. Tests that call this hook pass a partial config without it.
+          const logger = config.logger as ResolvedConfig["logger"] | undefined
+          if (logger) logger.error(message)
+          else console.error(message)
+        })
+      }
+      else await refresh
       mergeNitroCloudflareD1Bindings()
       installNitroPostgresRequestScope()
       installNitroRequestStats()
@@ -610,8 +629,8 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     load: {
       filter: { id: /^\0#vitehub\/database\/(?:schema|databases|definition-defaults)$/ },
       handler(id) {
-        if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-        if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
+        if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return waitForGeneratedArtifacts().then(() => renderSchemaModule(runtimeConfig))
+        if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return waitForGeneratedArtifacts().then(() => renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined))
         if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
           const options = resolvedOptions()
           return `export default ${serializeGeneratedRegistry({
@@ -626,4 +645,3 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     },
   }
 }
-

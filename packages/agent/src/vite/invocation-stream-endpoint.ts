@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { assertViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
+import { isRecord } from "@vite-hub/internal/object"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
@@ -85,10 +86,6 @@ interface AgentInvocationStreamEntry {
   identity: AgentHostIdentity
   name: string
   triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentRuntimeContext>>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function payloadFromBody(body: AgentInvocationStreamBody): Record<string, unknown> | undefined {

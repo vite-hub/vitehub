@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
+import { isRecord } from "./object.ts"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
 export type CredentialSource = "env" | "host-cli"
@@ -176,10 +177,6 @@ export const runHostCli: HostCliRun = (command, args, options) => new Promise((r
   child.on("error", reject)
   child.on("close", exitCode => resolve({ exitCode, stdout: Buffer.concat(chunks).toString("utf8") }))
 })
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function trimmed(value: string | undefined): string | undefined {
   const result = value?.trim()

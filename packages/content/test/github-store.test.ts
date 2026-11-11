@@ -61,7 +61,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
     cleanup.push(() => rm(root, { recursive: true, force: true }))
     const client = createClient({ url: `file:${join(root, "sessions.sqlite")}` })
     cleanup.push(() => client.close())
-    database = drizzle(client, { schema: contentSessionsSchema })
+    database = drizzle({ client: client })
     for (const statement of sessionsTable.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   }
   const workspace = `github-${process.pid}-${++workspaces}`
@@ -193,7 +193,7 @@ describe("Content on the GitHub store", () => {
 
   it("reports scheduling as unavailable to the Console without calling GitHub", async () => {
     const { content } = await setup()
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
 
     expect((await actions.setup!({ user: null })).schedule).toEqual({
       message: "The GitHub store does not support scheduled publishing. Publish documents with Publish instead.",
@@ -264,7 +264,7 @@ describe("Content on the GitHub store", () => {
 
     it("lets the Console compare and resolve a document that changed on both branches", async () => {
       const { posts, content } = await setup({ authorize: () => true })
-      const actions = createContentConsoleActions({ content })
+      const actions = createContentConsoleActions({ default: content })
       const context = { user: { id: "joy", name: "Joy" } }
       const a = (await posts.raw("a"))!
       await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
@@ -624,7 +624,7 @@ describe("Content on the GitHub store", () => {
         logger: false,
       })
       cleanup.push(() => editor.dispose())
-      const result = await createContentConsoleActions({ content: editor }).publish({ collection: "posts", expect: [{ id: "b", digest: saved.digest }] }, { user: { id: "ada" } } as never)
+      const result = await createContentConsoleActions({ default: editor }).publish({ collection: "posts", expect: [{ id: "b", digest: saved.digest }] }, { user: { id: "ada" } } as never)
       expect(result).toMatchObject({ documents: [{ id: "b", change: "add" }], pullRequest: { number: 1, url: "https://github.com/onmax/repo/pull/1" } })
     })
 

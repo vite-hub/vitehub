@@ -16,6 +16,9 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_DEVELOPMENT_ONLY"
   | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_IMPERSONATING"
+  | "CONSOLE_KEY_MALFORMED"
+  | "CONSOLE_KEY_NOT_CONFIGURED"
+  | "CONSOLE_KEY_UNKNOWN"
   | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
@@ -31,8 +34,11 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_REQUEST_FAILED"
   | "CONSOLE_REQUEST_INVALID"
   | "CONSOLE_SIGN_IN_REQUIRED"
-  | "CONSOLE_TOKEN_INVALID"
-  | "CONSOLE_TOKEN_NOT_CONFIGURED"
+  | "CONSOLE_SIGNATURE_BODY"
+  | "CONSOLE_SIGNATURE_INVALID"
+  | "CONSOLE_SIGNATURE_MISSING"
+  | "CONSOLE_SIGNATURE_ORIGIN"
+  | "CONSOLE_SIGNATURE_STALE"
   | "CONSOLE_UNAVAILABLE"
 
 export type ConsoleDiagnosticData = {
@@ -115,20 +121,56 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_ORIGIN_NOT_ALLOWED: code(
       "The Console on this origin may not call this app.",
-      "Add the origin to console.origins, use console: { auth: \"token\" }, and send the token as Authorization: Bearer. Then build and deploy again.",
+      "Add the origin to console.origins, and send an OAuth access token of the app Auth as Authorization: Bearer. Then build and deploy again. Browsers cannot sign requests for console: { auth: \"token\" }: use the ViteHub Console, which signs on its server.",
       `${consoleGuide}#call-the-console-from-another-origin`,
       "docs",
     ),
-    CONSOLE_TOKEN_INVALID: code(
-      "The request has no Console token, or the token is not correct.",
-      "Send `Authorization: Bearer <token>` with the token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION=\"Bearer <token>\"`.",
-      `${consoleGuide}#use-a-console-token`,
+    CONSOLE_SIGNATURE_MISSING: code(
+      "This app takes only signed Console requests, and this request is not signed.",
+      "Open the app from the ViteHub Console, or set `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` for the CLI. `vitehub secret console-key` prints a new key pair; set its public key on the app.",
+      `${consoleGuide}#sign-console-requests`,
       "docs",
     ),
-    CONSOLE_TOKEN_NOT_CONFIGURED: code(
-      "`console: { auth: \"token\" }` needs `VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment.",
-      "Create a token with `openssl rand -hex 32`. Set `VITEHUB_CONSOLE_TOKEN_SHA256` to its SHA-256 as 64 hex characters, the output of `printf %s \"$TOKEN\" | sha256sum`. On Cloudflare, run `wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256`. Do not store the token itself. Then restart or deploy the server.",
-      `${consoleGuide}#use-a-console-token`,
+    CONSOLE_SIGNATURE_INVALID: code(
+      "The signature does not match the request.",
+      "Use the private key whose public key is in the `VITEHUB_CONSOLE_KEY_<NAME>` that the signature names. If the Console linked the app again, set the new line that its setup page shows.",
+      `${consoleGuide}#sign-console-requests`,
+      "docs",
+    ),
+    CONSOLE_SIGNATURE_STALE: code(
+      "The request was signed more than 5 minutes before or after the app clock.",
+      "Sync the clock of the machine that signs, then send the request again.",
+      `${consoleGuide}#sign-console-requests`,
+      "retry",
+    ),
+    CONSOLE_SIGNATURE_ORIGIN: code(
+      "The request was signed for another origin, or the app has no trusted origin.",
+      "Link the app with the URL that serves it. A Node.js server must set `vitehub({ publicUrl })` to its public URL for signed requests.",
+      `${consoleGuide}#sign-console-requests`,
+      "docs",
+    ),
+    CONSOLE_SIGNATURE_BODY: code(
+      "The request body is not the body that was signed.",
+      "Send the body bytes that the signature covers. A proxy must not change the body of `POST /_vitehub/rpc`.",
+      `${consoleGuide}#sign-console-requests`,
+      "docs",
+    ),
+    CONSOLE_KEY_UNKNOWN: code(
+      "The app has no public key with the name that the signature names.",
+      "Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page, or from `vitehub secret console-key`, on the app. Then restart or deploy the server.",
+      `${consoleGuide}#sign-console-requests`,
+      "docs",
+    ),
+    CONSOLE_KEY_NOT_CONFIGURED: code(
+      "`console: { auth: \"token\" }` needs a `VITEHUB_CONSOLE_KEY_<NAME>` variable in the server environment.",
+      "Link the app in the ViteHub Console and set the line that it shows, or run `vitehub secret console-key` and set its public key line. On Cloudflare, run `wrangler secret put VITEHUB_CONSOLE_KEY_<NAME>`. Then restart or deploy the server.",
+      `${consoleGuide}#sign-console-requests`,
+      "docs",
+    ),
+    CONSOLE_KEY_MALFORMED: code(
+      "A `VITEHUB_CONSOLE_KEY_<NAME>` variable is not an Ed25519 public key.",
+      "Set the value to the 43 base64url characters that the Console setup page or `vitehub secret console-key` prints, with no quotes or spaces. Then restart or deploy the server.",
+      `${consoleGuide}#sign-console-requests`,
       "docs",
     ),
     CONSOLE_LOOPBACK_ONLY: code(

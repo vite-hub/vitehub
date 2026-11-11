@@ -2,7 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { defineComponent, h, ref } from "vue";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Chat } from "../src/components/chat.ts";
 import { createViteHubUI } from "../src/config.ts";
 import {
@@ -65,6 +65,11 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   vi.stubGlobal("MutationObserver", MutationObserverStub);
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+});
+
+afterEach(async () => {
+  // Chat starts async component imports that must finish before the test environment closes.
+  await vi.dynamicImportSettled();
 });
 
 describe("message scroller behavior", () => {
