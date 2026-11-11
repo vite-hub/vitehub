@@ -4,6 +4,9 @@ import { join } from "node:path"
 import { memory, readArtifact } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqlQuery from "comark-content/plugins/sql-query"
+import markdown from "comark-content/plugins/markdown"
+import schemaValidation from "comark-content/plugins/schema-validation"
+import headings from "comark/plugins/headings"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
@@ -462,6 +465,63 @@ describe("commit cache", () => {
     cleanup.push(() => cold.dispose())
     expect((await cold.get("/docs/guide"))?.data.title).toBe("Guide")
     expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
+  it.each(["markdown", "content"] as const)("reparses cached files with changed %s plugin closures in the same build", async (kind) => {
+    fake.commit("main", { "guide.md": "# Guide\n\nDescription\n" })
+    registerContentKV(kv, "same-build")
+    const configured = (remove: boolean) => server(kind === "markdown"
+      ? { markdown: { plugins: [headings({ remove })] } }
+      : { plugins: [markdown({ comark: { plugins: [headings({ remove })] } })] })
+    const tags = async (content: ReturnType<typeof configured>) => (await content.get("/guide"))?.nodes?.map(node => Array.isArray(node) ? node[0] : null)
+    const warm = configured(false)
+    expect(await tags(warm)).toEqual(expect.arrayContaining(["h1", "p"]))
+    const key = (await warm.sources.head("docs")).cache.key
+
+    const cold = configured(true)
+    const removed = await tags(cold)
+    expect(removed).not.toContain("h1")
+    expect(removed).not.toContain("p")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ key, hits: { kv: 1 }, misses: 0 })
+    expect(downloads()).toBe(1)
+  })
+
+  it("isolates different Source prefixes in the same build", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "same-build")
+    const configured = (prefix: string) => server({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix }) } })
+    const docs = configured("/docs")
+    expect(await title(docs, "/docs/guide")).toBe("Guide")
+    const key = (await docs.sources.head("docs")).cache.key
+
+    const help = configured("/help")
+    expect((await help.list()).map(item => item.path)).toEqual(["/help/guide"])
+    expect(await title(help, "/help/guide")).toBe("Guide")
+    expect((await help.sources.head("docs")).cache.key).not.toBe(key)
+    const cold = configured("/help")
+    expect(await title(cold, "/help/guide")).toBe("Guide")
+    expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })
+  })
+
+  it("isolates Source schemas and rejects a commit cached under a permissive schema", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    registerContentKV(kv, "same-build")
+    const configured = (type: "string" | "number") => server({
+      sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs", schema: { type: "object", properties: { title: { type } } } }) },
+      plugins: [schemaValidation()],
+    })
+    const strict = configured("string")
+    expect(await title(strict, "/docs/guide")).toBe("Guide")
+    const key = (await strict.sources.head("docs")).cache.key
+    const bad = fake.commit("main", { "guide.md": page("123") })
+    const permissive = configured("number")
+    await permissive.sources.advance("docs")
+    const badKey = (await permissive.sources.head("docs")).cache.key
+    // Return the shared head to the valid commit, while retaining the numeric commit artifact in KV.
+    await strict.sources.pin(first, "docs")
+    expect(await strict.sources.unpin("docs")).toMatchObject({ sha: first, rejected: { sha: bad, reason: expect.stringContaining("guide.md") } })
+    expect(badKey).not.toBe(key!.replace(first, bad))
+    expect(await title(strict, "/docs/guide")).toBe("Guide")
   })
 
   it("holds a bounded number of commits in memory", async () => {

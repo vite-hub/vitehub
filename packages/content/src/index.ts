@@ -442,7 +442,9 @@ export function defineContent<
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" })
+  // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
+  const reuseParsed = !customPlugins.some(Boolean) && !options.plugins?.some(Boolean)
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, reuseParsed)
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
