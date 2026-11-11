@@ -240,8 +240,6 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  if (path === '/_vitehub/sign-in') return",
       "  // The exact mounted MCP route verifies bearer tokens and returns OAuth discovery challenges.",
       "  if (publicPath === `${mountBase}/_vitehub/mcp`) { await prepare(event); return }",
-      "  // A signed dispatch request is verified by its route, which never falls back to a Console session.",
-      "  if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/'))) return",
       "  await prepare(event)",
       "  // The Console API answers 401 to a signed-out request, where a Console page goes to the sign-in page.",

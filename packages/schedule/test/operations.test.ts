@@ -47,8 +47,7 @@ describe("schedule operations", () => {
     ])
   })
 
-  it("lets `schedule run --url` sign a dispatch, and only run and start reach app code", () => {
-    expect(scheduleOperations.find(operation => operation.name === "schedule.run")?.cli?.dispatch).toBe("/_vitehub/schedules/run")
+  it("lets only run and start reach app code", () => {
     expect(scheduleOperations.filter(operation => operation.invoke).map(operation => operation.name)).toEqual(["schedule.run", "schedule.start"])
   })
 

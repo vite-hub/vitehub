@@ -24,6 +24,7 @@ import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.t
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Content contributes its Console actions by the path of its own file.
 const contentConsoleModule = ownModule(new URL("../../content/package.json", import.meta.url).href, "runtime/console")
@@ -80,14 +81,14 @@ function install(actions: ConsoleDocumentActions, sections: readonly string[] = 
 }
 
 async function call(operation: string, input: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
-  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+  const request = new Request("http://localhost/_vitehub/rpc", {
     // The client puts the operation first, so a large document body can be classified within the ordinary limit.
-    body: JSON.stringify({ operation, input }),
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   })
   const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
-  const body: Record<string, unknown> = Object(await response.json())
+  const body: Record<string, unknown> = Object(await operationRpcResponseResult(response))
   return { body, status: response.status }
 }
 

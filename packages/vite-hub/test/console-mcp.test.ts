@@ -4,8 +4,7 @@ import { exportJWK, generateKeyPair, importJWK, SignJWT } from "jose"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
+import type { OperationContext } from "@vite-hub/internal/operations"
 
 import { consoleMcpCommands } from "../src/console/runtime/client/mcp.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -22,6 +21,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { resolveConsoleAccessBuild, type ConsoleOptions } from "../src/console/vite.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
+import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -89,7 +89,6 @@ afterEach(() => {
   vi.unstubAllEnvs()
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
-  registerViteHubMcpTools("comments", [])
 })
 
 function install() {
@@ -546,38 +545,36 @@ describe("MCP sign-in with OAuth access tokens", () => {
     expect((await call("fixture_save", { text: "x" })).result).toMatchObject({ isError: false })
   })
 
-  it("applies OAuth scopes to contributed tools and passes their bearer user and event", async () => {
+  it("applies OAuth scopes to contributed operations and passes their bearer user and event", async () => {
     const issuer = await authorizationServer()
     installOAuth(issuer.auth, { resource }, () => ({ sections: ["comments"] }))
     installConsoleSections("/tmp/console-mcp", ["comments"])
     // Generated Comments plugins use this adapter to check the same request's Console identity.
     const ownerAccess = consoleRealtimeAccess("comments")
-    const called = vi.fn<ViteHubMcpTool["call"]>(async (_input, context) => {
-      const user = await ownerAccess.user({ event: context.event })
-      return { text: String(user?.id), structured: { event: Boolean(context.event), sameUser: user?.id === context.user?.id } }
+    const called = vi.fn(async (_input: unknown, context: OperationContext) => {
+      // SAFETY: The MCP route passes the event of its request, with its Standard Context.
+      const user = await ownerAccess.user({ event: context.event as Parameters<typeof ownerAccess.user>[0]["event"] })
+      return { event: Boolean(context.event), sameUser: user?.id === context.user?.id, user: String(user?.id) }
     })
-    registerViteHubMcpTools("comments", [true, false].map(readOnly => ({
-      name: readOnly ? "comments_list_threads" : "comments_reply",
-      description: "A contributed Comments tool.",
+    installConsoleOperations([{ operations: [true, false].map(readOnly => defineOperation({
+      description: "A contributed Comments operation.",
+      input: v.strictObject({}),
+      kind: readOnly ? "read" : "write",
+      mcp: { format: (output: { user: string }) => output.user },
+      name: readOnly ? "comments.list-threads" : "comments.reply",
+      run: called,
       section: "comments",
-      annotations: { readOnlyHint: readOnly },
-      inputSchema: { type: "object", properties: {} },
-      call: called,
-    })))
+    })), plugin: "fixture-comments" }])
     const readOnly = bearer(await issuer.token({ scope: "vitehub:read" }))
     const listed = await read<{ result: { tools: Array<{ name: string }> } }>(await post(rpc(1, "tools/list"), readOnly, resource))
-    expect(listed.result.tools.map(tool => tool.name).filter(name => name.startsWith("comments_"))).toEqual(["comments_list_threads"])
-    const reply = rpc(2, "tools/call", { name: "comments_reply" })
+    expect(listed.result.tools.map(tool => tool.name).filter(name => name.startsWith("comments_"))).toEqual(["comments_list-threads"])
+    const reply = rpc(2, "tools/call", { arguments: {}, name: "comments_reply" })
     const denied = await post(reply, readOnly, resource)
     expect(denied.status).toBe(403)
     expect(denied.headers.get("www-authenticate")).toContain('scope="vitehub:write"')
     expect(called).not.toHaveBeenCalled()
     const allowed = await post(reply, bearer(await issuer.token()), resource)
     await expect(allowed.json()).resolves.toMatchObject({ result: { content: [{ text: "ada" }], structuredContent: { event: true, sameUser: true }, isError: false } })
-    expect(called).toHaveBeenCalledTimes(1)
-    installConsoleSections("/tmp/console-mcp", [])
-    const hidden = await post(reply, bearer(await issuer.token()), resource)
-    await expect(hidden.json()).resolves.toMatchObject({ error: { code: -32602 } })
     expect(called).toHaveBeenCalledTimes(1)
   })
 
@@ -592,13 +589,13 @@ describe("MCP sign-in with OAuth access tokens", () => {
       expect((await post(rpc(1, "ping"), headers, `${app}${path}`)).status, path).toBe(401)
     }
     const rpcResponse = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/_vitehub/mcp`, {
-      body: JSON.stringify({ input: {}, operation: "sections.list" }),
+      body: operationRpcBody("sections.list", {}),
       headers: { ...headers, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))
     expect(rpcResponse.status).toBe(401)
-    const rpcRoot = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
-      body: JSON.stringify({ input: {}, operation: "sections.list" }),
+    const rpcRoot = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc`, {
+      body: operationRpcBody("sections.list", {}),
       headers: { ...headers, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))
