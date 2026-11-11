@@ -1,12 +1,12 @@
 import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
-import { detectPreset } from "vite-hub/deployment"
 import { env } from "vite-hub/env"
+import { detectHost } from "vite-hub/runtime"
 
 // The Console is a ViteHub app: Auth signs people in, and the Database keeps the linked projects. The host comes from
 // VITEHUB_HOSTING or the build variables of the host, and is `node` without them.
-const host = detectPreset() ?? "node"
+const host = detectHost() ?? "node"
 
 function database() {
   // A VPS keeps SQLite in the data folder and applies new migrations when the server starts.

@@ -57,7 +57,7 @@ You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type
 
 ## Configure ViteHub
 
-Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectPreset()` from `vite-hub/deployment` returns the same detected preset, or `undefined`, so a config can choose host-specific options.
+Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectHost()` from `vite-hub/runtime` returns the same detected host, or `undefined`, so a config can choose host-specific options.
 
 ```ts
 // vite.config.ts
@@ -273,6 +273,7 @@ Set `invocations` on an Agent Definition to record into another journal, such as
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  driver: { model: "openai/gpt-5.1-mini" },
   invocations: "database",
 })
 ```

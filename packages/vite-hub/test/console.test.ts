@@ -20,23 +20,16 @@ import {
   consoleInvocationsBindingRootRegistryKey,
   consoleInvocationsIdentityKey,
   consoleInvocationsIdentityRootKey,
-  consoleBlobKey,
-  consoleBlobRegistryKey,
-  consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
   consoleInvocationsRevisionRegistryKey,
   consoleInvocationsRootIdentityRegistryKey,
   consoleInvocationsRootKey,
   consoleProjectRootKey,
-  consoleProjectNameKey,
-  consoleSectionsKey,
-  consoleSectionsRootKey,
-  consoleSectionsRegistryKey,
+  consoleStateKey,
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
@@ -81,6 +74,7 @@ import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { allowed, consoleAccess } from "./support/console-access.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 import { consoleEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 // The libSQL driver that the generated plugin passes outside a Cloudflare production build.
 const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
@@ -168,13 +162,7 @@ function installDefaultJournal(projectRoot: string, setting?: AgentInvocationsDe
 
 afterEach(() => {
   installAgentInvocations({})
-  for (const name of ["development", "development.root", "development.registry", "development.ambiguous-root"]) {
-    const key = Symbol.for(`vitehub.console.${name}`)
-    Reflect.deleteProperty(globalThis, key)
-    Reflect.deleteProperty(process, key)
-  }
-  delete scope[consoleBlobKey]
-  delete scope[consoleBlobRootKey]
+  Reflect.deleteProperty(globalThis, consoleStateKey)
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsIdentityRootKey]
@@ -187,22 +175,12 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsBindingRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsBindingRootRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
-  delete scope[consoleSectionsKey]
-  delete scope[consoleProjectNameKey]
-  delete scope[consoleSectionsRootKey]
-  Reflect.deleteProperty(process, consoleBlobKey)
-  Reflect.deleteProperty(process, consoleBlobRootKey)
-  Reflect.deleteProperty(process, consoleBlobRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
-  Reflect.deleteProperty(process, consoleSectionsKey)
-  Reflect.deleteProperty(process, consoleProjectNameKey)
-  Reflect.deleteProperty(process, consoleSectionsRootKey)
-  Reflect.deleteProperty(process, consoleSectionsRegistryKey)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -818,8 +796,8 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
-      expect(generated).toContain(`import("vite-hub/console/blob")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleBlob)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(
         `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
@@ -882,7 +860,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/**", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/mcp"])
       expect(config.nitro?.handlers.find(handler => handler.route === "/_vitehub/env/manage")).toMatchObject({ method: "post" })
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","kv"], "cloudflare-access")`)
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1023,8 +1001,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
@@ -1069,9 +1047,9 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
-      expect(generated).toContain(`import("vite-hub/console/database")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
       expect(generated).toContain(`import("vite-hub/database/drizzle")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"], "cloudflare-access")`)
@@ -1164,8 +1142,8 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
@@ -1246,8 +1224,8 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"], "cloudflare-access")`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
@@ -1397,8 +1375,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/setup"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandbox-tasks":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("must not run")
@@ -1875,29 +1853,16 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("serves enabled Console sections in stable order for the active project", async () => {
-    installConsoleSections("/first", ["agents"])
-    installConsoleProjectName("/first", "first-app")
-    installConsoleSections("/second", ["kv"])
-    installConsoleProjectName("/second", "second-app")
+  it("serves the Console sections and project name that generated output installed last", async () => {
+    installConsoleSections("/project", ["agents"])
+    installConsoleProjectName("/project", "first-app")
+    installConsoleSections("/project", ["kv", "kv"])
+    installConsoleProjectName("/project", "second-app")
 
     expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
       projectName: "second-app",
       sections: ["kv"],
     })
-
-    scope[consoleSectionsRootKey] = "/first"
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
-      projectName: "first-app",
-      sections: ["agents"],
-    })
-  })
-
-  it("resolves the project name from the process registry across isolated realms", () => {
-    installConsoleSections("/project", ["agents"])
-    installConsoleProjectName("/project", "shared-app")
-
-    expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
   it("does not let section registration rebind the invocation project", async () => {
@@ -4691,18 +4656,6 @@ describe("Agent invocation console", () => {
   it("reads the development state that generated output installs", () => {
     installConsoleDevelopment("/tmp/vitehub-console", true)
     expect(isConsoleDevelopmentBuild()).toBe(true)
-  })
-
-  it.each([false, true])("treats a scope that production and development share as production (development first: %s)", (developmentFirst) => {
-    installConsoleDevelopment("/first", developmentFirst)
-    installConsoleDevelopment("/second", !developmentFirst)
-
-    for (const root of ["/first", "/second"]) {
-      expect(isConsoleDevelopmentBuild()).toBe(false)
-      // Refreshing a project cannot disambiguate the scope of the serving handler.
-      installConsoleDevelopment(root, true)
-    }
-    expect(isConsoleDevelopmentBuild()).toBe(false)
   })
 
   it.each(["build", "serve"])("uses generated %s output to select development regardless of NODE_ENV or mode", async (command) => {

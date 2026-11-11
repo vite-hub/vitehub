@@ -1,4 +1,5 @@
 import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/inspect"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 
@@ -28,10 +29,6 @@ export class WorkflowOperationError extends Error {
     this.status = status
     if (fix) this.fix = fix
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 /**

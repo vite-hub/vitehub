@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
@@ -9,11 +9,6 @@ import type { ManualScheduleRunSummary, ScheduleAttemptsResult, ScheduleListResu
 const runtime = () => import("./runtime/operations.ts")
 
 const id = v.pipe(v.string(), v.minLength(1))
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 function formatRuns({ runs }: { runs: readonly ScheduleRunSummary[] }): string {
   if (runs.length === 0) return "No runs.\n"
