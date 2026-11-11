@@ -72,24 +72,26 @@ const stubs = {
   }),
   UEmpty: defineComponent({
     props: { actions: { default: () => [], type: Array }, description: { default: "", type: String }, title: { default: "", type: String } },
-    setup(props, { attrs }) {
+    setup(props, { attrs, slots }) {
       return () => h("div", { ...attrs, "data-test": "empty" }, [
         h("p", props.title),
         h("p", props.description),
         ...props.actions.map(action => h("button", { onClick: (action as { onClick: () => void }).onClick, type: "button" }, (action as { label: string }).label)),
+        slots.actions?.(),
       ])
     },
   }),
   UDashboardPanel: defineComponent({ setup(_props, { slots }) { return () => h("div", [slots.header?.(), slots.body?.()]) } }),
   UDashboardNavbar: defineComponent({ setup(_props, { slots }) { return () => h("header", slots.right?.()) } }),
-  // The stub renders the selected panel. Nuxt UI renders the tab and tabpanel roles, which the Console only configures.
+  // The stub marks the selected tab and renders its panel. Nuxt UI renders the tab and tabpanel roles, which the
+  // Console only configures.
   UTabs: defineComponent({
     props: { items: { required: true, type: Array }, modelValue: { required: true, type: String } },
     emits: ["update:modelValue"],
-    setup(props, { emit, slots }) {
-      return () => h("div", [
+    setup(props, { attrs, emit, slots }) {
+      return () => h("div", attrs, [
         ...(props.items as Array<{ label: string, slot: string, value: string }>).map(item =>
-          h("button", { "data-tab": item.value, onClick: () => emit("update:modelValue", item.value), type: "button" }, item.label)),
+          h("button", { "aria-selected": String(item.value === props.modelValue), "data-tab": item.value, onClick: () => emit("update:modelValue", item.value), type: "button" }, item.label)),
         slots[props.modelValue]?.(),
       ])
     },
@@ -235,7 +237,7 @@ describe("Console Usage URL state", () => {
       await nextTick()
       // The explicit token choice stays, although the Agents record cost.
       expect(root.querySelector("h2")?.textContent).toBe("Daily tokens")
-      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Day")
+      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-selected=true]")?.textContent).toBe("Day")
       ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => button.textContent === "Cost")!.click()
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "cost", search: "deploy" } })
       // A view change does not load the summary again.
@@ -251,7 +253,7 @@ describe("Console Usage URL state", () => {
     try {
       expect(root.querySelector("[aria-label='Usage metric']")?.textContent).toBe("Tokens")
       expect(root.querySelector("h2")?.textContent).toBe("Daily tokens")
-      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Model")
+      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-selected=true]")?.textContent).toBe("Model")
     }
     finally { app.unmount() }
   })

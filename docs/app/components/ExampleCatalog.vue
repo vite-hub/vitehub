@@ -30,7 +30,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
       <article
         v-for="example in available"
         :key="example.slug"
-        class="flex min-w-0 flex-col overflow-hidden rounded-(--vh-frame-radius) border border-default bg-default"
+        class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-default bg-default"
       >
         <ExampleAppPreview :preview="example.preview" />
         <div class="flex flex-1 flex-col p-4 sm:p-5">
@@ -52,9 +52,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
               rel="noopener noreferrer"
               :label="example.action.label"
               :icon="kind === 'project' ? 'i-simple-icons-github' : 'i-lucide-copy'"
-              color="neutral"
               variant="outline"
-              size="sm"
             />
             <UButton
               v-if="example.kind === 'template'"
@@ -62,9 +60,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
               target="_blank"
               rel="noopener noreferrer"
               label="View source"
-              color="neutral"
               variant="ghost"
-              size="sm"
             />
             <UButton
               v-if="example.website"
@@ -73,9 +69,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
               rel="noopener noreferrer"
               label="Open app"
               trailing-icon="i-lucide-arrow-up-right"
-              color="neutral"
               variant="ghost"
-              size="sm"
             />
           </div>
         </div>
@@ -112,9 +106,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
         rel="noopener noreferrer"
         label="Open a pull request"
         trailing-icon="i-lucide-arrow-up-right"
-        color="neutral"
         variant="outline"
-        size="sm"
       />
     </section>
   </main>

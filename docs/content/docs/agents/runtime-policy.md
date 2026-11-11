@@ -37,9 +37,8 @@ build your own entry point, your app must:
 The built-in HTTP Chat route does this for you. It stores pending approvals in
 its Chat state, rebuilds the tool call on the server, and uses each response
 once under a session lock. Client chat history and Invocation context cannot
-grant approval. Read [Chat capability](/docs/agents/capabilities/chat) and the
-[Capability approval contract](/docs/agents/capabilities#use-an-eve-extension)
-before you show approval controls in your app.
+grant approval. Read [Chat capability](/docs/agents/capabilities/chat) before
+you show approval controls in your app.
 
 ## Inspect what happened
 

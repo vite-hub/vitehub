@@ -4,7 +4,9 @@ import type { Table } from "drizzle-orm"
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import virtualSchema from "#vitehub/database/schema"
-import type { AgentDatabaseHandle } from "./runtime/agent.js"
+import type { AgentDatabaseHandle, DatabaseD1Binding } from "./runtime/agent.js"
+
+export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.js"
 
 type DatabaseDialect = "sqlite" | "postgresql"
 
@@ -62,6 +64,13 @@ export declare function useDatabase<Name extends DefaultDatabaseName = DefaultDa
   ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
 ): RuntimeDatabaseRegistry[Name]
 export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
+
+/**
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Exposes the shared
+ * prepare/batch API for consumers such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
+ */
+export declare function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding
 
 export declare const db: DefaultDatabaseEntry["db"]
 

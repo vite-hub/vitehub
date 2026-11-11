@@ -221,7 +221,6 @@
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
@@ -232,7 +231,6 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -245,7 +243,6 @@
     "@vite-hub/workflow": "workspace:*",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -282,7 +279,6 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:vue-compat",
-    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
     "@vite-hub/connections": "workspace:*"
@@ -334,9 +330,6 @@
       "optional": true
     },
     "vue": {
-      "optional": true
-    },
-    "eve": {
       "optional": true
     },
     "evlog": {
