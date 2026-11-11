@@ -234,6 +234,88 @@ describe("content.sources.at()", () => {
     expect((await content.sources.head("docs")).views).toEqual([sha])
   })
 
+  it.each(["read", "clean"] as const)("keeps one namespace owner when reopening during %s", async (phase) => {
+    const sha = fake.commit("main", { "guide.md": page("Guide") })
+    const database = sqlite()
+    let start!: () => void
+    const started = new Promise<void>((resolve) => { start = resolve })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let armed = false
+    const opened = vi.fn()
+    const disposed = vi.fn()
+    const content = defineContent({
+      sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+      logger: false,
+      plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database }), {
+        name: "reopening-view",
+        setup(context) {
+          if (context.ref !== sha) return
+          opened()
+          context.onDispose(disposed)
+          const pause = async () => {
+            if (!armed) return
+            armed = false
+            start()
+            await released
+          }
+          if (phase === "read") context.hooks.hook("read:after", pause)
+          else context.onClean(pause)
+        },
+      } satisfies ContentPlugin],
+    })
+    cleanup.push(() => content.dispose())
+    const view = await content.sources.at(sha, "docs")
+    expect(await view.search("Guide")).not.toHaveLength(0)
+    await view.list()
+    armed = true
+    const reading = phase === "read" ? title(view, "/guide") : Promise.resolve()
+    let reopening: Promise<ContentSourceView> | undefined
+    try {
+      if (phase === "read") await started
+      for (let index = 0; index < MAX_SOURCE_VIEWS; index++) {
+        await content.sources.at(fake.commit("main", { "guide.md": page(`Other ${index}`) }), "docs")
+      }
+      expect((await content.sources.head("docs")).views).not.toContain(sha)
+      if (phase === "clean") await started
+
+      const before = (await content.sources.head("docs")).cache.hits
+      reopening = content.sources.at(sha, "docs").then(async (reopened) => {
+        expect(await reopened.search("Guide")).not.toHaveLength(0)
+        await reopened.list()
+        return reopened
+      })
+      // Wait for the commit to load, then let the open attempt run while cleanup is paused.
+      await vi.waitFor(async () => {
+        const hits = (await content.sources.head("docs")).cache.hits
+        expect(hits.memory + hits.kv).toBeGreaterThan(before.memory + before.kv)
+      })
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      expect(opened).toHaveBeenCalledTimes(1)
+      if (phase === "read") {
+        const reopened = await reopening
+        expect(await reopened.search("Guide")).not.toHaveLength(0)
+        expect((await content.sources.head("docs")).views).toContain(sha)
+      }
+      release()
+      await reading
+      const reopened = await reopening
+      expect(await reopened.search("Guide")).not.toHaveLength(0)
+      expect(await reopened.list()).toHaveLength(1)
+      expect(opened).toHaveBeenCalledTimes(phase === "read" ? 1 : 2)
+      expect((await content.sources.head("docs")).views).toHaveLength(MAX_SOURCE_VIEWS)
+      await content.dispose()
+      expect(disposed).toHaveBeenCalledTimes(opened.mock.calls.length)
+      expect(await database.all(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '__search_r%'`)).toHaveLength(0)
+      expect(await database.all(`SELECT DISTINCT source FROM __fts_search`)).toHaveLength(0)
+    }
+    finally {
+      release()
+      await reading
+      await reopening
+    }
+  })
+
   it("disposes open views with the Content runtime", async () => {
     fake.commit("main", { "guide.md": page("Guide") })
     const sha = fake.commit("feat/dispose", { "guide.md": page("Preview") })

@@ -27,12 +27,6 @@ const serverRoot = new URL("../src/console/runtime/server/", import.meta.url)
 // What a remote client sends to look local: the dev server's own Host, and the proxy headers of a local peer.
 const forgedLocal = { "host": "localhost:3000", "origin": "http://localhost:3000", "x-forwarded-for": "127.0.0.1", "x-forwarded-host": "localhost:3000", "x-real-ip": "127.0.0.1" }
 
-/**
- * Routes that answer a remote client without Console access, and why each one is safe.
- * - `schedule-run.ts`: takes only a dispatch signed with `VITEHUB_DISPATCH_KEY`, never Console access.
- */
-const outsideConsoleAccess = new Set(["schedule-run.ts"])
-
 /** The Console routes that the Vite plugin and the Nuxt module register, with every section on and no sign-in. */
 async function registeredConsoleRoutes(): Promise<Registration[]> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-loopback-"))
@@ -62,7 +56,7 @@ function sourceFile(handler: string): string {
 
 /** One request for a registered route: the concrete path for a `**` route, and its method. */
 function remoteRequest(entry: Registration, remoteAddress?: string): ConsoleRequestEvent {
-  const path = entry.route!.replace("/_vitehub/rpc/**", "/_vitehub/rpc/__call").replace("/**", "/agents")
+  const path = entry.route!.replace("/**", "/agents")
   const method = [entry.method ?? "post"].flat()[0]!.toUpperCase()
   return consoleEvent({
     url: `http://localhost:3000${path}`,
@@ -103,8 +97,8 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["auth-manage.ts", "channel-replay.ts", "env-manage.ts", "mcp.ts", "rpc.ts", "schedule-run.ts"])
-    const guarded = routes.filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
+    expect([...files].sort()).toEqual(["auth-manage.ts", "env-manage.ts", "mcp.ts", "rpc.ts"])
+    const guarded = routes
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
       { key: true, remoteAddress: undefined },
@@ -135,7 +129,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
 
   it("serves the same routes to this machine", { timeout: 30_000 }, async () => {
     useViteHubDevPeerKey()
-    const routes = (await registeredConsoleRoutes()).filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
+    const routes = await registeredConsoleRoutes()
     for (const entry of routes) {
       const request = remoteRequest(entry)
       const standard = request["~standard"]
