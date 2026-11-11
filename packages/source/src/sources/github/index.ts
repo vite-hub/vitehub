@@ -12,7 +12,7 @@ import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 import { normalizeGitHubRoot } from "./root.ts"
 
 import type { SourceContext, SourceRevision } from "../../core/types.ts"
-import type { GitHubFile, GitHubSource, GitHubSourceOptions } from "./types.ts"
+import type { GitHubFile, GitHubPullRequest, GitHubSource, GitHubSourceOptions } from "./types.ts"
 
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
@@ -340,8 +340,13 @@ export function github(options: GitHubSourceOptions): GitHubSource {
       return status === "identical" || status === "behind"
     },
     async pullsAt(sha, refOptions) {
-      const pulls = await client.commitPulls(sha, await resolveAuth(), refOptions?.signal)
-      return pulls.filter(entry => entry.sha.toLowerCase() === sha.toLowerCase()).map(entry => entry.pull)
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      const at = (entries: Array<{ sha: string, pull: GitHubPullRequest }>) => entries.filter(entry => entry.sha.toLowerCase() === sha.toLowerCase()).map(entry => entry.pull)
+      const pulls = at(await client.commitPulls(sha, token, signal))
+      if (pulls.length) return pulls
+      // The base repository does not list a fork pull request for the commits of the fork. Its open pull requests do.
+      return at(await client.openPulls(token, signal))
     },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
