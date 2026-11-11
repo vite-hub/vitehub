@@ -39,7 +39,7 @@ const taskTypeNames = new Set(["Task", "TaskContext", "TaskEvent", "TaskMeta", "
 /** Low-level names of `env/server` that only generated code used. The Env root does not export them. */
 const privateEnvServerNames = new Map([
   ["runWithCloudflareEnv", "`runWithCloudflareEnv` is not public. Generated Server Env code wraps each request for you."],
-  ["createServerEnvManagement", "`createServerEnvManagement` is not public. The Console serves the Env bridge."],
+  ["createServerEnvManagement", "`createServerEnvManagement` was removed with Env management in the Console."],
   ["deriveSecret", "Call `deriveSecret()` from `#vitehub/env/server`. The Env root does not export the low-level `deriveSecret()`."],
   ["ViteHubContext", "Import the `ViteHubContext` type from `vite-hub/runtime`."],
   ["EnvAccessContext", "Import the `EnvAccessContext` type from `vite-hub/env/bridge`."],
