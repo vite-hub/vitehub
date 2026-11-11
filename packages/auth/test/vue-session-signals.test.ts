@@ -1,7 +1,8 @@
+import { createAuthClient as createBetterAuthClient } from "better-auth/vue"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Better Auth's real Vue client. Only the network and the browser are stand-ins.
-const { createAuthClient, setSessionSeedResolver, useUserSession } = await import("../src/vue.ts")
+const { createAuthClient, loadAuthClient, setSessionSeedResolver, useSession, useUserSession } = await import("../src/vue.ts")
 
 const ada = { session: { id: "s", userId: "u", expiresAt: "2999-01-01T00:00:00.000Z" }, user: { id: "u", name: "Ada" } }
 
@@ -101,5 +102,27 @@ describe("a session read that started before signOut()", () => {
     await expect(after).resolves.toBeNull()
     await expect(before).resolves.toBeNull()
     expect(session.user.value).toBeNull()
+  })
+})
+
+describe("a Better Auth client that has loaded already", () => {
+  it.each([
+    ["from loadAuthClient()", (server: ReturnType<typeof createServer>) => loadAuthClient(createAuthClient(options(server)))],
+    ["from better-auth/vue", async (server: ReturnType<typeof createServer>) => createBetterAuthClient(options(server))],
+  ])("shows a sign-in in a store with the server's session (%s)", async (_name, create) => {
+    const server = createServer()
+    setSessionSeedResolver(() => null)
+    const client = await create(server)
+    const session = useUserSession(client)
+    const state = useSession(client)
+    await settle()
+    // Hydration with the server's session reads nothing.
+    expect(server.sessionReads()).toBe(0)
+
+    await session.signIn.email({ email: "ada@example.com", password: "password" })
+
+    await vi.waitFor(() => expect(session.user.value).toEqual(ada.user))
+    expect(state.value.data?.user).toEqual(ada.user)
+    expect(server.sessionReads()).toBe(1)
   })
 })

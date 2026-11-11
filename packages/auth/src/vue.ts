@@ -254,6 +254,8 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
   let atomGeneration = 0
   // Better Auth's session ref, which follows its session atom, once its client has loaded in the browser.
   let atom: Readonly<Ref<SessionState>> | undefined
+  // Stops the wait for the session signal of a client that had loaded before the store. See `followSignal()`.
+  let stopSignal: (() => void) | undefined
   // The browser's wait for a change of the session, and the number of scopes that keep it.
   let stopWaking: (() => void) | undefined
   let holders = 0
@@ -294,6 +296,8 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
     if (atom) return atom
     stopWaking?.()
     stopWaking = undefined
+    stopSignal?.()
+    stopSignal = undefined
     // Start Better Auth's session with the server's, so a read that fails keeps it, as it does after a first read.
     const hydrateSession: unknown = Reflect.get(loaded, "hydrateSession")
     if (seeded && state.value.data && typeof hydrateSession === "function") hydrateSession.call(loaded, state.value.data)
@@ -315,6 +319,20 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
       return ref
     })!
     return atom
+  }
+
+  /**
+   * Waits for the session signal of a client that loaded before the store, such as one from `loadAuthClient()`, and then
+   * follows its session atom. Better Auth sends the signal after a call that changes the session, such as a sign-in.
+   * Waiting costs no read.
+   */
+  function followSignal(loaded: object): void {
+    const signal = storeAtom<SessionSignal>(loaded, "$sessionSignal")
+    if (!signal) {
+      connect(loaded)
+      return
+    }
+    stopSignal = signal.listen(() => void connect(loaded))
   }
 
   /** Loads Better Auth in the browser and follows its session atom. */
@@ -383,7 +401,9 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
   if (browser) {
     // Any load of the client, such as for a call, follows Better Auth before the call runs.
     const whenLoaded = Reflect.get(client, ON_LOAD) as ((run: (loaded: object) => void) => void) | undefined
-    whenLoaded?.(connect)
+    if (whenLoaded) whenLoaded(connect)
+    // A client that loaded before the store, such as one from `better-auth/vue`, makes its calls without the store.
+    else if (seeded && !state.value.isPending) followSignal(client)
     // Better Auth reads the session when its atom first mounts. The server read it for this page a moment ago, so a
     // store with the server's session waits until the session can change. An unknown session loads Better Auth at once.
     if (!seeded || state.value.isPending) void follow()
@@ -392,9 +412,10 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
 }
 
 type SessionAtom = { get(): object, set(value: object): void }
+type SessionSignal = { listen(listener: () => void): () => void }
 
 /**
- * An atom of Better Auth's `$store` of a loaded client, such as `session`. Better Auth answers
+ * An atom of Better Auth's `$store` of a loaded client, such as `session` or `$sessionSignal`. Better Auth answers
  * `$store` and `atoms` with path proxies, and a missing atom with a function.
  */
 function storeAtom<Atom>(loaded: object, name: string): Atom | undefined {
