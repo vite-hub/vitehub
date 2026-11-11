@@ -5,11 +5,11 @@ import { computed, ref } from "vue";
 import type { ConsoleNavigation } from "../client/sections";
 
 import { consoleMcpCommands } from "../client/mcp";
-import { projectUrl } from "../client/project";
+import { projectAppUrl } from "../client/project";
 
 const props = defineProps<{ auth: ConsoleNavigation["auth"] }>();
 
-const url = computed(() => (typeof window === "undefined" ? "" : new URL(projectUrl("/_vitehub/mcp"), window.location.href).href));
+const url = computed(() => (typeof window === "undefined" ? "" : new URL(projectAppUrl("/_vitehub/mcp"), window.location.href).href));
 const commands = computed(() => consoleMcpCommands(url.value, props.auth));
 // The tab of each client is its label. When the auth mode removes a client, the first one shows.
 const items = computed(() => commands.value.map(command => ({ label: command.label, value: command.label, command })));

@@ -27,11 +27,14 @@ const UTabs = defineComponent({
   },
 })
 
-it.each(["", "/portal", "/apps/_vitehub-preview", "/apps/_vitehub/preview"])("renders and copies mounted commands at %s, then updates the auth mode", async (mount) => {
-  const window = new Window({ url: `https://app.example.com${mount}/_vitehub` })
+it.each([
+  ...["", "/portal", "/apps/_vitehub-preview", "/apps/_vitehub/preview"].map(mount => ({ mount, proxied: false })),
+  { mount: "/portal", proxied: true },
+])("renders and copies mounted commands at $mount (proxied: $proxied), then updates the auth mode", async ({ mount, proxied }) => {
+  const window = new Window({ url: proxied ? "https://console.example.com/" : `https://app.example.com${mount}/_vitehub` })
   vi.stubGlobal("window", window)
   vi.stubGlobal("navigator", window.navigator)
-  setConsoleProject({ origin: "", base: mount })
+  setConsoleProject(proxied ? { origin: "", base: "/p/project-1", app: { origin: "https://app.example.com", base: mount }, remote: true } : { origin: "", base: mount })
   const writeText = vi.spyOn(window.navigator.clipboard, "writeText").mockResolvedValue()
   const props = reactive<{ auth: ConsoleNavigation["auth"] }>({ auth: "cloudflare-access" })
   const app = createApp({ render: () => h(ConsoleConnectAgent, props) })

@@ -146,8 +146,13 @@ export interface OperationDefinition<Input, Output> {
    * confirmation, and agents run it without approval. Without it, every call of a `destructive` operation asks.
    */
   readOnlyWhen?: (input: Input) => boolean
-  /** `false`: MCP does not offer the operation as a tool, such as an editor transport that only the Console uses. */
-  mcp?: false
+  /**
+   * How MCP offers the operation as a tool. `false`: MCP does not offer it, such as an editor transport that only the
+   * Console uses. `title`: the short title that clients show, instead of the name in words. `format`: the text of a
+   * result for the Agent, such as a list of lines. The result stays the structured content. Without `format`, the text
+   * is the result as JSON.
+   */
+  mcp?: false | { title?: string, format?: (output: NoInfer<Output>) => string }
   /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
   user?: false
   /**
@@ -159,9 +164,10 @@ export interface OperationDefinition<Input, Output> {
 }
 
 /** An operation of any input and output, as a registry holds it. */
-export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
+export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "mcp" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
   readOnlyWhen?: (input: never) => boolean
   cli?: { namespace?: string, command?: string, default?: boolean, dispatch?: string, positional?: string[], format?: (output: never) => string }
+  mcp?: false | { title?: string, format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1
   run: (input: never, context: OperationContext) => unknown
@@ -207,6 +213,12 @@ function checkDefinition(definition: unknown): void {
     throw invalidDefinition(name, `maxRequestBytes can only raise the limit above ${defaultRequestBytes} bytes (64 KiB).`)
   }
   if (definition.readOnlyWhen !== undefined && !(definition.readOnlyWhen instanceof Function)) throw invalidDefinition(name, "readOnlyWhen must be a function.")
+  const { mcp } = definition
+  if (mcp !== undefined && mcp !== false && (!isObject(mcp)
+    || (mcp.title !== undefined && (String(mcp.title) !== mcp.title || !mcp.title))
+    || (mcp.format !== undefined && !(mcp.format instanceof Function)))) {
+    throw invalidDefinition(name, "mcp must be false, or an object with a title string and a format function.")
+  }
 }
 
 /** The default limit of a call, in bytes. */

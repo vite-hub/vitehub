@@ -249,8 +249,9 @@ const config: KnipConfiguration = {
   },
   // Runtime modules of Cloudflare Workers, such as `cloudflare:workers`. Knip reads them as the npm package `cloudflare`.
   ignoreDependencies: ["cloudflare"],
-  // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, and the docs Nuxt module serves `#docs/*`.
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app"],
+  // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, the docs Nuxt module serves `#docs/*`,
+  // and the Console app's Vite plugin supplies its built account page as `#console-page`.
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app", "#console-page"],
   // A CLI that people install on their own machine. The Sandbox runs it when they choose the Crabbox provider.
   ignoreBinaries: ["crabbox"],
   ignoreIssues: {

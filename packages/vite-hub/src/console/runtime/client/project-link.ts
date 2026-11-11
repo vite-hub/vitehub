@@ -36,7 +36,7 @@ export type ConsoleProjectProbe =
   | { kind: "protocol", protocol?: number, vitehub?: string }
   | { kind: "unreachable" }
   | { kind: "missing" }
-  | { kind: "failed", status: number, message?: string, fix?: string }
+  | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
 
 /** The `WWW-Authenticate` challenge of a Console data route that needs a token. */
 const consoleRealm = /\brealm="vitehub-console"/i
@@ -109,7 +109,7 @@ export async function probeConsoleProject(
   // A vite-hub release without `project.get` has the RPC endpoint but not the operation.
   if (response.status === 404 && fields.message === "Console operation not found.") return { kind: "protocol" }
   if (response.status === 404 || !record) return { kind: "missing" }
-  return { kind: "failed", status: response.status, ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
+  return { kind: "failed", status: response.status, ...(fields.code ? { code: fields.code } : {}), ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
 }
 
 /** What the Console says when a project refuses a token. The server keeps only a hash, so it cannot show the token. */

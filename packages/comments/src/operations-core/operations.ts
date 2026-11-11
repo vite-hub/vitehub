@@ -2,6 +2,7 @@ import { defineOperation, operationAccessAllows } from "@vite-hub/internal/opera
 import * as v from "valibot"
 
 import { authorOf, guestFromHeaders } from "../identity.ts"
+import { commentThreadLine, commentThreadSummary, describeCommentThread } from "../thread-text.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
@@ -175,6 +176,12 @@ async function withForge(who: CommentsCaller, threads: CommentThread[]): Promise
   return who.runtime.forge ? await who.runtime.forge.attach(threads) : threads
 }
 
+const threadsInput = v.strictObject({
+  limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))),
+  page: v.optional(page),
+  search: v.optional(v.pipe(v.string(), v.maxLength(200))),
+  status: v.optional(v.picklist(["open", "resolved"])),
+})
 const listInput = v.strictObject({
   before: v.optional(cursor),
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maximumLimit))),
@@ -358,12 +365,52 @@ const list = defineOperation({
   section: "comments",
 })
 
+/** Threads that one search reads from the store at a time. */
+const searchBatch = maximumLimit
+
+const threads = defineOperation({
+  description: "List the comment threads on the app's pages, newest activity first, with the first comment and the Vue components where each was left. Read one with comments.get. After you change the code, reply with comments.reply and resolve it with comments.resolve.",
+  input: threadsInput,
+  kind: "read",
+  name: "comments.threads",
+  run: async (input, context) => {
+    const who = await caller(context)
+    const status = input.status ?? "open"
+    const limit = input.limit ?? 25
+    const search = input.search?.toLowerCase()
+    // A search reads larger pages, since it keeps only the threads whose comments contain the text.
+    const batch = search ? searchBatch : limit
+    const found: CommentThread[] = []
+    let before: CommentListCursor | undefined
+    while (found.length < limit) {
+      const listed = await commentActions.list({ limit: batch, status, subjectKind: "page", ...(input.page ? { page: input.page } : {}), ...(before ? { before } : {}) }, who)
+      for (const thread of listed) {
+        if (!search || thread.messages.some(message => message.body.toLowerCase().includes(search))) found.push(thread)
+        if (found.length === limit) break
+      }
+      if (listed.length < batch) break
+      before = cursorOf(listed.at(-1)!)
+    }
+    return { status, threads: found.map(commentThreadSummary) }
+  },
+  // After `run`, so TypeScript infers the output from `run` before it types `format`.
+  mcp: {
+    format: ({ status, threads }) => threads.length ? threads.map(commentThreadLine).join("\n") : `No ${status} threads.`,
+    title: "List comment threads",
+  },
+  section: "comments",
+})
+
 const get = defineOperation({
-  description: "Read one comment thread by id, or by number inside its scope. A thread that does not exist or that you may not read is null.",
+  description: "Read one comment thread by id, or by number inside its scope: its page, the element and Vue components with their source files, the browser and build, and every comment. A thread that does not exist or that you may not read is null.",
   input: getInput,
   kind: "read",
   name: "comments.get",
   run: async (input, context): Promise<CommentThread | null> => commentActions.get(input, await caller(context)),
+  mcp: {
+    format: thread => thread ? describeCommentThread(thread) : "No thread with this id that you may read.",
+    title: "Read a comment thread",
+  },
   section: "comments",
 })
 
@@ -377,12 +424,13 @@ const create = defineOperation({
 })
 
 const reply = defineOperation({
-  description: "Add a message to a comment thread. A resolved thread stays resolved.",
+  description: "Add a message to a comment thread, for example to say what you changed. A resolved thread stays resolved.",
   input: replyInput,
   kind: "write",
   name: "comments.reply",
   // The comment UI keeps a reply box on resolved threads. A reply keeps the thread resolved.
   run: async (input, context): Promise<CommentThread> => (await commentActions.reply(input, await caller(context), { allowResolved: true })).thread,
+  mcp: { format: thread => `Replied to thread ${thread.id}.`, title: "Reply to a comment thread" },
   section: "comments",
 })
 
@@ -404,11 +452,12 @@ const remove = defineOperation({
   section: "comments",
 })
 
-function statusOperation(name: "comments.reopen" | "comments.resolve", status: "open" | "resolved", description: string): AnyOperation {
+function statusOperation(name: "comments.reopen" | "comments.resolve", status: "open" | "resolved", description: string, title: string): AnyOperation {
   return defineOperation({
     description,
     input: threadId,
     kind: "write",
+    mcp: { format: (thread: CommentThread) => `Thread ${thread.id} is ${thread.status}.`, title },
     name,
     run: async (input, context): Promise<CommentThread> => commentActions.setStatus(input, await caller(context), status),
     section: "comments",
@@ -493,4 +542,18 @@ const session = defineOperation({
 })
 
 /** The comment operations. The Console, the CLI, MCP, and the comments client call them. */
-export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users, upload, attachment, session]
+export const commentsOperations: readonly AnyOperation[] = [
+  threads,
+  list,
+  get,
+  create,
+  reply,
+  edit,
+  remove,
+  statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved, after the change it asks for is done. Resolved threads leave the page.", "Resolve a comment thread"),
+  statusOperation("comments.reopen", "open", "Open a resolved comment thread again.", "Reopen a comment thread"),
+  users,
+  upload,
+  attachment,
+  session,
+]

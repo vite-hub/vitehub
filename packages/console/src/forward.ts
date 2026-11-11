@@ -11,8 +11,11 @@ const requestHeaders = ["accept", "content-type", "if-none-match", "x-vitehub-co
 /** Set-Cookie never reaches the Console page. Fetch decodes the body, so the encoding and length headers stay out. */
 const responseHeaders = ["cache-control", "etag", "last-modified", "www-authenticate"]
 
-/** A Blob upload sends up to 8 MiB of file in its JSON body. */
-export const maxForwardBodyBytes = 9 * 1024 * 1024
+/** Largest file of one call. Files travel as base64 in the JSON body, such as in `media.upload` and `blob.put`. */
+export const maxForwardFileBytes = 9 * 1024 * 1024
+/** Base64 makes a file a third larger. The other 64 KiB hold the rest of the JSON envelope. */
+export const maxForwardBodyBytes = Math.ceil(maxForwardFileBytes / 3) * 4 + 64 * 1024
+const tooLarge = () => problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is too large. The Console sends files of up to 9 MiB.")
 
 export interface ForwardTarget {
   /** The project URL: its origin and its application mount, such as `https://app.example.com/portal`. */
@@ -43,9 +46,9 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
   let body: ArrayBuffer | undefined
   if (request.method !== "GET" && request.method !== "HEAD") {
     const declared = Number(request.headers.get("content-length") ?? 0)
-    if (declared > maxForwardBodyBytes) return problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is larger than 9 MiB.")
+    if (declared > maxForwardBodyBytes) return tooLarge()
     body = await request.arrayBuffer()
-    if (body.byteLength > maxForwardBodyBytes) return problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is larger than 9 MiB.")
+    if (body.byteLength > maxForwardBodyBytes) return tooLarge()
   }
 
   const headers = new Headers({ authorization: `Bearer ${target.token}` })
