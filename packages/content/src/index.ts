@@ -637,7 +637,7 @@ export function defineContent<
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
-      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
+      await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
