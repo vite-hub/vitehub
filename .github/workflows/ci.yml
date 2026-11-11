@@ -373,13 +373,13 @@ jobs:
         run: vp cache clean
       - name: Build tested packages
         run: |
-          vp run --no-cache -t \
-            --filter @vite-hub/rate-limit \
-            --filter @vite-hub/sandbox \
-            --filter @vite-hub/database \
-            --filter @vite-hub/auth \
-            --filter @vite-hub/agent \
-            --filter vite-hub build
+          vp run --no-cache \
+            --filter '@vite-hub/rate-limit...' \
+            --filter '@vite-hub/sandbox...' \
+            --filter '@vite-hub/database...' \
+            --filter '@vite-hub/auth...' \
+            --filter '@vite-hub/agent...' \
+            --filter 'vite-hub...' build
       - run: vp test
         working-directory: packages/rate-limit
       - run: vp test test/runtime-type.test.ts
