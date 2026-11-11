@@ -366,15 +366,20 @@ jobs:
       # Bootstrap the exact Corepack version independently of workspace dependencies.
       - name: Install Corepack with native pnpm support
         run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
-      # Install-time builds ran on Node 24. Rebuild once on Node 22.18 before
-      # allowing the six targets to reuse each other's dependency builds.
+      # Install-time builds ran on Node 24. Build the targets together on 22.18
+      # so each dependency runs once. Cached tasks strip undeclared environment
+      # variables, including the pnpm runtime override needed by publint's pack.
       - name: Clear install-time build cache
         run: vp cache clean
       - name: Build tested packages
         run: |
-          for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
-            vp run --cache -t "$task"
-          done
+          vp run --no-cache -t \
+            --filter @vite-hub/rate-limit \
+            --filter @vite-hub/sandbox \
+            --filter @vite-hub/database \
+            --filter @vite-hub/auth \
+            --filter @vite-hub/agent \
+            --filter vite-hub build
       - run: vp test
         working-directory: packages/rate-limit
       - run: vp test test/runtime-type.test.ts

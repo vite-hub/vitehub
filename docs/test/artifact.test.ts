@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
 
@@ -20,7 +20,8 @@ describe("Cloudflare docs artifact", () => {
     const config: unknown = JSON.parse(readFileSync(resolve(serverDir, "wrangler.json"), "utf8"));
     expect(config).toMatchObject({ upload_source_maps: false });
     // Zero maps keeps the upload below Cloudflare's 60 MiB encoded-sourcemap limit.
-    expect(readdirSync(serverDir, { recursive: true }).filter(file => file.endsWith(".map"))).toEqual([]);
+    // Wrangler's test harness writes its own maps under .wrangler after server.listen().
+    expect(readdirSync(serverDir, { recursive: true }).filter(file => !file.startsWith(`.wrangler${sep}`) && file.endsWith(".map"))).toEqual([]);
   });
 
   it.each([
