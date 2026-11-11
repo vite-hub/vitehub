@@ -191,6 +191,20 @@ describe("account Console", () => {
     return { module, state }
   }
 
+  it("opens the page of a hostedConsoleUrl() link in the app of the team with that URL", async () => {
+    const { consoleOpenLink } = await import("../src/console/runtime/client/project-session.ts")
+    const { hostedConsoleUrl } = await import("@vite-hub/runtime")
+    const projects = [linked, { id: "p-2", url: "https://other.example.com" }]
+    const search = (project: string, path: string) => new URL(hostedConsoleUrl(project, path, "https://console.example.com")).search
+    expect(new URL(hostedConsoleUrl("https://app.example.com/portal", "/kv", "https://console.example.com")).pathname).toBe("/open")
+    expect(consoleOpenLink(search("https://app.example.com/portal/", "/agents/bot/invocations/abc?tab=trace"), projects)).toEqual({ id: "p-1", path: "/agents/bot/invocations/abc?tab=trace" })
+    expect(consoleOpenLink(search("https://other.example.com", "/_vitehub/kv"), projects)).toEqual({ id: "p-2", path: "/kv" })
+    // An app that the team did not link, and paths that could leave the Console, open nothing.
+    expect(consoleOpenLink(search("https://unknown.example.com", "/kv"), projects)).toBeUndefined()
+    for (const path of ["//evil.example", "https://evil.example", "/\\evil.example"])
+      expect(consoleOpenLink(`?project=${encodeURIComponent(linked.url)}&path=${encodeURIComponent(path)}`, projects), path).toBeUndefined()
+  })
+
   it("sends the project's calls to the Console server, with the page cookies and no token", async () => {
     const fetch = vi.fn(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
     const { module, state } = await account(fetch)

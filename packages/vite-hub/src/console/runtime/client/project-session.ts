@@ -277,6 +277,36 @@ function rememberedAccountProject(teamId: string | undefined): string | undefine
  * Start an `account` Console: read the session, then the projects of the active team from the Console server. Without
  * a session, or on an `/invite/<id>` page, the gate shows the sign-in page.
  */
+/** A project URL as the Console compares it: the origin and the mount, without a trailing slash. */
+function comparableProjectUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    return `${url.origin}${url.pathname.replace(/\/_vitehub(?:\/.*)?$/, "").replace(/\/+$/, "")}`
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * The app and the page of a link from `hostedConsoleUrl()`, `/open?project=<app URL>&path=<Console path>`, among the
+ * projects of the team. `undefined` when the link names no project of the team, or a path that is not a Console page.
+ */
+export function consoleOpenLink(search: string, projects: readonly { id: string, url: string }[]): { id: string, path: string } | undefined {
+  const query = new URLSearchParams(search)
+  const project = comparableProjectUrl(query.get("project") ?? "")
+  const raw = query.get("path") ?? "/"
+  // A Console path starts with one `/`. Another form could leave the Console origin.
+  if (!project || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return undefined
+  const path = raw.replace(/^\/_vitehub(?=\/|$)/, "") || "/"
+  const match = projects.find(candidate => comparableProjectUrl(candidate.url) === project)
+  return match ? { id: match.id, path } : undefined
+}
+
+/**
+ * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
+ * `/open` link, or `undefined` to keep the address.
+ */
 export async function startConsoleAccount(options: {
   home: string
   navigate: (url: string) => void
@@ -286,19 +316,25 @@ export async function startConsoleAccount(options: {
   showPath: (path: string) => void
   /** The first paint of the page, which the Console server picked from the path and the cookies. */
   boot?: string
-}): Promise<void> {
+}): Promise<string | undefined> {
   showAccountPath = options.showPath
   // Only an `account` Console loads the Better Auth client.
   const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
   const account = await loadConsoleAccount(options.boot === "app" || options.boot === "shell").catch(() => undefined)
   const storage = memoryProjectStorage()
   let missingApp = false
+  let address: string | undefined
   if (account) {
-    // A link to one app, `/?app=<id>`, opens that app. Other links open the app that this browser used last.
-    const requested = new URLSearchParams(options.search ?? "").get("app") ?? undefined
+    // A link to one app, `/?app=<id>`, opens that app. `/open?project=<URL>&path=<page>` opens a page of the app with
+    // that URL. Other links open the app that this browser used last.
+    const home = options.home.replace(/\/+$/, "")
+    const openLink = options.pathname.replace(/\/+$/, "") === `${home}/open`
+    const opened = openLink ? consoleOpenLink(options.search ?? "", account.projects) : undefined
+    if (opened) address = `${home}${opened.path}`
+    const requested = opened?.id ?? new URLSearchParams(options.search ?? "").get("app") ?? undefined
     if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
     // An app of another team, or one that is gone, opens Home instead of another app.
-    else if (requested) missingApp = true
+    else if (requested || openLink) missingApp = true
     const remembered = rememberedAccountProject(account.teamId)
     const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
     storage.setItem(consoleProjectsStorageKey, JSON.stringify({
@@ -314,6 +350,7 @@ export async function startConsoleAccount(options: {
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
+  return address ?? (missingApp ? options.home : undefined)
 }
 
 /** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */
