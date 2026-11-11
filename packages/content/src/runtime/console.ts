@@ -1,4 +1,5 @@
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type {
   ViteHubConsoleActionFailure,
@@ -52,10 +53,6 @@ const maximumActivityScanPerRef = 500
 const maximumSearchLimit = 50
 const maximumReferencePathnames = 100
 const referencePageSize = 1_000
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 function isContentRuntime(value: unknown): value is ContentRuntime {
   return isRecord(value)

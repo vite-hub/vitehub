@@ -8,6 +8,7 @@ import type {
   AgentInvocationSummary,
 } from "./invocations.ts";
 import { invocationDiagnostics } from "./invocation-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
@@ -73,10 +74,6 @@ export interface UseAgentInvocationReturn {
 const defaultBaseURL = "/api/invocations";
 const maximumPaginationRequestsPerLoad = 2;
 const retainedReconciliationLimit = 20;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function isInvocationStatus(value: unknown): value is AgentInvocationRecordStatus {
   return value === "pending" || value === "running" || value === "completed" || value === "failed" || value === "cancelled";

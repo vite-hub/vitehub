@@ -7,10 +7,10 @@ interface Item {
 }
 
 const items: Item[] = [
-  { name: "briefing-notes.pdf", meta: "PDF · 1.4 MB", icon: "i-ph-file-text-light" },
+  { name: "briefing-notes.pdf", meta: "PDF · 1.4 MB", icon: "i-lucide-file-text" },
   { name: "pull-requests.jpg", meta: "JPG · 64 KB", src: "/examples/my-pull-requests.jpg" },
-  { name: "customers.csv", meta: "CSV · 18 KB", icon: "i-ph-table-light" },
-  { name: "message-renderer.vue", meta: "Vue · 12 KB", icon: "i-ph-file-code-light" },
+  { name: "customers.csv", meta: "CSV · 18 KB", icon: "i-lucide-table" },
+  { name: "message-renderer.vue", meta: "Vue · 12 KB", icon: "i-lucide-file-code" },
 ];
 </script>
 
@@ -29,7 +29,7 @@ const items: Item[] = [
           <AttachmentDescription>{{ item.meta }}</AttachmentDescription>
         </AttachmentContent>
         <AttachmentActions>
-          <AttachmentAction icon="i-ph-x-light" :aria-label="`Remove ${item.name}`" />
+          <AttachmentAction icon="i-lucide-x" :aria-label="`Remove ${item.name}`" />
         </AttachmentActions>
       </Attachment>
     </AttachmentGroup>

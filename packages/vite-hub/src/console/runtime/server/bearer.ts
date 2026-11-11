@@ -1,4 +1,5 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { isListedConsoleOrigin } from "./cors.ts"
 
@@ -43,7 +44,7 @@ export interface ConsoleOAuthConfig {
   path: string
   /** Resource identifier of the endpoint, `<origin>/_vitehub/mcp`. Absolute. Without it, the origin below plus `path`. */
   resource?: string
-  /** Checks a token's signature and claims. Pass `verifyConsoleJwt` from `vite-hub/console/sections`. */
+  /** Checks a token's signature and claims. Pass `verifyConsoleJwt` from the Console sections module. */
   verify: typeof verifyConsoleJwt
 }
 
@@ -68,10 +69,6 @@ const probeOrigin = "https://mcp-probe.invalid"
 const clockToleranceSeconds = 30
 const states = new WeakMap<object, Promise<ConsoleOAuthState>>()
 const rejections = new WeakSet<Response>()
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 /** The bearer token of a request, or undefined. */
 export function bearerToken(request: Request): string | undefined {
