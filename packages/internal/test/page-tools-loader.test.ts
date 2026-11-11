@@ -246,6 +246,33 @@ describe("loadViteHubPageTools", () => {
     menu.remove()
   })
 
+  it("folds for a sticky bar that sticks to the bottom, but not for a heading that sticks to the top", async () => {
+    page("/?vitehub")
+    const heading = document.createElement("h2")
+    heading.style.position = "sticky"
+    heading.style.top = "0"
+    // What a browser computes for an unset bottom. happy-dom leaves it empty.
+    heading.style.bottom = "auto"
+    const bar = document.createElement("div")
+    bar.style.position = "sticky"
+    bar.style.bottom = "0"
+    document.body.append(heading, bar)
+    for (const element of [heading, bar]) vi.spyOn(element, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 0, y: innerHeight - 56, width: innerWidth, height: 56 }))
+    let under: Element = heading
+    vi.spyOn(document, "elementsFromPoint").mockImplementation(() => [under, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(false)
+
+    pill().element.remove()
+    under = bar
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(true)
+    heading.remove()
+    bar.remove()
+  })
+
   it("stays folded when the person drops the folded mark somewhere else", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     page("/?vitehub")
