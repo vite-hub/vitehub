@@ -18,12 +18,8 @@ export async function createQueueClient(options: QueueProviderOptions): Promise<
   }
 
   if (options.provider === "postgres") {
-    // Resolve this Node-only runtime at execution time. A literal import pulls its optional driver into Worker builds.
-    const runtimeUrl = new URL(
-      import.meta.url.endsWith(".ts") ? "./src/internal/runtime/postgres-client.ts" : "./dist/internal/runtime/postgres-client.js",
-      import.meta.resolve("@vite-hub/queue/package.json"),
-    )
-    const { createPostgresQueueRuntimeClient }: typeof import("../internal/runtime/postgres-client.ts") = await import(/* @vite-ignore */ runtimeUrl.href)
+    // Node bundlers retain the provider; Worker conditions select a module without its optional driver.
+    const { createPostgresQueueRuntimeClient } = await import("#vitehub/queue/node-client")
     return await createPostgresQueueRuntimeClient(options)
   }
 

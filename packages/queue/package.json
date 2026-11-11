@@ -31,6 +31,15 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/queue/node-client": {
+      "types": "./dist/internal/runtime/postgres-client.d.ts",
+      "workerd": "./dist/internal/runtime/worker-client.js",
+      "worker": "./dist/internal/runtime/worker-client.js",
+      "browser": "./dist/internal/runtime/worker-client.js",
+      "default": "./dist/internal/runtime/postgres-client.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
