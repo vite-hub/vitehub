@@ -907,7 +907,7 @@ describe("ViteHub Nuxt integration", () => {
         buildDir: resolve(root, ".nuxt"),
         experimental: { nitroViteEnvironment: false },
       })
-      await viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
+      await viteHubNuxtModule({ agent: true, host: "node" }, nuxt)
       const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
       await runNitroConfigHook(config)
       const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")

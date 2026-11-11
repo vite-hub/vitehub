@@ -325,7 +325,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   await writeSetupLinkFile(project.root, { ...link, ...(pending ? { console: pending } : {}) })
   return {
     created: linked.created,
-    credentials: credentials.ok ? { source: credentials.source } : null,
+    credentials: host !== "deno" && credentials.ok ? { source: credentials.source } : null,
     file: SETUP_LINK_FILE,
     gitignore: await ensureViteHubGitignore(project.root),
     link,
