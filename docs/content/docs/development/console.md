@@ -11,7 +11,7 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 | Route | Use |
 | --- | --- |
 | `POST /_vitehub/rpc` | The Operations endpoint. Each request carries one [birpc](https://github.com/antfu-collective/birpc) call, as the next section shows. An [operation](/docs/development/operations) is a named action, such as `invocations.list` or `content.publish`. |
-| `POST /_vitehub/auth/manage` | Starts and stops [impersonation](/docs/auth/console) when the app has Auth. |
+| `GET /_vitehub/rpc?ticket=<ticket>` | Redeems a [one-time link](#one-time-links), such as a Content preview or [impersonation](/docs/auth/console#changes-and-limits). The browser opens it. |
 | `/_vitehub/.well-known/skills/` | Static files of the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
 
 Agents connect to the ViteHub MCP of the Console, not to your app. See [ViteHub MCP](/docs/development/mcp).
@@ -196,6 +196,24 @@ With the key, the server seals each connection and client registration with AES-
 
 Agents cannot use these connections.
 
+## One-time links
+
+Content preview and impersonation need your app's origin: the page renders the draft, or the app sets its own session cookie. The Console page runs on another origin, so it opens them with a one-time link:
+
+1. The Console calls an operation with a signed request, such as `documents.preview` or `auth.impersonate`. The operation checks the section, the grant, and the target, as any operation does.
+2. The operation returns `{ url, expiresAt }`. `url` is `GET /_vitehub/rpc?ticket=<ticket>` on your app.
+3. The Console opens `url` in a new tab. Your app redeems the ticket once and answers with the page: the draft preview, or a redirect to the app home with the impersonation cookies.
+
+A ticket is 32 random bytes. Your app keeps only its SHA-256, with the purpose, the app origin and mount, the person, the target, and the expiry. Redemption takes it out of the store first, so each ticket works once, also when two instances get it at the same time. A ticket works for 60 seconds. A used, expired, or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`. A ticket that another app made, or that reaches a browser signed in to the app as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
+
+The store is the verification table of Better Auth, so the app needs [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). A development server without one keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+
+| Operation | Opens | The app checks at redemption |
+| --- | --- | --- |
+| `documents.preview` | The page of a document with its saved draft. | The person may read the document. The page renders the draft through the [preview frame](/docs/content/preview). |
+| `auth.impersonate` | The app home as the user. | The browser's app session has the email of the person and Better Auth's `impersonate` permission. |
+| `auth.stop-impersonating` | The app home as the administrator again. | The browser impersonates for the person. |
+
 ## Links to the Console
 
 `hostedConsoleUrl()` from `vite-hub/runtime` builds a link to one page of a project in the Console. `consoleInvocationUrl()` and GitHub pull request comments use it. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
@@ -209,6 +227,8 @@ hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
 
 - `project` is the app origin, with its base path if it has one, such as `https://app.example.com/portal`.
 - `path` is the page in the Console, such as `/kv` or `/agents/<agent>/invocations/<id>`. It must start with one `/`.
+
+The Console opens that page of the app of your team whose URL is `project`. When your team has not linked the app, the link opens Home.
 
 A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
@@ -673,6 +693,9 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGNATURE_ORIGIN` | `401` | Link the app with the URL that serves it. Behind a proxy that ends TLS, set `vitehub({ publicUrl })`. |
 | `CONSOLE_SIGNATURE_INVALID` | `401` | Use the private key whose public key is in the `VITEHUB_CONSOLE_KEY_<NAME>` that the signature names. |
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers. A proxy must not change it. |
+| `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](#one-time-links) works once, within 60 seconds. |
+| `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in the browser where you are signed in to the app with the email of your Console account. |
+| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, so every instance shares the tickets. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |
