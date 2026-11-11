@@ -127,6 +127,7 @@
     "@vite-hub/web-container": "workspace:*",
     "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
