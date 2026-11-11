@@ -1,7 +1,1 @@
-[
-  {
-    "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
-    "label": "server/invocations.ts",
-    "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
-  }
-]
+[]

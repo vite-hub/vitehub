@@ -31,7 +31,7 @@ import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
-import { resolveConsoleSections } from "../src/console/internal.ts"
+import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 // Nuxt's Nitro 2 receives this module after every other Nitro module.
 const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
@@ -505,9 +505,10 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(config)
     const { plugins } = config.rollupConfig as { plugins: Plugin[] }
     const resolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
-    if (typeof resolver?.resolveId !== "function") throw new TypeError("Expected the Nitro KV resolver.")
+    const resolveId = typeof resolver?.resolveId === "function" ? resolver.resolveId : resolver?.resolveId?.handler
+    if (!resolveId) throw new TypeError("Expected the Nitro KV resolver.")
     // Rollup supplies isEntry, but no Vite ssr option.
-    const resolveImport = (importer: string) => Reflect.apply(resolver.resolveId as Function, {}, ["cloudflare:workers", importer, { isEntry: false }])
+    const resolveImport = (importer: string) => Reflect.apply(resolveId, {}, ["cloudflare:workers", importer, { isEntry: false }])
     const result = await resolveImport("/app/node_modules/unstorage/dist/drivers/cloudflare-kv-binding.mjs")
     if (dev) {
       expect(result).toBeUndefined()
@@ -778,8 +779,9 @@ describe("ViteHub Nuxt integration", () => {
       await runNitroConfigHook(config)
       const { plugins } = config.rollupConfig as { plugins: Plugin[] }
       const resolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
-      if (typeof resolver?.load !== "function") throw new TypeError("Expected the Nitro KV load hook.")
-      const module = await Reflect.apply(resolver.load, {}, ["\0#vitehub/kv/config"])
+      const load = typeof resolver?.load === "function" ? resolver.load : resolver?.load?.handler
+      if (!load) throw new TypeError("Expected the Nitro KV load hook.")
+      const module = await Reflect.apply(load, {}, ["\0#vitehub/kv/config"])
       expect(module).toContain("https://nuxt-kv.test")
       expect(module).toContain("nuxt-kv-secret")
       expect(JSON.stringify(plugin.api.getConfig())).not.toContain("nuxt-kv-secret")
@@ -2278,12 +2280,12 @@ describe("ViteHub Nuxt integration", () => {
     const application = createNuxt(false)
     try {
       await viteHubNuxtModule({ console: productionConsole, preset: "node" }, application.nuxt)
-      expect(resolveConsoleSections()).toContain("comments")
+      expect(getConsoleSections()).toContain("comments")
       await expect(generatedConsoleSections()).resolves.toContain("comments")
       const config = nitroOptions(application.nuxt)
       for (let replay = 0; replay < 2; replay++) {
         await application.runNitroConfigHook(config)
-        expect(resolveConsoleSections()).toContain("comments")
+        expect(getConsoleSections()).toContain("comments")
         await expect(generatedConsoleSections()).resolves.toContain("comments")
         expect(nitroHandlerRoutes(config)).toContain("/_vitehub/mcp")
       }
