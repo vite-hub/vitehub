@@ -385,7 +385,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
-  await t.test("on a touch screen the Comment bar goes above text that ends near the bottom edge", async () => {
+  await t.test("on a touch screen the Comment bar goes above text that ends near the bottom edge, clear of the system menu", async () => {
     const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
     try {
       await touch.goto(`http://127.0.0.1:${port}/`)
@@ -406,7 +406,8 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
-      assert.ok(box.y + box.height <= start, `bar ends at ${box.y + box.height}, text starts at ${start}`)
+      // The system's text menu opens just above the selection, so the bar leaves it 56px.
+      assert.ok(start - (box.y + box.height) >= 55, `bar ends at ${box.y + box.height}, text starts at ${start}`)
       if (evidence) await touch.screenshot({ path: `${evidence}/touch-bar-near-bottom.png` })
       await button.tap()
       await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
