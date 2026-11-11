@@ -88,6 +88,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"

@@ -235,7 +235,7 @@ Start a manual run in one of these ways:
 
 - On the dev server: `vitehub schedule run daily-report`. The name is the file name. It supports `--json`. Add `--at 2026-01-31T23:59:00Z` to run as if the cron fired then; the handler gets it as `scheduledAt`.
 - On a deployment: `vitehub schedule run daily-report --url https://app.example.com`.
-- From CI, with a [signed dispatch](/docs/development/cli#signed-dispatch). `--url` signs with `VITEHUB_DISPATCH_KEY` when set.
+- From CI: `--url` [signs the call](/docs/development/console#sign-console-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` when it is set.
 - From the Console.
 
 Manual runs never move the Process Runtime's catch-up cursor, even with a future time.

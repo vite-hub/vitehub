@@ -209,7 +209,8 @@ describe("package manifest contracts", () => {
   it("declares peers that the app also installs as ranges that accept the app's copy", () => {
     // An exact peer makes pnpm install a second Vue next to the app's Vue, and Nuxt pages then render empty.
     // npm stops with ERESOLVE when the app depends on another version of an exact optional peer, such as better-auth.
-    const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "nuxt", "vite", "vue", "workflow"]
+    // A second drizzle-orm breaks Drizzle's `is()` checks, such as the Postgres check of Auth.
+    const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "drizzle-kit", "drizzle-orm", "nuxt", "vite", "vue", "workflow"]
     for (const packageName of packageNames) {
       const peers = readPackageManifest(packageName).peerDependencies || {}
       for (const peer of appPeers) {
