@@ -85,7 +85,7 @@ describe("operation RPC over birpc", () => {
   })
 
   it.each([
-    [{ ok: false, code: "CONSOLE_TOKEN_INVALID", message: "Sign in.", status: 401 }],
+    [{ ok: false, code: "CONSOLE_SIGNATURE_MISSING", message: "Sign in.", status: 401 }],
     [{ t: "s", i: "another-call", r: 1 }],
     [undefined],
   ])("reports an answer that is not a reply to the call: %j", async (body) => {
