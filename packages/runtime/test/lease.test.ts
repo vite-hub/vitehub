@@ -166,6 +166,52 @@ describe.each(targets)("$name lease store", (target) => {
   })
 })
 
+describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
+  it.each(["acquire", "renew"] as const)("starts the %s TTL after obtaining the row lock", async (operation) => {
+    const options = { max: 1, onnotice: () => {} }
+    const sql = postgres(postgresUrl!, options)
+    const blocker = postgres(postgresUrl!, options)
+    const observer = postgres(postgresUrl!, options)
+    cleanups.push(() => sql.end(), () => blocker.end(), () => observer.end())
+    await sql.unsafe(`drop table if exists ${leaseTable}`)
+    const store = createSqlLeaseStore({ dialect: "postgresql", query: async (text, params) => await sql.unsafe(text, params) })
+    // Warm the store and its sweep before holding the row lock. Keep the expired row for the upsert case.
+    const original = ok(await store.acquire("blocked-job", { ttl: 30 }))!
+    if (operation === "acquire") await sql.unsafe(`update ${leaseTable} set expires_at = 0 where "key" = 'blocked-job'`)
+    const [connection] = await sql.unsafe("select pg_backend_pid() as pid")
+    await blocker.unsafe("begin")
+    let pending: Promise<unknown> | undefined
+    try {
+      await blocker.unsafe(`select "key" from ${leaseTable} where "key" = 'blocked-job' for update`)
+      const result = (async () => {
+        if (operation === "acquire") return ok(await store.acquire("blocked-job", { ttl: 0.2 }))
+        expect(ok(await original.renew({ ttl: 0.2 }))).toBe(true)
+        return original
+      })()
+      pending = result
+      // Confirm that the actual lease statement is blocked, rather than relying on a client-side start time.
+      await expect.poll(async () => {
+        const [row] = await observer.unsafe("select cardinality(pg_blocking_pids($1)) > 0 as blocked", [connection!.pid])
+        return row!.blocked
+      }).toBe(true)
+      await observer.unsafe("select pg_sleep(0.7)")
+      await blocker.unsafe("commit")
+
+      const held = await result
+      expect(held).not.toBeNull()
+      const [row] = await observer.unsafe(`select id, expires_at - (extract(epoch from clock_timestamp()) * 1000)::bigint as remaining from ${leaseTable} where "key" = 'blocked-job'`)
+      expect(Number(row!.remaining)).toBeGreaterThan(0)
+      expect(row!.id).toBe(held!.id)
+      expect(ok(await store.get("blocked-job"))).toMatchObject({ id: held!.id, expiresAt: held!.expiresAt })
+      expect(ok(await store.acquire("blocked-job", { ttl: 30 }))).toBeNull()
+    }
+    finally {
+      await blocker.unsafe("rollback")
+      await pending
+    }
+  })
+})
+
 describe("node:sqlite lease store across processes", () => {
   // Only separate processes contend for the SQLite lock. A local libSQL file client is not tested here: after
   // SQLITE_BUSY it can lose writes that it reported as done, so the README limits it to one process.
@@ -238,6 +284,6 @@ describe("SQL lease store", () => {
     const insert = statements.find(statement => statement.sql.startsWith("insert"))!
     expect(insert.sql).toContain("values ($1, $2, $3, (extract(epoch from clock_timestamp()) * 1000)::bigint + cast($4 as bigint))")
     expect(insert.sql).not.toContain("?")
-    expect(insert.params).toEqual(["job", lease.id, "a", 1500])
+    expect(insert.params).toEqual(["job", lease.id, "a", 1500, 1500])
   })
 })
