@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { consoleDocumentEditorSectionIds, describeConsoleDocumentEditors } from "../src/console/contributions.ts"
-import { consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { insertConsoleSection } from "../src/console/runtime/sections.ts"
@@ -20,7 +20,6 @@ import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/consol
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
@@ -29,14 +28,12 @@ import { generatedModules } from "../src/internal/generated-modules.ts"
 // Content contributes its Console actions by the path of its own file.
 const contentConsoleModule = ownModule(new URL("../../content/package.json", import.meta.url).href, "runtime/console")
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
 const policyKey = Symbol.for("vitehub.console.access")
 const roots: string[] = []
 
 afterEach(async () => {
-  for (const key of [consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey, policyKey]) {
-    Reflect.deleteProperty(scope, key)
+  for (const key of [consoleStateKey, policyKey]) {
+    Reflect.deleteProperty(globalThis, key)
   }
   vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -144,6 +141,7 @@ describe("Console document editor route", () => {
   })
 
   it("tells the client which visible sections it may only read", async () => {
+    install(fakeActions())
     installConsoleAccess({ authorize: () => ({ sections: ["content", "kv:read", "blob:read", "blob"] }), mode: "open" })
     await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { readOnly: ["kv"], scoped: true } } })
     installConsoleAccess({ authorize: () => true, mode: "open" })

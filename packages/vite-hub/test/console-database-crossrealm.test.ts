@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it } from "vitest"
 import { integer, sqliteTable } from "drizzle-orm/sqlite-core"
-import { consoleDatabaseKey, consoleDatabaseRootKey } from "../src/console/internal.ts"
+import { consoleState } from "../src/console/internal.ts"
 import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts"
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 
@@ -10,10 +10,7 @@ import type { RuntimeDatabaseEntry } from "@vite-hub/database"
 const items = sqliteTable("items", { id: integer("id").primaryKey(), value: integer("value") })
 
 afterEach(() => {
-  Reflect.deleteProperty(globalThis, consoleDatabaseKey)
-  Reflect.deleteProperty(globalThis, consoleDatabaseRootKey)
-  Reflect.deleteProperty(process, consoleDatabaseKey)
-  Reflect.deleteProperty(process, consoleDatabaseRootKey)
+  delete consoleState().database
 })
 
 describe("console database cross-realm values", () => {

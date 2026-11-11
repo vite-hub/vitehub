@@ -722,6 +722,11 @@
       "import": "./dist/ui/code-view.js",
       "default": "./dist/ui/code-view.js"
     },
+    "./ui/device-frame": {
+      "types": "./dist/ui/device-frame.d.ts",
+      "import": "./dist/ui/device-frame.js",
+      "default": "./dist/ui/device-frame.js"
+    },
     "./ui/file-diff": {
       "types": "./dist/ui/file-diff.d.ts",
       "import": "./dist/ui/file-diff.js",
