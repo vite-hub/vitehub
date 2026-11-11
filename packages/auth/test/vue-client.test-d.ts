@@ -26,6 +26,13 @@ describe("Vue Auth client types", () => {
     expectTypeOf(session.value!.tenantId).toEqualTypeOf<string>()
   })
 
+  it("keeps the fields when the registry also has abilities", () => {
+    // The generated `auth.d.ts` adds `abilities` next to `definition` when the app has `shared/abilities.ts`.
+    const definition = defineAuth({ user: { additionalFields: { plan: { type: "string", required: true } } } })
+    type User = RegisteredAuthClient<{ definition: typeof definition, abilities: { "posts.edit": () => boolean } }>["$Infer"]["Session"]["user"]
+    expectTypeOf<User["plan"]>().toEqualTypeOf<string>()
+  })
+
   it("reads the fields from a Definition callback", () => {
     const definition = defineAuth(({ requestOrigin }) => ({
       baseURL: requestOrigin,
