@@ -17,6 +17,7 @@ declare global {
   interface ImportMeta {
     viteHubConsoleAgents?: boolean
     viteHubConsoleDatabase?: boolean
+    viteHubConsoleDocuments?: boolean
   }
 }
 
@@ -197,7 +198,7 @@ const documentsAction = defineConsoleOperation({
     : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
-    const documents = await import("./documents.ts")
+    const documents = await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : import("./documents.ts"))
     // JSON cannot preserve an omitted body. Use the checked operation's access for that call.
     if (body === undefined) {
       const actions = await documents.loadConsoleDocumentActions(section)
@@ -297,7 +298,7 @@ const mediaAction = defineConsoleOperation({
   // A read-only grant still browses the library.
   readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
-  run: async ({ action, body, section }, context) => (await loadConsoleMedia()).runConsoleMediaAction(section, action, body, context.access),
+  run: async ({ action, body, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : loadConsoleMedia())).runConsoleMediaAction(section, action, body, context.access),
   section: input => input.section,
 })
 
