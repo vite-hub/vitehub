@@ -124,7 +124,7 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     if (vite.isRunnableDevEnvironment(environment)) runnable = environment
     else {
       // Internal invariant: Vite's default SSR environment is runnable; Nuxt's replacement uses the fallback below.
-      if (!allowNuxtFallback) throw new Error("The SSR environment does not support runnable imports.")
+      if (!allowNuxtFallback) throw envErrorDiagnostics.ENV_R0030({ message: "The SSR environment does not support runnable imports." })
       // Nuxt 5 gives `ssr` to Nitro. Inspect in-process with the same stage aliases and plugin transforms.
       fallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
       await fallback.init()
