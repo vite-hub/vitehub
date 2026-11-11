@@ -4,7 +4,6 @@ import { CopyButton } from "@vite-hub/ui";
 import { computed } from "vue";
 
 import { consoleProblem } from "../client/problem";
-import { consoleSignInURL } from "../client/sign-in";
 import { consolePrimitives } from "../sections";
 import ConsoleCodeText from "./console-code-text.vue";
 
@@ -73,9 +72,7 @@ const stateActions = computed<ButtonProps[]>(() => {
   const main: ButtonProps[] = [];
   const action = problem.value?.action;
   if (action === "sign-in") {
-    // The sign-in page brings the person back to this page. Without one, the page reloads, which lets Cloudflare Access sign them in.
-    const signIn = consoleSignInURL({ document, location: window.location });
-    main.push(signIn ? { label: "Sign in again", icon: "i-lucide-log-in", to: signIn, external: true } : { label: "Sign in again", icon: "i-lucide-log-in", onClick: reload });
+    main.push({ label: "Sign in again", icon: "i-lucide-log-in", onClick: reload });
   }
   else if (action === "reload") main.push({ label: "Reload", icon: "i-lucide-refresh-cw", onClick: reload });
   else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-lucide-refresh-cw", onClick: () => void props.retry?.() });

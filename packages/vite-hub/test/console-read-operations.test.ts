@@ -11,6 +11,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import { consoleOperations } from "../src/console/runtime/server/operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -27,7 +28,7 @@ const clients: Array<ReturnType<typeof createClient>> = []
 async function install(): Promise<void> {
   const client = createClient({ url: "file::memory:" })
   clients.push(client)
-  const db = drizzle({ client, schema })
+  const db = drizzle({ client })
   await client.execute("create table users (id integer primary key autoincrement, email text not null unique)")
   await client.execute("create table posts (id integer primary key autoincrement, author_id integer not null references users(id), title text not null)")
   await db.insert(users).values([{ email: "ada@example.com" }, { email: "grace@example.com" }, { email: "linus@example.com" }])
@@ -36,8 +37,8 @@ async function install(): Promise<void> {
 }
 
 function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}) {
-  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }))
@@ -65,7 +66,7 @@ describe("database operations", () => {
     const response = await call("databases.tables")
 
     expect(response.status).toBe(200)
-    const { value } = await response.json() as { value: Record<string, unknown> }
+    const { value } = await operationRpcResponseResult(response) as { value: Record<string, unknown> }
     expect(Object.keys(value).sort()).toEqual(["database", "databases", "relationships", "tables"])
     expect(value).toMatchObject({
       database: "default",
@@ -78,11 +79,11 @@ describe("database operations", () => {
   it("reads one page of rows, sorted and searched, and caps the limit", async () => {
     await install()
 
-    const page = await (await call("databases.browse", { direction: "desc", limit: 2, sort: "email", table: "users" })).json() as { value: { rows: Array<Record<string, { value: string }>>, total: number } }
+    const page = await operationRpcResponseResult(await call("databases.browse", { direction: "desc", limit: 2, sort: "email", table: "users" })) as { value: { rows: Array<Record<string, { value: string }>>, total: number } }
     expect(page.value.total).toBe(3)
     expect(page.value.rows.map(row => row.email!.value)).toEqual(["linus@example.com", "grace@example.com"])
 
-    const search = await (await call("databases.browse", { search: "ada", table: "users" })).json() as { value: { rows: unknown[], total: number } }
+    const search = await operationRpcResponseResult(await call("databases.browse", { search: "ada", table: "users" })) as { value: { rows: unknown[], total: number } }
     expect(search.value).toMatchObject({ total: 1 })
 
     const capped = await call("databases.browse", { limit: 1_000, table: "users" })
@@ -94,7 +95,7 @@ describe("database operations", () => {
 
     const cli = await call("databases.browse", { table: "missing" }, { "x-vitehub-surface": "cli" })
     expect(cli.status).toBe(404)
-    await expect(cli.json()).resolves.toMatchObject({ message: 'The database has no table "missing".', ok: false })
+    await expect(operationRpcResponseResult(cli)).resolves.toMatchObject({ message: 'The database has no table "missing".', ok: false })
 
     const console_ = await call("databases.browse", { table: "missing" })
     expect(console_.status).toBe(200)
