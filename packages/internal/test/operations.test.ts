@@ -1,6 +1,7 @@
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
+import { createConsoleKeyPair } from "../src/console-signature.ts"
 import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation, table } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
@@ -149,25 +150,24 @@ describe("operations", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])("forwards deployment credentials only without a discovered project root (discovered: %s)", async discovered => {
+  it.each([true, false])("signs only without a discovered project root, and sends no bearer token or cookie (discovered: %s)", async discovered => {
+    const { privateKey } = await createConsoleKeyPair()
     const env = {
       VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token",
       VITEHUB_CONSOLE_COOKIE: "session=token",
-      CF_ACCESS_CLIENT_ID: "client-id",
-      CF_ACCESS_CLIENT_SECRET: "client-secret",
+      VITEHUB_CONSOLE_PRIVATE_KEY_CI: privateKey,
     }
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: "done" }))
     expect(await callOperation({ env, fetch, url: "http://localhost:5173", ...(discovered ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })).toMatchObject({ ok: true })
     const headers = new Headers(fetch.mock.calls[0]![1]?.headers)
-    for (const header of ["authorization", "cookie", "cf-access-client-id", "cf-access-client-secret"]) {
-      expect(headers.has(header), header).toBe(!discovered)
-    }
+    expect(headers.has("x-vitehub-signature")).toBe(!discovered)
+    for (const header of ["authorization", "cookie"]) expect(headers.has(header), header).toBe(false)
   })
 
   it.each([true, false])("says to pass --url when a dev server that the command found asks for sign-in (found: %s)", async found => {
     const fix = "For the CLI, set `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`."
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ code: "CONSOLE_SIGNATURE_MISSING", fix, message: "This request is not signed.", ok: false, status: 401 }, { status: 401 }))
-    const result = await callOperation({ env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch, url: "http://localhost:5173", ...(found ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })
+    const result = await callOperation({ env: {}, fetch, url: "http://localhost:5173", ...(found ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })
     expect(result).toMatchObject({
       code: "CONSOLE_SIGNATURE_MISSING",
       fix: found ? `Pass --url http://localhost:5173 to send credentials. A command sends none to the dev server that it finds. ${fix}` : fix,

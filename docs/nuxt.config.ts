@@ -26,7 +26,7 @@ export default defineNuxtConfig({
         { label: "Playground", to: "/playground", icon: "i-lucide-code" },
         { label: "Projects", to: "/projects", icon: "i-lucide-folder" },
         { label: "Templates", to: "/templates", icon: "i-lucide-layout-template" },
-        // The hosted Console opens deployed ViteHub apps from the browser. See /docs/development/console#hosted-console.
+        // The Console opens deployed ViteHub apps. See /docs/development/console#in-production.
         { label: "Console", to: "https://console.vitehub.dev", icon: "i-lucide-monitor" },
       ],
     },
@@ -303,6 +303,8 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: "cloudflare_module",
+    // Minify Nitro's emitted modules; its Wrangler config disables a second bundle.
+    minify: true,
     cloudflare: {
       deployConfig: true,
       nodeCompat: true,
@@ -348,9 +350,6 @@ export default defineNuxtConfig({
       // The docs module adds every content page. These are app routes.
       routes: ["/openapi.json", "/robots.txt"],
     },
-  },
-  future: {
-    compatibilityVersion: 4,
   },
   compatibilityDate: "2026-05-30",
   experimental: {
