@@ -1,4 +1,5 @@
 import { createApp } from "vue";
+import "./main.css";
 import "@vite-hub/ui/styles.css";
 import "./demo.css";
 import App from "./App.vue";

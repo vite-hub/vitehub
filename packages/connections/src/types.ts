@@ -135,8 +135,11 @@ export type ConnectionActionPattern<TApis> =
  */
 export interface ConnectionAccessRule<TPattern extends string = string> {
   read?: boolean
-  /** Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after approval. */
-  write?: readonly TPattern[] | true | "approve"
+  /**
+   * Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after
+   * approval. `false`, the default, denies every write.
+   */
+  write?: readonly TPattern[] | boolean | "approve"
   /** Require approval for each allowed write. Defaults to `true` for `agent:` actors. */
   approve?: boolean
 }
@@ -189,6 +192,12 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
 }
 
 interface ConnectionDefinitionRules<TApis extends object, TSelection extends ConnectionApiSelection<TApis>> {
+  /**
+   * Markdown for the person who connects it: what to set up first, which account to choose, what to
+   * approve. The Console shows it on the Connection, and `inspect()` returns it. Without it, a
+   * `<name>.md` next to the definition file is used.
+   */
+  docs?: string
   /** API methods to expose. Omit to expose every method of every provider API. */
   api?: TSelection
   /**
@@ -221,67 +230,6 @@ export interface ConnectionApiKeyDefinition<
   scopes?: undefined
 }
 
-/** What a provider `login` receives. It plays the browser for one authorization request. */
-export interface ConnectionLoginContext {
-  /** The authorization URL, with PKCE, `state`, `scope`, and `resource`. Open it like a browser would. */
-  url: string
-  /** Where the provider sends the browser with the code. ViteHub never listens on it. */
-  redirectUri: string
-  /** The value of `credentials`, unsealed. Empty without `credentials`. */
-  credentials: string
-  /**
-   * Fetch as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs
-   * against `url`, and does not follow redirects unless `init.redirect` asks for it.
-   */
-  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
-  /** Aborts the login after 60 seconds. */
-  signal: AbortSignal
-}
-
-/** An OAuth 2.0 provider that signs in without a person. `oauthLogin()` creates it. */
-export interface ConnectionLoginProvider<TApis extends object = object> {
-  readonly kind: "oauth-login"
-  readonly id: string
-  /** The provider's MCP endpoint. Discovery starts at its protected resource metadata unless `issuer` is set. */
-  readonly mcp?: string
-  /** The authorization server issuer. */
-  readonly issuer?: string
-  /** The `resource` of authorization and token requests. Default: `mcp`. */
-  readonly resource?: string
-  /** Other origins that `fetch` may send the token to. API catalog root URLs and the `mcp` endpoint are also allowed. */
-  readonly origins: readonly string[]
-  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
-  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /** A registered public client id. Without it, ViteHub registers a client once per process. */
-  readonly clientId?: ConnectionValue
-  /** `client_name` for client registration. */
-  readonly clientName?: string
-  /** The redirect URI of the client. ViteHub never listens on it. */
-  readonly redirectUri: string
-  /** Extra authorization request parameters. */
-  readonly authorizationParams?: Readonly<Record<string, string>>
-  /** The secret that `login` uses. While it resolves to nothing, the Connection is disconnected. */
-  readonly credentials?: ConnectionApiKeyFallback
-  /** Sign in and approve the request like a browser. Returns the URL that the provider redirects to `redirectUri`. */
-  readonly login: (context: ConnectionLoginContext) => Promise<string>
-  /** Read the account from a token response. Default: the ID token when `scopes` includes `openid`. */
-  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
-  /** Pacing, retries, and a timeout for provider requests. */
-  readonly requests?: ConnectionRequestPolicy
-  /** Type-only method map. It has no runtime value. */
-  readonly "~apis"?: TApis
-}
-
-/** A Connection that signs in by itself through its provider `login`. Tokens stay in memory. */
-export interface ConnectionLoginDefinition<
-  TApis extends object = object,
-  TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> extends ConnectionDefinitionRules<TApis, TSelection> {
-  provider: ConnectionLoginProvider<TApis>
-  /** Scopes to request, for example `["openid", "email"]`. */
-  scopes?: readonly string[]
-}
-
 /** A ChatGPT plan grant. Its credentials are used only by the Agent runtime. */
 export interface ConnectionChatGPTProvider {
   readonly kind: "chatgpt"
@@ -300,12 +248,18 @@ export interface ConnectionChatGPTDefinition {
   access: Readonly<Record<string, { read?: boolean }>>
   api?: never
   scopes?: never
+  /**
+   * Markdown for the person who connects it: what to set up first, which account to choose, what to
+   * approve. The Console shows it on the Connection, and `inspect()` returns it. Without it, a
+   * `<name>.md` next to the definition file is used.
+   */
+  docs?: string
 }
 
 export type ConnectionDefinition<
   TApis extends object = object,
   TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionLoginDefinition<TApis, TSelection> | ConnectionChatGPTDefinition
+> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionChatGPTDefinition
 
 /**
  * One definition for several Connections of the same kind, such as one per tenant. Each instance is a
@@ -455,6 +409,8 @@ export interface ConnectionInspection {
   credential: "api-key" | "oauth2" | "chatgpt"
   /** The provider's MCP endpoint, when it declares one. */
   mcp?: string
+  /** Markdown for the person who connects it, from the definition's `docs` or a `<name>.md` next to it. */
+  docs?: string
   /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
   keySource?: "fallback" | "stored"
   name: string

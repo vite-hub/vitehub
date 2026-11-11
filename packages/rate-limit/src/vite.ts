@@ -2,7 +2,6 @@ import { installStandaloneOperationRpc, publishStandaloneOperationServer } from 
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
   composeNitroCloudflareProviderOutput,
   contributeCloudflareProviderOutput,
@@ -13,6 +12,7 @@ import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOption
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
+import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 
 import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
@@ -48,10 +48,6 @@ type ResolvedRateLimitProvider = RateLimitRuntimeConfig["provider"]
 export type RateLimitVitePluginOptions = RateLimitOptions
 export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 type RateLimitConfig = UserConfig | ResolvedConfig
-
-function cloneNitroConfig(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
-}
 
 function mergeNitroConfig(
   config: RateLimitConfig,
@@ -258,7 +254,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       }
     },
     buildEnd(error) {
-      if (error || !cloudflareBindings || !resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (error || !cloudflareBindings || !resolved || shouldSkipViteProviderBuild(resolved.command)) return
       const configuredDeclarations = declarations
       collectDeclarations()
       if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {

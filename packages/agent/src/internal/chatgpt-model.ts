@@ -15,6 +15,7 @@ import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentProviderCredentialContext } from "../types.ts"
 import { chatgptProviderError, resolveChatGPTCredential } from "./chatgpt-gateway.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 /** Request fields that ChatGPT plan usage rejects. History goes in `input`, so `previous_response_id` goes too. */
 const rejectedFields = [
@@ -22,10 +23,6 @@ const rejectedFields = [
   "previous_response_id", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs",
   "top_p", "truncation", "user",
 ]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 const toolNamespace = { name: "functions", description: "The tools of this Agent." }
 

@@ -16,7 +16,6 @@ import {
   isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
@@ -54,6 +53,10 @@ export const kvNitroCacheDriver: string = ownModule(import.meta.url, "runtime/ni
 const KV_NITRO_PLUGIN = ownModule(import.meta.url, "runtime/nitro-plugin")
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const OPTIONAL_PEER_ID_PATTERN = /^(?:@vite-hub\/kv\/runtime\/(?:redis|upstash)-driver|cloudflare:workers)$/
+const RESOLVE_ID_PATTERN = /^(?:@vite-hub\/kv(?:\/runtime\/(?:redis|upstash)-driver)?|cloudflare:workers|#vitehub\/kv\/config)$/
+const LOAD_ID_PATTERN = /^\0#vitehub\/kv\/(?:runtime|config)$/
 
 export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
 export type { KVViteRuntimeConfig } from "./vite-config.ts"
@@ -75,9 +78,12 @@ export function hubKvOptionalPeerResolver(): Plugin {
   return {
     name: "@vite-hub/kv/optional-peers",
     enforce: "pre",
-    resolveId(id, importer, resolveOptions) {
-      if (!resolveOptions?.ssr) return
-      if (isKVOptionalDriverImport(UPSTASH_DRIVER_IMPORT_ID, id, importer) || isKVOptionalDriverImport(REDIS_DRIVER_IMPORT_ID, id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
+    resolveId: {
+      filter: { id: OPTIONAL_PEER_ID_PATTERN },
+      handler(id, importer, resolveOptions) {
+        if (!resolveOptions?.ssr) return
+        if (isKVOptionalDriverImport(UPSTASH_DRIVER_IMPORT_ID, id, importer) || isKVOptionalDriverImport(REDIS_DRIVER_IMPORT_ID, id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
+      },
     },
   }
 }
@@ -437,6 +443,7 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
     },
     resolveId: {
       order: "pre",
+      filter: { id: RESOLVE_ID_PATTERN },
       handler(id, importer, resolveOptions) {
         if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv) && isKVOptionalDriverImport(UPSTASH_DRIVER_IMPORT_ID, id, importer)) {
           return { external: true, id }
@@ -452,6 +459,7 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
     },
     load: {
       order: "pre",
+      filter: { id: LOAD_ID_PATTERN },
       handler(id, options) {
         if (id === RESOLVED_KV_RUNTIME_ID) {
           const kv = getConfig().kv
@@ -475,7 +483,7 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
           await providerOutputGenerations.reset(this, providerOutput, error)
           return
         }
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
 
         const rootDir = resolved.root
         const clientOutDir = resolved.build.outDir
@@ -536,7 +544,7 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },

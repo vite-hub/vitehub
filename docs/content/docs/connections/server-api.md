@@ -10,8 +10,8 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineConnection`, `apiKey`, `oauthLogin` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), with an API key or [OAuth login provider](/docs/connections/configure#oauth-login-connections). |
-| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods. |
+| `defineConnection`, `apiKey` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), with an [OAuth provider object](/docs/connections/configure#oauth-provider-objects) or an API key. |
+| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods for messages, attachments, drafts, labels, threads, history, the profile, and filters. `fetch()` reaches the other Gmail endpoints. |
 | `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code, and runtime access for hosts and tests. |
 | `createConnectionsHandler` from `vite-hub/connections` | Management, connect, and callback routes. The Console mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
@@ -45,7 +45,7 @@ Add `?return=/path` to the connect route to pick the page to return to, such as 
 - A success returns to that page after two seconds and shows a **Back to Connections** link. Without `return`, it asks the user to close the tab.
 - A failure shows the error code, the fix, a docs link, and the same link, and stays.
 
-The action route takes only `POST`, so `GET /_vitehub/connections` shows the Console Connections page.
+The action route takes only `POST`.
 
 ### Origin checks
 
@@ -84,11 +84,13 @@ Agent tools record every call, reads too. MCP messages record successful, denied
 
 The CLI calls the management route of a running dev server with the Console on. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so the dev server does not rebuild.
 
+For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, the commands send the same Console credentials as the other CLI commands: `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `CF_ACCESS_CLIENT_SECRET`. With `console: { auth: "token" }`, set `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. `--cookie` (or `VITEHUB_CONNECTIONS_COOKIE`) replaces the Console cookie. The dev server that the CLI finds by itself gets no credentials.
+
 | Command | Description |
 | --- | --- |
 | `vitehub connections list` | List Connections and their status. |
 | `vitehub connections inspect <name>` | Show one Connection: account, scopes, and actions. |
-| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the Console connect URL. |
+| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the connect URL. |
 | `vitehub connections set-key <name>` | Store the key of an API key Connection from stdin. |
 | `vitehub connections activity <name>` | Show audited calls, refreshes, and denials. |
 | `vitehub connections approvals [approve\|deny <id>]` | List, approve, or deny pending writes. |

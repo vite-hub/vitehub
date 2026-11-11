@@ -380,25 +380,27 @@ describe("database sweep", () => {
       : [],
   ]
 
-  it("bounds a sweep and leaves other namespaces alone", async () => {
+  it("bounds each sweep, retries full batches on the next write, and leaves other namespaces alone", async () => {
     const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
     cleanups.push(async () => client.close())
     const config = store()
     const storage = track(createHostedKVStorage({ store: config }, "default", async () => ({ default: { db: { $client: client } } })))
     await storage.setItem("live", "value")
     await client.execute({
-      sql: `with recursive counters(n) as (select 1 union all select n + 1 from counters where n < 1100)
+      sql: `with recursive counters(n) as (select 1 union all select n + 1 from counters where n < 2500)
         insert into ${kvTable} (namespace, "key", value, expires_at) select ?, cast(n as text), '0', 0 from counters`,
       args: [config.namespace],
     })
     await client.execute({ sql: `insert into ${kvTable} values (?, 'foreign', '0', 0)`, args: [`${config.namespace}-other`] })
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000)
     try {
-      await storage.setItem("live", "updated")
-      await vi.waitFor(async () => {
-        const result = await client.execute({ sql: `select count(*) as count from ${kvTable} where namespace = ?`, args: [config.namespace] })
-        expect(Number(result.rows[0]!.count)).toBe(101)
-      })
+      for (const remaining of [1501, 501, 1]) {
+        await storage.setItem("live", "updated")
+        await vi.waitFor(async () => {
+          const result = await client.execute({ sql: `select count(*) as count from ${kvTable} where namespace = ?`, args: [config.namespace] })
+          expect(Number(result.rows[0]!.count)).toBe(remaining)
+        })
+      }
       expect(Number((await client.execute(`select count(*) as count from ${kvTable} where "key" = 'foreign'`)).rows[0]!.count)).toBe(1)
     }
     finally {
