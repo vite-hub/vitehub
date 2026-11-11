@@ -533,7 +533,6 @@ export function defineContent<
   /** Run a read on the hub of the current request's ref after refreshing stale instances. */
   function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
-      await heads.sync()
       if (documentsRuntime && preview.active()) {
         await sync("draft")
         return await method(draftHub().hub, ...args)

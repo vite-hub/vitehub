@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { comarkContent } from "comark-content"
+import { comarkContent, memory } from "comark-content"
 import type { ContentGetOptions, ContentOptions, JsonSchema, ParsedSource, Source as ComarkContentSource } from "comark-content"
 import { createSource, useSource } from "@vite-hub/source"
 import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
@@ -26,8 +26,8 @@ type ContentSourceItem = SourceItem<string, unknown, object>
 type RuntimeObject = Record<string, unknown>
 /** How each load of a Source definition reads one commit, such as the head commit of a `github()` Source. */
 export interface ContentSourceCommits {
-  /** The commit that the next load reads, or undefined to read the Source as it is. */
-  revision(): SourceRevision | undefined
+  /** The commit that the next load reads, or undefined to read the Source as it is. A read outside a load first syncs the head. */
+  revision(): Promise<SourceRevision | undefined>
   /** The files of a commit, from the commit cache. */
   files(revision: SourceRevision): Promise<ContentSourceItem[]>
   /** The parsed documents of the commit that the instance serves, as a Comark parsed Source over `origin`. */
@@ -209,7 +209,7 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
-            const revision = options.commits?.revision()
+            const revision = await options.commits?.revision()
             const currentReader = () => isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
@@ -332,6 +332,8 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
   const source = commits ? getContentSourceFactory(adapted)?.create({ commits }) ?? adapted : adapted
   options = {
     ...options,
+    // A persistent Comark cache has no commit identity. Keep managed GitHub caches local to this instance.
+    ...(commits && options.cache !== false ? { cache: { ...options.cache, driver: memory() } } : {}),
     plugins: options.plugins?.map(plugin => plugin && ({
       ...plugin,
       setup(context) {
