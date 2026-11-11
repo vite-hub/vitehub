@@ -347,28 +347,40 @@ export const CommentLayer = defineComponent({
         user: user.value,
       });
 
-    const marginCards = (spots: Map<string, ResolvedAnchor>, draft?: { draft: CommentDraft; y: number }) => {
-      type Entry = { key: string; y: number; thread?: CommentThreadModel };
+    // The margin: where each card goes, level with its pin and below the card above it. The open thread and the new
+    // comment's box take their place in the column too, but stay inside the screen, so their reply box is never below it.
+    const marginLayout = (spots: Map<string, ResolvedAnchor>, draftY?: number) => {
+      type Entry = { key: string; y: number; thread?: CommentThreadModel; active: boolean };
       const entries: Entry[] = pinned.value.flatMap((thread) => {
         const spot = spots.get(thread.id);
-        return spot ? [{ key: thread.id, thread, y: spot.y }] : [];
+        return spot ? [{ active: state.openId.value === thread.id, key: thread.id, thread, y: spot.y }] : [];
       });
-      if (draft) entries.push({ key: draftPositionKey, y: draft.y });
+      if (draftY !== undefined) entries.push({ active: true, key: draftPositionKey, y: draftY });
       entries.sort((a, b) => a.y - b.y);
+      const height = (entry: Entry) => cardHeights.get(entry.key) ?? (entry.active ? popoverHeight : marginCardHeight);
+      const tops: number[] = [];
       let below = -Infinity;
-      const children = entries.map((entry) => {
+      for (const entry of entries) {
         // Level with the pin's tip, which is the spot, and never over the card above.
         const top = Math.max(entry.y - 16, below + marginGap);
-        below = top + (cardHeights.get(entry.key) ?? marginCardHeight);
-        const style = { top: `${top}px` };
+        tops.push(top);
+        below = top + height(entry);
+      }
+      // An open card that would end below the screen moves up into it, and the cards above it move up to make room.
+      const edge = window.innerHeight - marginGap * 2;
+      entries.forEach((entry, index) => {
+        if (!entry.active || tops[index]! + height(entry) <= edge) return;
+        tops[index] = Math.max(marginGap * 2, edge - height(entry));
+        for (let before = index - 1; before >= 0; before--) tops[before] = Math.min(tops[before]!, tops[before + 1]! - marginGap - height(entries[before]!));
+        for (let after = index + 1; after < entries.length; after++) tops[after] = Math.max(tops[after]!, tops[after - 1]! + marginGap + height(entries[after - 1]!));
+      });
+      const at = new Map(entries.map((entry, index) => [entry.key, tops[index]!]));
+      // The compact cards. The open thread and the new comment's box are drawn by the layer itself, so they keep their
+      // text when the placement changes.
+      const cards = entries.flatMap((entry, index) => {
         const thread = entry.thread;
-        if (!thread) {
-          return h("div", { "data-draft": "true", "data-margin-key": entry.key, "data-slot": "comment-margin-card", key: entry.key, ref: measured(entry.key), style }, draft ? [composerView(draft.draft)] : []);
-        }
-        if (state.openId.value === thread.id) {
-          return h("div", { "data-margin-key": entry.key, "data-open": "true", "data-slot": "comment-margin-card", key: entry.key, ref: measured(entry.key), style }, threadView(thread));
-        }
-        return h(
+        if (!thread || entry.active) return [];
+        return [h(
           "button",
           {
             "aria-label": `Comment ${thread.n}: ${excerpt(thread.messages[0]?.body ?? "")}`,
@@ -384,13 +396,13 @@ export const CommentLayer = defineComponent({
               if (state.hoverId.value === thread.id) state.hoverId.value = null;
             },
             ref: measured(entry.key),
-            style,
+            style: { top: `${tops[index]}px` },
             type: "button",
           },
           threadRow(thread),
-        );
+        )];
       });
-      return h("div", { "data-slot": "comment-margin" }, children);
+      return { at, node: h("div", { "data-slot": "comment-margin" }, cards) };
     };
 
     return () => {
@@ -449,26 +461,39 @@ export const CommentLayer = defineComponent({
         ];
       });
 
-      // Keep one thread instance while its anchor moves between pinned and floating positions.
+      const draft = state.draft.value;
+      const draftPosition = draft && state.positions.value.get(draftPositionKey);
+      // A comment on the whole page has no spot, so its composer stays where it opened.
+      const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
+      const draftInMargin = Boolean(inMargin.value && draft && point && draft.anchor.kind !== "page");
+      const margin = inMargin.value ? marginLayout(spots, draftInMargin ? point!.y : undefined) : null;
+      // In the margin, a card is fixed to the right edge of the screen at its top from the layout, and measured.
+      const inColumn = (key: string) => {
+        const top = margin?.at.get(key);
+        return top === undefined ? undefined : { "data-margin": "true", "data-margin-key": key, style: { top: `${top}px` } };
+      };
+
+      // Keep one thread instance while its anchor moves between pinned and floating positions, and into the margin.
       const opened = state.opened.value;
       const openedPosition = opened && state.positions.value.get(opened.id);
       const pointForThread = openedPosition && !openedPosition.detached && !openedPosition.clipped && opened?.anchor.kind !== "page" ? (spots.get(opened.id) ?? openedPosition) : undefined;
-      // In the margin, a thread with a spot opens in its card there instead.
-      const openThread = opened && !(inMargin.value && pointForThread)
+      const openedColumn = opened && pointForThread ? inColumn(opened.id) : undefined;
+      const openThread = opened
         ? h("div", {
             ...(pointForThread ? side(pointForThread.x, pointForThread.y) : {}),
             "data-kind": opened.anchor.kind,
             "data-slot": "comment-layer-item",
             key: "opened-thread",
             style: pointForThread ? place(pointForThread) : undefined,
-          }, h("div", { "data-floating": pointForThread ? undefined : "true", "data-slot": "comment-layer-popover" }, threadView(opened)))
+          }, h("div", {
+            ...openedColumn,
+            "data-floating": pointForThread ? undefined : "true",
+            "data-slot": "comment-layer-popover",
+            ref: (element: unknown) => openedColumn && measured(opened.id)(element),
+          }, threadView(opened)))
         : null;
 
-      const draft = state.draft.value;
-      const draftPosition = draft && state.positions.value.get(draftPositionKey);
-      // A comment on the whole page has no spot, so its composer stays where it opened.
-      const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
-      const draftInMargin = inMargin.value && draft && point && draft.anchor.kind !== "page" ? { draft, y: point.y } : undefined;
+      const draftColumn = draftInMargin ? inColumn(draftPositionKey) : undefined;
       const composing =
         draft && point
           ? h(
@@ -484,20 +509,21 @@ export const CommentLayer = defineComponent({
               },
               [
                 h(CommentPin, { author: user.value, draft: true }),
-                draftInMargin
-                  ? null
-                  : h(
-                      "div",
-                      { "data-slot": "comment-layer-popover", ref: draftCard },
-                      composerView(draft),
-                    ),
+                h(
+                  "div",
+                  {
+                    ...draftColumn,
+                    "data-slot": "comment-layer-popover",
+                    ref: (element: unknown) => {
+                      draftCard.value = element instanceof HTMLElement ? element : null;
+                      if (draftColumn) measured(draftPositionKey)(element);
+                    },
+                  },
+                  composerView(draft),
+                ),
               ],
             )
           : null;
-
-      // The margin: a card per thread with a spot, and the new comment's box, each level with its pin and below the card
-      // above it.
-      const margin = inMargin.value ? marginCards(spots, draftInMargin) : null;
 
       return h(
         "div",
@@ -527,7 +553,7 @@ export const CommentLayer = defineComponent({
           ...items,
           composing,
           openThread,
-          margin,
+          margin?.node,
           slots.default?.({ comments: state }) ?? [
             h(CommentToolbar, { comments: state, people: props.people }),
             state.listOpen.value ? h(CommentList, { comments: state, navigate: props.navigate }) : null,

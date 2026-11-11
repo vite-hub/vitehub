@@ -1988,7 +1988,14 @@
     opacity: 0.65;
   }
 
-  [data-slot="comment-margin-card"][data-open="true"] {
+  /* The open thread and the new comment's box in the margin: the layer's own card, fixed to the right edge at its top. */
+  [data-slot="comment-layer-item"] > [data-slot="comment-layer-popover"][data-margin="true"][data-margin-key] {
+    bottom: auto;
+    left: auto;
+    position: fixed;
+    right: 1rem;
+    transition: top 160ms ease;
+    width: 18rem;
     z-index: 1;
   }
 
@@ -1997,7 +2004,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-margin-card"] { transition: none; }
+    [data-slot="comment-margin-card"], [data-slot="comment-layer-popover"][data-margin="true"] { transition: none; }
   }
 
   [data-slot="comment-layer-item"] {

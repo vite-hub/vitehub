@@ -1578,6 +1578,7 @@ describe("margin placement", () => {
     window.dispatchEvent(new Event("resize"));
   };
   afterEach(() => setWidth(1024));
+  const inMargin = "[data-slot=comment-layer-popover][data-margin=true]";
 
   it("shows each thread as a card in the margin and opens it there, with the reply box, not beside the pin", async () => {
     setWidth(1280);
@@ -1593,19 +1594,20 @@ describe("margin placement", () => {
 
     await card.trigger("click");
     await flushPromises();
-    const open = wrapper.get("[data-slot=comment-margin-card][data-open=true]");
-    expect(open.find("[data-slot=comment-thread]").exists()).toBe(true);
-    expect(wrapper.find("[data-slot=comment-layer-popover] [data-slot=comment-thread]").exists()).toBe(false);
+    // The open thread takes its card's place in the column.
+    expect(wrapper.find("[data-slot=comment-margin-card]").exists()).toBe(false);
+    const open = wrapper.get(inMargin);
+    expect((open.element as HTMLElement).style.top).toBe(card.attributes("style")!.match(/top: ([\d.]+px)/)![1]);
 
     const field = open.get("[data-variant=reply] textarea");
     await field.setValue("Thanks");
     await field.trigger("keydown", { key: "Enter" });
     await vi.waitFor(() => expect(client.threads[0]!.messages).toHaveLength(3));
     await flushPromises();
-    expect(wrapper.get("[data-slot=comment-margin-card][data-open=true]").findAll("[data-slot=comment-reply]")).toHaveLength(3);
+    expect(wrapper.get(inMargin).findAll("[data-slot=comment-reply]")).toHaveLength(3);
   });
 
-  it("opens a thread in its card from the pin too, and stacks the cards so none covers another", async () => {
+  it("opens a thread in the column from the pin too, and stacks the cards so none covers another", async () => {
     setWidth(1280);
     const { wrapper } = await layer([thread(1), thread(2)], { placement: "margin" });
     const cards = wrapper.findAll("[data-slot=comment-margin-card]");
@@ -1616,15 +1618,47 @@ describe("margin placement", () => {
 
     await wrapper.findAll("[data-slot=comment-pin]")[0]!.trigger("click");
     await flushPromises();
-    expect(wrapper.find("[data-slot=comment-margin-card][data-open=true] [data-slot=comment-thread]").exists()).toBe(true);
+    expect(wrapper.find(`${inMargin} [data-slot=comment-thread]`).exists()).toBe(true);
+  });
+
+  it("keeps the open card inside the screen, so its reply box is never below it", async () => {
+    setWidth(1280);
+    vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(function (this: Element) {
+      const box = this === target ? { ...rect, top: window.innerHeight - 60 } : { height: 0, left: 0, top: 0, width: 0 };
+      return { ...box, bottom: box.top + box.height, right: box.left + box.width, toJSON: () => box, x: box.left, y: box.top };
+    });
+    const { wrapper } = await layer([thread(1)], { placement: "margin" });
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await flushPromises();
+    const top = Number.parseFloat((wrapper.get(inMargin).element as HTMLElement).style.top);
+    // Until it is measured, an open card counts as tall as a popover (420px).
+    expect(top + 420).toBeLessThanOrEqual(window.innerHeight - 8);
+  });
+
+  it("keeps an unsent reply when the screen narrows and the thread moves beside its pin, and back", async () => {
+    setWidth(1280);
+    const { wrapper } = await layer([thread(1)], { placement: "margin" });
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await flushPromises();
+    const field = wrapper.get(`${inMargin} [data-variant=reply] textarea`);
+    await field.setValue("Keep this text");
+    setWidth(600);
+    await flushPromises();
+    expect(wrapper.find(inMargin).exists()).toBe(false);
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep this text");
+    setWidth(1280);
+    await flushPromises();
+    expect(wrapper.find(inMargin).exists()).toBe(true);
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep this text");
   });
 
   it("writes a new comment in the margin", async () => {
     setWidth(1280);
     const { wrapper } = await layer([], { placement: "margin" });
     await drop(wrapper);
-    expect(wrapper.find("[data-slot=comment-margin-card][data-draft=true] [data-slot=comment-composer]").exists()).toBe(true);
-    expect(wrapper.find("[data-slot=comment-layer-popover] [data-slot=comment-composer]").exists()).toBe(false);
+    expect(wrapper.find(`${inMargin} [data-slot=comment-composer]`).exists()).toBe(true);
     expect(wrapper.find("[data-slot=comment-pin][data-draft=true]").exists()).toBe(true);
   });
 
@@ -1633,7 +1667,7 @@ describe("margin placement", () => {
     const { wrapper } = await layer([thread(1)], { placement: "margin" });
     expect(wrapper.find("[data-slot=comment-margin]").exists()).toBe(false);
     await wrapper.get("[data-slot=comment-pin]").trigger("click");
-    expect(wrapper.find("[data-slot=comment-layer-popover] [data-slot=comment-thread]").exists()).toBe(true);
+    expect(wrapper.find("[data-slot=comment-layer-popover]:not([data-margin]) [data-slot=comment-thread]").exists()).toBe(true);
   });
 });
 
