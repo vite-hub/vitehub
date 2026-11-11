@@ -1,5 +1,5 @@
 import { createSource } from "@vite-hub/source"
-import type { Source, SourceRevision } from "@vite-hub/source"
+import type { GitHubSource, Source, SourceRevision } from "@vite-hub/source"
 import type { ComarkContent, ContentOptions } from "comark-content"
 import { formatDiagnostic } from "nostics"
 
@@ -46,7 +46,7 @@ export interface ContentSourceHeads {
 }
 
 /** A `github()` Source definition. */
-type GitHubDefinition = Source<string, unknown, object> & { authenticated(): Promise<boolean> }
+export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history">>
 
 /** The KV value of a head. */
 interface StoredHead {
@@ -100,6 +100,11 @@ export interface ContentKV {
 
 let installedKV: ContentKV | undefined
 
+/** The KV store that `registerContentKV()` installed, or undefined. */
+export function contentKV(): ContentKV | undefined {
+  return installedKV
+}
+
 /** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
 const kvFailures = new WeakSet<object>()
 
@@ -127,6 +132,13 @@ interface ContentSourceHeadsRuntime {
   attach(name: string, instance: ComarkContent): void
   /** Bring every live Source to its current head before a read. */
   sync(): Promise<void>
+  /** The `github()` definition of a Source, or undefined for other Sources. */
+  github(name: string): GitHubDefinition | undefined
+  /**
+   * The commit that readers get from a `github()` Source: its head, else the commit that this server instance serves
+   * when KV fails, else the latest commit of its branch. Null when GitHub gives no immutable commit.
+   */
+  published(name: string): Promise<string | null>
 }
 
 /** Create the head state of a Content runtime. `options` are the Comark options that validation parses with. */
@@ -353,6 +365,22 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       const state: HeadState = { name, input, definition, reported: new Set() }
       states.set(name, state)
       return () => state.served ? { id: state.served.sha, immutable: true, ...(state.served.ref ? { ref: state.served.ref } : {}) } : undefined
+    },
+    github: name => states.get(name)?.definition,
+    async published(name: string): Promise<string | null> {
+      const state = stateOf(name)
+      if (await isLive(state)) {
+        try {
+          const head = await current(state)
+          if (head?.sha) return head.sha
+        }
+        catch (error) {
+          if (!isKVFailure(error)) throw error
+          if (state.served) return state.served.sha
+        }
+      }
+      const revision = await createSource(state.definition).revision()
+      return revision?.immutable ? revision.id : null
     },
     attach(name: string, instance: ComarkContent): void {
       const state = states.get(name)

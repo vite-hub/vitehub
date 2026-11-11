@@ -76,5 +76,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the `default` KV store of the app. On Cloudflare, bind a KV namespace as `KV`. On Vercel, set `KV_REST_API_URL` and `KV_REST_API_TOKEN`. `vitehub kv get <key>` reads the head.",
       why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] The KV store failed on ${JSON.stringify(key)} for Content source ${JSON.stringify(source)}: ${reason}. Reads do not fail: they serve the commit that this server already serves, or the latest commit of the branch without validation, and try KV again after 5 seconds.`,
     },
+    /** `content.history()` read a page of a `github()` Source without a GitHub token, so it returned no entries. */
+    CONTENT_R0040: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env, or pass `github({ auth })`. Content then reads the commits of each page from GitHub and caches them per head commit.",
+      why: ({ source }: { source: string }) => `[vitehub] content.history() returned no entries for Content source ${JSON.stringify(source)} because it reads GitHub without a token.`,
+    },
   },
 })

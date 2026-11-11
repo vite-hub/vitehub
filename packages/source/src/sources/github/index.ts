@@ -319,6 +319,9 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     async authenticated() {
       return Boolean(await resolveAuth())
     },
+    async history(key, historyOptions) {
+      return await client.commits(repoPathForKey(normalizeSafeSourcePath(key)), historyOptions, await resolveAuth())
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)
