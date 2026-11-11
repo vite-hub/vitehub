@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { expect, it } from "vitest"
+import { H3 } from "h3"
 
 import { mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
 
@@ -25,6 +26,7 @@ it.each(["options", "seo", "mcp"])("does not reserve /mcp for unknown %s, and se
       const nitro = mergeGeneratedSourceNitroConfig({ handlers: [appMcp] }, handlers)
       expect(nitro.handlers).toContainEqual(appMcp)
       const mcp = handlers.find(handler => handler.route === "/mcp")!
+      if (!("middleware" in mcp)) throw new Error("Expected Content MCP middleware")
       expect(mcp.middleware).toBe(true)
       // Give each fixture its own module URL so native ESM does not reuse the previous content configuration.
       const fixture = join(projectRoot, `middleware-${suffix}.mjs`)
@@ -32,10 +34,15 @@ it.each(["options", "seo", "mcp"])("does not reserve /mcp for unknown %s, and se
       await writeFile(content, await readFile(join(projectRoot, "server/content.mjs"), "utf8"))
       await writeFile(fixture, (await readFile(mcp.handler, "utf8")).replace(JSON.stringify(pathToFileURL(join(projectRoot, "server/content.mjs")).href), JSON.stringify(pathToFileURL(content).href)))
       const { default: middleware } = await import(/* @vite-ignore */ pathToFileURL(fixture).href)
-      const result = await middleware({ req: new Request("https://app.test/mcp", { method: "POST" }) })
-      if (enabled) expect(await result.text()).toBe("Content MCP")
-      else expect(result).toBeUndefined()
-      expect(await middleware({ req: new Request("https://app.test/other") })).toBeUndefined()
+      for (const baseURL of ["/", "/app/"]) {
+        // Nitro prefixes route-scoped middleware and handlers without rewriting the request URL.
+        const route = `${baseURL}${mcp.route.slice(1)}`
+        const app = new H3().use(route, middleware).post(route, () => new Response("App MCP"))
+        const result = await app.request(route, { method: "POST" })
+        expect(result.status).toBe(200)
+        expect(await result.text()).toBe(enabled ? "Content MCP" : "App MCP")
+        expect((await app.request(`${baseURL}other`)).status).toBe(404)
+      }
     }
   }
   finally {

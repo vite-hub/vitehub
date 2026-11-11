@@ -122,7 +122,7 @@ const result = await content.check({ source: "docs", sha })
 | `duplicate` | `CONTENT_R0067` | warning | Pages with the same title or description. |
 | `heading-order` | `CONTENT_R0068` | warning | A heading that skips a level. The page title counts as the `h1`. |
 
-The search rules and limits are those of the `@vite-hub/docs` `seoAudit`, and they skip pages with `seo.noindex`, `seo.index: false`, or a canonical URL to another page. A page is a Markdown document; its URL comes from the `url` of the Source, else its path. Links resolve in memory against the pages of the same commit; links to other origins are not checked. `defineContent({ check })` sets the options:
+The search rules and limits are those of the `@vite-hub/docs` `seoAudit`, and they skip pages with `seo.noindex`, `seo.index: false`, or a canonical URL to another page. A page is a Markdown document; its URL comes from the `url` of the Source, else its path. Links resolve in memory against the checked commits and pages from other configured Sources. A head change or a check of one Source uses the published heads of the other Sources, or their branch commits when no head exists. The checked Source never uses pages from its previous head. Links to other origins are not checked. `defineContent({ check })` sets the options:
 
 ```ts fragment
 defineContent({

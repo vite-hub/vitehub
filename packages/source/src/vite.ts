@@ -709,7 +709,7 @@ async function writeContentArtifact(
       ...conditionalMcp ? [
         `const handler = ${helper}(content)`,
         "export default async event => {",
-        "  if (!content.seo?.mcp || new URL(event.req.url).pathname !== '/mcp') return",
+        "  if (!content.seo?.mcp) return",
         "  return await handler.fetch(event.req)",
         "}",
       ] : [`export default ${helper}(content)`],

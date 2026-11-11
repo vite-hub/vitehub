@@ -271,6 +271,8 @@ docs/kv/index.md:2  warning  CONTENT_R0065  /docs/kv has a title of 2 characters
 
 `check` reads the parsed documents, not built HTML, and makes no network calls. A `github()` Source is checked at `--sha`, or at the latest commit of its branch. The head does not move. `advance` runs the same error rules before it moves a head.
 
+Links can target pages and headings in any configured Source. A check of one Source and a head change use the published heads of the other Sources, or their branch commits when no head exists. A check of all Sources uses their checked commits. Pages removed from a checked commit cannot resolve against its previous head.
+
 | Code | Severity | Finds |
 | --- | --- | --- |
 | [`CONTENT_R0060`](/docs/content/diagnostics/content_r0060) | error | A document that does not parse. |
