@@ -8,6 +8,7 @@ import { consoleMcpCallbackPath } from "../mcp-client.ts"
 import { readConsoleOperationUser } from "./access.ts"
 import { consoleMcpRecords, resetConsoleMcpRecords } from "./mcp-client-store.ts"
 import { consoleRequestError, consolePublicURL } from "./request.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -43,10 +44,7 @@ const clientInfo = { name: "vitehub-console", title: "ViteHub Console", version:
 /** Every person keeps their own connections. A Console without accounts shares one owner per access mode. */
 async function ownerOf(caller: ConsoleMcpCaller): Promise<string> {
   const user = await readConsoleOperationUser(caller.access)
-  if (user?.id) return `user:${user.id}`
-  if (caller.access.mode === "auth") throw consoleRequestError(403, "The Console session has no user id, so the Console cannot keep MCP connections for it.", "CONSOLE_MANAGER_REQUIRED")
-  const email = caller.access.mode === "cloudflare-access" ? caller.request?.headers.get("cf-access-authenticated-user-email") : undefined
-  return email ? `cloudflare-access:${email}` : caller.access.mode
+  return user?.id ? `user:${user.id}` : caller.access.mode
 }
 
 /** The origin and Console mount that the browser sees, from the RPC request. */
@@ -54,30 +52,6 @@ function consolePage(caller: ConsoleMcpCaller): { mount: string, origin: string 
   if (!caller.request) throw consoleRequestError(400, "MCP connections need the Console page that calls them.")
   const url = consolePublicURL(caller.request)
   return { mount: consoleMountBase(url.pathname), origin: url.origin }
-}
-
-/** ViteHub MCP, the MCP server of the Console, under the Console mount. */
-const viteHubMcpPath = "/_vitehub/mcp"
-/** The request headers that carry a Console session: an app session cookie, a bearer token, or a Cloudflare Access token. */
-const sessionHeaders = ["authorization", "cf-access-jwt-assertion", "cookie"] as const
-
-function viteHubMcpUrl(caller: ConsoleMcpCaller): string {
-  const { mount, origin } = consolePage(caller)
-  return `${origin}${mount}${viteHubMcpPath}`
-}
-
-/**
- * The Console session of this request, for a `console` connection. It goes only to ViteHub MCP on the origin and mount
- * of this request, and the Console keeps none of it.
- */
-function consoleSession(caller: ConsoleMcpCaller, connection: StoredConnection): Record<string, string> {
-  if (connection.auth !== "console" || connection.url !== viteHubMcpUrl(caller)) return {}
-  const headers: Record<string, string> = {}
-  for (const name of sessionHeaders) {
-    const value = caller.request?.headers.get(name)
-    if (value) headers[name] = value
-  }
-  return headers
 }
 
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"])
@@ -139,10 +113,6 @@ function randomId(bytes = 16): string {
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 /** The claims of a JWT, without checking its signature. The token came straight from the token endpoint. */
@@ -354,7 +324,7 @@ async function runClient<T>(caller: ConsoleMcpCaller, connection: StoredConnecti
   let authorizing = false
   let challenge: Challenge | undefined
   const fetchWithTimeout = withTimeout(options.timeoutMs ?? requestTimeoutMs, connection.consoleOrigin)
-  const headers = { ...consoleSession(caller, connection), ...(connection.bearer ? { authorization: `Bearer ${connection.bearer}` } : {}) }
+  const headers = connection.bearer ? { authorization: `Bearer ${connection.bearer}` } : {}
   const attempt = async (sessionId: string | undefined) => {
     const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
       ...(connection.auth === "oauth" ? { authProvider: oauthProvider(connection, () => { authorizing = true }) } : {}),
@@ -545,10 +515,9 @@ async function discoverAppServers(origin: string): Promise<ConsoleMcpCandidate[]
 export async function listConsoleMcp(caller: ConsoleMcpCaller, options: { sharedSession: boolean }): Promise<ConsoleMcpOverview> {
   const owner = await ownerOf(caller)
   const { origin } = consolePage(caller)
-  const viteHubMcp = viteHubMcpUrl(caller)
   return {
     connections: (await owned(owner)).map(describe),
-    servers: [...(await discoverAppServers(origin)).filter(server => server.url !== viteHubMcp), { auth: "console", label: "ViteHub MCP", url: viteHubMcp }],
+    servers: await discoverAppServers(origin),
     sharedSession: options.sharedSession,
   }
 }
@@ -611,22 +580,14 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
   const { mount, origin } = consolePage(caller)
   const url = serverUrl(input.server, origin)
   const token = text(input.token)
-  // ViteHub MCP accepts the Console session, so the Console needs no sign-in or token for it. One session is one
-  // account, so connecting again opens the same connection.
-  const session = !token && url.href === viteHubMcpUrl(caller)
-  const mine = await owned(owner)
-  const existing = session ? mine.find(candidate => candidate.auth === "console" && candidate.url === url.href) : undefined
-  if (!existing && mine.length >= maximumConnections) throw consoleRequestError(409, `The Console keeps ${maximumConnections} MCP connections per person. Disconnect one first.`)
-  const user = session ? await readConsoleOperationUser(caller.access) : undefined
-  const identity = user ? identityFrom({ email: user.email, name: user.name, picture: user.image, sub: user.id }) : undefined
-  const connection: StoredConnection = existing ?? {
-    auth: token ? "bearer" : session ? "console" : "none",
+  if ((await owned(owner)).length >= maximumConnections) throw consoleRequestError(409, `The Console keeps ${maximumConnections} MCP connections per person. Disconnect one first.`)
+  const connection: StoredConnection = {
+    auth: token ? "bearer" : "none",
     ...(token ? { bearer: token } : {}),
     consoleOrigin: origin,
     createdAt: Date.now(),
     id: `mcp_${randomId(12)}`,
-    ...(identity ? { identity } : {}),
-    label: text(input.label)?.slice(0, 80) ?? (session ? identity?.name ?? identity?.email ?? "Console session" : url.host + (url.pathname === "/" ? "" : url.pathname)),
+    label: text(input.label)?.slice(0, 80) ?? url.host + (url.pathname === "/" ? "" : url.pathname),
     labelled: Boolean(text(input.label)),
     owner,
     sameOrigin: url.origin === origin,

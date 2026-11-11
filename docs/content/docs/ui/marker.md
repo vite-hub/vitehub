@@ -28,7 +28,7 @@ import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";
 ```vue
 <template>
   <Marker>
-    <MarkerIcon><UIcon name="i-ph-magnifying-glass-light" /></MarkerIcon>
+    <MarkerIcon><UIcon name="i-lucide-search" /></MarkerIcon>
     <MarkerContent>Explored 4 files</MarkerContent>
   </Marker>
 </template>
@@ -117,7 +117,7 @@ For work in progress, such as "Thinking" or a running tool, set `role="status"` 
 
 ```vue
 <Marker role="status">
-  <MarkerIcon><UIcon name="i-ph-circle-dashed-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-circle-dashed" /></MarkerIcon>
   <MarkerContent>Compacting the conversation</MarkerContent>
 </Marker>
 ```
@@ -134,7 +134,7 @@ Do not add `role="separator"` to a labeled divider. A separator takes its name f
 
 ```vue
 <Marker aria-label="Synced">
-  <MarkerIcon><UIcon name="i-ph-check-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-check" /></MarkerIcon>
 </Marker>
 ```
 

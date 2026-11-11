@@ -79,9 +79,9 @@ app/
 layers/
   accounts/
     server/auth.ts
-    server/databases/config.ts   # users table
+    server/databases/default.ts   # users table
   blog/
-    server/databases/config.ts   # posts table
+    server/databases/default.ts   # posts table
 ```
 
 The app wins over its layers:
@@ -105,7 +105,7 @@ Definition.
 | Database on Cloudflare | With the `cloudflare` preset, `database` defaults to `driver: 'd1'`: one D1 host resource that Nitro and Nuxt Content share. |
 | Server auto-imports | On Nuxt 5, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
-| Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: true }`, behind the Console sign-in. |
+| Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: { actor } }`, behind your actor policy. |
 
 ## Env and Nuxt runtime config
 

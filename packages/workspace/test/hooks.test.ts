@@ -20,6 +20,7 @@ import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.
 import { pushedBranches, workspaceHooksNamespace } from "../src/hooks-cli.ts"
 import { useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 /** The paths that `readdir` and `readFile` opened, to check what the hooks read. */
 const opened = vi.hoisted((): string[] => [])
@@ -62,7 +63,7 @@ async function app() {
   cleanup.push(() => rm(root, { force: true, recursive: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(async () => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const store = createBlobDatabaseWorkspaceStore({ blob: createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") })), database, workspace: "content" })
@@ -70,9 +71,9 @@ async function app() {
   const { history } = useWorkspace("content", { definition: { name: "content", store }, mode: "write" })
   const registry = createOperationRegistry([{ operations: workspaceOperations }])
   const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-    const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
+    const { input, operation } = operationRpcRequest(init!.body)
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
-    return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
+    return operationRpcResponse(init!.body, result)
   }
   const edit = async (put: Record<string, string>) => {
     const head = await history.head({ ref: "draft" })

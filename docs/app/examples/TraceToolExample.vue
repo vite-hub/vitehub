@@ -56,7 +56,7 @@ function output(part: DynamicToolUIPart) {
           <TraceCollapsible v-for="part in parts" :key="part.toolCallId">
             <TraceCollapsibleTrigger>
               <TraceLine :status="part.state === 'output-error' ? 'error' : undefined">
-                <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
                 <TraceTitle>{{ part.state === "output-error" ? "Failed to run" : "Ran" }} {{ command(part) }}</TraceTitle>
               </TraceLine>
             </TraceCollapsibleTrigger>

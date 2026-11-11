@@ -410,8 +410,10 @@ The server parses every page with [Comark](https://comark.dev) and comark-ui's p
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
+import emoji from 'comark/plugins/emoji'
 
 export default {
+  plugins: [emoji()],
   comarkUi: { chips: true },
   examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
 } satisfies DocsParserOptions
@@ -520,7 +522,7 @@ import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
 import { docsCollection } from '@vite-hub/docs'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
   collections: { docs: docsCollection() },
 })

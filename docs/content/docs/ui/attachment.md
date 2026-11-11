@@ -41,14 +41,14 @@ const open = ref(false);
 <template>
   <Attachment>
     <AttachmentMedia>
-      <UIcon name="i-ph-file-text-light" />
+      <UIcon name="i-lucide-file-text" />
     </AttachmentMedia>
     <AttachmentContent>
       <AttachmentTitle>sales-dashboard.pdf</AttachmentTitle>
       <AttachmentDescription>PDF · 2.4 MB</AttachmentDescription>
     </AttachmentContent>
     <AttachmentActions>
-      <AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
+      <AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
     </AttachmentActions>
   </Attachment>
 </template>
@@ -146,7 +146,7 @@ const open = ref(false);
 `AttachmentAction` usually shows only an icon. Give each one an `aria-label` that names the action and file.
 
 ```vue
-<AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
+<AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
 ```
 
 ### Label the trigger

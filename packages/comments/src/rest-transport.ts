@@ -1,4 +1,5 @@
 import { commentsRoute } from "./page.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type {
   CommentAttachment,
@@ -73,10 +74,6 @@ export interface CommentsRestAnswer<T> {
 
 /** The request function of the Comments API that the overlay and `createRestTransport()` share. */
 export type CommentsRestRequest = <T>(path: string, init?: RequestInit) => Promise<CommentsRestAnswer<T>>
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 /** The URL of an attachment key below the Comments API, such as `/api/_vitehub/comments/attachments/comments/<id>/shot.png`. */
 export function commentAttachmentUrl(key: string, base = ""): string {

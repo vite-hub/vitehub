@@ -12,6 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineDatabase` from `vite-hub/database` | Declare a Database Definition. |
 | `useDatabase` from `vite-hub/database/drizzle` | Select a generated Drizzle database and its schema, by name or the only one. |
+| `useDatabaseBinding` from `vite-hub/database/drizzle` | Get the D1 binding or request session of a database. |
 | `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
 | `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
@@ -32,7 +33,7 @@ Call `useDatabase()` from server code with the discovered database name. Use `de
 
 Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
 
-This route reads the `notes` table of the Default Database:
+This route reads the `notes` table of the Default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
 
 ```ts [src/database.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -47,6 +48,7 @@ export default defineDatabase({
     files: sqliteTable('files', {
       id: text('id').primaryKey(),
       ownerId: text('owner_id').notNull(),
+      name: text('name').notNull(),
     }),
   },
 })
@@ -94,6 +96,14 @@ export default defineEventHandler(() => {
   return db.select().from(schema.events)
 })
 ```
+
+### Pass the D1 binding to other code
+
+Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).
+
+The return type, `DatabaseD1Binding`, exposes `prepare()` and `batch()`, which both bindings and sessions support. It fits consumers of these operations, including the D1 Agent Invocation store. It is not the full Cloudflare `D1Database` type: sessions have no `exec()`, `withSession()`, or `dump()`.
+
+It throws `DATABASE_NO_D1_BINDING` when the database does not run on a D1 binding, such as local SQLite during `vite dev` or D1 over HTTP.
 
 ### Stay under the bound parameter limit
 

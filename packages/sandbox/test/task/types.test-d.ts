@@ -32,10 +32,10 @@ describe("types", () => {
   it("accepts a handler with a required payload", () => {
     const definition = defineSandboxTask({
       timeout: 60000,
-      run: async (payload: { width: number }) => ({ width: payload.width }),
+      handler: async (payload: { width: number }) => ({ width: payload.width }),
     })
 
-    expectTypeOf(definition.run).parameter(0).toEqualTypeOf<{ width: number }>()
+    expectTypeOf(definition.handler).parameter(0).toEqualTypeOf<{ width: number }>()
   })
 
   it("requires the payload declared by a registered task", () => {
@@ -91,7 +91,7 @@ describe("types", () => {
   it("types sandbox definitions and run results", async () => {
     const definition = defineSandboxTask({
       project: false,
-      run: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
+      handler: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
     })
 
     expectTypeOf(definition).toMatchTypeOf<SandboxTaskDefinition<{ value: string } | undefined, { value: string }>>()

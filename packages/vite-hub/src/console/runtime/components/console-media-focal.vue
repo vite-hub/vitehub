@@ -72,7 +72,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
   <div class="grid gap-3">
     <div
       ref="frame"
-      class="vitehub-media-focal relative w-full touch-none overflow-hidden rounded-md select-none"
+      class="vitehub-media-focal relative w-full touch-none rounded-md select-none"
       :class="disabled ? '' : 'cursor-crosshair'"
       :style="{ aspectRatio: String(ratio), background: color ?? 'var(--ui-bg-elevated)' }"
       @pointerdown="down"
@@ -80,7 +80,8 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
       @pointerup="up"
       @pointercancel="up"
     >
-      <img :src="src" :alt="alt ?? ''" class="absolute inset-0 size-full object-contain" draggable="false">
+      <!-- The frame does not clip, so the marker and its focus ring stay whole at the edges of the image. -->
+      <img :src="src" :alt="alt ?? ''" class="absolute inset-0 size-full rounded-md object-contain" draggable="false">
       <button
         type="button"
         class="vitehub-media-focal__marker"
@@ -93,20 +94,25 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
     </div>
     <div class="grid grid-cols-4 items-end gap-2" aria-label="Crop previews">
       <figure v-for="preview in previews" :key="preview.aspect" class="grid gap-1">
-        <div class="overflow-hidden rounded-sm ring-1 ring-(--ui-border) ring-inset" :style="{ aspectRatio: String(preview.ratio), background: color ?? 'var(--ui-bg-elevated)' }">
+        <div class="overflow-hidden rounded-md ring-1 ring-(--ui-border) ring-inset" :style="{ aspectRatio: String(preview.ratio), background: color ?? 'var(--ui-bg-elevated)' }">
           <img :src="src" alt="" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(point, { width, height }, preview.ratio) }" draggable="false">
         </div>
-        <figcaption class="text-[11px] text-dimmed tabular-nums">{{ preview.aspect }}</figcaption>
+        <figcaption class="text-xs text-dimmed tabular-nums">{{ preview.aspect }}</figcaption>
       </figure>
     </div>
   </div>
 </template>
 
 <style>
-/* A ring marker that reads on light and dark images: a white ring with a dark outline, and a dot in the middle. */
+/*
+ * A ring marker that reads on any image: a white ring with a dark edge, and a dot in the middle. It sits over the image,
+ * not the page, so it uses the media tokens, which stay the same in dark mode. The theme draws the focus ring around it.
+ */
 .vitehub-media-focal__marker {
+  --mark: var(--vh-on-media);
+  --mark-edge: var(--vh-media-scrim);
   border-radius: 999px;
-  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.95), 0 0 0 3px rgb(0 0 0 / 0.35), 0 1px 6px rgb(0 0 0 / 0.3);
+  box-shadow: 0 0 0 1.5px var(--mark), 0 0 0 3px var(--mark-edge), 0 1px 6px var(--mark-edge);
   height: 1.375rem;
   position: absolute;
   transform: translate(-50%, -50%);
@@ -114,9 +120,9 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 }
 
 .vitehub-media-focal__marker::after {
-  background: rgb(255 255 255);
+  background: var(--mark);
   border-radius: 999px;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+  box-shadow: 0 0 0 1px var(--mark-edge);
   content: "";
   height: 0.25rem;
   left: 50%;
@@ -124,11 +130,6 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
   top: 50%;
   transform: translate(-50%, -50%);
   width: 0.25rem;
-}
-
-.vitehub-media-focal__marker:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: 3px;
 }
 
 .vitehub-media-focal__marker:disabled {

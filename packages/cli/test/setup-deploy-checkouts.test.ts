@@ -6,7 +6,8 @@ import process from "node:process"
 import { describe, expect, it, vi } from "vitest"
 
 import { builtProject, fakeHosts } from "./setup-deploy-helpers.ts"
-import { runSetup } from "./setup-helpers.ts"
+import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
+import { isolateProjectPackages, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
 import type { SetupDeployOutput, SetupError } from "../src/setup/index.ts"
@@ -145,15 +146,15 @@ function workspaceApp(hosts: Awaited<ReturnType<typeof fakeHosts>>, workspace: W
   let committed = false
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input)
-    const body = JSON.parse(String(init?.body)) as { operation: string, input: { since?: string | null } }
+    const body = operationRpcRequest(init?.body) as { operation: string, input: { since?: string | null } }
     requests.push({ hostCallsBefore: (await hosts.calls()).length, operation: body.operation, url })
     if (!url.startsWith(remote)) throw new Error(`unexpected request to ${url}`)
     const changes = (committed ? workspace.after : undefined) ?? workspace.changes ?? { files: [], head: "r1" }
     const answer = body.operation === "workspace.changes"
-      ? { ok: true, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
-      : workspace.commit ?? { ok: true, value: { revision: { id: "r3" } } }
+      ? { ok: true as const, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
+      : workspace.commit ?? { ok: true as const, value: { revision: { id: "r3" } } }
     if (body.operation === "workspace.commit" && answer.ok) committed = true
-    return Response.json(answer, { status: answer.ok ? 200 : 409 })
+    return operationRpcResponse(init?.body, answer.ok ? answer : { ...answer, status: 409 })
   }
   return { fetch, requests }
 }
@@ -335,10 +336,11 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     }
     for (const [name, project] of Object.entries(projects)) {
       const root = await builtProject("cloudflare", project.files)
+      isolateProjectPackages(root)
       const hosts = await fakeHosts(cloudflareEnv)
       const app = workspaceApp(hosts)
       const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, hosts.env, { fetch: app.fetch })
-      expect(result.exitCode, name).toBe(0)
+      expect(result.exitCode, `${name}: ${result.stdout}${result.stderr}`).toBe(0)
       expect(result.json, name).toEqual({ host: "cloudflare", schemaVersion: 1, url: "https://my-app.example.workers.dev", version: "version-1" })
       expect(result.stderr.split("\n").filter(line => line.startsWith("[vitehub] vitehub.lock")).map(line => `${line}\n`).join(""), name).toBe(project.stderr)
       expect(app.requests, name).toEqual([])

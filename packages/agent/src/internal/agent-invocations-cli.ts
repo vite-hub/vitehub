@@ -4,7 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
-import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
+import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { isCompatibleAgentDevServerRoot } from "./agent-info-cli.ts"
@@ -140,9 +141,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "",
     "Options:",
     "  --url <url>               Deployed app URL, such as https://app.example.com. Uses the Console RPC endpoint.",
-    "                            Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and",
-    "                            CF_ACCESS_CLIENT_SECRET to authenticate. A localhost URL uses the Console only for a",
-    "                            /_vitehub path, such as http://localhost:3000/_vitehub.",
+    "                            Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. A localhost URL uses the",
+    "                            Console only for a /_vitehub path, such as http://localhost:3000/_vitehub.",
     "                            Other localhost URLs: the invocation endpoint for list, show, and tail",
     "                            (default http://localhost:5173/api/invocations), or the Development Server for cancel.",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
@@ -391,7 +391,7 @@ function consoleBaseUrl(value: string): URL | undefined {
     throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed Console, except for localhost." })
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE for credentials." })
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls." })
   }
   // Accept the app URL or a pasted Console page URL. The RPC endpoint is under the app base.
   const base = consolePath ? url.pathname.slice(0, consolePath.index) : url.pathname
@@ -444,7 +444,6 @@ function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
 }
 
 /** Console RPC contract owned by `vite-hub/console`. Its tests drive this client against the real handler. */
-const consoleCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 /** The Console returns at most 100 records per page. */
 const consolePageLimit = 100
 const consoleDefaultListLimit = 50
@@ -457,44 +456,49 @@ interface ConsoleTarget {
 }
 
 function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
+  return Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */
 async function consoleCall<T>(target: ConsoleTarget, operation: string, input: Record<string, unknown>, parseResponse: ResponseParser<T>): Promise<T> {
   const url = new URL(operationRpcPath.slice(1), target.base)
-  let response: Response
+  let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
   try {
-    response = await target.fetch(url.href, {
-      // The operation comes first so the server can find large calls within the first bytes.
-      body: JSON.stringify({ operation, input }),
-      headers: operationHeaders(target.env),
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(target.timeout),
+    outcome = await callOperationRpc(operation, input, async (body) => {
+      const response = await target.fetch(url.href, {
+        body,
+        headers: await signedOperationHeaders(target.env, url, body),
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(target.timeout),
+      })
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = text ? JSON.parse(text) : undefined
+      }
+      catch {
+        json = undefined
+      }
+      return { body: json, response }
     })
   }
   catch (error) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}` })
   }
-  const text = await response.text()
-  let json: unknown
-  try {
-    json = text ? JSON.parse(text) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && isRuntimeRecord(json) && json.ok === true) return parseResponse(json.value)
-  const message = isRuntimeRecord(json) && typeof json.message === "string" && json.message ? json.message.replace(/\.$/, "") : undefined
-  const status = response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status
+  if (outcome.ok) return parseResponse(outcome.value)
+  const { body: json, response } = outcome.answer
+  // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+  const failure: unknown = outcome.error ?? json
+  const message = isRuntimeRecord(failure) && typeof failure.message === "string" && failure.message ? failure.message.replace(/\.$/, "") : undefined
+  const status = outcome.error?.status ?? (response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status)
   if (status === 401 || (status >= 300 && status < 400)) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${consoleCredentialHint}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${operationCredentialHint}` })
   }
   if (status === 403) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${consoleCredentialHint}`}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${operationCredentialHint}`}` })
   }
-  if (!isRuntimeRecord(json)) {
+  if (!isRuntimeRecord(failure)) {
     throw agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
   }
   throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })

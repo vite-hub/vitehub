@@ -119,7 +119,7 @@ Footer action buttons often show only an icon. Give each one an `aria-label`.
 
 ```vue
 <MessageFooter>
-  <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-copy-light" aria-label="Copy" />
+  <UButton color="neutral" variant="ghost" size="sm" square icon="i-lucide-copy" aria-label="Copy" />
 </MessageFooter>
 ```
 
@@ -129,7 +129,7 @@ The parts do not announce new messages. When new turns arrive while the reader w
 
 ```vue
 <Marker role="status">
-  <MarkerIcon><UIcon name="i-ph-circle-dashed-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-circle-dashed" /></MarkerIcon>
   <MarkerContent>Checking the logs</MarkerContent>
 </Marker>
 ```

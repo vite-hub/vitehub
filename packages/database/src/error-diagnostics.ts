@@ -100,6 +100,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, value }: { database: string, value: string }) => `The database "${database}" cannot connect to ${value}.`,
       fix: "Use `d1:BINDING`, `env:VARIABLE` with a libSQL URL, a `libsql://` or `https://` URL, or a `file:` path on Node.",
     },
+    DATABASE_NO_D1_BINDING: {
+      why: ({ database }: { database: string }) => `The database "${database}" has no Cloudflare D1 binding in this runtime.`,
+      fix: "Call `useDatabaseBinding()` where the Database runs on a D1 binding, such as a Cloudflare Worker. On other hosts and over D1 HTTP, query it with `useDatabase(name).db`.",
+    },
     DATABASE_NOT_FOUND: {
       why: ({ choices, database }: { choices?: readonly string[], database: string }) => `The database "${database}" is not configured.${choices ? ` Database Definitions: ${choices.length ? quoteList(choices) : "none"}.` : ""}`,
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",
@@ -110,6 +114,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Migration errors. `vitehub database migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.
+    DATABASE_D1_MIGRATION_INVALID: {
+      why: ({ problem }: { problem: string }) => `D1 migration history is invalid. ${problem}`,
+      fix: "Restore the migration folders and d1-migrations.json from version control. Keep the Wrangler file names of applied migrations, and give each new migration a unique file name before generating, building, or migrating again.",
+    },
     DATABASE_MIGRATION_CHECK_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
       fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, or `connection.url` or the PG* variables and the `postgres` package for Postgres.",
@@ -118,9 +126,13 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next start.",
     },
+    DATABASE_MIGRATION_FAILED: {
+      why: ({ database, migration, problem }: { database: string, migration: string, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} The database rolled back every pending migration of this run.`,
+      fix: "Fix the SQL of the migration, or the data that it conflicts with, and apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
+    },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node preset and a `file:` connection URL, or remove `migrateOnStart` and run `vitehub database migrate` from the deployment instead.",
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node preset and a `file:` or Postgres connection URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment instead.",
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
@@ -130,9 +142,9 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Definition errors. `defineDatabase()` throws them.
-    DATABASE_INVALID_CASING: {
-      why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
-      fix: "Set `drizzle: { casing: 'snake_case' }` or `drizzle: { casing: 'camelCase' }`, or remove `casing`.",
+    DATABASE_DRIZZLE_OPTION_REMOVED: {
+      why: "`defineDatabase()` has no `drizzle` option. Drizzle 1.0 removed the database `casing` option.",
+      fix: "Remove `drizzle`. To map camelCase keys to snake_case columns, declare each table with `snakeCase.table()` from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`.",
     },
     DATABASE_INVALID_DIALECT: {
       why: ({ file }: { file?: string }) => file
@@ -182,7 +194,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_INVALID_CONTRIBUTION_TARGET: {
       why: (problem: ContributionTargetProblem) => describeContributionTarget(problem),
-      fix: "Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution to a Database Definition with the same dialect.",
+      fix: "Add `server/databases/default.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution to a Database Definition with the same dialect.",
     },
     DATABASE_INVALID_SCHEMA_EXPORT: {
       why: ({ handler }: { handler: string }) => `The Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.`,
@@ -196,13 +208,19 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, files, table }: { database: string, files: readonly string[], table: string }) => `More than one Nuxt layer declares the table "${table}" in the database "${database}":${fileList(files)}`,
       fix: "Rename one table, or declare the table in the application definition to replace both.",
     },
+    DATABASE_LEGACY_CONFIG_FILE: {
+      why: ({ file, name }: { file: string, name: string }) => name === "default"
+        ? `"${file}" uses the former Database file layout. The \`default\` Database is now \`server/databases/default.ts\` or \`server/databases/default/index.ts\`, with its migrations in \`server/databases/default/migrations/\`.`
+        : `"${file}" uses the former Database file layout. The Database "${name}" is now \`server/databases/${name}.ts\` or \`server/databases/${name}/index.ts\`.`,
+      fix: "Run `npx @vite-hub/codemods define-forms`. It moves `config.ts` to `<name>/index.ts`, moves the migrations of the default Database, and updates the imports.",
+    },
     DATABASE_MISSING_D1_RESOURCE: {
       why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
       fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
     },
     DATABASE_MIXED_DEFINITIONS: {
-      why: ({ files }: { files: readonly string[] }) => `Database Definitions must use one default database or only named databases, not both.${fileList(files)}`,
-      fix: "Rename the default definition to a named one, or merge the named definitions into the default one.",
+      why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,
+      fix: "Move the Databases to `server/databases/<name>.ts`, including `server/databases/default.ts` for the default one.",
     },
     DATABASE_NAME_MISMATCH: {
       why: ({ file, name }: { file: string, name: string }) => `The Database Definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its file name.`,

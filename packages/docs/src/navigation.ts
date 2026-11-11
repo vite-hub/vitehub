@@ -21,8 +21,9 @@ export interface DocsIcons {
   /** Replacement per icon name. */
   aliases: Record<string, string>
   /**
-   * Icon prefix of the sidebar, such as `i-lucide-`, or several prefixes, such as `["i-lucide-", "i-vitehub-"]`. An icon outside
-   * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows every icon.
+   * Icon prefix of the sidebar, such as `i-lucide-`, or several prefixes, such as `["i-lucide-", "i-vitehub-"]`. An icon
+   * outside them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows
+   * every icon.
    */
   family: string | string[]
   /** Icon of a page without one. */

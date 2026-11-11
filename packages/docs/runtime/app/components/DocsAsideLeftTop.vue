@@ -35,7 +35,7 @@ onMounted(focusMounted)
     ignore-non-keyboard-focus
     :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
   >
-    <NuxtLink :to="docsHome ?? '/'" class="vh-docs-panel-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
+    <NuxtLink :to="docsHome ?? '/'" class="vh-docs-panel-brand" data-focus-inset :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
       <DocsBrandMark />
       <span>{{ site.name }}</span>
       <span v-if="site.badge" class="vh-docs-panel-brand-badge">{{ site.badge.label }}</span>
@@ -44,7 +44,7 @@ onMounted(focusMounted)
   <!-- The collapse button sits where the collapsed strip has its open button, so the pointer can toggle in place. -->
   <div v-if="search" class="vh-docs-panel-search-row">
     <UTooltip v-if="collapsible" text="Hide navigation" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" ignore-non-keyboard-focus>
-      <button :id="docsSidebarToggleIds.hide" type="button" class="vh-docs-panel-collapse" aria-label="Hide navigation" @click="toggle(false)">
+      <button :id="docsSidebarToggleIds.hide" type="button" class="vh-docs-panel-collapse" data-focus-inset aria-label="Hide navigation" @click="toggle(false)">
         <UIcon name="i-lucide-panel-left-close" class="size-4" />
       </button>
     </UTooltip>
@@ -77,10 +77,6 @@ onMounted(focusMounted)
   font-weight: 600;
 }
 
-.vh-docs-panel-brand:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
 
 .vh-docs-panel-brand-badge {
   border-bottom: 1px dotted currentcolor;
@@ -122,11 +118,6 @@ onMounted(focusMounted)
     background: color-mix(in oklab, var(--ui-bg-elevated) 50%, transparent);
     color: var(--ui-text-highlighted);
   }
-}
-
-.vh-docs-panel-collapse:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .vh-docs-panel-title {

@@ -37,7 +37,7 @@ The module scans the server directory of the app and of each Nuxt layer.
 | Feature | Option | Folder that the module scans | Server auto-imports |
 | --- | --- | --- | --- |
 | Agent | `agent` | `server/agents/` | `runAgent`, `streamAgent` |
-| Auth | `auth` | `server/auth.ts` | `auth`, `getAuth`, `getAuthorization`, `requireAuth`, `requireAuthorization`, `withAuth`, `withAuthorization` |
+| Auth | `auth` | `server/auth.ts` | `auth`, `can`, `getAuth`, `requireAbility`, `requireAuth`, `requireAuthorization`, `useAuth`, `withAnonymousAuthorization`, `withAuth`, `withAuthorization` |
 | Blob | `blob` | None | `blob` |
 | Browser | `browser` | `server/browsers/` | `defineBrowser`, `runBrowser` |
 | Channels | `channels` | `server/channels/` | `defineChannel`, `useChannel` |

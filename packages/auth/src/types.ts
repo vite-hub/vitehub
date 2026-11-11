@@ -1,4 +1,6 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, ViteHubContext } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+// From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
+import type { ViteHubContext } from "@vite-hub/runtime/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthRedirects } from "./nuxt-types.ts"
@@ -102,12 +104,6 @@ export type AuthAnonymousGuardedHandler<TInput, TResult> = (
   authorization: AuthAuthorization | AuthAnonymousAuthorization,
 ) => TResult | Promise<TResult>
 
-/**
- * Route middleware with the `(event, next)` contract of H3 2.
- * It returns the rejection `Response`, or the result of `next()` after the check passes.
- */
-export type AuthMiddleware = (event: AuthRequestInput, next: () => unknown) => Promise<unknown>
-
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]
   signIn?: AuthSignInConfiguration
@@ -192,6 +188,8 @@ export interface ResolvedAuthAccessRoute {
 }
 
 export interface ResolvedAuthViteConfig {
+  /** The absolute path of `shared/abilities.ts`, when the app has rules. */
+  abilities?: string
   access: {
     routes: ResolvedAuthAccessRoute[]
   }

@@ -88,9 +88,9 @@ export default defineAuth({
 })
 ```
 
-`authDatabase()` is the Better Auth adapter for the `default` Database, using each request's D1 binding. ViteHub adds these tables: `user`, `session`, `account`, `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [Console MCP OAuth](/docs/development/mcp#set-up-oauth). With no Database Definition, ViteHub uses an implicit `default` Database with the D1 binding `DB`. To name the D1 database, add `server/databases/config.ts`, and the Auth tables move into it:
+`authDatabase()` is the Better Auth adapter for the `default` Database, using each request's D1 binding. ViteHub adds these tables: `user`, `session`, `account`, `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [MCP OAuth](/docs/auth/configure#sign-mcp-clients-in). With no Database Definition, ViteHub uses an implicit `default` Database with the D1 binding `DB`. To name the D1 database, add `server/databases/default.ts`, and the Auth tables move into it:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({
@@ -108,7 +108,7 @@ pnpm vitehub database generate
 pnpm vitehub database migrate
 ```
 
-`generate` writes the table SQL to `server/databases/migrations/`. `migrate` applies it to the local dev SQLite file. `pnpm vitehub inspect definitions --kind database` lists the tables, with `@vite-hub/auth/vite` as their plugin.
+`generate` writes the table SQL to `server/databases/default/migrations/`. `migrate` applies it to the local dev SQLite file. `pnpm vitehub inspect definitions --kind database` lists the tables, with `@vite-hub/auth/vite` as their plugin.
 
 ## How to run Better Auth locally
 
@@ -163,7 +163,7 @@ Store the admin's GitHub account as `VITEHUB_ADMINS`, such as `github:22072217`.
 pnpm exec wrangler secret put VITEHUB_ADMINS --config .output/server/wrangler.json
 ```
 
-Then open `/_vitehub/sign-in` on the Worker URL and sign in with GitHub. Without GitHub sign-in, run `vitehub auth claim` and store the value it prints as `VITEHUB_ADMIN_CLAIM`. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
+Then sign in to the app with GitHub. Without GitHub sign-in, run `vitehub auth claim` and store the value it prints as `VITEHUB_ADMIN_CLAIM`. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 ## Use cookie sessions without D1
 

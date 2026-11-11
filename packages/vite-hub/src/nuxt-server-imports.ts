@@ -12,7 +12,7 @@
  */
 export const viteHubServerImports = {
   agent: { "vite-hub/agent": ["runAgent", "streamAgent"] },
-  auth: { "vite-hub/auth/server": ["auth", "getAuth", "getAuthorization", "requireAuth", "requireAuthorization", "withAuth", "withAuthorization"] },
+  auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
   blob: { "vite-hub/blob": ["blob"] },
   browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
   channels: { "vite-hub/channels": ["defineChannel", "useChannel"] },

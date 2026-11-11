@@ -61,7 +61,7 @@ async function executePackageEntry(definitionSource: string, options: {
 describe("package entry result transport", () => {
   it.each(['definition', 'module'] as const)("defaults omitted context for a %s handler", async (execution) => {
     const handler = "(payload, context) => ({ keys: Object.keys(context), omittedPayload: payload === undefined })"
-    const definition = execution === 'module' ? handler : `{ run: ${handler} }`
+    const definition = execution === 'module' ? handler : `{ handler: ${handler} }`
     const result = await executePackageEntry(`export default ${definition}`, { execution, input: {} })
 
     expect(result.code).toBe(0)
@@ -70,7 +70,7 @@ describe("package entry result transport", () => {
 
   it.each(['definition', 'module'] as const)("preserves supplied context for a %s handler", async (execution) => {
     const handler = "(_payload, context) => context.requestId"
-    const definition = execution === 'module' ? handler : `{ run: ${handler} }`
+    const definition = execution === 'module' ? handler : `{ handler: ${handler} }`
     const result = await executePackageEntry(`export default ${definition}`, {
       execution,
       input: { context: { requestId: 'request-42' } },

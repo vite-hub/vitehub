@@ -14,6 +14,11 @@ export default defineConfig({
         cache: false,
         command: "vp dev --config playground/console/vite.config.ts",
       },
+      // Searches your own projects for the public API that this branch removes. Local only: CI has no consumer checkouts.
+      "consumers:check": {
+        cache: false,
+        command: "node scripts/consumer-check.mjs",
+      },
       // Builds packages in dependency order and caches each package build by
       // the files it reads. An outer --no-cache does not reach this nested run,
       // so release and preview publishing run the filter with --no-cache.
@@ -41,10 +46,6 @@ export default defineConfig({
       "docs:build": {
         cache: false,
         command: "vp run --filter vitehub-docs build",
-      },
-      "docs:dev": {
-        cache: false,
-        command: "vp run --filter vitehub-docs dev",
       },
       "e2e:local": {
         cache: false,
@@ -83,10 +84,6 @@ export default defineConfig({
         cache: false,
         command: "cd playground/vite && vp build",
         dependsOn: ["build"],
-      },
-      "playground:vite:build:cloudflare": {
-        cache: false,
-        command: "vp run playground:vite:build --mode chat",
       },
       "playground:vite:build:local": {
         cache: false,
