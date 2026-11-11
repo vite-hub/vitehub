@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 
@@ -7,10 +8,10 @@ import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionRouteName } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection } from "../definitions";
+import ConsoleSection from "./console-section.vue";
 
 /**
  * The Settings page of a document editor section: one row per singleton, such as site settings or a home page, that
@@ -63,38 +64,34 @@ function editorRoute(name: string) {
       <UAlert
         v-if="error"
         color="error"
-        variant="subtle"
         icon="i-lucide-cloud-off"
         title="Couldn't load singletons"
         :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => emit('reload') }]"
+        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: () => emit('reload') }]"
       />
       <div v-else-if="firstLoad" class="grid gap-px">
-        <USkeleton v-for="index in 2" :key="index" class="h-14 rounded-md" />
+        <USkeleton v-for="index in 2" :key="index" class="h-14" />
       </div>
-      <template v-else>
-        <h2 class="text-[13px] font-medium text-highlighted">
-          Singletons
-          <span class="ms-1 font-normal text-dimmed tabular-nums">{{ singletons.length }}</span>
-        </h2>
-        <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default" aria-label="Settings">
-          <li v-for="singleton in singletons" :key="singleton.name">
+      <ConsoleSection v-else title="Singletons" :count="singletons.length" description="Each is one document at a fixed path. It saves as a draft and publishes like any other document.">
+        <!-- The list does not clip its rows, so the focus ring around a row stays visible. The end rows take its corners. -->
+        <ul class="divide-y divide-default rounded-lg border border-default" aria-label="Settings">
+          <li v-for="singleton in singletons" :key="singleton.name" class="first:*:rounded-t-md last:*:rounded-b-md">
             <RouterLink
               :to="editorRoute(singleton.name)"
-              class="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2"
+              class="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-elevated"
             >
               <span class="grid min-w-0 flex-1">
                 <span class="truncate text-sm font-medium text-highlighted">{{ singleton.label }}</span>
                 <span class="truncate font-mono text-xs text-dimmed">{{ singleton.path }}</span>
               </span>
               <span v-if="!singleton.access.write" class="shrink-0 text-xs text-dimmed">Read-only</span>
-              <ConsoleStatus
+              <Status
                 v-if="stateOf(singleton.name)"
                 class="shrink-0"
                 :tone="consoleDocumentStateColor(stateOf(singleton.name)!)"
                 :label="consoleDocumentStateLabel(stateOf(singleton.name)!)"
               />
-              <ConsoleStatus v-else-if="overview" class="shrink-0" tone="neutral" label="Not created" />
+              <Status v-else-if="overview" class="shrink-0" tone="neutral" label="Not created" />
               <span v-if="updatedAt(singleton.name)" class="hidden w-16 shrink-0 whitespace-nowrap text-right text-xs text-muted sm:inline">
                 <ConsoleRelativeTime :value="updatedAt(singleton.name)!" />
               </span>
@@ -102,8 +99,7 @@ function editorRoute(name: string) {
             </RouterLink>
           </li>
         </ul>
-        <p class="text-xs text-dimmed">Each is one document at a fixed path. It saves as a draft and publishes like any other document.</p>
-      </template>
+      </ConsoleSection>
     </div>
   </div>
 </template>

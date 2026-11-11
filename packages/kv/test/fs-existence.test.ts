@@ -56,7 +56,7 @@ it("rejects filesystem read failures instead of returning them as stored values"
   const base = await mkdtemp(join(import.meta.dirname, ".kv-read-error-"))
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
   try {
-    await symlink("loop", join(base, "loop"))
+    await symlink("key-loop", join(base, "key-loop"))
     await expect(storage.getItem("loop")).rejects.toMatchObject({ code: "ELOOP" })
 
     const value = { code: "ELOOP", message: "stored data" }
