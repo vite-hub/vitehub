@@ -170,16 +170,6 @@ body {
   width: 16rem;
 }
 
-.dark .vitehub-account-boot__sidebar {
-  background: #000;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light, .dark) .vitehub-account-boot__sidebar {
-    background: #000;
-  }
-}
-
 @media (min-width: 64rem) {
   .vitehub-account-boot__sidebar {
     display: flex;
