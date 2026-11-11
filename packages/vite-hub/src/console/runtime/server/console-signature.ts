@@ -1,4 +1,4 @@
-import { readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
+import { consoleSignatureHeader, readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/h3"
@@ -59,6 +59,8 @@ export async function checkConsoleSignature(request: Request, event: ConsoleRequ
   const nodeRequest = "runtime" in request && typeof request.runtime === "object" && request.runtime !== null && "node" in request.runtime
   const origin = resolvePublicUrl({ configuredOnly: nodeRequest, request })
   if (!origin) {
+    // An unsigned request is an error of the caller. A signed request is an error of the app setup.
+    if (!request.headers.has(consoleSignatureHeader)) return { ok: false, response: consoleSignatureRejection(401, "CONSOLE_SIGNATURE_MISSING", "This request is not signed.") }
     return { ok: false, response: consoleSignatureRejection(500, "CONSOLE_SIGNATURE_ORIGIN", "Signed requests on Node require vitehub({ publicUrl }) to identify this deployment. The request Host cannot supply its identity.") }
   }
   const verified = await verifyConsoleSignature({ headers: request.headers, keys, method: request.method, origin, url })

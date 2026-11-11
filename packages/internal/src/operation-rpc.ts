@@ -135,6 +135,7 @@ export async function answerOperationRpc<Operation>(call: OperationRpcCall, serv
     timeout: -1,
   })
   await receive!(call)
+  // Internal invariant: birpc posts one reply for each request message that it receives.
   if (!posted) throw new Error("birpc did not reply to the operation call.")
   if (!Object.hasOwn(posted, "e")) return { t: "s", i: call.i, r: posted.r }
   // birpc refuses a name that the resolver does not return with its own error. The caller names the failure.
