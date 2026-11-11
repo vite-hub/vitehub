@@ -1,3 +1,4 @@
+import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
 import { defineAuth } from "../src/index.ts";
@@ -61,6 +62,37 @@ describe("Auth changes for a signed Console person", () => {
     const [error] = await api.execute({ action: "ban", userId: fixture.operator.id }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
     expect((await fixture.store.list({ type: "user.banned" })).events).toEqual([]);
+  });
+
+  it("finds the actor's session in secondaryStorage, where Better Auth keeps sessions by default", async () => {
+    const cache = new Map<string, string>();
+    const secondaryStorage: SecondaryStorage = {
+      get: async (key) => cache.get(key) ?? null,
+      set: async (key, value) => { cache.set(key, value); },
+      delete: async (key) => { cache.delete(key); },
+    };
+    const fixture = await app({ secondaryStorage });
+    // The stored session keeps the user as it was at sign-in, so the operator signs in again after getting the admin role.
+    expect((await fixture.request("sign-in/email", { email: "operator@example.com", password: "passwordpassword" })).status).toBe(200);
+    expect([...cache.keys()].some((key) => key.startsWith("active-sessions-"))).toBe(true);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" } });
+    const [describeError, description] = await api.describe(signedCall());
+    expect(describeError).toBeUndefined();
+    expect(description?.actions.ban, JSON.stringify(description?.actions.ban)).toEqual({ enabled: true });
+    const [error, response] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
+    expect(error?.cause ?? error).toBeUndefined();
+    expect(await response?.json()).toMatchObject({ action: "ban", actor: `user:${fixture.operator.id}`, ok: true });
+  });
+
+  it("says why when the app keeps sessions only in cookies", async () => {
+    const context = { adapter: {}, options: {}, internalAdapter: { listSessions: async () => [] } };
+    // SAFETY: A Better Auth instance without a database: the Auth Console reads only these members before it refuses.
+    const api = createAuthConsole({ api: {}, $context: Promise.resolve(context) } as unknown as Parameters<typeof createAuthConsole>[0], {}, undefined, { actor: { email: "operator@example.com" } });
+    const [error] = await api.execute({ action: "ban", userId: "user-2" }, signedCall());
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
+    expect(error?.cause).toMatchObject({ message: expect.stringContaining("keeps sessions only in cookies") });
+    const [, description] = await api.describe(signedCall());
+    expect(description?.actions.ban).toMatchObject({ enabled: false });
   });
 
   it("never starts an impersonation from a signed call", async () => {

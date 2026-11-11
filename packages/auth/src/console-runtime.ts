@@ -370,6 +370,12 @@ export function createAuthConsole(
   }
   /** The newest live app session of the app user with this email that is not an impersonation. */
   async function actorSession(value: string): Promise<Row> {
+    // Without a database, Better Auth keeps users nowhere and sessions only in cookies, so there is no account to act as.
+    if (!(await context()).options.database)
+      throw new AuthConsoleError(
+        409,
+        "Auth changes from the Console run as your app account with one of its stored sessions, and this app keeps sessions only in cookies. Configure a Better Auth database.",
+      );
     const email = value.trim().toLowerCase();
     const user = email ? await find("user", equality("email", email)) : null;
     if (!user)
@@ -377,22 +383,26 @@ export function createAuthConsole(
         403,
         `No app user has the email of your Console account${email ? `, ${email}` : ""}. Auth changes run as your app account, so sign up to the app with that email and give it an admin role.`,
       );
-    const sessions = await (await adapter()).findMany<Row>({
-      model: "session",
-      where: [
-        { field: "userId", value: string(user.id) },
-        { field: "expiresAt", operator: "gt", value: new Date() },
-      ],
-      sortBy: { field: "createdAt", direction: "desc" },
-      limit: 20,
-    });
-    const session = sessions.find((row) => !row.impersonatedBy && string(row.token));
+    const session = (await storedSessions(string(user.id)))
+      .filter((row) => !row.impersonatedBy && string(row.token) && new Date(date(row.expiresAt)).getTime() > Date.now())
+      .sort((left, right) => new Date(date(right.createdAt)).getTime() - new Date(date(left.createdAt)).getTime())[0];
     if (!session)
       throw new AuthConsoleError(
         401,
         `Auth changes run as your app account, ${email}, with one of its app sessions, and it has none. Sign in to the app as ${email}, then try again.`,
       );
     return session;
+  }
+  /**
+   * The live sessions of a user, from where Better Auth keeps them: `secondaryStorage` or the database. Better Auth's
+   * own `listSessions()` reads both.
+   */
+  async function storedSessions(userId: string): Promise<Row[]> {
+    const ctx = await context();
+    if (!ctx.internalAdapter)
+      throw new AuthConsoleError(409, "The Auth provider cannot resolve the acting app session.");
+    const rows: unknown = await ctx.internalAdapter.listSessions(userId);
+    return Array.isArray(rows) ? rows.map(record) : [];
   }
   /** A request with only the signed session cookie of a stored session. It holds no client cookie or bearer header. */
   async function sessionRequest(request: Request, session: Row): Promise<Request> {
