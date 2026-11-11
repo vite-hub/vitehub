@@ -1,5 +1,8 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv"] as const
+export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "setup"] as const
+
+/** Sections that only a development server has. They are tools, not primitives, so the Overview does not offer them. */
+export const consoleDevelopmentSectionIds: readonly ConsoleBuiltinSectionId[] = ["setup"]
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -66,6 +69,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "KV",
     routeName: "vitehub-console-kv",
   },
+  setup: {
+    description: "Turn features on and off for this app. Development only.",
+    icon: "i-lucide-blocks",
+    label: "Setup",
+    routeName: "vitehub-console-setup",
+  },
 }
 
 /** Navigation groups in rail order. A contributed section with an unknown id goes to `more`. */
@@ -96,6 +105,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   auth: "platform",
   email: "platform",
   "rate-limits": "platform",
+  setup: "platform",
 }
 
 /** Labels that the Overview shows above each navigation group. */
@@ -222,6 +232,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   connections: "c",
   email: "m",
   "rate-limits": "r",
+  setup: "y",
 }
 
 /** Returns the "Go to" chord keys of a section. A contributed section with an unknown id has no chord. */

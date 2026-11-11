@@ -19,6 +19,8 @@ import type { parseAst, Plugin, UserConfig } from "vite"
 export const CONTENT_VITE_PLUGIN_NAME = "@vite-hub/content/vite"
 
 export type ContentVitePlugin = Plugin & {
+  /** Register KV in Nitro-owned builds, including prerender's separate compilation. */
+  nitro: { name: string, setup(nitro: { options: { rollupConfig?: { plugins?: unknown[] } } }): void }
   /** The `vitehub content` commands, the Content operations, and the Content Definition inspector. */
   vitehub: { operations: OperationContributions } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
 }
@@ -151,9 +153,28 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
   // One parse per build environment. A watch build parses again on each rebuild.
   const snapshotsByEnvironment = new WeakMap<object, Promise<BuiltSnapshots | undefined>>()
 
+  async function registerKV(code: string, id: string): Promise<string> {
+    if (!kvEnabled || code.includes("__vitehubRegisterContentKV") || resolve(id.replace(/\?.*$/, "")) !== await discover()) return ""
+    return `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV);\n`
+  }
+
   return {
     name: CONTENT_VITE_PLUGIN_NAME,
     enforce: "post",
+    nitro: {
+      name: "@vite-hub/content/kv",
+      setup(nitro) {
+        const config = nitro.options.rollupConfig ??= {}
+        const plugins = config.plugins ??= []
+        if (!plugins.some(plugin => plugin && typeof plugin === "object" && Reflect.get(plugin, "name") === "@vite-hub/content/nitro-kv")) plugins.push({
+          name: "@vite-hub/content/nitro-kv",
+          async transform(code: string, id: string) {
+            const registration = await registerKV(code, id)
+            return registration ? { code: registration + code, map: null } : undefined
+          },
+        })
+      },
+    },
     buildStart() {
       if (this.environment) snapshotsByEnvironment.delete(this.environment)
     },
@@ -163,12 +184,8 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
         const environment = this.environment
         if (!environment || environment.config.consumer !== "server") return
         const importBase = JSON.stringify(options.importBase ?? "@vite-hub/content")
-        let registration = ""
-        // Live `github()` Sources keep their head commit in KV. Content gets KV only when the app enables it, so an
-        // app without KV bundles none of it.
-        if (kvEnabled && resolve(id.replace(/\?.*$/, "")) === await discover()) {
-          registration += `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${importBase}; __vitehubRegisterContentKV(__vitehubContentKV);\n`
-        }
+        // Apps without KV import none of its runtime.
+        let registration = await registerKV(code, id)
         if (environment.config.command === "build") {
           let built = snapshotsByEnvironment.get(environment)
           if (!built) {

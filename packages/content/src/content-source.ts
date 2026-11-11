@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { comarkContent } from "comark-content"
+import { comarkContent, memory } from "comark-content"
 import type { ContentGetOptions, ContentOptions, JsonSchema, Source as ComarkContentSource } from "comark-content"
 import { createSource, useSource } from "@vite-hub/source"
 import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
@@ -25,7 +25,7 @@ export interface ContentSourceOptions {
 type ContentSourceItem = SourceItem<string, unknown, object>
 type RuntimeObject = Record<string, unknown>
 /** The revision that each load of a Source definition reads, such as the head commit of a `github()` Source. */
-type ContentSourceRevision = () => SourceRevision | undefined
+type ContentSourceRevision = () => SourceRevision | undefined | Promise<SourceRevision | undefined>
 type ContentSourceFactoryOptions = Omit<ContentSourceOptions, "url"> & { revision?: ContentSourceRevision }
 type ContentSourceFactory = {
   create(options?: ContentSourceFactoryOptions): ComarkContentSource
@@ -202,7 +202,7 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
-            const revision = options.revision?.()
+            const revision = await options.revision?.()
             const currentReader = isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
@@ -324,6 +324,8 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
   const source = revision ? getContentSourceFactory(adapted)?.create({ revision }) ?? adapted : adapted
   options = {
     ...options,
+    // A persistent Comark cache has no commit identity. Keep managed GitHub caches local to this instance.
+    ...(revision && options.cache !== false ? { cache: { ...options.cache, driver: memory() } } : {}),
     plugins: options.plugins?.map(plugin => plugin && ({
       ...plugin,
       setup(context) {
