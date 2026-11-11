@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, ref, watch, watchEffect } from "vue";
+import type { Component } from "vue";
+import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, ref, shallowReactive, watch, watchEffect } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
-import { accountAppStatusLabels, canManageConsoleProjects, checkConsoleAccountProject } from "../client/account";
+import { accountAppStatusLabels, canManageConsoleProjects, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { accountProjectPath, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountHome from "./console-account-home.vue";
@@ -16,10 +17,16 @@ import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleToaster from "./console-toaster.vue";
 
-// The page loads the page of its first paint before it mounts.
+// A page whose code has loaded renders at once. The page of the first paint loads before the app mounts, and the other
+// pages load when the browser is idle. Until then, a page loads on demand.
 const views = inject(consoleAccountViewsKey, {});
-const ConsoleAccountTeam = views.team ?? defineAsyncComponent(() => import("./console-account-team.vue"));
-const ConsoleAccountSettings = views.settings ?? defineAsyncComponent(() => import("./console-account-settings.vue"));
+const pageCode = {
+  team: () => import("./console-account-team.vue"),
+  settings: () => import("./console-account-settings.vue"),
+};
+const loadedPages = shallowReactive<{ team?: Component, settings?: Component }>({ team: views.team, settings: views.settings });
+const ConsoleAccountTeam = computed(() => loadedPages.team ?? defineAsyncComponent(pageCode.team));
+const ConsoleAccountSettings = computed(() => loadedPages.settings ?? defineAsyncComponent(pageCode.settings));
 
 /**
  * The frame of an `account` Console before a project opens: a sidebar with the team, its apps, the members, and the
@@ -81,7 +88,28 @@ watchEffect(() => {
   document.title = page.value === "settings" ? `${title.value} · ViteHub Console` : `${title.value} · ${team.value?.name ?? "Team"} · ViteHub Console`;
 });
 
+/** Keep the code of a page that is not open, so the page renders at once when it opens. */
+function preparePage(target: "team" | "settings"): void {
+  if (loadedPages[target]) return;
+  void pageCode[target]().then((module) => {
+    // The open page keeps its component, so it does not mount again.
+    if (page.value !== target) loadedPages[target] = module.default;
+  }, () => undefined);
+}
+
+/** The pointer or the focus reached the link of a page: its data starts to load. */
+function intent(target: "team" | "settings"): void {
+  if (page.value === target) return;
+  void (target === "team" ? earlyConsoleTeam : earlyConsoleSignInState).start();
+  preparePage(target);
+}
+
 onMounted(() => {
+  const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 200));
+  idle(() => {
+    preparePage("team");
+    preparePage("settings");
+  });
   // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
   for (const app of apps.value) {
     status[app.id] = "checking";
@@ -127,7 +155,7 @@ async function retry(): Promise<void> {
           <UIcon name="i-lucide-house" class="vitehub-console__section-icon" />
           <span class="truncate">Home</span>
         </a>
-        <a :href="pagePath('team')" class="vitehub-console__section-link" :aria-current="page === 'team' ? 'page' : undefined" @click="follow($event, () => showConsoleAccountPage('team'))">
+        <a :href="pagePath('team')" class="vitehub-console__section-link" :aria-current="page === 'team' ? 'page' : undefined" @pointerenter="intent('team')" @focus="intent('team')" @click="follow($event, () => showConsoleAccountPage('team'))">
           <UIcon name="i-lucide-users" class="vitehub-console__section-icon" />
           <span class="truncate">Members</span>
         </a>
@@ -157,7 +185,7 @@ async function retry(): Promise<void> {
       </nav>
 
       <template #footer>
-        <a :href="pagePath('settings')" class="vitehub-console__section-link" :aria-current="page === 'settings' ? 'page' : undefined" @click="follow($event, () => showConsoleAccountPage('settings'))">
+        <a :href="pagePath('settings')" class="vitehub-console__section-link" :aria-current="page === 'settings' ? 'page' : undefined" @pointerenter="intent('settings')" @focus="intent('settings')" @click="follow($event, () => showConsoleAccountPage('settings'))">
           <UIcon name="i-lucide-settings" class="vitehub-console__section-icon" />
           <span class="truncate">Account settings</span>
         </a>
@@ -188,10 +216,10 @@ async function retry(): Promise<void> {
       <template #body>
         <main id="vitehub-account-main" tabindex="-1" class="vitehub-account-shell__page outline-none">
           <ConsoleAccountHome v-if="page === 'home'" :status="status" />
-          <ConsoleAccountTeam v-else-if="page === 'team'" />
-          <ConsoleAccountSettings v-else-if="page === 'settings'" />
+          <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
+          <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
-          <p v-else-if="gate.kind === 'opening'" role="status" class="flex items-center gap-2 text-sm text-muted">
+          <p v-else-if="gate.kind === 'opening'" role="status" class="flex max-w-2xl items-center gap-2 text-sm text-muted">
             <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Opening {{ title }}…
           </p>
@@ -217,11 +245,15 @@ async function retry(): Promise<void> {
 </template>
 
 <style>
-/* The icons of the account pages are 1.15rem, a step above the 1rem icons of the Console sections. */
-.vitehub-account-shell .vitehub-console__section-icon,
+/* Icons are 1.15 times the size of their label: 15px beside the 13px rows of the sidebar, 16px beside 14px page text. */
+.vitehub-account-shell .vitehub-console__section-icon {
+  height: calc(0.8125rem * 1.15);
+  width: calc(0.8125rem * 1.15);
+}
+
 .vitehub-account-shell .vitehub-account-icon {
-  height: 1.15rem;
-  width: 1.15rem;
+  height: calc(0.875rem * 1.15);
+  width: calc(0.875rem * 1.15);
 }
 
 .vitehub-account-shell .vitehub-console__section-heading,
@@ -246,12 +278,17 @@ async function retry(): Promise<void> {
   padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem) 4rem;
 }
 
-/* The dot sits in the 1.15rem icon box, so app names line up with the page names above them. */
+/* One reading column, centered in the panel, so a wide screen keeps the page in front of the person. */
+.vitehub-account-shell__page > * {
+  margin-inline: auto;
+}
+
+/* The dot sits in the box of a sidebar icon, so app names line up with the page names above them. */
 .vitehub-account-shell__dot {
   border-radius: 999px;
   flex-shrink: 0;
   height: 0.5rem;
-  margin-inline: 0.325rem;
+  margin-inline: calc((0.8125rem * 1.15 - 0.5rem) / 2);
   width: 0.5rem;
 }
 

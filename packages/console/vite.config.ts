@@ -65,6 +65,10 @@ export default defineConfig({
       },
     },
     // File names in assets/ carry a content hash, so they never change.
-    nitro({ publicAssets: [{ baseURL: "/assets", dir: resolve(page, "assets"), maxAge: 31_536_000 }] }),
+    nitro({
+      publicAssets: [{ baseURL: "/assets", dir: resolve(page, "assets"), maxAge: 31_536_000 }],
+      // A Console request reads D1 more than once. Smart Placement runs the Worker near the database when that is faster.
+      ...(host === "cloudflare" ? { cloudflare: { wrangler: { placement: { mode: "smart" as const } } } } : {}),
+    }),
   ],
 })

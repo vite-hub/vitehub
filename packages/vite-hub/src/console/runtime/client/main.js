@@ -70,8 +70,9 @@ if (account) {
   const views = boot === "shell"
     ? [
         view("shell", () => import("../components/console-account-shell.vue")),
-        ...(/^\/team\/?$/.test(window.location.pathname) ? [view("team", () => import("../components/console-account-team.vue"))] : []),
-        ...(/^\/settings\/?$/.test(window.location.pathname) ? [view("settings", () => import("../components/console-account-settings.vue"))] : []),
+        // A page with its own data starts that load too, so the first paint after the frame is the whole page.
+        ...(/^\/team\/?$/.test(window.location.pathname) ? [view("team", () => import("../components/console-account-team.vue")), import("./account").then(module => module.earlyConsoleTeam.start(), () => undefined)] : []),
+        ...(/^\/settings\/?$/.test(window.location.pathname) ? [view("settings", () => import("../components/console-account-settings.vue")), import("./account").then(module => module.earlyConsoleSignInState.start(), () => undefined)] : []),
       ]
     : boot === "sign-in" || boot === "invite"
       ? [view("signIn", () => import("../components/console-account-sign-in.vue")), import("./account").then(module => module.loadConsoleSignInMethods(), () => undefined)]

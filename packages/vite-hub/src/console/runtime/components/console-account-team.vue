@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
-import { canManageConsoleProjects, cancelConsoleInvitation, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
+import { canManageConsoleProjects, cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 
@@ -32,9 +32,9 @@ function focusHeading(id: string): void {
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
-async function load(): Promise<void> {
+async function load(answer = loadConsoleTeam()): Promise<void> {
   try {
-    details.value = await loadConsoleTeam();
+    details.value = await answer;
     loadProblem.value = undefined;
   }
   catch (error) {
@@ -42,7 +42,8 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(load);
+// The link to this page starts the load when the pointer or the focus reaches it.
+onMounted(() => load(earlyConsoleTeam.take()));
 
 function initials(text: string): string {
   return text.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("").toUpperCase();

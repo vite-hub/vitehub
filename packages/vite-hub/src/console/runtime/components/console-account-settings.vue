@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsolePasskey } from "../client/account";
-import { addConsolePasskey, deleteConsolePasskey, linkConsoleGitHub, listConsolePasskeys, listConsoleSignInProviders, loadConsoleSignInMethods, renameConsoleAccount } from "../client/account";
+import { addConsolePasskey, deleteConsolePasskey, earlyConsoleSignInState, linkConsoleGitHub, loadConsoleSignInState, renameConsoleAccount } from "../client/account";
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 
@@ -29,12 +29,12 @@ const methodCount = computed(() => (passkeys.value?.length ?? 0) + (github.value
 const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
 /** Loads the sign-in methods. A failed load keeps the rows that the page shows, and says so. */
-async function load(): Promise<void> {
+async function load(answer = loadConsoleSignInState()): Promise<void> {
   try {
-    const [keys, linked, methods] = await Promise.all([listConsolePasskeys(), listConsoleSignInProviders(), loadConsoleSignInMethods()]);
-    passkeys.value = keys;
-    providers.value = linked;
-    githubAvailable.value = methods.github;
+    const state = await answer;
+    passkeys.value = state.passkeys;
+    providers.value = state.providers;
+    githubAvailable.value = state.methods.github;
     loadProblem.value = false;
   }
   catch {
@@ -42,7 +42,8 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(load);
+// The link to this page starts the load when the pointer or the focus reaches it.
+onMounted(() => load(earlyConsoleSignInState.take()));
 
 async function run(id: string, action: () => Promise<void>, done?: string): Promise<void> {
   if (busy.value) return;
@@ -132,10 +133,16 @@ function added(value: string | undefined): string {
           </span>
           <UButton v-if="providers && !github" size="sm" color="neutral" variant="outline" label="Connect" :loading="busy === 'github'" @click="run('github', () => linkConsoleGitHub(`${projects.pageOrigin}/settings`))" />
         </li>
-        <li v-if="!passkeys && !loadProblem" class="vitehub-account-list__row">
-          <USkeleton class="size-4" />
-          <USkeleton class="h-3.5 w-32" />
-        </li>
+        <!-- Two rows, GitHub and a passkey, the list of most accounts. -->
+        <template v-if="!passkeys && !loadProblem">
+          <li v-for="index in 2" :key="index" class="vitehub-account-list__row" aria-hidden="true">
+            <USkeleton class="vitehub-account-icon shrink-0" />
+            <span class="grid flex-1 gap-1.5 py-0.5">
+              <USkeleton class="h-3.5 w-24" />
+              <USkeleton class="h-3 w-40" />
+            </span>
+          </li>
+        </template>
         <li v-for="passkey in passkeys ?? []" :key="passkey.id" class="vitehub-account-list__row">
           <UIcon name="i-lucide-key-round" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           <span class="grid min-w-0 flex-1">
@@ -168,7 +175,7 @@ function added(value: string | undefined): string {
       </UModal>
       <div v-if="loadProblem" role="alert" class="flex items-center gap-2 text-[13px] text-error">
         The sign-in methods did not load.
-        <UButton size="xs" color="neutral" variant="ghost" label="Retry" @click="load" />
+        <UButton size="xs" color="neutral" variant="ghost" label="Retry" @click="load()" />
       </div>
     </section>
   </div>

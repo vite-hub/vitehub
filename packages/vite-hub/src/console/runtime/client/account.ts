@@ -326,3 +326,48 @@ export function consoleInvitationOf(pathname: string): string | undefined {
   const match = /^\/invite\/([^/]+)\/?$/.exec(pathname)
   return match ? decodeURIComponent(match[1]!) : undefined
 }
+
+/** The sign-in methods that Account settings lists: the passkeys, the linked providers, and what this Console offers. */
+export interface ConsoleSignInState {
+  passkeys: ConsolePasskey[]
+  providers: string[]
+  methods: ConsoleSignInMethods
+}
+
+export async function loadConsoleSignInState(): Promise<ConsoleSignInState> {
+  const [passkeys, providers, methods] = await Promise.all([listConsolePasskeys(), listConsoleSignInProviders(), loadConsoleSignInMethods()])
+  return { passkeys, providers, methods }
+}
+
+/**
+ * A load that starts before its page opens, such as when the pointer reaches the page's link. The page takes it when it
+ * opens, so it renders the answer at once. An answer older than 30 seconds is loaded again.
+ */
+function early<T>(load: () => Promise<T>): { start: () => Promise<unknown>, take: () => Promise<T> } {
+  let pending: { at: number, answer: Promise<T> } | undefined
+  const fresh = () => pending !== undefined && Date.now() - pending.at < 30_000
+  return {
+    /** Starts the load, and resolves when it ends, also when it fails. */
+    start() {
+      if (fresh()) return pending!.answer.catch(() => undefined)
+      const answer = load()
+      // A failed early load is loaded again by the page.
+      answer.catch(() => {
+        if (pending?.answer === answer) pending = undefined
+      })
+      pending = { at: Date.now(), answer }
+      return answer.catch(() => undefined)
+    },
+    take() {
+      const answer = fresh() ? pending!.answer : load()
+      pending = undefined
+      return answer
+    },
+  }
+}
+
+/** The data of the Members page, loaded early. */
+export const earlyConsoleTeam = early(loadConsoleTeam)
+
+/** The data of Account settings, loaded early. */
+export const earlyConsoleSignInState = early(loadConsoleSignInState)

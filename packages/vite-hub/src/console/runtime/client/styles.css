@@ -261,8 +261,8 @@ body {
 }
 
 .vitehub-account-boot .vitehub-console__section-icon {
-  height: 1.15rem;
-  width: 1.15rem;
+  height: calc(0.8125rem * 1.15);
+  width: calc(0.8125rem * 1.15);
 }
 
 .vitehub-account-boot[data-vitehub-page="home"] .vitehub-console__section-link[data-vitehub-page="home"],
@@ -332,6 +332,9 @@ body {
 }
 
 .vitehub-account-boot__shell .vitehub-account-boot__status {
+  box-sizing: content-box;
+  margin-inline: auto;
+  max-width: 42rem;
   padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem);
 }
 

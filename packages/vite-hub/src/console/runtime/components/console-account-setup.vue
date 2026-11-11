@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockTitle } from "@vite-hub/ui/code-block";
 import { computed, ref } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import { checkConsoleAccountProject } from "../client/account";
 import { openAccountProject } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import { useConsoleToast } from "../client/toast";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
 
 /**
@@ -14,18 +16,13 @@ import ConsoleAccountUnlink from "./console-account-unlink.vue";
 const props = defineProps<{ project: ConsoleAccountProject }>();
 const emit = defineEmits<{ checked: [status: ConsoleAccountAppStatus] }>();
 
+const toast = useConsoleToast();
 const busy = ref(false);
-const copyState = ref<"copied" | "failed">();
 const result = ref<string>();
 const unlinking = ref(false);
 const host = computed(() => consoleProjectHost(props.project));
 const name = computed(() => props.project.label || host.value);
 const line = computed(() => `${props.project.tokenVariable}=${props.project.tokenSha256}`);
-
-async function copy(): Promise<void> {
-  copyState.value = await navigator.clipboard.writeText(line.value).then(() => "copied" as const, () => "failed" as const);
-  setTimeout(() => { copyState.value = undefined; }, 3000);
-}
 
 async function check(): Promise<void> {
   if (busy.value) return;
@@ -57,21 +54,20 @@ async function check(): Promise<void> {
       Then add this environment variable to its deployment settings, redeploy, and check the connection.
     </p>
 
-    <div class="grid gap-1.5">
-      <div class="flex min-w-0 items-start gap-2 rounded-lg border border-default bg-elevated/40 py-2.5 ps-3.5 pe-2">
-        <code class="min-w-0 flex-1 font-mono text-[13px] leading-5 break-all text-highlighted">{{ line }}</code>
-        <UButton
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          :icon="copyState === 'copied' ? 'i-lucide-check' : 'i-lucide-copy'"
-          aria-label="Copy the variable"
-          @click="copy"
-        />
-      </div>
-      <span role="status" class="sr-only">{{ copyState === "copied" ? "Copied" : "" }}</span>
-      <p v-if="copyState === 'failed'" role="alert" class="text-[13px] text-error">The browser blocked the clipboard. Select the line and copy it.</p>
-    </div>
+    <CodeBlock size="sm">
+      <CodeBlockHeader>
+        <CodeBlockTitle>Environment variable</CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton
+            :value="line"
+            aria-label="Copy the variable"
+            color="neutral"
+            @error="toast.show({ title: 'The browser blocked the clipboard. Select the line and copy it.' })"
+          />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      <CodeBlockContent wrap class="break-all text-[13px] text-highlighted">{{ line }}</CodeBlockContent>
+    </CodeBlock>
 
     <div class="grid gap-2">
       <div class="flex flex-wrap gap-2">
