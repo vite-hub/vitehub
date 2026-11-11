@@ -133,6 +133,14 @@ function stubVercelBlobApi() {
   return fetchMock
 }
 
+// Test values only. A store reads its credentials from env, so the generated output keeps only these names.
+const testCredentialEnv = {
+  TEST_ASSETS_BLOB_TOKEN: "assets-token",
+  TEST_DEFAULT_BLOB_TOKEN: "default-token",
+  TEST_R2_ACCESS_KEY_ID: "access-key",
+  TEST_R2_SECRET_ACCESS_KEY: "secret-key",
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -144,6 +152,7 @@ afterEach(async () => {
   delete process.env.MINIO_ROOT_PASSWORD
   delete process.env.MINIO_ROOT_USER
   delete process.env.MINIO_SECRET_ACCESS_KEY
+  for (const name of Object.keys(testCredentialEnv)) delete process.env[name]
   vercelBlobMock.del.mockClear()
   vercelBlobMock.get.mockClear()
   vercelBlobMock.head.mockClear()
@@ -155,6 +164,7 @@ afterEach(async () => {
 describe("Blob Nitro runtime module", () => {
   it.each(["lazy", "eager"])("uses native and HTTP R2 per development store when only one is remote (%s)", async (kind) => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-remote-r2-")
+    Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
       stores: {
         default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare-r2" },
@@ -360,6 +370,7 @@ describe("Blob Nitro runtime module", () => {
 
   it("selects named stores from generated runtime output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-runtime-")
+    Object.assign(process.env, testCredentialEnv)
 
     await writeVercelRuntimeModule(rootDir, resolveVercelBlob({
       serve: { route: "/", store: "assets" },
@@ -409,12 +420,15 @@ describe("Blob Nitro runtime module", () => {
     expect(fetchMock).not.toHaveBeenCalled()
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore(resolveRuntimeBlobSecrets(store, blobRuntimeEnv()), process.env)")
+    expect(runtimeContents).not.toMatch(/assets-token|default-token/)
     expect(runtimeContents).toContain("store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage)")
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
   it.each(["lazy", "eager"] as const)("applies read mode to %s generated handles", { timeout: 30_000 }, async (kind) => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-read-mode-runtime-")
+    Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
       serve: { route: "/reports", store: "reports" },
       stores: {

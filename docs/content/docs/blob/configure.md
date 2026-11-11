@@ -457,6 +457,43 @@ A driver is the storage service a store uses. `driver` selects which options app
 > [!WARNING]
 > Keep credentials in Server Env or provider secrets. The tables show every config field, but do not commit secrets to Vite config.
 
+### Credentials
+
+ViteHub writes the resolved Blob config into the server bundle. It never writes a credential there. A credential is an option such as `secretAccessKey`, `token`, `accountKey`, `connectionString`, `sasToken`, `key`, or `credentials.private_key`, and also the access key id that goes with a secret key.
+
+Give a credential in one of two ways:
+
+- Leave the option out, and set the env variable that the driver reads at runtime. For example, `s3` uses the AWS SDK credential chain, which reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+- Set the option to an env variable with `process.env`. ViteHub finds the variable that holds the value at build time, writes only its name into the output, and reads it again when the store starts. Set the variable for the build and for the server. On Cloudflare Workers, ViteHub reads the Worker env first, so a Worker secret works without `process.env`.
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        stores: {
+          default: { driver: 'fs' },
+          media: {
+            driver: 's3',
+            bucket: 'media',
+            region: 'eu-west-1',
+            credentials: {
+              accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!,
+              secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!,
+            },
+          },
+        },
+      },
+    }),
+  ],
+})
+```
+
+A literal credential, or a value that no env variable holds, fails `vite dev` and the build with [`BLOB_C0019`](/docs/blob/diagnostics/blob_c0019). At build time, ViteHub looks only in `process.env`. A value that `loadEnv()` reads from a `.env` file is not there, so set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` first. A variable that the build used but the server does not have fails when the store starts, with [`BLOB_R0044`](/docs/blob/diagnostics/blob_r0044). ViteHub reads the variable as it is: a value that the config changes, such as a private key with `\n` replaced by line breaks, does not match. Put the final value in the variable, or use `keyFilename` for Google Cloud Storage.
+
 ### Local filesystem
 
 | Option | Type | Default | Description |
@@ -494,7 +531,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |
 | `token` | `string` | OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN` | Vercel Blob read-write token. Without it, ViteHub uses Vercel OIDC when `BLOB_STORE_ID` is set, else `BLOB_READ_WRITE_TOKEN`. |
 
-A configured token that matches `BLOB_READ_WRITE_TOKEN` is hidden at build time and read from that variable at runtime. A configured token always wins over OIDC. Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
+A configured token that matches `BLOB_READ_WRITE_TOKEN` is hidden at build time and read from that variable at runtime. A configured token from another env variable is read from that variable. A configured token always wins over OIDC. See [Credentials](#credentials). Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
 
 ### Netlify Blobs
 
@@ -533,7 +570,7 @@ The `s3`, `akamai`, `digitalocean-spaces`, `hetzner`, `storj`, and `minio` drive
 | `accessKeyId` | Provider-specific drivers and `minio` | `string` | Access key. |
 | `secretAccessKey` | Provider-specific drivers and `minio` | `string` | Secret key. |
 
-MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. Other S3-compatible drivers also read their provider or SDK credential sources.
+MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. Other S3-compatible drivers also read their provider or SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
 
 ### Google Cloud Storage
 

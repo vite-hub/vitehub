@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   normalizeBlobOptions,
+  resolveRuntimeBlobSecrets,
   resolveRuntimeMinioBlobStore,
   resolveRuntimeVercelBlobStore,
   warnVercelBlobFallback,
@@ -183,10 +184,14 @@ describe("blob config", () => {
     }).token).toBe("runtime-token")
   })
 
-  it("preserves a Vercel Blob token that differs from the default env token", () => {
-    expect(normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
-      env: { BLOB_READ_WRITE_TOKEN: "default-token" },
-    })?.store).toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  it("reads a Vercel Blob token from its own env variable when it differs from the default env token", () => {
+    const config = normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "default-token", MEDIA_BLOB_TOKEN: "store-token" },
+    })
+    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", secretEnv: { token: "MEDIA_BLOB_TOKEN" }, token: "********" })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    expect(resolveRuntimeVercelBlobStore(resolveRuntimeBlobSecrets(config.store, { BLOB_READ_WRITE_TOKEN: "default-token", MEDIA_BLOB_TOKEN: "store-token" }), {}))
+      .toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
   })
 
   it.each(["single", "named"] as const)("keeps a masked configured token ahead of OIDC in a %s Vercel Blob store", (form) => {
@@ -286,18 +291,77 @@ describe("blob config", () => {
         MINIO_ENDPOINT: "http://env-minio:9000",
         MINIO_ROOT_PASSWORD: "env-password",
         MINIO_ROOT_USER: "env-user",
+        UPLOADS_MINIO_PASSWORD: "configured-password",
+        UPLOADS_MINIO_USER: "configured-user",
       },
     })).toEqual({
       store: {
-        accessKeyId: "configured-user",
+        accessKeyId: "********",
         bucket: "configured-assets",
         driver: "minio",
         endpoint: "http://configured-minio:9000",
         forcePathStyle: false,
         region: "eu-west-1",
-        secretAccessKey: "configured-password",
+        secretAccessKey: "********",
+        secretEnv: { accessKeyId: "UPLOADS_MINIO_USER", secretAccessKey: "UPLOADS_MINIO_PASSWORD" },
       },
     })
+  })
+
+  it.each([
+    ["s3", { bucket: "assets", credentials: { accessKeyId: "literal-key", secretAccessKey: "literal-secret" }, driver: "s3" }, "blob.credentials.accessKeyId", "AWS_ACCESS_KEY_ID"],
+    ["minio", { driver: "minio", secretAccessKey: "literal-secret" }, "blob.secretAccessKey", "MINIO_SECRET_ACCESS_KEY"],
+    ["cloudflare-r2", { bucketName: "assets", driver: "cloudflare-r2", secretAccessKey: "literal-secret" }, "blob.secretAccessKey", "R2_SECRET_ACCESS_KEY"],
+    ["vercel-blob", { driver: "vercel-blob", token: "literal-token" }, "blob.token", "BLOB_READ_WRITE_TOKEN"],
+    ["gcs", { bucket: "assets", credentials: { client_email: "a@example.com", private_key: "literal-key" }, driver: "gcs" }, "blob.credentials.private_key", "GCS_PRIVATE_KEY"],
+    ["azure", { accountKey: "literal-key", container: "assets", driver: "azure" }, "blob.accountKey", "AZURE_STORAGE_KEY"],
+  ] as const)("fails with BLOB_C0019 for a literal %s credential", (_driver, store, path, example) => {
+    expect(() => normalizeBlobOptions(store, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_C0019",
+      message: expect.stringContaining(`\`${path}\` is a literal credential`),
+    }))
+    expect(() => normalizeBlobOptions(store, { env: {} })).toThrow(`process.env.${example}`)
+  })
+
+  it("names the store of a literal credential in blob.stores", () => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, media: { bucket: "assets", credentials: { accessKeyId: "key", secretAccessKey: "secret" }, driver: "s3" } } }, { env: {} }))
+      .toThrow("`blob.stores.media.credentials.accessKeyId` is a literal credential")
+  })
+
+  it("writes env variable names in place of S3 credentials and reads them at runtime", () => {
+    const env = { MEDIA_S3_KEY: "build-key", MEDIA_S3_SECRET: "build-secret" }
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { driver: "fs" },
+        media: { bucket: "assets", credentials: { accessKeyId: "build-key", secretAccessKey: "build-secret" }, driver: "s3", region: "eu-west-1" },
+      },
+    }, { env })
+    const media = config?.stores?.media
+    expect(media).toEqual({
+      bucket: "assets",
+      credentials: { accessKeyId: "********", secretAccessKey: "********" },
+      driver: "s3",
+      region: "eu-west-1",
+      secretEnv: { "credentials.accessKeyId": "MEDIA_S3_KEY", "credentials.secretAccessKey": "MEDIA_S3_SECRET" },
+    })
+    expect(JSON.stringify(config)).not.toMatch(/build-key|build-secret/)
+    if (!media) throw new Error("Expected the media store.")
+
+    expect(resolveRuntimeBlobSecrets(media, { MEDIA_S3_KEY: "runtime-key", MEDIA_S3_SECRET: "runtime-secret" })).toEqual({
+      bucket: "assets",
+      credentials: { accessKeyId: "runtime-key", secretAccessKey: "runtime-secret" },
+      driver: "s3",
+      region: "eu-west-1",
+    })
+    expect(() => resolveRuntimeBlobSecrets(media, { MEDIA_S3_KEY: "runtime-key" })).toThrow(expect.objectContaining({
+      code: "BLOB_R0044",
+      message: expect.stringContaining("`MEDIA_S3_SECRET`"),
+    }))
+  })
+
+  it("keeps a store without credentials unchanged", () => {
+    const store = { bucket: "assets", driver: "s3", region: "eu-west-1" } as const
+    expect(normalizeBlobOptions(store, { env: { AWS_SECRET_ACCESS_KEY: "secret" } })?.store).toEqual(store)
   })
 
   it("throws on non-object config", () => {
@@ -700,7 +764,7 @@ describe("blob config", () => {
     ] as const
 
     for (const store of stores) {
-      expect(normalizeBlobOptions(store)?.store.driver).toBe(store.driver)
+      expect(normalizeBlobOptions(store, { env: { PROVIDER_TOKEN: "token" } })?.store.driver).toBe(store.driver)
     }
   })
 })

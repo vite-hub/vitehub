@@ -64,6 +64,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0016: withFix("Set `blob.serve.anonymous` to `true` or `false`. It needs `blob.serve.authorize: true` and an `authorize` export in `server/blob.ts`."),
     BLOB_C0017: withFix("Set `remote` to `true` or `false`, or remove it."),
     BLOB_C0018: withFix("Set a hosted `driver` on the store, for example `\"cloudflare-r2\"` or `\"vercel-blob\"`, or remove `remote: true`."),
+    BLOB_C0019: withFix("Put the credential in an env variable, and set the option to `process.env.<NAME>`, for example `secretAccessKey: process.env.S3_SECRET_ACCESS_KEY`. ViteHub writes only the variable name into the build output and reads the value at runtime, so set the variable for the build and for the server. A value that `loadEnv()` reads from a `.env` file is not in `process.env`: set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` before the config uses it. Or remove the option when the driver reads its own env variable, such as `AWS_SECRET_ACCESS_KEY` for `s3`."),
     BLOB_B0001: withFix("Set `blob.serve.authorize: true` so that the serve route calls the `authorize` export of `server/blob.ts`. Or remove the `authorize` export."),
     BLOB_B0002: withFix("Add `hubAuth()` from `@vite-hub/auth/vite` to the Vite plugins and create `server/auth.ts`. Or remove `blob.serve.authorize`."),
     BLOB_B0003: withFix("Keep one `server/blob` file. Delete or merge the other files that the message lists."),
@@ -107,5 +108,6 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0036: withFix("Use a JPEG, PNG, WebP, or GIF image within the limits that the message names, and request `webp`, `jpeg`, or `png`, not AVIF. For larger images, set `blob.images.transformer` to `\"sharp\"` or `\"cloudflare-images\"`."),
     BLOB_R0037: withFix("Call `sign()` with `method: \"PUT\"` on a writable handle from `blob.store(name)`. A handle from `blob.store(name, { mode: \"read\" })` signs `GET` requests only."),
     BLOB_R0038: withFix("Pass `{ mode: \"read\" }` or `{ mode: \"write\" }` to `blob.store(name, options)`, or omit `mode` for a writable handle."),
+    BLOB_R0044: withFix("Set the env variable that the message names in the server environment, with the same value as at build time. The Blob config read it from `process.env` at build time, and ViteHub reads it again at runtime."),
   },
 })

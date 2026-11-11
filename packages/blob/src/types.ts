@@ -560,12 +560,18 @@ export interface ResolvedMinioBlobStoreConfig extends MinioBlobStoreConfig {
   region: string
 }
 
-export type ResolvedBlobStoreConfig =
+interface ResolvedBlobStoreSecrets {
+  /** The env variable that holds each credential option, by option path. The resolved config has the mask in place of the value. */
+  secretEnv?: Record<string, string>
+}
+
+export type ResolvedBlobStoreConfig = ResolvedBlobStoreSecrets & (
   | Exclude<BlobStoreConfig, CloudflareR2BlobStoreConfig | FsBlobStoreConfig | MinioBlobStoreConfig | VercelBlobStoreConfig>
   | ResolvedCloudflareR2BlobStoreConfig
   | ResolvedFsBlobStoreConfig
   | ResolvedMinioBlobStoreConfig
   | ResolvedVercelBlobStoreConfig
+)
 
 export type BlobStoreName = "default" | (string & {})
 
