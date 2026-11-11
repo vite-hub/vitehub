@@ -271,7 +271,7 @@ export async function renameConsoleAccount(name: string): Promise<void> {
 
 /**
  * What the Console knows about a linked app: it accepts its token, it refuses the token (`setup`: the variable is missing
- * or old), it answers but not as a Console app (`unconfigured`: no `console: { auth: "token" }`, or another error), or
+ * or old), it answers but not as a Console app (`unconfigured`: no `console: true`, or another error), or
  * the Console cannot reach it.
  */
 export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unconfigured" | "unreachable"

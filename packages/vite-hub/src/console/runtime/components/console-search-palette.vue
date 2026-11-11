@@ -12,7 +12,7 @@ import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
-import { openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session"
+import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
 import { consoleProjectHost, consoleProjectName } from "../client/projects"
 import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
@@ -340,7 +340,7 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
     ]
   : [])
 
-// A hosted Console switches between the projects that this browser linked, an `account` Console between those of the team.
+// An `account` Console switches between the projects of the team.
 const projects = useConsoleProjects()
 const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "embedded"
   ? [{
@@ -354,21 +354,13 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "e
             if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
           },
         })),
-        ...(projects.mode === "hosted" ? [{ icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject }] : []),
         { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
       ],
       icon: "i-lucide-arrow-left-right",
       keywords: ["project", "projects", "app", "link", "change"],
       label: "Switch project…",
       placeholder: "Choose a project…",
-    }, ...(projects.mode === "hosted"
-      ? [{
-          icon: "i-lucide-plus",
-          keywords: ["create", "init", "start", "stack", "app"],
-          label: "New project",
-          onSelect: openConsoleNewProject,
-        }]
-      : [])]
+    }]
   : [])
 
 /** Pages and collections of the document editor sections, after their section in the Go to group. */
