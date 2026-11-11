@@ -2,7 +2,7 @@
 import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { press, serveComments, type } from "./overlay-harness.ts"
+import { commentsButton, openList, press, serveComments, type } from "./overlay-harness.ts"
 
 import type { ElementAnchor } from "../src/types.ts"
 
@@ -32,9 +32,9 @@ async function site(lazy = false) {
 async function openPanel() {
   await loadViteHubPageTools({ load: () => import("../src/overlay/index.ts") })
   const bar = document.querySelector("vitehub-pill")!.querySelector<HTMLElement>("vitehub-tool[slot=comments]")!
-  const list = () => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"Comments on this page\"]")
-  await vi.waitFor(() => expect(list()).toBeTruthy())
-  list()!.click()
+  await vi.waitFor(() => expect(commentsButton(bar)).toBeTruthy())
+  await openList(bar)
+  const list = () => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"All comments on this page\"]")
   const window = document.querySelector<HTMLElement>("vitehub-window")!
   const panel = window.shadowRoot!.querySelector(".body > div")!.shadowRoot!
   return { bar, list, window, panel }
@@ -98,7 +98,7 @@ describe("the Comments list in the pill's window", () => {
     const input = panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
     await type(input, "Unsent reply")
     pageWindow.shadowRoot!.querySelector<HTMLButtonElement>(".hide")!.click()
-    await vi.waitFor(() => expect(list()!.getAttribute("aria-pressed")).toBe("false"))
+    await vi.waitFor(() => expect(list()!.getAttribute("aria-expanded")).toBe("false"))
     window.dispatchEvent(new Event("scroll"))
     await new Promise(resolve => setTimeout(resolve, 50))
     list()!.click()

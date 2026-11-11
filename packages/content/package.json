@@ -66,6 +66,12 @@
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
     },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "workerd": "./dist/sqlite-workerd.js",
+      "import": "./dist/sqlite.js",
+      "default": "./dist/sqlite.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -81,6 +87,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
+    "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -92,6 +99,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "comark": "catalog:markdown-ui",
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",

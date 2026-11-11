@@ -11,10 +11,10 @@ import { requestEvent } from "./console-event.ts"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import consolePreflightPlugin from "../src/console/runtime/server/console-preflight.ts"
 import { consoleTokenMatchesHash } from "../src/console/runtime/server/console-token.ts"
-import { answerConsolePreflight, installConsoleOrigins, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import { answerConsolePreflight, installConsoleOrigins, isConsoleCrossOriginCall, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import envManageHandler from "../src/console/runtime/server/env-manage.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
@@ -22,6 +22,7 @@ import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import { resolveConsoleAccessBuild, resolveConsoleOptions, resolveConsoleOrigins } from "../src/console/vite.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleAuthorizeContext } from "../src/console/auth-types.ts"
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
@@ -41,8 +42,8 @@ function install(policy: ConsoleAccessPolicy, origins: readonly string[] = [cons
 }
 
 function rpc(headers: Record<string, string>, init: { operation?: string, path?: string } = {}): Request {
-  return new Request(`${app}${init.path ?? "/_vitehub/rpc/__call"}`, {
-    body: JSON.stringify({ input: {}, operation: init.operation ?? "sections.list" }),
+  return new Request(`${app}${init.path ?? "/_vitehub/rpc"}`, {
+    body: operationRpcBody(init.operation ?? "sections.list", {}),
     headers: { "content-type": "application/json", ...headers },
     method: "POST",
   })
@@ -53,6 +54,7 @@ function send(request: Request): Promise<Response> {
 }
 
 afterEach(() => {
+  installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   Reflect.deleteProperty(globalThis, originsKey)
@@ -65,7 +67,7 @@ describe("console: { auth: \"token\" }", () => {
     install({ mode: "token" })
     const response = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
     expect(response.status, await response.clone().text()).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ ok: true })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true })
     expect(response.headers.has("access-control-allow-origin")).toBe(false)
   })
 
@@ -87,7 +89,7 @@ describe("console: { auth: \"token\" }", () => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", undefined)
     const revoked = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
     expect(revoked.status).toBe(401)
-    await expect(revoked.json()).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID" })
+    await expect(operationRpcResponseResult(revoked)).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID" })
     expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
   })
 
@@ -121,7 +123,7 @@ describe("console: { auth: \"token\" }", () => {
     const response = await send(rpc({ ...(authorization ? { authorization } : {}), cookie: "better-auth.session_token=abc", [consoleRpcHeader]: "1" }))
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).toBe(challenge)
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID", fix: expect.stringContaining("VITEHUB_CONSOLE_AUTHORIZATION"), ok: false, status: 401 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID", fix: expect.stringContaining("VITEHUB_CONSOLE_AUTHORIZATION"), ok: false, status: 401 })
   })
 
   it.each([
@@ -139,7 +141,7 @@ describe("console: { auth: \"token\" }", () => {
     install({ mode: "token" })
     const response = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
     expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({
       code: "CONSOLE_TOKEN_NOT_CONFIGURED",
       docs: expect.stringContaining("#use-a-console-token"),
       fix: expect.stringMatching(/`openssl rand -hex 32`.*`printf %s "\$TOKEN" \| sha256sum`.*`wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256`/),
@@ -157,7 +159,7 @@ describe("console: { auth: \"token\" }", () => {
       return { sections: ["kv"] }
     }, mode: "token" })
     const response = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
-    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { scoped: true } })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { scoped: true } })
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ via: "token" })
     expect(seen[0]?.request.headers.get("authorization")).toBe(`Bearer ${token}`)
@@ -217,11 +219,11 @@ describe("console.origins", () => {
   it.each([
     ["an open Console", { mode: "open" }],
     ["a session Console", { check: async () => undefined, mode: "auth" }],
-  ] satisfies Array<[string, ConsoleAccessPolicy]>)("never lets %s take a cross-origin call, even from a listed origin with a bearer header", async (_name, policy) => {
+  ] satisfies Array<[string, ConsoleAccessPolicy]>)("never lets %s in production take a cross-origin call, even from a listed origin with a bearer header", async (_name, policy) => {
     install(policy)
     const response = await send(rpc({ authorization: `Bearer ${token}`, cookie: "better-auth.session_token=abc", origin: consoleOrigin, "sec-fetch-site": "cross-site" }))
     expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
   })
 
   it.each([
@@ -234,7 +236,33 @@ describe("console.origins", () => {
     const response = await send(rpc({ authorization: `Bearer ${token}`, origin, "sec-fetch-site": "cross-site" }))
     expect(response.status).toBe(403)
     expect(response.headers.has("access-control-allow-origin")).toBe(false)
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
+  })
+
+  it.each(["local", "open"] as const)("lets the hosted Console call a %s development server from a listed origin without a token", (mode) => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin, "sec-fetch-site": "cross-site" }), { mode, sections: "all" })).toBe(true)
+  })
+
+  it.each(["local", "open"] as const)("refuses a listed origin without a token on a %s production server", (mode) => {
+    installConsoleDevelopment("/test/app", false)
+    install({ mode })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode, sections: "all" })).toBe(false)
+  })
+
+  it("refuses an unlisted origin on a development server without sign-in", () => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode: "open" })
+    expect(isConsoleCrossOriginCall(rpc({ origin: "https://evil.example" }), { mode: "open", sections: "all" })).toBe(false)
+  })
+
+  it("still needs a bearer token for the token mode, in development too", () => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode: "token" })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode: "token", sections: "all" })).toBe(false)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "token", sections: "all", via: "token" })).toBe(true)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "auth", sections: "all" })).toBe(false)
   })
 
   it("keeps same-origin calls as they were", async () => {
@@ -256,21 +284,6 @@ describe("console.origins", () => {
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
   })
-
-  it("lets Channel replay take a token call from a listed origin", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
-    install({ mode: "token" })
-    const replay = (origin: string) => channelReplayHandler.fetch(new Request(`${app}/_vitehub/channels/replay`, {
-      body: JSON.stringify({}),
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin },
-      method: "POST",
-    }))
-    const listed = await replay(consoleOrigin)
-    // The origin check passed: the route now asks for an Agent name.
-    expect(listed.status).toBe(400)
-    expect(listed.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
-    expect((await replay("https://evil.example")).status).toBe(403)
-  })
 })
 
 describe("Console preflight", () => {
@@ -278,7 +291,7 @@ describe("Console preflight", () => {
     return new Request(`${app}${path}`, { headers: { "access-control-request-headers": "authorization, content-type", "access-control-request-method": method, origin }, method: "OPTIONS" })
   }
 
-  it.each(["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay", "/portal/_vitehub/rpc/__call"])("answers a listed origin at %s", async (path) => {
+  it.each(["/_vitehub/rpc", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/portal/_vitehub/rpc"])("answers a listed origin at %s", async (path) => {
     installConsoleOrigins([consoleOrigin])
     const response = answerConsolePreflight(defineHandlerEvent(preflight(path, consoleOrigin)))
     expect(response?.status).toBe(204)
@@ -291,12 +304,12 @@ describe("Console preflight", () => {
 
   it("rejects an unlisted origin and leaves other requests to the app", async () => {
     installConsoleOrigins([consoleOrigin])
-    const rejected = answerConsolePreflight(defineHandlerEvent(preflight("/_vitehub/rpc/__call", "https://evil.example")))
+    const rejected = answerConsolePreflight(defineHandlerEvent(preflight("/_vitehub/rpc", "https://evil.example")))
     expect(rejected?.status).toBe(403)
     expect(rejected?.headers.has("access-control-allow-origin")).toBe(false)
     await expect(rejected?.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_NOT_ALLOWED", message: expect.stringContaining("https://evil.example") })
     expect(answerConsolePreflight(defineHandlerEvent(preflight("/api/items", consoleOrigin)))).toBeUndefined()
-    expect(answerConsolePreflight(defineHandlerEvent(new Request(`${app}/_vitehub/rpc/__call`, { headers: { origin: consoleOrigin }, method: "OPTIONS" })))).toBeUndefined()
+    expect(answerConsolePreflight(defineHandlerEvent(new Request(`${app}/_vitehub/rpc`, { headers: { origin: consoleOrigin }, method: "OPTIONS" })))).toBeUndefined()
   })
 
   it("registers a Nitro plugin, not a middleware, and only for cross-origin calls", () => {
@@ -325,7 +338,7 @@ describe("Console preflight", () => {
     h3.use(async event => await appAuth(event as never) ?? undefined)
     h3.all("/**", () => new Response("route"))
     consolePreflightPlugin({ h3 })
-    const answered = await h3.fetch(preflight("/_vitehub/rpc/__call", consoleOrigin))
+    const answered = await h3.fetch(preflight("/_vitehub/rpc", consoleOrigin))
     expect(answered.status).toBe(204)
     expect(answered.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
     // The app middleware is active: the actual call never reaches the route without its session.
@@ -410,11 +423,13 @@ describe("Console data route responses", () => {
 })
 
 describe("Console origin and token options", () => {
-  it("defaults origins to the hosted Console and keeps them only for the token mode", () => {
+  it("defaults origins to the hosted Console and keeps them for bearer modes and development without sign-in", () => {
     expect(resolveConsoleOrigins(undefined)).toEqual([consoleOrigin])
     expect(resolveConsoleAccessBuild({ auth: "token" }, { root: process.cwd() })).toEqual({ mode: "token", origins: [consoleOrigin] })
     expect(resolveConsoleAccessBuild({ auth: "token", origins: [] }, { root: process.cwd() })).toEqual({ mode: "token", origins: [] })
-    expect(resolveConsoleAccessBuild({ auth: false, origins: [consoleOrigin] }, { root: process.cwd() })).not.toHaveProperty("origins")
+    expect(resolveConsoleAccessBuild({ auth: false }, { root: process.cwd() })).toEqual({ mode: "open", origins: [consoleOrigin] })
+    expect(resolveConsoleAccessBuild({ auth: false, origins: [] }, { root: process.cwd() })).toEqual({ mode: "open", origins: [] })
+    expect(resolveConsoleAccessBuild({ auth: "app" }, { root: process.cwd() })).not.toHaveProperty("origins")
     expect(resolveConsoleOptions({ auth: "token" })).toEqual({ auth: "token" })
   })
 

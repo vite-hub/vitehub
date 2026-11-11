@@ -10,6 +10,7 @@
     "test": "vp run --cache -t @vite-hub/console#build && vp test"
   },
   "dependencies": {
+    "@better-auth/passkey": "catalog:auth",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "drizzle-kit": "catalog:database",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

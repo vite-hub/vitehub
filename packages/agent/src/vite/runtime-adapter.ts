@@ -12,6 +12,7 @@ import {
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -35,10 +36,6 @@ interface LoadedViteAgent {
   agent: AgentInput<ViteAgentRuntimeContext>
   definition: DiscoveredAgentDefinition
   identity: AgentHostIdentity
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function resolveAgentModule(module: unknown): AgentInput<ViteAgentRuntimeContext> | undefined {

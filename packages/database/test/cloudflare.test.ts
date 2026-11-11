@@ -17,7 +17,7 @@ async function createTempProject() {
 }
 
 async function writeDefinition(rootDir: string, name: string, cloudflare: string) {
-  const file = join(rootDir, "server", "databases", name, "config.ts")
+  const file = join(rootDir, "server", "databases", name, "index.ts")
   const table = `${name.replace(/[^a-z0-9_]/gi, "_")}Items`
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [

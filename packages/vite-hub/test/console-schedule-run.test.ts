@@ -13,7 +13,7 @@ import { readScheduleConsoleRecords } from "../../schedule/dist/runtime/console.
 import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/process"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
-import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleSchedulesKey, consoleStateKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { vitehub } from "../src/index.ts"
@@ -24,25 +24,13 @@ import scheduleRunRoute, { handleDispatchScheduleRunRequest } from "../src/conso
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { consoleAccess } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const schedules = async () => listConsoleDefinitions({ section: "schedules" }, await consoleAccess())
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
-const symbols = [
-  consoleDefinitionsKey,
-  consoleDefinitionsRegistryKey,
-  consoleDefinitionsRootKey,
-  consoleSchedulesKey,
-  consoleSchedulesRegistryKey,
-  consoleSchedulesRootKey,
-  consoleSectionsKey,
-  consoleSectionsRegistryKey,
-  consoleSectionsRootKey,
-]
 
 const temporaryRoots: string[] = []
 
@@ -54,10 +42,8 @@ async function temporaryRoot(prefix: string): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
-  for (const key of symbols) {
-    Reflect.deleteProperty(scope, key)
-    Reflect.deleteProperty(process, key)
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
+  Reflect.deleteProperty(globalThis, consoleSchedulesKey)
   resetScheduleRuntime()
   installConsoleOperations([])
 })
@@ -74,17 +60,17 @@ function installSchedules(handler: (context: { scheduledAt: Date }) => unknown =
   installConsoleSections("/schedule-run", ["schedules"])
   installConsoleDefinitions("/schedule-run", { schedules: { definitions: [scheduleSummary("sync"), scheduleSummary("nightly")], kind: "definition-catalog" } })
   installConsoleSchedules("/schedule-run", {
-    sync: async () => ({ default: defineSchedule("*/5 * * * *", handler, { manual: true }) }),
+    sync: async () => ({ default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler }) }),
   })
 }
 
 async function call(operation: string, input: Record<string, unknown>): Promise<unknown> {
-  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
-  return response.json()
+  return operationRpcResponseResult(response)
 }
 
 function runRequest(body: unknown, headers: Record<string, string> = {}) {
@@ -108,7 +94,7 @@ describe("Console Schedule runs", () => {
     const invokeDisabled = await readFile(plugin, "utf8")
 
     expect(invokeEnabled).toContain(`{ installConsoleDefinitions, installConsoleSchedules }`)
-    expect(invokeEnabled).toContain(`import("vite-hub/console/definitions")`)
+    expect(invokeEnabled).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
     expect(invokeEnabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["sync"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) })`)
     expect(invokeDisabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, {})`)
     expect(invokeDisabled).not.toContain(pathToFileURL(handler).href)
@@ -197,7 +183,7 @@ describe("Console Schedule runs", () => {
     installSchedules()
     // The Schedule package writes these cells for each Schedule Definition record.
     const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
-      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
+      cells: { manual: "Enabled", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))

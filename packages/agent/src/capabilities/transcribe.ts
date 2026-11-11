@@ -1,5 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText, arrayBufferByteLength, attachmentStringByteLength, attachmentStringBytes, blobArrayBuffer, blobSize, isArrayBufferValue, isBlobValue, isUint8ArrayValue, uint8ArrayByteLength } from "../messages.ts"
+import { appendMessageText, arrayBufferByteLength, attachmentStringByteLength, attachmentStringBytes, isArrayBufferValue, isBlobValue, isUint8ArrayValue, uint8ArrayByteLength } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -155,7 +155,7 @@ function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, 
 
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
-  if (isBlobValue(audio.data)) assertWithinMaxBytes(blobSize(audio.data), maxBytes, "audio data")
+  if (isBlobValue(audio.data)) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")
   else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(arrayBufferByteLength(audio.data), maxBytes, "audio data")
   else if (isUint8ArrayValue(audio.data)) assertWithinMaxBytes(uint8ArrayByteLength(audio.data), maxBytes, "audio data")
   else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
@@ -171,7 +171,7 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
     resolvedAudioData.set(audio, cached)
   }
   const data = await cached
-  if (isBlobValue(data)) assertWithinMaxBytes(blobSize(data), maxBytes, "downloaded audio")
+  if (isBlobValue(data)) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
   else if (isArrayBufferValue(data)) assertWithinMaxBytes(arrayBufferByteLength(data), maxBytes, "downloaded audio")
   else if (isUint8ArrayValue(data)) assertWithinMaxBytes(uint8ArrayByteLength(data), maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
@@ -182,7 +182,7 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
   if (isBlobValue(data)) {
-    const bytes = new Uint8Array(await blobArrayBuffer(data))
+    const bytes = new Uint8Array(await data.arrayBuffer())
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
@@ -274,7 +274,7 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
   const maxBytes = normalizeMaxBytes(options?.maxBytes)
   const data = await resolveAudioData(audio, maxBytes)
   if (isBlobValue(data)) {
-    const bytes = new Uint8Array(await blobArrayBuffer(data))
+    const bytes = new Uint8Array(await data.arrayBuffer())
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }

@@ -75,11 +75,11 @@ describe("CI merge gate", () => {
     expect(runGate({ ...successfulJobs, [deploy]: { result: "skipped" } }).status).toBe(0)
   })
 
-  it("rejects a stale hosted Console with the same entry script, including workflow reruns", () => {
+  it("rejects a stale Console with the same entry script, including workflow reruns", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-"))
-    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const output = join(directory, "packages/vite-hub/.vitehub/console-account")
     const live = join(directory, "live.html")
-    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify Console build")?.run
     const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
     if (!check) throw new Error("The Console deployment must check the live site")
     const html = '<html><head><script type="module" src="/assets/console-unchanged.js"></script></head></html>'
@@ -96,7 +96,7 @@ describe("CI merge gate", () => {
         chmodSync(path, 0o755)
       }
       for (const attempt of ["1", "2"]) {
-        for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), html)
+        writeFileSync(join(output, "index.html"), html)
         if (identify) {
           const result = run(identify, attempt)
           expect(result.status, result.stderr).toBe(0)
@@ -107,7 +107,6 @@ describe("CI merge gate", () => {
       const stale = run(check, "2")
       expect(stale.status, "An older deployment with an unchanged entry must fail").not.toBe(0)
       expect(stale.stderr).toContain("does not serve this build")
-      expect(readFileSync(join(output, "404.html"), "utf8")).toBe(readFileSync(join(output, "index.html"), "utf8"))
 
       writeFileSync(live, readFileSync(join(output, "index.html")))
       const current = run(check, "2")
@@ -121,9 +120,9 @@ describe("CI merge gate", () => {
 
   it("accepts the reused build when only the Console deploy job is rerun, and rejects a build of another run", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-rerun-"))
-    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const output = join(directory, "packages/vite-hub/.vitehub/console-account")
     const live = join(directory, "live.html")
-    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify Console build")?.run
     const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
     if (!identify || !check) throw new Error("The Console build must mark its output and the deployment must check the live site")
     const run = (command: string, runId: string, attempt: string) => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
@@ -138,7 +137,7 @@ describe("CI merge gate", () => {
         writeFileSync(path, contents)
         chmodSync(path, 0o755)
       }
-      for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), "<html><head></head></html>")
+      writeFileSync(join(output, "index.html"), "<html><head></head></html>")
       // Attempt 1 builds and deploys. Only console-deploy is rerun as attempt 2, with the artifact of attempt 1.
       expect(run(identify, "123", "1").status).toBe(0)
       writeFileSync(live, readFileSync(join(output, "index.html")))
