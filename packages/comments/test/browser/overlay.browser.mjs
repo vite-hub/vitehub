@@ -408,6 +408,20 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
       // The system's text menu opens just above the selection, so the bar leaves it 64px.
       assert.ok(start - (box.y + box.height) >= 63, `bar ends at ${box.y + box.height}, text starts at ${start}`)
+      // The stand-in pill has the type of the real one, so screenshots show the toolbar as people see it.
+      const cdp = await touch.context().newCDPSession(touch)
+      await cdp.send("DOM.getDocument", { depth: -1, pierce: true })
+      await cdp.send("CSS.enable")
+      const { result } = await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const tool = document.querySelector("vitehub-tool")
+        for (const root of [tool.shadowRoot, tool].filter(Boolean)) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent.trim() === "Comments") return node.parentElement
+        }
+      })()` })
+      const { nodeId } = await cdp.send("DOM.requestNode", { objectId: result.objectId })
+      const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId })
+      assert.ok(fonts.length > 0 && fonts.every(font => !/serif/i.test(font.familyName) || /sans/i.test(font.familyName)), `toolbar fonts ${fonts.map(font => font.familyName)}`)
       if (evidence) await touch.screenshot({ path: `${evidence}/touch-bar-near-bottom.png` })
       await button.tap()
       await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
