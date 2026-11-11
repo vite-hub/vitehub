@@ -166,7 +166,7 @@ function flattenOptions(options: Map<string, string>, prefix = ""): Map<string, 
  */
 function vitehubOptions(source: string, mode: "development" | "production"): string | undefined {
   // Resolve the literal command condition used by the development-only Console auth example.
-  const code = dedent(source).replace(/command\s*===\s*(['"])serve\1\s*\?\s*(false|true|'[^']*'|"[^"]*")\s*:\s*(false|true|'[^']*'|"[^"]*")/g, mode === "development" ? "$2" : "$3")
+  const code = dedent(source).replace(/command\s*===\s*(['"])serve\1\s*\?\s*(false|true|'[^']*'|"[^"]*"|\{[^{}]*\})\s*:\s*(false|true|'[^']*'|"[^"]*"|\{[^{}]*\})/g, mode === "development" ? "$2" : "$3")
   let options: Map<string, string>
   let overrides = new Map<string, string>()
   let env = new Map<string, string>()
@@ -204,7 +204,11 @@ function vitehubOptions(source: string, mode: "development" | "production"): str
   }
   for (const [key, value] of env) options.set(`env.${key}`, value)
   options = flattenOptions(options)
-  for (const [key, value] of flattenOptions(overrides)) options.set(key, value)
+  for (const [key, value] of flattenOptions(overrides)) {
+    // An object override, such as `console: { auth: false }` over `console: true`, replaces the value of its parent.
+    for (const parent of options.keys()) if (key.startsWith(`${parent}.`)) options.delete(parent)
+    options.set(key, value)
+  }
   return [...options].map(([key, value]) => `${key}=${value}`).sort().join("\n")
 }
 
