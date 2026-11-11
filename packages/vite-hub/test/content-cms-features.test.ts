@@ -80,6 +80,13 @@ it("leaves the Database off for server/comments.ts with comments: false", async 
   await mkdir(join(root, "server"))
   await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
   expect(resolveCmsPresetFeatures({ comments: false }, { projectRoot: root })).toEqual({ comments: false })
+  // The Vite path agrees with the Nuxt path.
+  const config = await resolveConfig({
+    root,
+    configFile: false,
+    plugins: withCmsPresetPlugins({ comments: false, database: undefined }, resolved => resolved.database ? [{ name: "database-service" }] : []),
+  }, "build")
+  expect(config.plugins.some(plugin => plugin.name === "database-service")).toBe(false)
 })
 
 it.each([

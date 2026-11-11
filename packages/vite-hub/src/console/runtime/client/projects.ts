@@ -102,7 +102,6 @@ export function isMixedContentProject(target: ConsoleProjectTarget, pageProtocol
   return pageProtocol === "https:" && url.protocol === "http:" && !loopbackHosts.has(url.hostname)
 }
 
-// doctor-disable-next-line typescript/strict/no-runtime-typeof -- Stored JSON is untrusted.
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined
 
 function parseStoredProjects(raw: string | null): StoredProjects {
