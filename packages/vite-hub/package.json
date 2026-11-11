@@ -132,6 +132,11 @@
       "import": "./dist/auth.js",
       "default": "./dist/auth.js"
     },
+    "./auth/abilities": {
+      "types": "./dist/auth/abilities.d.ts",
+      "import": "./dist/auth/abilities.js",
+      "default": "./dist/auth/abilities.js"
+    },
     "./auth/agent": {
       "types": "./dist/auth/agent.d.ts",
       "import": "./dist/auth/agent.js",
