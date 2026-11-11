@@ -19,7 +19,7 @@ The host works inside one process only. Its `dataDir` must belong to one running
 Export the host from a server module. The `run` callback finds work and tracks it only while the host accepts work:
 
 ```ts [server/host.ts] fragment
-import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentHost } from 'vite-hub/agent/process'
 
 export default await createProcessAgentHost({
   name: 'reviewer',
@@ -65,7 +65,7 @@ The host creates `invocations.sqlite` and `provider-sessions.sqlite` below `data
 `capacity.concurrency` is the hard maximum of concurrent runs. Queue options control what happens when slots are full. `createProcessAgentCapacity()` can admit fewer new runs under pressure:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const sharedCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -248,7 +248,7 @@ The default health route is `/api/health`. Generated routes grant no Console aut
 To test admission independent of machine pressure, use a disposable directory and a custom `sample` function:
 
 ```ts
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 const capacity = createProcessAgentCapacity({
   concurrency: 2,
