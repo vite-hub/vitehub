@@ -1,12 +1,16 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
+import { defineContentPlugin } from "comark-content"
+import media from "comark-content/plugins/media"
+import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
+import { mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../../source/src/vite.ts"
 import { contentRefTokenParameter, defineContent, defineContentPreset, defineContentPreviewRoutesPlugin, parseContentPreviewPath, registerContentKV, rewriteContentLinks } from "../src/index.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
@@ -210,12 +214,12 @@ describe("content.sources.route()", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=60")
   })
 
-  it("marks a published commit immutable, and a pull request commit short", async () => {
+  it("caps a published commit at the application lifetime, and a pull request commit short", async () => {
     const { published, open } = repository()
     const content = server()
     const old = await serve(content, `https://docs.example/blob/${published}/guide`)
     expect(old.response.status).toBe(200)
-    expect(old.response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+    expect(old.response.headers.get("cache-control")).toBe("public, max-age=3600")
     expect(old.json().preview).toMatchObject({ kind: "commit", sha: published, route: "blob" })
     const head = await serve(content, `https://docs.example/blob/${open}/guide`)
     expect(head.text).toContain("Guide on feat/open")
@@ -285,6 +289,29 @@ describe("content.sources.route()", () => {
     }
   })
 
+  it("uses the preview cache policy as an upper bound for browser and shared caches", async () => {
+    const { published, pulls } = repository()
+    const content = server()
+    for (const [path, limit] of [[`/pr/${pulls.open}`, 60], [`/blob/${published}`, 31536000]] as const) {
+      for (const [own, expected] of [
+        [undefined, `public, max-age=${limit}${limit > 60 ? ", immutable" : ""}`],
+        ["public, max-age=0, must-revalidate", "public, max-age=0, must-revalidate"],
+        ["public, max-age=10, s-maxage=5, must-revalidate", "public, max-age=10, s-maxage=5, must-revalidate"],
+        ["public, max-age=99999999, s-maxage=99999999", `public, max-age=${limit}, s-maxage=${limit}`],
+        ["private, max-age=99999999", `private, max-age=${limit}`],
+        ['public, max-age="10"', "public, max-age=10"],
+        ["public, s-maxage=0, must-revalidate", `public, s-maxage=0, must-revalidate, max-age=${limit}`],
+      ]) {
+        const headers = own ? { "cache-control": own } : undefined
+        const response = await content.sources.route(new Request(`https://docs.example${path}/guide`), () => new Response("ok", { headers }))
+        expect(response.headers.get("cache-control")).toBe(expected)
+      }
+    }
+    const { token } = await content.sources.sign(draftBranch, "docs")
+    const response = await content.sources.route(new Request(`https://docs.example/tree/${draftBranch}/-/guide?${contentRefTokenParameter}=${token}`), () => new Response("ok", { headers: { "cache-control": "private, max-age=3600" } }))
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
   it("keeps the host fields of the request when it changes the URL", async () => {
     const { pulls } = repository()
     const content = server()
@@ -315,6 +342,39 @@ describe("content.sources.route()", () => {
     })
     expect(await response.json()).toEqual({ get: "Guide on feat/open", from: "Guide on feat/open" })
     expect((await from("docs").get("/guide"))?.data.title).toBe("Guide")
+  })
+
+  it("reads media, instances and custom plugin methods from the preview commit", async () => {
+    repository()
+    fake.commit("main", { "logo.png": Uint8Array.of(1) })
+    fake.commit("feat/open", { "logo.png": Uint8Array.of(2), "preview.png": Uint8Array.of(3) })
+    const readTitle = defineContentPlugin(() => ({
+      name: "read-title",
+      setup(instance) {
+        return { readTitle: () => instance.get("/guide") }
+      },
+    }))
+    const content = defineContent({
+      sources: { docs: github({ repo: "acme/docs", ref: "main" }), other: github({ repo: "acme/docs", ref: "main" }) },
+      previews: { source: "docs" },
+      plugins: [media(), readTitle()],
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const read = async () => [
+      await content.media.get("docs/logo.png"),
+      (await content.media.list(["docs"])).map(item => item.path).sort(),
+      (await content.instances.find(instance => instance.name === "docs")!.get("/guide"))?.data.title,
+      (await content.readTitle())?.data.title,
+      (await content.instances.find(instance => instance.name === "other")!.get("/guide"))?.data.title,
+    ]
+    let result: unknown
+    await content.sources.route(new Request("https://docs.example/tree/feat/open/-/guide"), async () => {
+      result = await read()
+      return new Response("ok")
+    })
+    expect(result).toEqual([Uint8Array.of(2), ["/logo.png", "/preview.png"], "Guide on feat/open", "Guide on feat/open", "Guide"])
+    expect(await read()).toEqual([Uint8Array.of(1), ["/logo.png"], "Guide", "Guide", "Guide"])
   })
 
   it("keeps a same-site redirect under the prefix", async () => {
@@ -350,6 +410,38 @@ describe("content.sources.route()", () => {
 })
 
 describe("defineContentPreviewRoutesPlugin()", () => {
+  it("routes the first captured request while async Nitro plugins are still starting", async () => {
+    repository()
+    const content = server()
+    const projectRoot = await mkdtemp(join(tmpdir(), "content-preview-startup-"))
+    cleanup.push(() => rm(projectRoot, { recursive: true, force: true }))
+    await mkdir(join(projectRoot, "server"))
+    await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "@vite-hub/content"\nexport default defineContent({ previews: true })')
+    const handlers = await prepareSourceGeneration({ projectRoot })
+    const config = mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers)
+    const h3 = new H3()
+    h3.all("/**", event => app(content)(event.req))
+    const nitroApp: { h3: H3, fetch: (request: Request) => Promise<Response>, ready?: Promise<void> } = { h3, fetch: request => Promise.resolve(h3.fetch(request)) }
+    const pending = Promise.withResolvers<void>()
+    const plugins = config.plugins!.map(id => id === "async.mjs" ? () => pending.promise : typeof id === "string" && id.endsWith("/preview-routes.mjs") ? defineContentPreviewRoutesPlugin(content) : () => {})
+    // Use Nitro's actual startup gate with the generated plugin order.
+    const { initAsyncPlugins } = await import(new URL("./dist/runtime/internal/async-plugins.mjs", import.meta.resolve("nitro/package.json")).href)
+    for (const [index, plugin] of plugins.entries()) {
+      const result = plugin(nitroApp)
+      if (result instanceof Promise) {
+        initAsyncPlugins(nitroApp, result, plugins.slice(index + 1))
+        break
+      }
+    }
+    const captured = nitroApp.fetch
+    const first = captured(new Request("https://docs.example/tree/feat/open/-/guide"))
+    pending.resolve()
+    for (const response of [await first, await captured(new Request("https://docs.example/tree/feat/open/-/guide"))]) {
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain("Guide on feat/open")
+    }
+  })
+
   it("reaches a server entry that took nitroApp.fetch before the plugin ran", async () => {
     const { pulls } = repository()
     const content = server()
