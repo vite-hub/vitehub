@@ -13,7 +13,7 @@ This package is private and in progress. `vitehub console deploy` comes next.
 
 Each link has its own variable, so two teams can link the same app, and unlinking one leaves the other.
 
-The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the token or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc/**`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body over 9 MiB.
+The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the token or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc/**`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
 
 Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
 

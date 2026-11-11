@@ -119,6 +119,7 @@ const runtimeEntries = [
   "src/console/runtime/client/sign-in.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
+  "src/console/runtime/auth-operations.ts",
   "src/console/runtime/definitions.ts",
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
@@ -575,6 +576,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/sign-in"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
+          delete exports["./console/runtime/auth-operations"];
           delete exports["./console/runtime/definitions"];
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];

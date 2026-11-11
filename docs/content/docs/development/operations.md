@@ -48,6 +48,7 @@ export const reportOperations = [
 | `output` | Optional. A Standard Schema of the result. |
 | `cli` | Optional. `namespace` and `command` rename the command. `positional` lists input keys passed without a flag. `default: true` makes `vitehub <namespace>` run it when no command is named. `format` prints a readable result. Without it the CLI prints JSON. |
 | `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
+| `mcp` | Optional. `false` keeps the operation out of MCP. `{ title, format }` sets the short title that MCP clients show, and `format(output)` the text that the Agent reads. The result stays the structured content. Without `format`, the text is the result as JSON. |
 | `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips confirmation, and an agent runs it without approval. Without it, every `destructive` call asks. |
 | `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |
 | `run` | Does the work. It gets the checked input and the context. |

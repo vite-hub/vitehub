@@ -784,7 +784,6 @@ describe("framework package contract", () => {
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
-        "/_vitehub/channels/replay",
         "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ]);
