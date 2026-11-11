@@ -241,25 +241,22 @@ it("forwards failure cookies while translating write operations to fixture reque
   })
 })
 
-it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the shared session", async () => {
+it("serves the MCP client from a stateful fixture, with sign-in and Run as", async () => {
   const origin = "http://localhost:5173"
   type Answer = { ok: boolean, value: Record<string, unknown> & { connections?: Array<Record<string, unknown>> } }
-  const call = async (operation: string, input: Record<string, unknown> = {}, cookie?: string) => await callConsoleFixture(origin, { input, operation }, cookie) as Answer
+  const call = async (operation: string, input: Record<string, unknown> = {}) => await callConsoleFixture(origin, { input, operation }) as Answer
   const overview = await call("mcp-client.list")
   expect(overview.value.sharedSession).toBe(false)
   expect(overview.value.servers).toEqual([
     { authorizationServer: `${origin}/api/auth`, label: "Northwind Ledger", url: `${origin}/mcp` },
-    { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` },
   ])
   expect(overview.value.connections?.map(connection => [connection.label, connection.auth, connection.status])).toEqual([
     ["Maxi García", "oauth", "connected"],
     ["Lucía Romero", "oauth", "connected"],
     ["Lucía (API key)", "bearer", "connected"],
     ["Sam Rivera", "oauth", "signed-out"],
-    ["You", "console", "connected"],
     ["docs.example.com/mcp", "none", "connected"],
   ])
-  expect((await call("mcp-client.list", {}, "playground-mcp=shared")).value.sharedSession).toBe(true)
 
   // Run as: the same call through two accounts sees different private accounts.
   const finances = async (id: string) => JSON.stringify((await call("mcp-client.call", { arguments: { scope: "household" }, id, tool: "get_finances" })).value.result)
@@ -275,7 +272,7 @@ it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the
   const completed = await call("mcp-client.complete", { code: "playground", state: callback.searchParams.get("state") })
   expect(completed.value).toMatchObject({ label: "Sam Rivera", status: "connected" })
   await call("mcp-client.disconnect", { id: completed.value.id })
-  expect((await call("mcp-client.list")).value.connections).toHaveLength(6)
+  expect((await call("mcp-client.list")).value.connections).toHaveLength(5)
 })
 
 async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload: { input?: unknown, operation: string }): Promise<unknown> {
@@ -308,7 +305,6 @@ it.each([
   const overview = await playgroundRpcRequest(headers, { operation: "mcp-client.list" })
   expect(overview).toMatchObject({ ok: true, value: { servers: [
     { authorizationServer: `${origin}/api/auth`, url: `${origin}/mcp` },
-    { url: `${origin}/_vitehub/mcp` },
   ] } })
   expect(JSON.stringify(overview)).not.toContain("localhost")
 

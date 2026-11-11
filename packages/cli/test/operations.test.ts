@@ -10,6 +10,9 @@ import { type AnyOperation, createOperationRegistry, defineOperation, operationE
 import { runViteHubCli } from "../src/index.ts"
 import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
 
+/** The private key of the CLI. The app keeps its public key in `VITEHUB_CONSOLE_KEY_CI`. */
+const cliPrivateKey = (await createConsoleKeyPair()).privateKey
+
 const list = defineOperation({
   cli: { positional: ["team"] },
   description: "List the reports of a team.",
@@ -288,12 +291,12 @@ describe("generated operation commands", () => {
     const stderr = stream()
     const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
-      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
+      expect(new Headers(init?.headers).get("x-vitehub-signature")).toContain("key=CI")
       expect(new Headers(init?.headers).has(operationExpectedRootsHeader)).toBe(false)
       return operationRpcResponse(init?.body, { ok: true, value: { deployed: true } })
     })
     const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => [list], module: "fixture/operations" }] } }
-    const code = await runViteHubCli({ args: ["reports", "list", "acme", "--url", "https://app.example.com"], cwd: "/app", env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
+    const code = await runViteHubCli({ args: ["reports", "list", "acme", "--url", "https://app.example.com"], cwd: "/app", env: { VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
     expect(code).toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({ deployed: true })
   })
@@ -301,7 +304,7 @@ describe("generated operation commands", () => {
   describe("deployed RPC targets", () => {
     const env = {
       VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
-      CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+      VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey,
     }
 
     it.each([
@@ -318,13 +321,12 @@ describe("generated operation commands", () => {
       }
     })
 
-    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("sends credentials to safe RPC URL %s", async (url) => {
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("signs calls to safe RPC URL %s, and sends no bearer token or cookie", async (url) => {
       const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         const headers = new Headers(init?.headers)
-        expect(headers.get("authorization")).toBe(env.VITEHUB_CONSOLE_AUTHORIZATION)
-        expect(headers.get("cookie")).toBe(env.VITEHUB_CONSOLE_COOKIE)
-        expect(headers.get("cf-access-client-id")).toBe(env.CF_ACCESS_CLIENT_ID)
-        expect(headers.get("cf-access-client-secret")).toBe(env.CF_ACCESS_CLIENT_SECRET)
+        expect(headers.get("x-vitehub-signature")).toContain("key=CI")
+        expect(headers.has("authorization")).toBe(false)
+        expect(headers.has("cookie")).toBe(false)
         expect(headers.has(operationExpectedRootsHeader)).toBe(false)
         return operationRpcResponse(init?.body, { ok: true, value: { deployed: true } })
       })
@@ -372,10 +374,7 @@ describe("generated operation commands", () => {
       "https://user:password@app.example.com", "https://app.example.com?token=private", "https://app.example.com#fragment",
     ])("rejects unsafe URL %s before sending credentials", async (url) => {
       const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
-      const result = await runTrigger({
-        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
-        CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
-      }, fetch, url)
+      const result = await runTrigger({ VITEHUB_CONSOLE_COOKIE: "session=private-cookie", VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch, url)
       expect(result.code).toBe(1)
       expect(result.stderr).toContain("CLI_R0003: --url")
       expect(fetch).not.toHaveBeenCalled()
@@ -385,16 +384,10 @@ describe("generated operation commands", () => {
     it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts safe URL %s", async (url) => {
       const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
         const headers = new Headers(init?.headers)
-        expect(headers.get("authorization")).toBe("Bearer token")
-        expect(headers.get("cookie")).toBe("session=example")
-        expect(headers.get("cf-access-client-id")).toBe("access-id")
-        expect(headers.get("cf-access-client-secret")).toBe("access-secret")
+        expect(headers.get("x-vitehub-signature")).toContain("key=CI")
         return operationRpcResponse(init?.body, { ok: true, value: { run: { id: "r2" } } })
       })
-      const result = await runTrigger({
-        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token", VITEHUB_CONSOLE_COOKIE: "session=example",
-        CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
-      }, fetch, url)
+      const result = await runTrigger({ VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch, url)
       expect(result.code).toBe(0)
       expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc`, expect.any(Object))
     })
@@ -429,13 +422,11 @@ describe("generated operation commands", () => {
     const root = await project()
     writeViteHubDevServerFile(root, { root, url: "http://localhost:5199/" })
     const fetch = server("http://localhost:5199")
-    const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000", VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token", VITEHUB_CONSOLE_COOKIE: "session=token", CF_ACCESS_CLIENT_ID: "client-id", CF_ACCESS_CLIENT_SECRET: "client-secret" }, fetch, root })
+    const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000", VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch, root })
     expect(result.code).toBe(0)
     expect(fetch).toHaveBeenCalledOnce()
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(root))
-    for (const header of ["authorization", "cookie", "cf-access-client-id", "cf-access-client-secret"]) {
-      expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has(header), header).toBe(false)
-    }
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has("x-vitehub-signature")).toBe(false)
   })
 
   it("refuses a dev server that runs another project", async () => {
