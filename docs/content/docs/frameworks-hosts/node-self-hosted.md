@@ -106,11 +106,11 @@ one disk, so they do not work across several instances.
 
 | Primitive | Node default | Works across several instances today |
 | --- | --- | --- |
-| Blob | `fs` under `.vitehub/data/blob` | Only with the `s3` driver, or one shared volume. |
+| Blob | `fs` under `.vitehub/data/blob` | With a shared remote store, such as `s3`, or one shared volume. |
 | KV | `database` with a Postgres Default Database, else `fs-lite` under `.vitehub/data/kv`. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. | Yes with Postgres, Redis, or Upstash. Redis requires `kv: { driver: 'redis' }`, with the same `REDIS_URL` on every server. `fs-lite` keeps local files on one host. See [Node picks a shared store](/docs/kv/configure#node-picks-a-shared-store). |
 | Cache | `fs-lite` under `.vitehub/data/cache` | Only with `cache: { driver: 'kv' }` and a shared KV store, such as Postgres, Redis, or Upstash. |
 | Database | SQLite file `file:.vitehub/data/database/sqlite.db` | Only with a remote database, such as Postgres or remote libSQL. |
-| Database `migrateOnStart` | Off. It applies migrations only to a local SQLite `file:` URL, and fails the build for Postgres. | No. Run `vitehub db migrate` once from the deploy step. |
+| Database `migrateOnStart` | On for Postgres. `true` also migrates local SQLite files; `false` turns it off. | Yes for Postgres. An advisory lock lets one instance migrate while the others wait. For SQLite, migrate once before starting several processes. See [Startup migrations](/docs/database/configure#migrate-when-the-server-starts). |
 | Queue | The `local` provider. Jobs are files under `.vitehub/data/queue` and survive a restart. Each process keeps its job list and running jobs in memory. | No. With a separate directory per instance, a job runs only on the instance that accepted it. If that instance stops, its jobs wait on its disk until it starts again, and they are lost with that disk. With one shared volume, there is no lock between processes, so two instances can run the same job. |
 | Rate Limit | `memory`. Counters reset on restart. The only other driver is `cloudflare`. | No. Each instance counts alone. |
 | Realtime | None. A build needs `realtime: { authority: 'memory' }`, which keeps rooms in memory. | No. Peers on other instances do not see the room. |
