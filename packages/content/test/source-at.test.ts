@@ -211,6 +211,78 @@ describe("content.sources.at()", () => {
     expect((await content.sources.head("docs")).views).toEqual([sha])
   })
 
+  it("disposes open views with the Content runtime", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const sha = fake.commit("feat/dispose", { "guide.md": page("Preview") })
+    const resources = new Set<object>()
+    const content = defineContent({
+      sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+      logger: false,
+      plugins: [{
+        name: "view-resources",
+        setup(context) {
+          const resource = {}
+          resources.add(resource)
+          context.onDispose(() => { resources.delete(resource) })
+        },
+      }],
+    })
+    cleanup.push(() => content.dispose())
+    const view = await content.sources.at(sha, "docs")
+    expect(await title(view, "/guide")).toBe("Preview")
+
+    await content.dispose()
+    expect(resources.size).toBe(0)
+    await expect(view.get("/guide")).rejects.toThrow(/disposed/)
+    await expect(content.sources.at(sha, "docs")).rejects.toThrow(/disposed/)
+    expect(resources.size).toBe(0)
+  })
+
+  it("waits for a running read of an evicted view before disposal", async () => {
+    const sha = fake.commit("main", { "guide.md": page("Guide") })
+    let start!: () => void
+    const started = new Promise<void>((resolve) => { start = resolve })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    const disposed = vi.fn()
+    const content = defineContent({
+      sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+      logger: false,
+      plugins: [{
+        name: "running-view",
+        setup(context) {
+          if (context.ref !== sha) return
+          context.onDispose(disposed)
+          context.hooks.hook("read:after", async () => {
+            start()
+            await released
+            expect(disposed).not.toHaveBeenCalled()
+          })
+        },
+      }],
+    })
+    cleanup.push(() => content.dispose())
+    const view = await content.sources.at(sha, "docs")
+    const reading = title(view, "/guide")
+    try {
+      await started
+      for (let index = 0; index < MAX_SOURCE_VIEWS; index++) {
+        const other = fake.commit("main", { "guide.md": page(`Guide ${index}`) })
+        await content.sources.at(other, "docs")
+      }
+      expect((await content.sources.head("docs")).views).not.toContain(sha)
+      const disposing = content.dispose()
+      release()
+      expect(await reading).toBe("Guide")
+      await disposing
+      expect(disposed).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      release()
+      await reading
+    }
+  })
+
   it("opens refs without a token or a KV store", async () => {
     vi.stubEnv("VITEHUB_GITHUB_TOKEN", "")
     registerContentKV(undefined)

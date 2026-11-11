@@ -153,6 +153,8 @@ interface OpenView {
   /** Reads that run now. An evicted view closes after the last one. */
   readers: number
   evicted: boolean
+  idle?: () => void
+  closing?: Promise<void>
 }
 
 /** How long a server instance serves a head before it reads KV again. */
@@ -229,6 +231,8 @@ interface ContentSourceHeadsRuntime {
   attach(name: string, instance: ComarkContent): void
   /** Bring every live Source to its current head before a read. */
   sync(): Promise<void>
+  /** Close every view after its current reads finish. */
+  dispose(): Promise<void>
 }
 
 /** Create the head state of a Content runtime. `options` are the Comark options that validation parses with. */
@@ -240,6 +244,9 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   const parser = { ...options, cache: undefined, logger: undefined, onError: undefined }
   /** The views of `at()`, by `<source>:<sha>`. The map order is the use order, the least recently used first. */
   const views = new Map<string, OpenView>()
+  /** Includes evicted views while a read or disposal still runs. */
+  const allViews = new Set<OpenView>()
+  let disposed = false
   /** The commits that refs resolved to, by `<source>:<ref>`, with when the lookup started. */
   const refs = new CommitMemory<{ at: number, target: Promise<ContentSourceRef> }>(MAX_HELD_REFS)
   /** Branches that only a preview cookie or a signed link opens, such as the CMS draft branch. */
@@ -520,13 +527,25 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     return await target
   }
 
-  function close(open: OpenView): void {
-    // Dispose errors have no caller to report to. The instances hold no data that outlives them.
-    void Promise.all([open.hub.dispose(), ...open.instances.map(instance => instance.dispose())]).catch(() => {})
+  function close(open: OpenView): Promise<void> {
+    return open.closing ??= (async () => {
+      try {
+        if (open.readers) await new Promise<void>((resolve) => { open.idle = resolve })
+        await Promise.all([open.hub.dispose(), ...open.instances.map(instance => instance.dispose())])
+      }
+      finally {
+        allViews.delete(open)
+      }
+    })()
+  }
+
+  function assertActive(): void {
+    if (disposed) throw new Error("[vitehub] Content source views have been disposed.")
   }
 
   /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
   function openView(state: HeadState, sha: string): OpenView {
+    assertActive()
     const key = `${state.name}:${sha}`
     const existing = views.get(key)
     if (existing) {
@@ -545,11 +564,13 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const instance = base.withRef(sha)
     const open: OpenView = { key, state, sha, instances: [base], hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
     views.set(key, open)
+    allViews.add(open)
     while (views.size > MAX_SOURCE_VIEWS) {
       const [oldest] = views.values()
       views.delete(oldest!.key)
       oldest!.evicted = true
-      if (!oldest!.readers) close(oldest!)
+      // An eviction has no caller to report cleanup errors to.
+      if (!oldest!.readers) void close(oldest!).catch(() => {})
     }
     return open
   }
@@ -563,7 +584,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
     finally {
       open.readers--
-      if (open.evicted && !open.readers) close(open)
+      if (!open.readers) {
+        open.idle?.()
+        if (open.evicted) void close(open).catch(() => {})
+      }
     }
   }
 
@@ -634,6 +658,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       return await api.advance(source)
     },
     async at(ref, source) {
+      assertActive()
       const state = stateOf(typeof ref === "object" && ref ? ref.source : source)
       const target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
       const loaded = await load(state, { id: target.sha, immutable: true })
@@ -685,6 +710,11 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   return {
     api,
+    async dispose() {
+      disposed = true
+      views.clear()
+      await Promise.all([...allViews].map(close))
+    },
     commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)
       if (!isGitHubDefinition(definition)) return
