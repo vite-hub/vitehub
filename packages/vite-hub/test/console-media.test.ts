@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createBlobStorage } from "../../blob/src/storage.ts"
-import { consoleBlobKey, consoleBlobRegistryKey, consoleBlobRootKey, consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleState, consoleStateKey } from "../src/console/internal.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
@@ -17,14 +17,11 @@ import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleDocumentActions, ConsoleMediaAccess } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
 const policyKey = Symbol.for("vitehub.console.access")
-const keys = [consoleBlobKey, consoleBlobRegistryKey, consoleBlobRootKey, consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey, policyKey]
+const keys = [consoleStateKey, policyKey]
 
 const roles: Record<string, ConsoleMediaAccess> = {
   editor: { manage: true, read: true, write: true },
@@ -105,7 +102,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  for (const key of keys) Reflect.deleteProperty(scope, key)
+  for (const key of keys) Reflect.deleteProperty(globalThis, key)
   setBlobRuntimeConfig(undefined)
   await rm(directory, { force: true, recursive: true })
 })
@@ -194,10 +191,7 @@ describe("Console media library", () => {
   })
 
   it("rejects media actions and uploads when Blob was not installed", async () => {
-    for (const key of [consoleBlobKey, consoleBlobRegistryKey, consoleBlobRootKey]) {
-      Reflect.deleteProperty(scope, key)
-      Reflect.deleteProperty(process, key)
-    }
+    delete consoleState().blob
     const failure = {
       body: { message: "The media library needs Blob. Enable Blob in the ViteHub config." },
       status: 404,

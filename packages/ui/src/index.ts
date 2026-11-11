@@ -15,6 +15,7 @@ export * from "./components/code-block.ts";
 export * from "./components/comments.ts";
 export * from "./components/connection-status.ts";
 export * from "./components/copy-button.ts";
+export * from "./components/device-frame.ts";
 export * from "./components/filter-search.ts";
 export * from "./components/marker.ts";
 export * from "./components/message.ts";
