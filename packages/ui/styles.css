@@ -2613,23 +2613,6 @@
   }
 }
 
-/* The row owns its focus frame. Keep it outside the layer so the shared theme's frame cannot replace it. */
-[data-slot="comment-composer"][data-layout="row"] {
-  & [data-slot="prompt-input-textarea"]:focus-visible {
-    outline: none;
-  }
-
-  &:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
-    border-color: color-mix(in oklab, var(--vh-highlighted) 22%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-highlighted) 6%, transparent);
-  }
-
-  &[data-dragging="true"] [data-slot="prompt-input-group"] {
-    border-color: var(--vh-primary);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 14%, transparent);
-  }
-}
-
 /*
  * Chat, session, Markdown typeset, image preview, file views, primitive rail, and tool list.
  * They live in the components layer, so a utility class on a component, such as `<Chat class="h-96">`, overrides them.
