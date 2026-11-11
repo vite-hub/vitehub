@@ -453,6 +453,34 @@ describe("the Comments overlay on the comment parts", () => {
     expect((await comments.list())[1]![0]!.subject).toEqual({ kind: "drop", id: "abc" })
   })
 
+  it("ignores the Retry of a page the person left, and drops its toast", async () => {
+    const session = api.session
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      if (page === "/d/abc") return [{ code: "COMMENTS_UNAVAILABLE", why: "The server did not answer." }, undefined] as unknown as Awaited<ReturnType<typeof session>>
+      if (page === "/d/next") await held
+      return await session(page)
+    })
+    const { shadow } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    press(document.body, "c")
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Comments are paused"))
+    const retry = [...shadow.querySelectorAll<HTMLButtonElement>(".toast button")].find(button => button.textContent === "Retry")!
+    history.pushState(null, "", "/d/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/d/next"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")).toBeNull())
+    // A click that was already on its way when the toast went.
+    retry.click()
+    const calls = vi.mocked(api.session).mock.calls.length
+    release()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    expect(vi.mocked(api.session).mock.calls.length).toBe(calls)
+  })
+
   it("uses only the answer of the latest navigation", async () => {
     const session = api.session
     let release!: () => void

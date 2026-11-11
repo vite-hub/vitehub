@@ -2,6 +2,7 @@ import * as v from "valibot"
 import type { RuleContext } from "vite-doctor/extension"
 
 import { viteHubInventory } from "./inventory.ts"
+import { viteHubServerImports } from "../nuxt-server-imports.ts"
 
 /** A script AST node from oxc-parser. */
 export type AstNode = { type: string, [key: string]: unknown }
@@ -318,13 +319,10 @@ export function scopeIndex(ctx: RuleContext): ScopeIndex {
   return index
 }
 
-/** Auto-imports that `vite-hub/nuxt` registers for Nitro server code. */
-const nuxtServerAutoImports = new Map<string, ImportOrigin>([
-  ["kv", { source: "vite-hub/kv", name: "kv" }],
-  ["blob", { source: "vite-hub/blob", name: "blob" }],
-  ["db", { source: "vite-hub/database/drizzle", name: "db" }],
-  ["schema", { source: "vite-hub/database/drizzle", name: "schema" }],
-])
+/** Auto-imports that `vite-hub/nuxt` can register for Nitro server code. */
+const nuxtServerAutoImports = new Map<string, ImportOrigin>(
+  Object.values(viteHubServerImports).flatMap(sources => Object.entries(sources).flatMap(([source, names]) => names.map((name: string): [string, ImportOrigin] => [name, { source, name }]))),
+)
 
 export function isServerFile(path: string): boolean {
   return /(?:^|\/)server\//.test(path)
