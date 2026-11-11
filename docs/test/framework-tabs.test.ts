@@ -16,6 +16,7 @@ const singleFramework: Record<string, string> = {
   "docs-site/configure.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/get-started.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/index.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "frameworks-hosts/nuxt-server-auto-imports.md nuxt.config.ts": "The page is about the Nuxt module's server auto-imports.",
   "frameworks-hosts/nuxt.md nuxt.config.ts": "The page is about the Nuxt module.",
   "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",

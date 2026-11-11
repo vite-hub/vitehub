@@ -61,7 +61,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "import { defineAgent } from '@vite-hub/agent'",
       "export default defineAgent({ description: 'Other Agent', runtime: false, driver: { run: () => 'other' } })",
     ].join("\n"))
-    const plugin = hubAgent({ runtime: hosting === "deno" ? "deno" : undefined, providers: { state: { provider: "memory" } } })
+    const plugin = hubAgent({ runtime: hosting === "deno" ? "deno" : undefined, providers: { state: { driver: "memory" } } })
     if (typeof plugin.config !== "function") throw new Error("Expected config hook")
     await plugin.config.call({} as never, { root }, { command: "build", mode: "production" })
     const config = await resolveConfig({ root, configFile: false, build: { outDir: "dist" } }, "build")

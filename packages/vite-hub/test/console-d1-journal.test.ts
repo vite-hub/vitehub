@@ -4,7 +4,7 @@ import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
-import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-invocations"
 
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
@@ -13,8 +13,8 @@ import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations 
 
 import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 
-import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
-import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
+import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations"
+import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/internal/default-invocations"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
