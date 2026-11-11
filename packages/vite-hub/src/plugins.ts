@@ -29,7 +29,6 @@ import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlug
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
-import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
@@ -40,7 +39,7 @@ import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
-import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
+import { consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions } from "./deployment.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
@@ -467,7 +466,11 @@ export interface ViteHubOptions {
    * in the Database that `database` names, and enable `database` when it is unset.
    */
   connections?: boolean | ConnectionsOptions
-  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }` for development only, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
+  /**
+   * The Console endpoint, `POST /_vitehub/rpc`, which the ViteHub Console at console.vitehub.dev and the CLI call with
+   * signed requests. Off by default. `true` takes calls signed with a key in `VITEHUB_CONSOLE_KEY_<NAME>`.
+   * `{ auth: false }` takes calls without a signature, for development only.
+   */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
@@ -1206,10 +1209,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && plan.preset !== "netlify"))
   // The packages of these features are optional peers. One error lists every package that the app must add.
-  const consoleAuth = consoleAuthConfig(configuredConsole)
-  const consoleSignIn = consoleAuth
-    ? !("provider" in consoleAuth && consoleAuth.provider === "cloudflare-access")
-    : configuredConsole?.auth === "app" && Boolean(options.auth)
   assertFeaturePackages(([
     ["agent", options.agent || telemetry],
     ["auth", options.auth],
@@ -1219,7 +1218,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
     ["console mcp-client", isConsoleMcpClientEnabled(configuredConsole)],
-    ["console sign-in", consoleSignIn],
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
@@ -1285,7 +1283,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(agentChannelEnvPlugin())
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
-  plugins.push(publicUrlPlugin(options.publicUrl, configuredConsole?.auth === "token"))
+  plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
@@ -1337,7 +1335,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 
-  plugins.push(setupDevPlugin({ origins: configuredConsole?.origins }))
+  plugins.push(setupDevPlugin())
   plugins.push(operationsCheckPlugin())
   // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
   const devOperationsOnly = configuredConsole === undefined
@@ -1348,10 +1346,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       blobStores: consoleBlobStores,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
-      connections: options.connections,
       runtimeCapabilityImports,
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
-      preset: plan.preset,
       rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,
       rateLimitScanDirs: options.rateLimit && options.rateLimit !== true ? options.rateLimit.scanDirs : undefined,
       resolveAuthConfig: options.auth
@@ -1397,7 +1393,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth || consoleSignIn) {
+  if (options.auth) {
     plugins.push(requireOptionalOwner(ownerModules.authVite, "auth").hubAuth(
       options.auth === true ? {} : options.auth || false,
       {
@@ -1441,13 +1437,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.browser) plugins.push(requireOptionalOwner(browserVite, "browser").hubBrowser(options.browser === true ? undefined : options.browser))
   if (options.channels) plugins.push(requireOptionalOwner(channelsVite, "channels").hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
-    if (options.connections !== true && options.connections.management && !configuredConsole) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" } or console: { auth: { ... } }. In vite dev, console: { auth: false } also works.' })
-    }
     const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
     const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
-    // The Console actor module checks the Console or app Auth session in every management route.
-    if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
     plugins.push(requireOptionalOwner(connectionsVite, "connections").hubConnections(connectionsOptions))
   }
   else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())

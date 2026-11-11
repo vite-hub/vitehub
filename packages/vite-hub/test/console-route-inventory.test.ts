@@ -28,9 +28,10 @@ function owner(root: string, path: string): string {
 
 /**
  * Every route, middleware, Nitro plugin, and public asset directory that ViteHub hands to Nitro for one production
- * build, one line each, sorted. A Console route that a change adds or removes shows here.
+ * build, one line each, sorted. A Console route that a change adds or removes shows here. `connections.management` sets
+ * the app's own actor module, so the Connections management API is the app's, not the Console's.
  */
-async function nitroInventory(consoleOptions: ConsoleOptions): Promise<{ handlers: string[], plugins: string[], publicAssets: string[] }> {
+async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ handlers: string[], plugins: string[], publicAssets: string[] }> {
   const root = await createProject({
     "package.json": JSON.stringify({ name: "console-route-inventory", private: true, type: "module" }),
     "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
@@ -49,7 +50,7 @@ async function nitroInventory(consoleOptions: ConsoleOptions): Promise<{ handler
       channels: true,
       comments: true,
       connections: { management: { actor: "./server/connections-actor.ts" } },
-      console: { ...consoleOptions, authorize: "./server/console-authorize.ts", invoke: true, mcpClient: true },
+      console: consoleOptions,
       database: true,
       kv: true,
       preset: "node",
@@ -71,80 +72,65 @@ async function nitroInventory(consoleOptions: ConsoleOptions): Promise<{ handler
   }
 }
 
-/** Registered with every Console sign-in mode. */
-const everyMode = {
-  handlers: [
-    "route ALL /_vitehub/mcp console/server/mcp.js",
-    "route ALL /_vitehub/page/session app/.vitehub/nitro/comments/page-session.mjs",
-    "route ALL /_vitehub/rpc console/server/rpc.js",
-    "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
-    "route ALL /api/auth/** app/.vitehub/auth/route.ts",
-    "route GET /_vitehub/connections/callback app/.vitehub/nitro/connections/handler.ts",
-    "route GET /_vitehub/connections/connect/** app/.vitehub/nitro/connections/handler.ts",
-    "route POST /_vitehub/auth/manage console/server/auth-manage.js",
-    "route POST /_vitehub/connections app/.vitehub/nitro/connections/handler.ts",
-    "route POST /_vitehub/env/manage console/server/env-manage.js",
-  ],
-  plugins: [
-    "@vite-hub/kv/dist/runtime/nitro-plugin.js",
-    "app/.vitehub/nitro/agent/invocations.mjs",
-    "app/.vitehub/nitro/blob/plugin.ts",
-    "app/.vitehub/nitro/comments/plugin.mjs",
-    "app/.vitehub/nitro/console/plugin.mjs",
-    "app/.vitehub/nitro/error-log.mjs",
-    "app/.vitehub/nitro/standard-context.mjs",
-    "app/.vitehub/nitro/workflow/dev-plugin.mjs",
-  ],
-  publicAssets: [
-    "/_vitehub/.well-known/skills console/public/skills",
-    "/_vitehub/page/assets @vite-hub/comments/dist/page",
-    "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
-  ],
-}
+/**
+ * The Console routes of an app: the one Console route, `POST /_vitehub/rpc`, which the ViteHub Console and the CLI call
+ * with signed requests, and `POST /_vitehub/auth/manage`, which keeps impersonation until one-time tickets replace it.
+ */
+const consoleRoutes = [
+  "route ALL /_vitehub/rpc console/server/rpc.js",
+  "route POST /_vitehub/auth/manage console/server/auth-manage.js",
+]
 
-/** MCP OAuth discovery, with a Console sign-in that can issue OAuth tokens. */
-const mcpOAuth = {
-  handlers: [
-    "middleware ALL (every request) console/server/mcp-discovery.js",
-    "route GET /.well-known/oauth-authorization-server console/server/mcp-authorization-server.js",
-    "route GET /.well-known/oauth-authorization-server/** console/server/mcp-authorization-server.js",
-    "route GET /.well-known/oauth-protected-resource console/server/mcp-metadata.js",
-    "route GET /.well-known/oauth-protected-resource/** console/server/mcp-metadata.js",
-  ],
-  plugins: ["console/server/mcp-discovery-nitro2.js"],
-}
+/** App features that stay. They serve the app and its visitors, not the Console. */
+const appRoutes = [
+  // The Comments API of the overlay, with the app's own identity.
+  "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
+  // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
+  "route ALL /_vitehub/page/session app/.vitehub/nitro/comments/page-session.mjs",
+  // App Auth: the sign-in of the app's own users.
+  "route ALL /api/auth/** app/.vitehub/auth/route.ts",
+  // The Connections management API of the app. The test config mounts it with the app's own actor module.
+  "route GET /_vitehub/connections/callback app/.vitehub/nitro/connections/handler.ts",
+  "route GET /_vitehub/connections/connect/** app/.vitehub/nitro/connections/handler.ts",
+  "route POST /_vitehub/connections app/.vitehub/nitro/connections/handler.ts",
+]
+
+const plugins = [
+  "@vite-hub/kv/dist/runtime/nitro-plugin.js",
+  "app/.vitehub/nitro/agent/invocations.mjs",
+  "app/.vitehub/nitro/blob/plugin.ts",
+  "app/.vitehub/nitro/comments/plugin.mjs",
+  "app/.vitehub/nitro/console/plugin.mjs",
+  "app/.vitehub/nitro/error-log.mjs",
+  "app/.vitehub/nitro/standard-context.mjs",
+  "app/.vitehub/nitro/workflow/dev-plugin.mjs",
+]
+
+const publicAssets = [
+  // The public ViteHub skill of the installed `vite-hub` version, for `npx skills add <app>/_vitehub`. Static files.
+  "/_vitehub/.well-known/skills console/public/skills",
+  // The page tools loader and the Comments overlay script.
+  "/_vitehub/page/assets @vite-hub/comments/dist/page",
+  "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
+]
 
 describe("Nitro routes of a production build with every Console section on", () => {
+  it("serves one Console route, POST /_vitehub/rpc, plus impersonation until PR E", async () => {
+    const inventory = await nitroInventory({ invoke: true, mcpClient: true })
+    expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
+    // The Console MCP, OAuth discovery, CORS, sign-in, Console Auth, and Env management are gone from apps.
+    const removed = ["/.well-known/oauth", "/_vitehub/mcp", "/_vitehub/sign-in", "/_vitehub/api/auth", "/_vitehub/env/manage"]
+    expect(inventory.handlers.filter(line => removed.some(path => line.split(" ")[2]!.startsWith(path)))).toEqual([])
+    expect(inventory.handlers.filter(line => line.startsWith("middleware"))).toEqual([])
+    expect(inventory.plugins.filter(plugin => /console-preflight|mcp-discovery/.test(plugin))).toEqual([])
+  }, 120_000)
+
   it.each([
-    {
-      name: "app Auth",
-      console: { auth: "app" },
-      handlers: [...mcpOAuth.handlers, "middleware ALL /_vitehub/sign-in console/server/sign-in.js"],
-      plugins: [...mcpOAuth.plugins, "console/server/console-preflight.js"],
-    },
-    {
-      name: "a Console token",
-      console: { auth: "token" },
-      handlers: [],
-      plugins: ["console/server/console-preflight.js"],
-    },
-    {
-      name: "GitHub Console Auth",
-      console: { auth: { provider: "github", allowedEmails: ["owner@example.com"], databasePath: ".data/console.sqlite" } },
-      handlers: [
-        ...mcpOAuth.handlers,
-        "middleware ALL /** app/.vitehub/nitro/console/auth-middleware.mjs",
-        "route ALL /_vitehub/api/auth/** app/.vitehub/nitro/console/auth-route.mjs",
-        "route GET /_vitehub/sign-in app/.vitehub/nitro/console/auth-sign-in.mjs",
-      ],
-      plugins: mcpOAuth.plugins,
-    },
-  ] satisfies Array<{ name: string, console: ConsoleOptions, handlers: string[], plugins: string[] }>)("with $name as Console sign-in", async ({ console, handlers, plugins }) => {
-    expect(await nitroInventory(console)).toEqual({
-      handlers: [...everyMode.handlers, ...handlers].sort(),
-      plugins: [...everyMode.plugins, ...plugins].sort(),
-      publicAssets: everyMode.publicAssets,
-    })
+    { name: "console: true", options: true },
+    { name: "console.authorize", options: { authorize: "./server/console-authorize.ts", impersonation: true } },
+  ] satisfies Array<{ name: string, options: true | ConsoleOptions }>)("serves the same Console routes with $name", async ({ options }) => {
+    const inventory = await nitroInventory(options)
+    expect(inventory.handlers.filter(line => line.includes(" console/"))).toEqual(consoleRoutes)
   }, 120_000)
 })
 

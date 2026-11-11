@@ -175,7 +175,7 @@ describe("Comments MCP tools", () => {
 
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
+    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
     expect((await tools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: null, event: request })).isError).toBeUndefined()
     expect((await tools[3]!.call({ id: thread!.id }, { user: null, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)
