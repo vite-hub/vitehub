@@ -67,6 +67,34 @@ Set `route: false` in `defineContent()` to disable the public `/api/content/**` 
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
 `defineContentHandler(content)` also returns 404 when this option is false.
 
+## Live GitHub Sources
+
+A `github()` Source with a GitHub token is live. Content serves one commit of its branch, the head, and keeps the head in ViteHub KV under `content:head:<source>`. A push does not change what readers get until the head moves.
+
+```ts
+// server/content.ts
+import { defineContent } from "@vite-hub/content"
+import { github } from "@vite-hub/source"
+
+export default defineContent({
+  sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+})
+```
+
+```ts fragment
+await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null }
+await content.sources.advance("docs") // move to the latest commit of main when every document parses
+await content.sources.pin(sha, "docs") // serve this commit until unpin(), for example to roll back
+await content.sources.unpin("docs")
+```
+
+- The first read resolves the branch, validates the commit, and stores the head when KV has none.
+- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. Call `advance()` after a push, for example from a GitHub push webhook route.
+- A pinned head does not move until `unpin()`. `pin()` takes a full 40-character commit SHA and validates it too.
+- Each server instance holds the head in memory for 5 seconds. Other server instances serve a moved head within 5 seconds. `content.get()`, `list()`, `navigation()`, `search()`, and the Content route follow the head.
+- Without a token, the Source is not live: each load reads the latest commit of its branch without validation, and Content logs `CONTENT_R0020` once. The token is `github({ auth })`, or the Server Env `VITEHUB_GITHUB_TOKEN`.
+- The head uses the `default` KV store. On Cloudflare, bind a KV namespace as `KV`. `vitehub kv get content:head:docs` shows the stored head.
+
 ## Types
 
 In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.

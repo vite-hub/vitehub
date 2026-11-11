@@ -28,4 +28,7 @@ export interface GitHubArchiveFile {
 }
 
 /** What github() returns: a File Source with every optional method. */
-export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>, "getItems" | "getMeta" | "resolveRevision">>
+export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>, "getItems" | "getMeta" | "resolveRevision">> & {
+  /** Whether reads send a token: `auth`, or the Server Env token when `auth` is omitted. */
+  authenticated(): Promise<boolean>
+}

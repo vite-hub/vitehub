@@ -98,6 +98,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let alias: NonNullable<UserConfig["resolve"]>["alias"]
+  let kvEnabled = false
   const discover = () => findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
   // One parse per build environment. A watch build parses again on each rebuild.
   const snapshotsByEnvironment = new WeakMap<object, Promise<BuiltSnapshots | undefined>>()
@@ -112,26 +113,35 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
       filter: { id: { include: /\/content\.[cm]?[jt]s(?:\?.*)?$/, exclude: /\/node_modules\// } },
       async handler(code, id) {
         const environment = this.environment
-        if (!environment || environment.config.consumer !== "server" || environment.config.command !== "build") return
-        let built = snapshotsByEnvironment.get(environment)
-        if (!built) {
-          built = (async () => {
-            const file = await discover()
-            if (!file) return
-            const result = await buildContentSnapshotModules({ file, projectRoot: projectRoot ?? process.cwd(), importBase: options.importBase, alias })
-            for (const warning of result.warnings) this.warn(warning)
-            return { file, snapshots: result.snapshots }
-          })()
-          snapshotsByEnvironment.set(environment, built)
+        if (!environment || environment.config.consumer !== "server") return
+        const importBase = JSON.stringify(options.importBase ?? "@vite-hub/content")
+        let registration = ""
+        // Live `github()` Sources keep their head commit in KV. Content gets KV only when the app enables it, so an
+        // app without KV bundles none of it.
+        if (kvEnabled && resolve(id.replace(/\?.*$/, "")) === await discover()) {
+          registration += `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${importBase}; __vitehubRegisterContentKV(__vitehubContentKV);\n`
         }
-        const snapshots = await built
-        if (!snapshots || resolve(id.replace(/\?.*$/, "")) !== snapshots.file) return
-        const names = Object.keys(snapshots.snapshots)
-        if (!names.length) return
-        const loaders = names.map(name => `${JSON.stringify(name)}: () => import(${JSON.stringify(SNAPSHOT_ID + name)}).then(module => module.default)`)
-        // One line before the module body, so `defineContent()` below receives the snapshots.
-        const registration = `import { registerContentSnapshots as __vitehubRegisterContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentSnapshots({ ${loaders.join(", ")} });\n`
-        return { code: registration + code, map: null }
+        if (environment.config.command === "build") {
+          let built = snapshotsByEnvironment.get(environment)
+          if (!built) {
+            built = (async () => {
+              const file = await discover()
+              if (!file) return
+              const result = await buildContentSnapshotModules({ file, projectRoot: projectRoot ?? process.cwd(), importBase: options.importBase, alias })
+              for (const warning of result.warnings) this.warn(warning)
+              return { file, snapshots: result.snapshots }
+            })()
+            snapshotsByEnvironment.set(environment, built)
+          }
+          const snapshots = await built
+          const names = snapshots && resolve(id.replace(/\?.*$/, "")) === snapshots.file ? Object.keys(snapshots.snapshots) : []
+          if (names.length) {
+            const loaders = names.map(name => `${JSON.stringify(name)}: () => import(${JSON.stringify(SNAPSHOT_ID + name)}).then(module => module.default)`)
+            registration += `import { registerContentSnapshots as __vitehubRegisterContentSnapshots } from ${importBase}; __vitehubRegisterContentSnapshots({ ${loaders.join(", ")} });\n`
+          }
+        }
+        // Lines before the module body, so `defineContent()` below receives them.
+        return registration ? { code: registration + code, map: null } : undefined
       },
     },
     resolveId: {
@@ -201,6 +211,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
       projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice() ?? serverDirs
       alias = config.resolve.alias
+      kvEnabled = config.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")
     },
   }
 }

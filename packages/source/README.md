@@ -84,7 +84,9 @@ content receive file methods too. Record readers use `get()` and `items()`.
 `github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
 callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
-`auth: false` reads without a token.
+`auth: false` reads without a token. `authenticated()` tells whether reads send a
+token. Content serves a `github()` Source from a validated head commit only when
+it does.
 
 `glob()` takes a pattern or options. In a pattern, the folders before the first
 wildcard are `cwd`, so keys are the paths below them:
