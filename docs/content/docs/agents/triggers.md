@@ -14,17 +14,17 @@ A Trigger turns a product event, such as a new chat message or an opened ticket,
 When no Capability prepares the event, call `runAgent()` from a route.
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
+  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.pipe(v.string(), v.nonEmpty()) })))
   const runtime = getRuntimeContext(event)
   try {
-    const [error, result] = await runAgent(support, { prompt: body.prompt }, { runtimeContext: runtime })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
     if (error) throw error
     return { text: result.text }
   }
@@ -112,24 +112,26 @@ A route that calls a Trigger directly must, in order: authenticate the caller, r
 
 ## Add an application-owned Trigger
 
-A Channel connects an Agent to an outside service, such as a ticketing system. When your application defines its own Channel Kind and prepares its events, use `defineChannel()`.
+Put a trigger in the `on` map of a Channel when your own system sends events. The Agent that lists the Channel runs the input that the trigger returns.
 
-```ts [server/agents/support.ts]
-import { defineAgent } from 'vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+```ts [server/channels/ticketing.ts]
+import { defineChannelTrigger } from 'vite-hub/agent/channels'
+import { defineChannel, webhook } from 'vite-hub/channels'
 import * as v from 'valibot'
 
 const ticketOpened = v.object({
-  ticketId: v.string(),
-  summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  payload: v.object({
+    ticketId: v.string(),
+    summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  }),
 })
 
-const ticketing = defineChannel('ticketing', {
-  messages: false,
-  triggers: {
-    'ticket.opened': defineChannelTrigger({
+export default defineChannel({
+  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: () => process.env.TICKETING_WEBHOOK_SECRET }),
+  on: {
+    webhook: defineChannelTrigger({
       input: ticketOpened,
-      invoke(context, event) {
+      invoke(context, { payload: event }) {
         return {
           input: {
             prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
@@ -144,14 +146,18 @@ const ticketing = defineChannel('ticketing', {
     }),
   },
 })
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  channels: { ticketing },
+  channels: ['ticketing'],
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-`defineChannelTrigger()` infers the `event` type from any [Standard Schema](https://standardschema.dev/) implementation. Webhook authentication runs first, then validation and schema transforms, then `invoke()`. Invalid webhook input gets a generic `400 invalid_payload` response without schema details.
+The trigger gets the verified webhook as `{ payload, body, request }`, where `payload` is the parsed JSON body. `defineChannelTrigger()` infers the `event` type from any [Standard Schema](https://standardschema.dev/) implementation. Webhook authentication runs first, then validation and schema transforms, then `invoke()`. Invalid webhook input gets a generic `400 invalid_payload` response without schema details.
 
 The Trigger translates the validated event and adds trusted context. Keep model selection, tools, and execution behavior in the Agent Definition (what `defineAgent()` returns).
 
@@ -166,7 +172,7 @@ import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
-  invoke(context, event) {
+  invoke(context, { payload: event }) {
     if (event.summary.startsWith('[bot]')) return ignored('bot_ticket')
     return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
   },
@@ -306,6 +312,8 @@ With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` 
 `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 
 ### Run a task later from server code
+
+`enqueueChannelTask()` skips the trigger's `invoke`. To run `invoke` too, with its delivery ID, `serialize`, `debounce`, and Channel State, use [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code) from `vite-hub/channels`, for example to reconcile a webhook that a provider lost.
 
 `enqueueChannelTask()` runs a declared task at `notBefore` or after `delayMs` through the Channel's webhook queue. `prepare`, `failed`, retries, restart replay, and the delivery record work as for a queued webhook delivery. `input` is what `invoke` would return for the task.
 

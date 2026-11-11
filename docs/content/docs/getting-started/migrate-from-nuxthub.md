@@ -35,7 +35,7 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 4.5.2 or newer. Remove `@nuxthub/core` and install ViteHub.
+Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub.
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
@@ -108,25 +108,14 @@ driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
 Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
 `serve` keep their names, and `put` takes the same `contentType`, `prefix`,
-`addRandomSuffix`, and `customMetadata` options. Each method returns an
-`[error, value]` tuple. NuxtHub's `blob.delete()` is `blob.del()` in ViteHub.
-The methods take a `string` pathname, so check a `getRouterParam()` result for
-`undefined` before you pass it.
+`addRandomSuffix`, and `customMetadata` options. Each method except `serve`
+returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
+`Response`, with `404` for a missing file. NuxtHub's `blob.delete()` is
+`blob.del()` in ViteHub. The methods take a `string` pathname, so check a
+`getRouterParam()` result for `undefined` before you pass it.
 
-```diff [server/routes/files/[...pathname].get.ts]
-+import { blob } from "vite-hub/blob"
-+
- export default defineEventHandler(async (event) => {
-   const { pathname } = getRouterParams(event)
--  return blob.serve(event, pathname)
-+  const [error, stream] = await blob.serve(event, pathname)
-+  if (error?.code === "BLOB_NOT_FOUND") {
-+    throw createError({ statusCode: 404, statusMessage: "File not found" })
-+  }
-+  if (error) throw error
-+  return stream
- })
-```
+For a custom serving route on Nitro 3, see
+[Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
 
 `blob.handleUpload()` and `blob.handleMultipartUpload()` keep their names and
 return `[error, value]`. `handleUpload()` takes `formKey`, `multiple`, `ensure`,
@@ -153,7 +142,7 @@ without your own route, set `blob: { serve: true }`.
 ViteHub uses Drizzle, so your table definitions do not change. Move the schema
 file from `server/db/schema.ts` (or `schema.sqlite.ts`) to
 `server/databases/schema.ts`, and pass it to a Database Definition at
-`server/databases/config.ts`.
+`server/databases/default.ts`.
 
 ```ts [server/databases/schema.ts]
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -164,7 +153,7 @@ export const users = sqliteTable("users", {
 })
 ```
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from "vite-hub/database"
 import * as schema from "./schema"
 
@@ -205,7 +194,7 @@ as types in `shared/`, imports the tables from the schema file instead of
 
 NuxtHub writes SQL files to `server/db/migrations/<dialect>/` and records them
 in the `_hub_migrations` table. ViteHub writes migrations next to the Database
-Definition, in `server/databases/migrations/`. It applies them with drizzle-kit
+Definition, in `server/databases/default/migrations/`. It applies them with drizzle-kit
 for SQLite and libSQL, and with Wrangler for Cloudflare D1. These runners use
 different history tables by default.
 
@@ -222,8 +211,8 @@ from Nuxt layers and custom NuxtHub configuration. Moving only the app's
 For a new empty SQLite or libSQL database, generate and apply migrations:
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ::warning
@@ -232,10 +221,10 @@ match its schema and migration history to the new runner. Reading the
 generated SQL alone does not create a baseline.
 ::
 
-`vitehub db generate --custom` creates a migration you write by hand. NuxtHub
+`vitehub database generate --custom` creates a migration you write by hand. NuxtHub
 applied migrations during `nuxt dev` and `nuxt build`, except at build time for
 D1 binding deployments. ViteHub never applies app migrations during
-development or builds. Run `pnpm vitehub db migrate` after you pull a new migration. It applies SQLite, libSQL, and D1 HTTP migrations. A Node server build can apply them at startup with [`migrateOnStart`](/docs/database/configure#migrate-when-the-server-starts).
+development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, and D1 HTTP migrations. A Node server build can apply them at startup with [`migrateOnStart`](/docs/database/configure#migrate-when-the-server-starts).
 
 ### Baseline an existing SQLite database
 
@@ -245,11 +234,11 @@ the database while all connections are closed, or set `connection.url` in the
 Definition to keep the old location. Keep SQLite's sidecar files when needed.
 
 Keep the Definition's schema identical to the existing database, and finish
-pending NuxtHub migrations first. Start a new `server/databases/migrations/`
+pending NuxtHub migrations first. Start a new `server/databases/default/migrations/`
 directory and generate a baseline:
 
 ```bash [Terminal]
-pnpm vitehub db generate --name baseline
+pnpm vitehub database generate --name baseline
 ```
 
 Compare the generated SQL with the existing tables, columns, indexes, and
@@ -257,7 +246,7 @@ constraints. Once they match, add `IF NOT EXISTS` to each `CREATE` statement in
 the baseline `.sql` file. Keep its filename and the generated `meta/` files
 unchanged.
 
-```diff [server/databases/migrations/0000_baseline.sql]
+```diff [server/databases/default/migrations/0000_baseline.sql]
 -CREATE TABLE `users` (
 +CREATE TABLE IF NOT EXISTS `users` (
  	`id` integer PRIMARY KEY NOT NULL,
@@ -268,16 +257,16 @@ unchanged.
 +CREATE UNIQUE INDEX IF NOT EXISTS `users_name_unique` ON `users` (`name`);
 ```
 
-Apply the baseline with `pnpm vitehub db migrate`. On the existing database it
+Apply the baseline with `pnpm vitehub database migrate`. On the existing database it
 changes nothing and only records the baseline in Drizzle's
 `__drizzle_migrations` table. On a new empty database, such as a teammate's
 clone, CI, or a preview, it creates the schema. Do not replace the baseline
 with a no-op such as `SELECT 1;`: a new database then gets no tables, and the
 next migration fails.
 
-Now change the Definition's schema and run `pnpm vitehub db generate` again.
+Now change the Definition's schema and run `pnpm vitehub database generate` again.
 The next SQL file must hold only the new change. Review it, apply it with
-`pnpm vitehub db migrate`, and check the existing rows. Run the command again
+`pnpm vitehub database migrate`, and check the existing rows. Run the command again
 to confirm that it does not apply the same migration twice. Keep the SQL and
 `meta/` files in version control.
 
@@ -297,8 +286,8 @@ apply any new migration to an existing D1 database:
    in the Definition identify that database.
 2. Keep the Definition's schema identical to the deployed schema. Finish any
    pending NuxtHub migrations before the switch. Do not add schema changes yet.
-3. Start with a new `server/databases/migrations/` directory, without copied
-   NuxtHub SQL files. Run `pnpm vitehub db generate --name baseline` to capture
+3. Start with a new `server/databases/default/migrations/` directory, without copied
+   NuxtHub SQL files. Run `pnpm vitehub database generate --name baseline` to capture
    the current schema in Drizzle's snapshot and journal.
 4. Compare the generated SQL with the existing database. Once every table,
    column, index, and constraint matches, add `IF NOT EXISTS` to each `CREATE`
@@ -328,7 +317,7 @@ pnpm wrangler d1 migrations apply <database-name> --remote --config .output/serv
 ```
 
 Run `migrations list` again to confirm the baseline is recorded. Only then change
-the Definition's schema and run `pnpm vitehub db generate` for subsequent
+the Definition's schema and run `pnpm vitehub database generate` for subsequent
 changes. Drizzle compares them with the retained baseline snapshot, so the next
 migration contains only those changes. Review that SQL, rebuild, and apply it
 with Wrangler. Keep the baseline SQL and `meta/` files in version control.
@@ -455,7 +444,7 @@ folder.
    Re-uploading blobs changes upload timestamps and may change URLs or ETags.
    Keep application records of those values if your application needs them.
 3. Run `pnpm nuxt build`. A feature that the preset cannot provide fails the build.
-4. Run `pnpm vitehub inspect provider-output --json` and confirm resource IDs and
+4. Run `pnpm vitehub inspect output --json` and confirm resource IDs and
    names, as well as bindings and environment variables.
 5. Apply one schema change after the baseline. Confirm that it preserves the
    old rows and that a second migration run makes no further changes.

@@ -54,6 +54,11 @@ const UButton = defineComponent({
   },
 })
 const Passthrough = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() })
+// UEmpty as ConsoleState uses it: the title, the description, and the body.
+const UEmpty = defineComponent({
+  props: { description: String, title: String },
+  setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.(), slots.actions?.()]),
+})
 // Renders the tooltip content next to its trigger, so a test can read what the tooltip lists.
 const UTooltip = defineComponent({ setup: (_props, { slots }) => () => [slots.default?.(), slots.content && h("div", { role: "tooltip" }, slots.content())] })
 interface Column { id?: string, accessorKey?: string }
@@ -91,7 +96,7 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
     managementBase: "/_vitehub/connections", searchBase: "/search", sectionsBase: "/sections",
   })
-  app.component("UButton", UButton).component("UIcon", Passthrough)
+  app.component("UButton", UButton).component("UEmpty", UEmpty).component("UIcon", Passthrough)
     .component("UTooltip", UTooltip).component("UInput", Passthrough).component("UDashboardNavbar", Passthrough)
     .component("UDashboardPanel", UDashboardPanel).component("UTable", UTable).component("USlideover", USlideover)
   app.mount(root)
@@ -102,12 +107,8 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     if (!element) throw new Error(`Expected a row for ${name}`)
     return {
       actions: [...element.querySelectorAll("[data-column=action] [data-button]")].map(button => button.getAttribute("data-button")),
-      // Each status is a ConsoleStatus: a dot whose background names the tone, then the label.
-      statuses: [...element.querySelectorAll("[data-column=status] > div > span")].map((status) => {
-        const dot = status.querySelector("[aria-hidden=true]")?.className ?? ""
-        const tone = ["success", "warning", "error"].find(name => dot.includes(`bg-${name}`)) ?? "neutral"
-        return `${tone}:${status.textContent?.trim()}`
-      }),
+      // Each status is a Status from @vite-hub/ui: a dot with the tone, then the label.
+      statuses: [...element.querySelectorAll("[data-column=status] [data-slot=status]")].map(status => `${status.getAttribute("data-tone")}:${status.textContent?.trim()}`),
       // The pending approvals and missing scopes sit on the status line as one count button.
       notices: [...element.querySelectorAll("[data-column=status] button")].map(button => button.getAttribute("aria-label")),
       element,

@@ -50,15 +50,21 @@ export interface SandboxTaskDefinitionBundle {
 }
 
 export interface SandboxTaskExecutionOptions {
+  /** Passed to the handler; defaults to an empty object. */
   context?: Record<string, unknown>
   /** Abort this invocation and propagate the caller's abort reason. */
   signal?: AbortSignal
   sandboxId?: string
 }
 
+export type SandboxTaskRunArguments<TPayload> = undefined extends TPayload
+  ? [payload?: TPayload, options?: SandboxTaskExecutionOptions]
+  : [payload: TPayload, options?: SandboxTaskExecutionOptions]
+
+/** The handler of a Sandbox Task. The runtime calls it with the payload of the run and the run context. */
 export type SandboxTaskDefinitionHandler<TPayload = unknown, TResult = unknown> = (
-  payload?: TPayload,
-  context?: Record<string, unknown>,
+  payload: TPayload,
+  context: Record<string, unknown>,
 ) => TResult | Promise<TResult>
 
 type SandboxTaskDefinitionPayload<THandler extends (...args: any[]) => any>
@@ -80,17 +86,17 @@ export interface SandboxTaskDefinitionInput<TPayload = unknown, TResult = unknow
   extends SandboxTaskDefinitionOptions {
   /** Force project packaging on or off. Omit to detect project use automatically. */
   project?: boolean
-  run: SandboxTaskDefinitionHandler<TPayload, TResult>
+  handler: SandboxTaskDefinitionHandler<TPayload, TResult>
 }
 
 export interface SandboxTaskDefinition<TPayload = unknown, TResult = unknown> {
-  run: SandboxTaskDefinitionHandler<TPayload, TResult>
+  handler: SandboxTaskDefinitionHandler<TPayload, TResult>
   options?: SandboxTaskDefinitionOptions
 }
 
 export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) => any>
   = SandboxTaskDefinition<SandboxTaskDefinitionPayload<THandler>, SandboxTaskDefinitionResult<THandler>> & {
-    run: THandler
+    handler: THandler
   }
 
 /** The result of a sandbox invocation. HTTP semantics are used for both

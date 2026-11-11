@@ -21,10 +21,11 @@ Content handles the SEO parts that depend on your documents: each document's URL
 Set `url` on a collection or singleton to give its documents a public URL. A pattern replaces `:id` with the document id and `:<field>` with a text or number field:
 
 ```ts [server/content.ts]
-import { defineContent, documents, seo, singleton } from 'vite-hub/content'
+import { defineContent, seo } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
@@ -46,9 +47,9 @@ A read-only Source (files Content does not edit) gets a `url` from `contentSourc
 
 ```ts [server/content.ts]
 import { contentSource, defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
   source: contentSource(glob({ cwd: 'content', include: 'guides/*.md' }), { url: '/:id' }),
   seo: { sitemap: true },
 })
@@ -60,9 +61,10 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but 
 
 `seo()` is a normal field. Add it to collections whose pages need their own search and social text:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { z } from 'zod'
-import { documents, image, seo } from 'vite-hub/content'
+import { image, seo } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 
 const posts = documents({
   path: 'posts/**/*.md',
@@ -139,10 +141,17 @@ contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://v
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts] fragment
-export const content = defineContent({
+```ts [server/content.ts]
+import { defineContent, seo } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
   workspace: 'site',
-  collections: { posts, home },
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
+    home: singleton({ path: 'home.md', url: '/', fields: { title: z.string() } }),
+  },
   seo: { site: 'https://vitehub.dev', sitemap: true, robots: { disallow: ['/_vitehub'] } },
 })
 ```
@@ -162,16 +171,20 @@ The sitemap lists:
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
-Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, on Nuxt 4 with Nitro 2, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
+Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
 
 Check the output from code:
 
-```ts
-await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
-content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
+```ts [server/utils/seo-check.ts]
+import content from '../content'
+
+export async function checkSeo() {
+  await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
+  content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
+}
 ```
 
-In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
+In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
 
 ## Console
 

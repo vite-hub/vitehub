@@ -2,13 +2,10 @@ import type { ConsoleDatabaseInspection } from "../../internal.ts"
 import { asc, count, desc, getTableColumns, is, or, sql } from "drizzle-orm"
 import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { consoleHttpError } from "./http-error.ts"
 import { getConsoleDatabase } from "./database.ts"
 
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core"
-import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const defaultLimit = 50
@@ -43,6 +40,17 @@ interface ConsoleDatabaseRelationship {
   to: { column: string; table: string }
 }
 
+/** What a `databases.browse` call reads. Without a table, it reads only the tables. */
+interface ConsoleDatabaseQuery {
+  database?: string
+  direction?: "asc" | "desc"
+  limit?: number
+  offset?: number
+  search?: string
+  sort?: string
+  table?: string
+}
+
 export interface ConsoleDatabaseResponse {
   database: string
   databases: string[]
@@ -68,13 +76,12 @@ function requestError(statusCode: number, statusMessage: string): Error {
   return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0050({ message: statusMessage }))
 }
 
-function integerParameter(value: string | null, name: string, fallback: number, maximum: number): number {
-  if (value === null || value === "") return fallback
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximum) {
+function integerParameter(value: number | undefined, name: string, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback
+  if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
     throw requestError(400, `${name} must be an integer from 0 to ${maximum}.`)
   }
-  return parsed
+  return value
 }
 
 function truncate(value: string): Pick<ConsoleDatabaseCell, "truncated" | "value"> {
@@ -218,20 +225,19 @@ export function consoleDatabaseSchema(requested: string | null): {
   return { database, requestedDatabase, inspection, entries, metadata }
 }
 
-async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<ConsoleDatabaseResponse> {
-  assertConsoleRequest(event, ["GET"])
-  const url = consoleRequestURL(event)
-  const { database, requestedDatabase, inspection, entries, metadata } = consoleDatabaseSchema(url.searchParams.get("database"))
-  const requestedTable = url.searchParams.get("table") || undefined
+/** One page of rows of a database table, with the tables of the database, for the `databases.*` operations. */
+export async function browseConsoleDatabase(query: ConsoleDatabaseQuery): Promise<ConsoleDatabaseResponse> {
+  const { database, requestedDatabase, inspection, entries, metadata } = consoleDatabaseSchema(query.database ?? null)
+  const requestedTable = query.table || undefined
   const entry = requestedTable ? entries.find(candidate => candidate.name === requestedTable) : undefined
 
-  const limit = integerParameter(url.searchParams.get("limit"), "limit", defaultLimit, maximumLimit)
+  const limit = integerParameter(query.limit, "limit", defaultLimit, maximumLimit)
   if (limit < 1) throw requestError(400, `limit must be an integer from 1 to ${maximumLimit}.`)
-  const offset = integerParameter(url.searchParams.get("offset"), "offset", 0, Number.MAX_SAFE_INTEGER)
-  const search = (url.searchParams.get("search") || "").trim()
+  const offset = integerParameter(query.offset, "offset", 0, Number.MAX_SAFE_INTEGER)
+  const search = (query.search || "").trim()
   if (search.length > maximumSearchLength) throw requestError(400, "search is too long.")
-  const direction = url.searchParams.get("direction") === "desc" ? "desc" : "asc"
-  const requestedSort = url.searchParams.get("sort") || undefined
+  const direction = query.direction === "desc" ? "desc" : "asc"
+  const requestedSort = query.sort || undefined
   const sort = requestedSort && entry?.columns.some(([key]) => key === requestedSort)
     ? requestedSort
     : undefined
@@ -276,6 +282,3 @@ async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<Conso
     total,
   }
 }
-
-const guardedHandler: ConsoleAccessRoute<typeof consoleDatabaseHandler> = withConsoleAccess(consoleDatabaseHandler, { section: "databases" })
-export default guardedHandler

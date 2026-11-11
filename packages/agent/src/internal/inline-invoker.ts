@@ -1,8 +1,6 @@
-import { isRuntimeObject } from "./runtime-value.ts"
-
 export function sameInlineInvoker(left: unknown, right: unknown, pairs = new Map<object, object>()): boolean {
   if (Object.is(left, right)) return true
-  if (!isRuntimeObject(left) || !isRuntimeObject(right)) return false
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) return false
   if (pairs.has(left)) return pairs.get(left) === right
   if ([...pairs.values()].includes(right)) return false
   try {

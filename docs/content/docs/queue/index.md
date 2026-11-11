@@ -10,13 +10,14 @@ icon: i-lucide-list-ordered
 ::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Node, Docker, Cloudflare, Vercel"}
   :::code-tree{feature="queue"}
   ```ts [server/api/signup.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
-  import { runQueue } from 'vite-hub/queue'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
+  import { sendQueue } from 'vite-hub/queue'
 
   // Returns when the queue accepts the job, before it runs
   export default defineEventHandler(async (event) => {
-    const { email } = await readBody<{ email: string }>(event)
-    const [error, result] = await runQueue('welcome-email', { email })
+    const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
+    const [error, result] = await sendQueue('welcome-email', { email })
     if (error) throw error
     return result
   })
@@ -36,13 +37,14 @@ icon: i-lucide-list-ordered
   ```
 
   ```ts [server/api/reminder.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
-  import { runQueue } from 'vite-hub/queue'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
+  import { sendQueue } from 'vite-hub/queue'
 
   // Run the same job in 10 minutes
   export default defineEventHandler(async (event) => {
-    const { email } = await readBody<{ email: string }>(event)
-    const [error, result] = await runQueue('welcome-email', { email }, { delaySeconds: 600 })
+    const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
+    const [error, result] = await sendQueue('welcome-email', { email }, { delaySeconds: 600 })
     if (error) throw error
     return result
   })
@@ -103,7 +105,7 @@ icon: i-lucide-list-ordered
   :::
 
   :::product-feature-item{title="Reply first, work later" icon="i-lucide-list-ordered" to="/docs/queue/server-api#enqueue-work"}
-  `runQueue()` returns when the queue accepts the job. The job runs after your route replies.
+  `sendQueue()` returns when the queue accepts the job. The job runs after your route replies.
   :::
 
   :::product-feature-item{title="Wait before a job runs" icon="i-lucide-clock-3" to="/docs/queue/server-api#queue-enqueue-options"}

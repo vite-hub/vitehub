@@ -1,13 +1,16 @@
+import { createHash } from "node:crypto"
 import { readdir, readFile } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 
 import { createBuilder } from "vite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createFormsHandler } from "@vite-hub/forms/runtime"
 import { getStandardContext } from "@vite-hub/runtime"
 
 import { vitehub } from "../src/index.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
 
@@ -57,6 +60,7 @@ describe("Forms in a built Nitro 3 app", () => {
         "export default defineForm({",
         "  schema: v.object({ email: v.pipe(v.string(), v.email('Enter a valid email.')), message: v.pipe(v.string(), v.minLength(1)) }),",
         "  rateLimit: { limit: 3, window: '1m' },",
+        "  authorize: async ({ request }) => request.headers.get('content-type') === 'application/json' && (await request.json()).message !== 'Denied',",
         "})",
         "",
       ].join("\n"),
@@ -70,31 +74,51 @@ describe("Forms in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // No `database` option: `server/forms/` turns it on.
-    const app = () => vitehub({ preset: "node" })
+    const app = () => vitehub({ console: { auth: "token" }, preset: "node" })
+    const token = "forms-build-test-token-0123456789abcdef"
+    const authorization = `Bearer ${token}`
 
-    const generate = await runCli(root, app(), ["db", "generate"])
+    const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrations = join(root, "server/databases/migrations")
+    const migrations = join(root, "server/databases/default/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)).toEqual(["CREATE TABLE `vitehub_form_submissions`"])
-    const migrate = await runCli(root, app(), ["db", "migrate"])
+    const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
     const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [app(), nitro() as never], root } as never)
     await builder.buildApp()
+    // `server/forms/` alone turns the Forms section of the Console on.
+    const consolePlugin = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
+    expect(consolePlugin).toMatch(/installConsoleSections\([^)]*"forms"/)
+    expect(consolePlugin).toContain('"operation":"forms.list"')
 
-    const server = await startBuiltServer(root, {})
+    const server = await startBuiltServer(root, { VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") })
     try {
+      const call = async <T>(operation: string, input: unknown): Promise<T> => {
+        const response = await server.fetch("/_vitehub/rpc/__call", {
+          body: JSON.stringify({ input, operation }),
+          headers: { authorization, "content-type": "application/json", [consoleRpcHeader]: "1" },
+          method: "POST",
+        })
+        const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
+        if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
+        return body.value
+      }
       // The handler installs the inbox when the server starts, so server code reads it before any submission.
       expect(await (await server.fetch("/inbox")).json()).toEqual([])
+      expect(await call("forms.list", {})).toEqual([])
       const send = (body: unknown, headers: Record<string, string> = {}) => server.fetch("/api/_vitehub/forms/contact", {
         body: JSON.stringify(body),
         headers: { "content-type": "application/json", referer: "http://localhost/pricing", ...headers },
         method: "POST",
       })
+      // Authorization can read the bounded host request, and a refusal leaves all three rate-limit attempts.
+      const denied = await send({ email: "ada@example.com", message: "Denied" })
+      expect(denied.status).toBe(401)
       const created = await send({ email: "ada@example.com", message: "Hello" })
       expect(created.status).toBe(201)
       const { id } = await created.json() as { id: string }
@@ -109,6 +133,52 @@ describe("Forms in a built Nitro 3 app", () => {
 
       const inbox = await (await server.fetch("/inbox")).json() as Array<{ id: string, data: unknown, page: string | null, status: string }>
       expect(inbox).toEqual([expect.objectContaining({ id, data: { email: "ada@example.com", message: "Hello" }, status: "open" })])
+
+      // The Console lists, reads, and marks the same submissions through the forms operations.
+      expect(await call("forms.get", { id })).toMatchObject({ id, form: "contact" })
+      expect(await call("forms.mark", { id, status: "done" })).toMatchObject({ id, status: "done" })
+      expect(await call("forms.list", { status: "open" })).toEqual([])
+      expect(await call<Array<{ id: string }>>("forms.list", { status: "done" })).toEqual([expect.objectContaining({ id })])
+
+      // `vitehub forms` runs the same operations from the command line.
+      vi.stubEnv("VITEHUB_CONSOLE_AUTHORIZATION", authorization)
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
+      const url = `http://127.0.0.1:${server.port}`
+      const cli = async (...args: string[]) => {
+        const result = await runCli(root, app(), ["forms", ...args, "--url", url, "--json"])
+        expect(result.stderr).toBe("")
+        expect(result.exitCode).toBe(0)
+        return JSON.parse(result.stdout) as unknown
+      }
+      expect(await cli("mark", id, "spam")).toMatchObject({ id, status: "spam" })
+      expect(await cli("get", id)).toMatchObject({ id, form: "contact", status: "spam", data: { email: "ada@example.com", message: "Hello" } })
+      expect(await cli("list", "--status", "spam", "--form", "contact")).toEqual([expect.objectContaining({ id })])
+      expect(await cli("--status", "open")).toEqual([])
+      const table = await runCli(root, app(), ["forms", "list", "--url", url])
+      expect(table.stdout.split("\n")[0]).toMatch(/^ID +FORM +STATUS +SENT AT +TEXT$/)
+      expect(table.stdout).toContain(`${id}  contact  spam`)
+      expect((await runCli(root, app(), ["forms", "mark", id, "done", "--url", url])).stdout).toBe(`Marked ${id} done.\n`)
+      const wrong = await runCli(root, app(), ["forms", "mark", id, "closed", "--url", url])
+      expect(wrong.exitCode).toBe(1)
+      expect(wrong.stderr).toContain("status")
+
+      // MCP offers the same operations as tools.
+      const mcp = async (method: string, params?: unknown) => {
+        const response = await server.fetch("/_vitehub/mcp", {
+          body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, ...(params ? { params } : {}) }),
+          headers: { accept: "application/json, text/event-stream", authorization, "content-type": "application/json" },
+          method: "POST",
+        })
+        expect(response.status).toBe(200)
+        return (await response.json() as { result: Record<string, unknown> }).result
+      }
+      const tools = (await mcp("tools/list")).tools as Array<{ name: string, annotations: { readOnlyHint: boolean } }>
+      expect(tools.filter(tool => tool.name.startsWith("forms_")).sort((a, b) => a.name.localeCompare(b.name)).map(tool => [tool.name, tool.annotations.readOnlyHint])).toEqual([["forms_get", true], ["forms_list", true], ["forms_mark", false]])
+      expect(await mcp("tools/call", { name: "forms_mark", arguments: { id, status: "open" } })).toMatchObject({ isError: false, structuredContent: { id, status: "open" } })
+      expect(await mcp("tools/call", { name: "forms_list", arguments: { status: "open" } })).toMatchObject({ isError: false })
+      expect(await call<Array<{ id: string }>>("forms.list", { status: "open" })).toEqual([expect.objectContaining({ id })])
     }
     finally {
       server.close()

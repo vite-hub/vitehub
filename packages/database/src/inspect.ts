@@ -11,7 +11,7 @@ import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
-import type { DatabaseConfigValue, DBModulePublicOptions } from "./types.ts"
+import type { DatabaseConfigValue, DatabaseOptions } from "./types.ts"
 
 export interface DatabaseInspectionOptions {
   /** Whether the integration's `cloudflare.http` makes development queries remote. */
@@ -54,7 +54,7 @@ function describeUse(use: ResolvedDatabaseUse): ViteHubDefinitionField {
 // The implicit default Database exists for the contributions that need it, so name them.
 function describeImplicitDefault(needs: readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]): string {
   const by = needs.length ? ` for ${[...new Set(needs.map(need => `plugin ${JSON.stringify(need.plugin)}`))].join(", ")}` : ""
-  return `Implicit. The app has no Database Definition, so ViteHub adds an empty default Database${by}. Add \`server/databases/config.ts\` to define it yourself.`
+  return `Implicit. The app has no Database Definition, so ViteHub adds an empty default Database${by}. Add \`server/databases/default.ts\` to define it yourself.`
 }
 
 /**
@@ -111,7 +111,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
 export interface DatabaseResourceInspectionOptions {
   contributions?: CollectedDatabaseContributions
   env?: Record<string, string | undefined>
-  options: DBModulePublicOptions | undefined
+  options: DatabaseOptions | undefined
   /** Root that holds `.vitehub/provision.json`. */
   provisionRoot: string
   rootDir: string

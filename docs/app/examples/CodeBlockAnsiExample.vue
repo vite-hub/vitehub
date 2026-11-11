@@ -19,7 +19,7 @@ const lines = useHighlightedCode(output, "ansi");
   <div class="flex w-full max-w-md flex-col gap-4">
     <CodeBlock>
       <CodeBlockHeader>
-        <CodeBlockTitle><UIcon name="i-ph-terminal-light" />Terminal</CodeBlockTitle>
+        <CodeBlockTitle><UIcon name="i-lucide-terminal" />Terminal</CodeBlockTitle>
         <CodeBlockActions>
           <CodeBlockCopyButton :value="plain" />
         </CodeBlockActions>

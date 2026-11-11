@@ -10,6 +10,7 @@ import * as v from "valibot"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { consoleCredentialHeaders, operationCredentialHint } from "@vite-hub/internal/operations"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { isLoopbackHost } from "./api-key.ts"
@@ -34,7 +35,8 @@ export interface ConnectionsCliOptions {
 
 interface ParsedArgs {
   confirm?: string
-  cookie?: string
+  /** Console credentials for an app named with `--url` or `VITEHUB_CONNECTIONS_URL`, and `--cookie`. */
+  credentials: Headers
   flags: Map<string, string | true>
   json: boolean
   positionals: string[]
@@ -42,6 +44,8 @@ interface ParsedArgs {
 }
 
 class CliError extends Error {}
+
+const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })
 
 const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
@@ -68,14 +72,18 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     if (inline === undefined) index += 1
     flags.set(flag, value)
   }
-  const url = flags.get("--url")
+  const url = stringFlag(flags.get("--url")) ?? (env.VITEHUB_CONNECTIONS_URL || undefined)
+  // A discovered dev server never receives deployment credentials, as in the operation commands.
+  const credentials = url ? consoleCredentialHeaders(env) : new Headers()
+  const cookie = stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE
+  if (cookie) credentials.set("cookie", cookie)
   return {
     confirm: stringFlag(flags.get("--confirm")),
-    cookie: stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE,
+    credentials,
     flags,
     json: flags.has("--json"),
     positionals,
-    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || devServerUrl(context)),
+    url: url ?? devServerUrl(context),
   }
 }
 
@@ -123,6 +131,7 @@ const inspectionSchema = v.object({
   connectedAt: v.optional(v.string()),
   refreshedAt: v.optional(v.string()),
   mcp: v.optional(v.string()),
+  docs: v.optional(v.string()),
   expiresAt: v.optional(v.string()),
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
@@ -146,7 +155,7 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
   operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
 })) })
 
-async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
+async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect: RequestInit["redirect"] = "manual"): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
   // Completion consumes one-use state before exchanging the token (up to 30 seconds), verifying identity,
@@ -158,14 +167,15 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     const init: RequestInit = {
       body: JSON.stringify(body),
       headers: {
+        ...Object.fromEntries(parsed.credentials),
         "content-type": "application/json",
         origin: base.origin,
-        ...(parsed.cookie ? { cookie: parsed.cookie } : {}),
       },
       method: "POST",
+      // Keep Console credentials and management actions on the selected app origin.
+      redirect,
       signal: AbortSignal.timeout(seconds * 1_000),
     }
-    if (redirect) init.redirect = redirect
     response = await (options.fetch ?? fetch)(endpoint, init)
     text = await response.text()
   }
@@ -184,9 +194,12 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     throw new CliError(`${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.`)
   }
   if (!response.ok) {
-    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
-    const error = parsedError.success ? parsedError.output.error : undefined
-    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${error?.fix ? `\n${error.fix}` : ""}`)
+    const parsedError = v.safeParse(v.object({ error: errorBody }), value)
+    // The Console access check answers with the error fields at the top level.
+    const consoleError = v.safeParse(errorBody, value)
+    const error = parsedError.success ? parsedError.output.error : consoleError.success ? consoleError.output : undefined
+    const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? `${operationCredentialHint} Or pass --cookie.` : undefined)
+    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${fix ? `\n${fix}` : ""}`)
   }
   const result = v.safeParse(schema, value)
   if (!result.success) throw new CliError(`${endpoint.href} returned an invalid Connections response.`)
@@ -343,7 +356,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     },
   },
   inspect: {
-    description: "Show one Connection: account, scopes, and actions.",
+    description: "Show one Connection: account, scopes, actions, and its docs.",
     usage: "vitehub connections inspect <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
       const { connection } = await request(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") }, connectionResponse)
@@ -352,6 +365,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         describeConnection(connection),
         `  granted scopes: ${connection.scopes.granted.join(" ") || "none"}`,
         ...connection.actions.map(action => `  ${action.write ? "write" : "read "}  ${action.id}${action.highRisk ? "  high risk" : ""}`),
+        ...(connection.docs ? ["", connection.docs.trim()] : []),
       ].join("\n"))
     },
   },
@@ -503,6 +517,8 @@ function usage(): string {
     "Options:",
     "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
     "  --cookie <value>  Console session cookie (or VITEHUB_CONNECTIONS_COOKIE) for protected apps.",
+    "                With --url or VITEHUB_CONNECTIONS_URL, the Console credentials VITEHUB_CONSOLE_AUTHORIZATION,",
+    "                VITEHUB_CONSOLE_COOKIE, and CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are sent too.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
     "",
