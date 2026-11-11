@@ -1,7 +1,7 @@
 /**
  * The Auth management operations of the Console. Each read and each action of the Auth section is one operation on the
- * Console RPC. Impersonation is not an operation: it sets the app session cookie, so it stays on
- * `POST /_vitehub/auth/manage`.
+ * Console RPC. Impersonation sets the app session cookie, so its operations return a one-time link that the browser
+ * opens on the app origin.
  */
 export const authConsoleReadOperations = {
   activity: "auth.activity",
@@ -24,6 +24,12 @@ export const authConsoleActionOperations = {
   revokeSessions: "auth.revoke-sessions",
   setRole: "auth.set-role",
   unban: "auth.unban",
+} as const
+
+/** The operations that return a one-time link to start or stop impersonation in the browser. */
+export const authConsoleImpersonationOperations = {
+  start: "auth.impersonate",
+  stop: "auth.stop-impersonating",
 } as const
 
 export type AuthConsoleReadName = keyof typeof authConsoleReadOperations

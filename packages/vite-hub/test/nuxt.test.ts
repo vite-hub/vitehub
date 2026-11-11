@@ -2584,10 +2584,12 @@ describe("ViteHub Nuxt integration", () => {
       }, production.nuxt)).resolves.toBeUndefined()
 
       expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]))
-      expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" })]))
+      // Impersonation opens with a one-time link on /_vitehub/rpc, so Auth adds no Console route.
+      expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).not.toContain("/_vitehub/auth/manage")
       const replayed: Record<string, unknown> = {}
       for (const hook of production.nitroConfigHooks) await hook(replayed)
-      expect(replayed.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage" })]))
+      expect(replayed.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]))
+      expect(nitroHandlerRoutes(replayed)).not.toContain("/_vitehub/auth/manage")
       for (const config of [nitroOptions(production.nuxt), replayed]) {
         expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/.well-known/"))).toEqual([])
       }
