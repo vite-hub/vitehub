@@ -15,6 +15,7 @@ export function installAgentChannelItemReservation(value: ReserveAgentChannelIte
 
 /** Claims the Invocation of one Channel item before a replay runs it. */
 export const reserveAgentChannelItem: ReserveAgentChannelItem = async (agent, context) => {
+  // Internal invariant: the Agent root installs the reservation callback before Channel replay can run.
   if (!reserve) throw new Error("[vitehub] The @vite-hub/agent root entry must load before a Channel replay.")
   return await reserve(agent, context)
 }
