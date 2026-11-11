@@ -16,7 +16,7 @@ const usageHandler = allowed(usageHandlerRoute)
 it("registers no Usage HTTP endpoint, since the Usage operation serves the data, when configuration is reapplied", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
-    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: ["agents", "usage"] })
     const hook = plugin.config
     if (!hook) throw new Error("Missing Console config hook")
     const handler = "handler" in hook ? hook.handler : hook
@@ -30,7 +30,7 @@ it("registers no Usage HTTP endpoint, since the Usage operation serves the data,
 it.each([["env", "kv"], ["usage"]] as const)("does not register the Usage endpoint without the Agents section (%j)", async (...sections) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
-    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [...sections] })
+    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: [...sections] })
     const hook = plugin.config
     if (!hook) throw new Error("Missing Console config hook")
     const handler = "handler" in hook ? hook.handler : hook

@@ -31,7 +31,7 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleSection from "./console-section.vue";
-const props = defineProps<{ sectionsBase: string; managementBase: string }>();
+const props = defineProps<{ sectionsBase: string }>();
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
 const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const route = useRoute();
@@ -99,7 +99,7 @@ async function stopImpersonating() {
   stopping.value = true;
   stopError.value = "";
   try {
-    await changeAuthConsole(props.managementBase, { action: "stopImpersonating" });
+    await changeAuthConsole({ action: "stopImpersonating" });
     if (target) selectedUser.value = target;
     await refresh();
   } catch (cause) {
@@ -555,14 +555,12 @@ onBeforeUnmount(() => {
     </UDashboardPanel>
     <ConsoleAuthDetail
       v-if="description"
-      :base="managementBase"
       :id="selectedUser"
       :description="description"
       @close="selectedUser = undefined"
       @changed="refresh"
     />
     <ConsoleAuthAction
-      :base="managementBase"
       :action="action"
       :id="actionId"
       :name="actionName"

@@ -45,7 +45,7 @@ export const userSession = useUserSession()
 
 For a custom `basePath` or Better Auth client plugins, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`. A custom client must include it in `basePath`.
 
-Better Auth loads on the first Auth request, the first request an access route matches, or the first Console request with `console: { auth: "app" }`. A separate `console.auth` Definition still loads it at startup. Importing `vite-hub/auth/server` also loads it, so import it in routes, not in a Nitro plugin or global middleware. A cold start then does not compile it.
+Better Auth loads on the first Auth request, or the first request an access route matches. Importing `vite-hub/auth/server` also loads it, so import it in routes, not in a Nitro plugin or global middleware. A cold start then does not compile it.
 
 Server code reads the Better Auth instance of a request with `useAuth(event)`.
 
@@ -132,7 +132,7 @@ import { isGitHubOrgMember } from 'vite-hub/auth'
 export const isTeamMember = (token: string | null | undefined) => isGitHubOrgMember(token, 'acme', { cacheMs: 300_000 })
 ```
 
-The cache is in memory, so each Worker isolate or server process has its own. Inline Console Auth with `org` runs the same check at sign-in, without a cache.
+The cache is in memory, so each Worker isolate or server process has its own.
 
 ### Authorize access routes
 
@@ -172,4 +172,4 @@ Generated access middleware loads `createAuthAccessHandler(routes, definition?)`
 
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` to a signed-out browser instead of redirecting to provider sign-in. Use it when the host shows its own sign-in page and starts provider sign-in on a click. By default, it keeps the `access.signIn` redirect.
 
-[Console](/docs/development/console#protect-the-console-route) covers its page, RPC endpoint, provider status route, and disabled behavior. The Console can use its own Console Auth instead of these access routes. On Cloudflare Workers, the [Cloudflare Access provider](/docs/development/console#protect-the-console-route) protects it without a Better Auth database.
+The [Console](/docs/development/console#protect-the-console-route) endpoint does not use these access routes. It takes only signed requests and one-time links.
