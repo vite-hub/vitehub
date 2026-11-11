@@ -639,7 +639,7 @@ export function defineContent<
   })
   /**
    * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
-   * `github()` Source, so only the first read after a head moves calls GitHub, and then only for the pages that changed.
+   * `github()` Source. Shared atomic date leases can coordinate refreshes across server instances.
    */
   async function routedPages(site: string | undefined, waitUntil: ContentSitemapOptions["waitUntil"]): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
     const pages = await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)
@@ -756,6 +756,7 @@ export function defineContent<
     return served?.locale === undefined ? found : { ...found, locale: served.locale }
   }
   const historyApi = createContentHistory({
+    ...(seo?.dateLeases ? { dateLeases: seo.dateLeases } : {}),
     ...(documentsRuntime ? { resolve: (path: string) => publishedPage(documentsRuntime, path) } : {}),
     revisions: (collection, id, revisionOptions) => requireDocuments().revisions(collection, id, revisionOptions),
     page: async (path) => {
