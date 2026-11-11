@@ -300,7 +300,6 @@ describe("framework package contract", () => {
       "./console/mcp-client",
       "./console/server",
       "./console/ui",
-      "./deployment",
       "./doctor",
       "./logs",
       "./logs/host",
