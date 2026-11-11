@@ -1999,6 +1999,26 @@
     z-index: 1;
   }
 
+  /* A long thread in the margin keeps inside the screen: its messages scroll, and the reply box stays in view. */
+  [data-slot="comment-layer-popover"][data-margin="true"][data-margin-key] {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 2rem);
+  }
+
+  [data-slot="comment-layer-popover"][data-margin="true"] > [data-slot="comment-thread"] {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  [data-slot="comment-layer-popover"][data-margin="true"] [data-slot="comment-thread-messages"] {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+
   [data-slot="comment-margin-card"] [data-slot="comment-list-text"] {
     -webkit-line-clamp: 3;
   }
