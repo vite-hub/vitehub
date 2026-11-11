@@ -15,6 +15,7 @@ import { contentRefTokenParameter, defineContent, defineContentPreset, defineCon
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 import type { ContentPreviewPath, ContentSourcePreview } from "../src/index.ts"
+import type { ContentHub } from "comark-content"
 
 const cleanup: Array<() => Promise<void> | void> = []
 let fake: FakeGitHub
@@ -351,7 +352,7 @@ describe("content.sources.route()", () => {
     const readTitle = defineContentPlugin(() => ({
       name: "read-title",
       setup(instance) {
-        return { readTitle: () => instance.get("/guide") }
+        return { readTitle: async () => (await instance.snapshot()).items.find(item => item.path === "/guide") }
       },
     }))
     const content = defineContent({
@@ -361,13 +362,16 @@ describe("content.sources.route()", () => {
       logger: false,
     })
     cleanup.push(() => content.dispose())
-    const read = async () => [
-      await content.media.get("docs/logo.png"),
-      (await content.media.list(["docs"])).map(item => item.path).sort(),
-      (await content.instances.find(instance => instance.name === "docs")!.get("/guide"))?.data.title,
-      (await content.readTitle())?.data.title,
-      (await content.instances.find(instance => instance.name === "other")!.get("/guide"))?.data.title,
-    ]
+    const read = async () => {
+      const composedMedia: NonNullable<ContentHub["media"]> = content.media
+      return [
+        await composedMedia.get("docs/logo.png"),
+        (await composedMedia.list(["docs"])).map(item => item.path).sort(),
+        (await content.instances.find(instance => instance.name === "docs")!.get("/guide"))?.data.title,
+        (await content.readTitle())?.data.title,
+        (await content.instances.find(instance => instance.name === "other")!.get("/guide"))?.data.title,
+      ]
+    }
     let result: unknown
     await content.sources.route(new Request("https://docs.example/tree/feat/open/-/guide"), async () => {
       result = await read()
@@ -422,8 +426,9 @@ describe("defineContentPreviewRoutesPlugin()", () => {
     const h3 = new H3()
     h3.all("/**", event => app(content)(event.req))
     const nitroApp: { h3: H3, fetch: (request: Request) => Promise<Response>, ready?: Promise<void> } = { h3, fetch: request => Promise.resolve(h3.fetch(request)) }
-    const pending = Promise.withResolvers<void>()
-    const plugins = config.plugins!.map(id => id === "async.mjs" ? () => pending.promise : typeof id === "string" && id.endsWith("/preview-routes.mjs") ? defineContentPreviewRoutesPlugin(content) : () => {})
+    let resume!: () => void
+    const pending = new Promise<void>((resolve) => { resume = resolve })
+    const plugins: Array<(app: typeof nitroApp) => void | Promise<void>> = config.plugins!.map(id => id === "async.mjs" ? () => pending : typeof id === "string" && id.endsWith("/preview-routes.mjs") ? defineContentPreviewRoutesPlugin(content) : () => {})
     // Use Nitro's actual startup gate with the generated plugin order.
     const { initAsyncPlugins } = await import(new URL("./dist/runtime/internal/async-plugins.mjs", import.meta.resolve("nitro/package.json")).href)
     for (const [index, plugin] of plugins.entries()) {
@@ -435,7 +440,7 @@ describe("defineContentPreviewRoutesPlugin()", () => {
     }
     const captured = nitroApp.fetch
     const first = captured(new Request("https://docs.example/tree/feat/open/-/guide"))
-    pending.resolve()
+    resume()
     for (const response of [await first, await captured(new Request("https://docs.example/tree/feat/open/-/guide"))]) {
       expect(response.status).toBe(200)
       expect(await response.text()).toContain("Guide on feat/open")
