@@ -510,11 +510,17 @@ export function defineContent<
     targets: source => loadCheckTargets([source]),
   }, reuseParsed)
 
-  async function loadCheckTargets(checked: readonly string[]): Promise<ContentCheckInput[]> {
+  async function loadCheckTargets(checked: readonly string[]): Promise<NonNullable<ContentCheckInput["targets"]>> {
     // Other Sources add link targets, but their availability must not reject an unrelated commit.
-    // Missing linked pages still produce findings; explicitly checked Sources must load successfully.
-    const loaded = await Promise.allSettled(Object.keys(inputs).filter(name => !checked.includes(name)).map(async name => (await loadCheckInput(name, undefined, true)).input))
-    return loaded.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+    // Retain failed Sources' URL scopes so links into them cannot silently become route warnings.
+    const names = Object.keys(inputs).filter(name => !checked.includes(name))
+    const loaded = await Promise.allSettled(names.map(async name => (await loadCheckInput(name, undefined, true)).input))
+    return loaded.map((result, index) => {
+      const name = names[index]!
+      if (result.status === "fulfilled") return { ...result.value, ...(result.value.failures?.length ? { unavailable: name } : {}) }
+      const url = contentSourceUrl(inputs[name])
+      return { items: [], unavailable: name, ...(url === undefined ? {} : { url }) }
+    })
   }
 
   async function loadCheckInput(name: string, sha?: string, published = false): Promise<{ sha: string | null, input: ContentCheckInput }> {

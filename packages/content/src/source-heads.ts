@@ -379,7 +379,7 @@ export function contentSourceHeadsRuntime(api: object): ContentSourceHeadsRuntim
 }
 
 /** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
-export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[], check?: ContentCheckOptions, targets?: (source: string) => Promise<ContentCheckInput[]> } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
+export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[], check?: ContentCheckOptions, targets?: (source: string) => Promise<NonNullable<ContentCheckInput["targets"]>> } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
   /** `defineContent({ check })`, for the link rule of `check()`. */
   const checkOptions: ContentCheckOptions = access.check ?? {}
   const states = new Map<string, HeadState>()

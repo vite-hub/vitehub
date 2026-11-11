@@ -4,6 +4,7 @@ import type { SourceItem } from "@vite-hub/source"
 
 import { contentSource, createContentInstance } from "./content-source.ts"
 import { contentDocumentUrl } from "./documents.ts"
+import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ContentCommit } from "./commit-cache.ts"
 import type { ContentSourceInput } from "./content-source.ts"
@@ -107,7 +108,10 @@ export interface ContentCheckInput {
   url?: ContentDocumentUrl
   options?: ContentCheckOptions
   /** Other configured Sources. The candidate's own documents remain authoritative. */
-  targets?: readonly Pick<ContentCheckInput, "items" | "url">[]
+  targets?: readonly (Pick<ContentCheckInput, "items" | "url"> & {
+    /** A failed Source still contributes its configured URL scope, so its outage cannot weaken link validation. */
+    unavailable?: string
+  })[]
 }
 
 /** Parsed documents of one Source, and the files that did not parse. */
@@ -410,6 +414,15 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
       const hash = url.hash.length > 1 ? url.hash.slice(1) : ""
       if (ignored(url.pathname) || ignored(`${url.pathname}${url.hash}`) || ignored(link)) continue
       const found = targets.get(target)
+      if (!found) {
+        const unavailable = input.targets?.find(source => {
+          if (!source.unavailable || typeof source.url !== "string") return false
+          if (!source.url.includes(":")) return target === normalizePath(source.url)
+          const base = urlBase(source.url)
+          return base !== "/" && (target.startsWith(base) || `${target}/` === base)
+        })
+        if (unavailable) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] ${page.path}: ${page.url} links to ${url.pathname}, but Source "${unavailable.unavailable}" could not load its link targets. Retry the check when that Source is available.` })
+      }
       if (!found && !target.startsWith(base) && `${target}/` !== base) continue
       if (!found) {
         if (scope.has(firstSegment(target))) add("link", at, `${page.url} links to ${url.pathname}, which is no page of Source "${source}". Fix the link, or add the path to \`check.ignoreLinks\` when another route serves it.`)
