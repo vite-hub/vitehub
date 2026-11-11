@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
 import { passkey } from "@better-auth/passkey"
 import { createClient } from "@libsql/client"
@@ -9,6 +9,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { createAuthMiddleware } from "better-auth/api"
 import { organization } from "better-auth/plugins"
 import { drizzle } from "drizzle-orm/libsql"
+import { migrate } from "drizzle-orm/libsql/migrator"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { passkeySignUp, sessionTeam } from "../src/accounts.ts"
@@ -23,12 +24,8 @@ async function setup(concurrent = false) {
   const client = createClient({ url: ":memory:" })
   clients.push(client)
   await client.execute("PRAGMA foreign_keys = ON")
-  const migrations = new URL("../server/databases/default/migrations/", import.meta.url)
-  const journal: { entries: { tag: string }[] } = JSON.parse(readFileSync(new URL("meta/_journal.json", migrations), "utf8"))
-  for (const entry of journal.entries) {
-    const statements = readFileSync(new URL(`${entry.tag}.sql`, migrations), "utf8").split("--> statement-breakpoint").filter(sql => sql.trim())
-    await client.migrate(statements)
-  }
+  const db = drizzle({ client })
+  await migrate(db, { migrationsFolder: fileURLToPath(new URL("../server/databases/default/migrations/", import.meta.url)) })
   let arrivals = 0
   let release = () => {}
   const barrier = new Promise<void>((resolve) => { release = resolve })
@@ -36,7 +33,7 @@ async function setup(concurrent = false) {
     baseURL: origin,
     secret,
     logger: { disabled: true },
-    database: drizzleAdapter(drizzle(client, { schema: authSqliteSchema }), { provider: "sqlite", schema: authSqliteSchema }),
+    database: drizzleAdapter(db, { provider: "sqlite", schema: authSqliteSchema }),
     databaseHooks: { session: { create: { async before(session, context) {
       return { data: { ...session, activeOrganizationId: await sessionTeam(session.userId, context) } }
     } } } },
