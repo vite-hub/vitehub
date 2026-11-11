@@ -8,7 +8,7 @@ interface RenderDatabaseRuntimeModuleOptions {
 
 export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModuleOptions): string {
   return [
-    `import { createAgentDatabase, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
+    `import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
     `import { createUseDatabase } from ${JSON.stringify(options.useDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
     ...options.imports,
@@ -24,6 +24,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "}",
     "export const databases = { ...configuredDatabases, default: defaultDatabase }",
     "export const useDatabase = createUseDatabase(databases, Object.keys(configuredDatabases))",
+    "export const useDatabaseBinding = createDatabaseBindingLookup(databases)",
     "export const agentDb = createAgentDatabase(databases)",
     "export const db = databases.default.db",
     "export const schema = databases.default.schema",

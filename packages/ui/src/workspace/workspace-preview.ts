@@ -1,4 +1,5 @@
 import { computed, defineComponent, h, ref, useId, watch } from "vue";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { icon } from "./icons.ts";
 
 function join(base: string, path: string) {
@@ -28,6 +29,7 @@ export const WorkspacePreview = defineComponent({
   },
   setup(props, { emit, expose, slots }) {
     const inputId = useId();
+    const UInput = useUIComponent("UInput");
     const draft = ref(props.path);
     const reloads = ref(0);
     watch(() => props.path, (path) => { draft.value = path; });
@@ -52,15 +54,15 @@ export const WorkspacePreview = defineComponent({
       }, [
         h("button", { "aria-label": "Reload preview", class: "vh-ws-icon-button", disabled: !src.value, title: "Reload", type: "button", onClick: reload }, [icon("rotate-cw")]),
         h("label", { class: "vh-ws-sr-only", for: inputId }, "Preview path"),
-        h("input", {
+        h(UInput, {
           autocapitalize: "off",
           autocomplete: "off",
           class: "vh-ws-preview-path",
           disabled: !src.value,
           id: inputId,
+          modelValue: draft.value,
           spellcheck: false,
-          value: draft.value,
-          onInput: (event: Event) => { draft.value = (event.target as HTMLInputElement).value; },
+          "onUpdate:modelValue": (value: string | number) => { draft.value = String(value); },
         }),
         h("a", {
           "aria-disabled": src.value ? undefined : "true",

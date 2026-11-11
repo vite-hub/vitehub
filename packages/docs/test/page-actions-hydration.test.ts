@@ -5,6 +5,7 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
+import { CopyButton, useCopy } from "@vite-hub/ui/copy-button"
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
 import { afterEach, expect, it, vi } from "vitest"
 import * as vue from "vue"
@@ -37,7 +38,7 @@ const { descriptor } = parse(readFileSync(filename, "utf8"), { filename })
 const source = compileScript(descriptor, { id: "page-actions", inlineTemplate: true }).content
 const Header = evaluate(source, {
   vue,
-  "@vueuse/core": { useClipboard: () => ({ copy: vi.fn(), copied: vue.ref(false) }) },
+  "@vite-hub/ui/copy-button": { CopyButton, useCopy },
   "#docs/navigation": {
     findDocsPage: () => ({}),
     docsMarkdownLinks: () => ({ markdownPath: "/docs/page.md" }),
