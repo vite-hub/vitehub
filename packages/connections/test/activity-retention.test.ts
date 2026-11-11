@@ -2,7 +2,7 @@ import { createClient } from "@libsql/client"
 import { createDatabaseEnvStore } from "@vite-hub/env/database"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
+import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defaultActivityRetention } from "../src/internal/activity-retention.ts"
@@ -25,7 +25,7 @@ afterEach(() => {
 function setup(activityRetention?: ConnectionActivityRetention | false) {
   const client = createClient({ url: ":memory:" })
   clients.push(client)
-  const db = drizzle(client)
+  const db = drizzle({ client: client })
   return { db, store: createDatabaseConnectionStore({ activityRetention, db, encryptionKey }) }
 }
 
@@ -116,7 +116,7 @@ describe("Connection activity retention", () => {
 
   it("logs a warning and keeps the event when pruning fails", async () => {
     const { db } = setup(false)
-    const dialect = new SQLiteAsyncDialect()
+    const dialect = new SQLiteDialect()
     const failingPrune: EnvDatabase = {
       all: query => db.all(query),
       run: query => dialect.sqlToQuery(query).sql.startsWith("DELETE FROM vitehub_env_activity") ? Promise.reject(new Error("database is locked")) : db.run(query),

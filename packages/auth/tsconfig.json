@@ -7,6 +7,9 @@
       "vitest/globals"
     ],
     "paths": {
+      "#vitehub/auth/abilities": [
+        "../../packages/auth/src/runtime/empty-abilities.ts"
+      ],
       "#vitehub/auth/definition": [
         "../../packages/auth/src/runtime/empty-definition.ts"
       ],

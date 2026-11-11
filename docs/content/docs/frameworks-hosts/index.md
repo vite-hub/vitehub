@@ -60,7 +60,7 @@ app picks its own default. Inside a Cloudflare Worker, it returns
 
 | Preset | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |
-| `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `fs-lite`, Queue `local`, Rate Limit `memory` | Sandbox |
+| `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `database` with Postgres or `fs-lite`, Queue `local`, Rate Limit `memory` | Sandbox |
 | `cloudflare` | [Cloudflare](/docs/frameworks-hosts/cloudflare) | `.output/server/wrangler.json` | Blob R2, KV Workers KV, Queue, Rate Limit, and Sandbox on Cloudflare | None |
 | `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Vercel Sandbox | Rate Limit |
 | `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Queue, Rate Limit, Sandbox |

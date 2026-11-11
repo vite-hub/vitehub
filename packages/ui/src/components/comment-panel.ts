@@ -279,6 +279,7 @@ export const CommentPanel = defineComponent({
                 error: failure.value,
                 files: files.value,
                 guard: false,
+                layout: "row",
                 mentions: mentions.value,
                 modelValue: body.value,
                 onSubmit: send,
