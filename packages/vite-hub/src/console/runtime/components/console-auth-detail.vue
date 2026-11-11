@@ -7,9 +7,8 @@ import type {
   AuthConsoleValue,
 } from "@vite-hub/auth/console";
 import { computed, ref, shallowRef, watch } from "vue";
-import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
+import { authDate, authFieldValue, changeAuthConsole, readAuthConsole } from "../client/auth-management";
 import { consoleDurationWords } from "../client/format";
-import { isRemoteProject, projectAppUrl } from "../client/project";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
 import type { ConsoleProperty } from "./console-facts";
@@ -17,7 +16,7 @@ import ConsolePropertyList from "./console-property-list.vue";
 import ConsoleSection from "./console-section.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleValue from "./console-value.vue";
-const props = defineProps<{ base: string; id?: string; description: AuthConsoleDescription }>();
+const props = defineProps<{ id?: string; description: AuthConsoleDescription }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const detail = shallowRef<AuthConsoleUserDetail>();
 const error = shallowRef<unknown>();
@@ -77,8 +76,6 @@ function act(name: AuthConsoleAction, id?: string, selectedField?: AuthConsoleFi
 async function changed(name: AuthConsoleAction) {
   emit("changed");
   if (name === "remove") emit("close");
-  else if (name === "impersonate")
-    window.location.assign(projectAppUrl("/"));
   else await refresh();
 }
 async function page(kind: "sessions" | "agents", direction: number) {
@@ -125,10 +122,6 @@ const actions = computed(() => [
 const impersonation = computed(() => {
   const settings = props.description.impersonation;
   if (!settings || !detail.value) return undefined;
-  // Impersonation sets a session cookie of the app, which a Console on another origin cannot set.
-  if (isRemoteProject()) {
-    return { enabled: false, note: "Impersonation sets a session cookie of the app, so the Console cannot start it from another origin." };
-  }
   const blocked = [
     props.description.actions.impersonate,
     detail.value.impersonation ?? { enabled: false, reason: "Reload to check this user." },
@@ -137,9 +130,23 @@ const impersonation = computed(() => {
     enabled: !blocked,
     note:
       blocked?.reason ??
-      `The session lasts ${consoleDurationWords(settings.duration)}. Activity records the start and the stop.`,
+      `A new tab opens the app as this user, in this browser's app session. It lasts ${consoleDurationWords(settings.duration)}. Activity records the start and the stop.`,
   };
 });
+const stopping = ref(false);
+const stopError = ref("");
+/** Opens a one-time link that ends the impersonation of this browser and restores your own app session. */
+async function stopImpersonating() {
+  stopping.value = true;
+  stopError.value = "";
+  try {
+    await changeAuthConsole({ action: "stopImpersonating" });
+  } catch (cause) {
+    stopError.value = cause instanceof Error ? cause.message : "Could not stop impersonating.";
+  } finally {
+    stopping.value = false;
+  }
+}
 </script>
 <template>
   <USlideover
@@ -164,9 +171,16 @@ const impersonation = computed(() => {
               :disabled="!impersonation.enabled"
               @click="act('impersonate')"
               >Impersonate</UButton
+            ><UButton
+              variant="ghost"
+              class="shrink-0"
+              :loading="stopping"
+              @click="stopImpersonating"
+              >Stop impersonating</UButton
             >
           </template>
           <p id="auth-impersonate-note" class="text-xs text-pretty text-muted">{{ impersonation.note }}</p>
+          <p v-if="stopError" role="alert" class="text-xs text-error">{{ stopError }}</p>
         </ConsoleSection>
         <ConsolePropertyList title="Profile" :items="profile" class="p-4">
           <template #value="{ item }">
@@ -350,7 +364,6 @@ const impersonation = computed(() => {
         </ConsoleSection>
       </div>
       <ConsoleAuthAction
-        :base="base"
         :action="action"
         :id="actionId"
         :user-id="id"

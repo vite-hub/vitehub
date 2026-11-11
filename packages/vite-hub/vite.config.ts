@@ -79,6 +79,7 @@ const runtimeEntries = [
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
+  "src/console/runtime/client/ticket.ts",
   "src/console/runtime/client/blob-media.ts",
   "src/console/runtime/client/documents.ts",
   "src/console/runtime/client/format.ts",
@@ -127,7 +128,8 @@ const runtimeEntries = [
   "src/console/runtime/server/invocation-workspace.get.ts",
   "src/console/runtime/server/invocations.get.ts",
   "src/console/runtime/server/env.get.ts",
-  "src/console/runtime/server/auth-manage.ts",
+  "src/console/runtime/server/auth.ts",
+  "src/console/runtime/server/tickets.ts",
   "src/console/runtime/server/logs.get.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -489,6 +491,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
+          delete exports["./console/runtime/client/ticket"];
           delete exports["./console/runtime/client/blob-media"];
           delete exports["./console/runtime/client/documents"];
           delete exports["./console/runtime/client/editor"];
@@ -536,7 +539,8 @@ export default defineConfig({
           delete exports["./console/runtime/server/invocation-workspace.get"];
           delete exports["./console/runtime/server/invocations.get"];
           delete exports["./console/runtime/server/env.get"];
-          delete exports["./console/runtime/server/auth-manage"];
+          delete exports["./console/runtime/server/auth"];
+          delete exports["./console/runtime/server/tickets"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp-client-operations"];

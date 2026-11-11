@@ -623,7 +623,7 @@ async function installConsole({
   installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections])
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsoleAppRoutes>[0] & { plugins?: string[] }
   // Nitro adds its `baseURL`, which Nuxt sets to `app.baseURL`, to every route, asset, and route rule.
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot, undefined, [...sections, ...entrySections])
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot)
   addConsoleAppRoutes(nitro, consoleRuntimeRoot)
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
@@ -1468,7 +1468,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, consoleSections)
+      addConsoleRpcHandler(config, consoleRuntimeRoot)
       addConsoleAppRoutes(config, consoleRuntimeRoot)
       // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
       // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
