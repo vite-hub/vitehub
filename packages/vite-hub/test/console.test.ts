@@ -1114,13 +1114,12 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual([
-        expect.objectContaining({ route: "/_vitehub/rpc" }),
+        // App Auth access routes leave a request that Nitro routes to the Console RPC to its own check.
+        expect.objectContaining({ route: "/_vitehub/rpc", meta: { vitehubAuthAccess: "handler" } }),
         expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" }),
       ])
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
-      // App Auth access routes leave the signed Console RPC to its own check.
-      expect(generated).toContain('vitehubExcludeAuthAccessRoute("POST", "/_vitehub/rpc")')
       expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
     } finally {
       await rm(root, { force: true, recursive: true })

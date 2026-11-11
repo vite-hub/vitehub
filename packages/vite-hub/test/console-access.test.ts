@@ -343,11 +343,9 @@ describe("generated Console access", () => {
   it("installs signed access for console: true", async () => {
     const plugin = await generatedPlugin({ console: {} }, "build")
     expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
-    // Without app Auth, there are no Auth access routes to leave the Console RPC out of.
-    expect(plugin).not.toContain("vitehubExcludeAuthAccessRoute")
   })
 
-  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("leaves only the Console POST route below %s out of app Auth access routes", async (base, route) => {
+  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("marks only the Console RPC route below %s for app Auth access routes to leave to it", async (base, route) => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
@@ -358,9 +356,12 @@ describe("generated Console access", () => {
       secondaryStorage: false,
       tables: false,
     }
-    const plugin = await generatedPlugin({ console: {}, resolveAuthConfig: () => auth }, "build", { base, nitro: { handlers: [] } })
-    expect(plugin).toContain('import { excludeAuthAccessRoute as vitehubExcludeAuthAccessRoute } from "vite-hub/auth/runtime/server"')
-    expect(plugin).toContain(`vitehubExcludeAuthAccessRoute("POST", ${JSON.stringify(route)})`)
+    const config: { base: string, nitro: { handlers: Array<{ handler: string, meta?: Record<string, unknown>, middleware?: boolean, route: string }> } } = { base, nitro: { handlers: [] } }
+    const plugin = await generatedPlugin({ console: {}, resolveAuthConfig: () => auth }, "build", config)
+    // The exception follows the route that Nitro dispatches to, not a path, so the generated plugin names none.
+    expect(plugin).not.toContain("vite-hub/auth/runtime/server")
+    const { authAccessHandlerMeta } = await import("@vite-hub/auth/runtime/server")
+    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } })])
   })
 
   it("serves development operations with Setup-only navigation and no app-served pages", async () => {
