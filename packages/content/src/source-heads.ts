@@ -39,7 +39,7 @@ export interface ContentSourceHead {
   movedAt: string | null
   /** True after `pin()`. `advance()` keeps the head until `unpin()`. */
   pinned: boolean
-  /** The newest commit that failed validation, and why. Null after the head moves past it. */
+  /** The newest commit that failed validation, and why. May remain as history after recovery; `diagnostic` says whether it still blocks the head. */
   rejected: { sha: string, at: string, reason: string } | null
   /** When Content last resolved the branch, as an ISO date. Content resolves it again after one hour without a push. */
   checkedAt: string | null
@@ -149,8 +149,16 @@ interface StoredHead {
   movedAt: string | null
   pinned: boolean
   rejected: ContentSourceHead["rejected"]
-  /** When a server instance last resolved the branch. Older heads do not have it. */
+  /** True after a valid pin or a lookup confirms the serving commit. Older heads infer recovery from `movedAt`. */
+  rejectionResolved?: boolean
+  /** The check time in heads stored before polling metadata moved to its own key. */
   checkedAt?: string | null
+}
+
+/** The last completed branch check, separate from both head authority and the short check lease. */
+interface StoredCheck {
+  origin: string
+  at: string
 }
 
 /** One commit loaded through the commit cache. `commit` is missing when a document does not parse, and `reason` says why. */
@@ -252,6 +260,11 @@ function checkKey(name: string): string {
   return `content:check:${name}`
 }
 
+/** The KV key of the last completed branch check, such as `content:checked:docs`. */
+function checkedKey(name: string): string {
+  return `content:checked:${name}`
+}
+
 /** The KV key of the last push webhook delivery of a Source, such as `content:webhook:docs`. */
 function webhookKey(name: string): string {
   return `content:webhook:${name}`
@@ -311,8 +324,8 @@ export function registerContentKV(store: ContentKV | undefined, build?: string):
 interface ContentSourceHeadsRuntime {
   /** `content.sources`. */
   api: ContentSourceHeads
-  /** Resolve heads before hub reads, including Comark's internal cache and index paths. */
-  sync(): Promise<void>
+  /** Resolve selected heads before hub reads, including Comark's internal cache and index paths. */
+  sync(names?: readonly string[]): Promise<void>
   /**
    * How the instance of a `github()` Source reads its head commit, for `createContentInstance()`. Undefined for other
    * Sources. `snapshot` is the build snapshot of the Source, which serves the commit that the build parsed.
@@ -355,8 +368,8 @@ export function contentSourceHeadsRuntime(api: object): ContentSourceHeadsRuntim
   return runtimes.get(api)
 }
 
-/** Create the head state of a Content runtime. `options` are the Comark options that validation parses with. */
-export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[] } = {}): ContentSourceHeadsRuntime {
+/** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
+export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[] } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
   const states = new Map<string, HeadState>()
   /** The commits that this server instance holds, by cache key. Each load shares one promise, so one download serves all. */
   const memory = new CommitMemory<Promise<LoadedCommit>>()
@@ -364,8 +377,8 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   const parser = { ...options, cache: undefined, logger: undefined, onError: undefined }
   /** The views of `at()`, by `<source>:<sha>`. The map order is the use order, the least recently used first. */
   const views = new Map<string, OpenView>()
-  /** Includes evicted views while a read or disposal still runs. */
-  const allViews = new Set<OpenView>()
+  /** One namespace owner per Source/SHA, including evicted views while a read or cleanup still runs. */
+  const allViews = new Map<string, OpenView>()
   let disposed = false
   /** The commits that refs resolved to, by `<source>:<ref>`, with when the lookup started. */
   const refs = new CommitMemory<{ at: number, target: Promise<ContentSourceRef> }>(MAX_HELD_REFS)
@@ -427,6 +440,16 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     await kvCall(state, store => store.set(headKey(state.name), head))
   }
 
+  async function lastCheck(state: HeadState, head: StoredHead): Promise<string | null> {
+    const stored = await kvCall(state, store => store.get<StoredCheck>(checkedKey(state.name)))
+    const at = head.checkedAt ?? head.movedAt
+    return stored?.origin === origin(state) && Date.parse(stored.at) >= (Date.parse(at ?? "") || 0) ? stored.at : at ?? null
+  }
+
+  async function checked(state: HeadState): Promise<void> {
+    await kvCall(state, store => store.set(checkedKey(state.name), { origin: origin(state), at: new Date().toISOString() }))
+  }
+
   /** Load and parse every document of `input`. Returns the documents, or the error when a document does not parse. */
   async function parse(name: string, input: ContentSourceInput): Promise<Omit<ContentCommit, "files"> | string> {
     // A fresh memory cache, so `snapshot()` reads the parsed documents back without loading the files again.
@@ -464,7 +487,8 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   function hashOf(state: HeadState): Promise<string> {
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, build: installedBuild ?? null })
+    const { prefix, schema } = contentSource(state.input)
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: installedBuild ?? null })
     return state.hash
   }
 
@@ -534,7 +558,8 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const stored = await readCommit(key)
       if (stored) {
         state.stats.kv++
-        return { files: stored.files, commit: stored }
+        // Function text cannot identify a custom plugin's captured options. Only its immutable raw files are reusable.
+        return reuseParsed ? { files: stored.files, commit: stored } : await parseCommit(state, stored.files)
       }
       state.stats.misses++
       const loaded = await parseCommit(state, await createSource(state.definition, { revision }).items())
@@ -564,10 +589,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
-  /**
-   * Move the head to the latest valid commit of the branch, and return the stored head. With `recheck`, a branch that did
-   * not move still stores the time of the check.
-   */
+  /** Move the head to the latest valid commit of the branch, and record a completed check separately. */
   async function move(state: HeadState, recheck = false): Promise<StoredHead | null> {
     const before = await read(state)
     if (before?.pinned) return before
@@ -581,39 +603,45 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
     state.limited = undefined
     if (revision.id === before?.sha) {
-      if (!recheck || !before) return before
-      const checked = { ...before, checkedAt: new Date().toISOString() }
-      await write(state, checked)
-      return checked
+      const latest = await read(state)
+      if (!before || JSON.stringify(latest) !== JSON.stringify(before)) return latest
+      if (activeRejection(before)) await write(state, { ...before, rejectionResolved: true })
+      else if (!recheck) return latest
+      await checked(state)
+      // A pin or webhook may have completed during the branch lookup. A check never restores the old head.
+      return await read(state)
     }
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
-      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, checkedAt: now }
-      : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null, checkedAt: now }
+      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, rejectionResolved: false }
+      : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null }
     // Best-effort conflict detection only. KV is not CAS: callers must serialize initialization and mutations through one writer.
     const latest = await read(state)
     if (JSON.stringify(latest) !== JSON.stringify(before)) return latest
     await write(state, next)
+    await checked(state)
     return next
   }
 
   function hold(state: HeadState, head: StoredHead | null): void {
     state.held = { head, at: Date.now() }
-    if (!head?.rejected || state.reported.has(head.rejected.sha)) return
-    state.reported.add(head.rejected.sha)
-    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha })))
+    const rejected = activeRejection(head)
+    if (!rejected || state.reported.has(rejected.sha)) return
+    state.reported.add(rejected.sha)
+    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null })))
   }
 
   /**
    * The head without a push for one hour resolves its branch again, so it moves without a webhook too. The server
    * instance that reads it first takes a one-minute lease under another KV key, so other server instances do not check
-   * too. Only the head write of the check stores `checkedAt`: a stale copy of the head never goes back to KV, and a
-   * failed check is tried again after the lease.
+   * too. A separate completion key stores `checkedAt`, so a check-only write cannot replace head authority or write the
+   * lease key twice within the provider's one-second limit. A failed check is tried again after the lease.
    */
   async function recheck(state: HeadState, head: StoredHead): Promise<StoredHead | null> {
-    const checkedAt = Date.parse(head.checkedAt ?? head.movedAt ?? "")
-    if (head.pinned || Date.now() - (Number.isNaN(checkedAt) ? 0 : checkedAt) < CHECK_MS) return head
+    if (head.pinned) return head
+    const checkedAt = Date.parse(await lastCheck(state, head) ?? "")
+    if (Date.now() - (Number.isNaN(checkedAt) ? 0 : checkedAt) < CHECK_MS) return head
     const lease = await kvCall(state, store => store.get<{ at: number }>(checkKey(state.name)))
     if (lease && Date.now() - lease.at < CHECK_LEASE_MS) return head
     await kvCall(state, store => store.set(checkKey(state.name), { at: Date.now() }))
@@ -693,7 +721,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       movedAt: head?.movedAt ?? null,
       pinned: head?.pinned ?? false,
       rejected: head?.rejected ?? null,
-      checkedAt: head?.checkedAt ?? null,
+      checkedAt: live && head ? await lastCheck(state, head) : null,
       webhook: await lastDelivery(state),
       diagnostic: diagnostic(state, head, live),
       cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, build: buildHits, kv: kvHits }, misses },
@@ -736,7 +764,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         await Promise.all([open.hub.dispose(), ...open.instances.map(instance => instance.dispose())])
       }
       finally {
-        allViews.delete(open)
+        allViews.delete(open.key)
       }
     })()
   }
@@ -746,27 +774,35 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
-  function openView(state: HeadState, sha: string): OpenView {
+  async function openView(state: HeadState, sha: string, acquire = false): Promise<OpenView> {
     assertActive()
     const key = `${state.name}:${sha}`
-    const existing = views.get(key)
-    if (existing) {
-      views.delete(key)
-      views.set(key, existing)
-      return existing
+    let open = allViews.get(key)
+    // Cleanup owns this namespace until it finishes. Concurrent waiters check the owner again after each wait.
+    while (open?.closing) {
+      await open.closing
+      assertActive()
+      open = allViews.get(key)
     }
-    const revision: SourceRevision = { id: sha, immutable: true }
-    const commits: ContentSourceCommits = {
-      revision: async () => revision,
-      files: async commit => (await load(state, commit)).files,
-      documents: origin => withCommitDocuments(origin, async () => (await load(state, revision)).commit),
+    if (!open) {
+      const revision: SourceRevision = { id: sha, immutable: true }
+      const commits: ContentSourceCommits = {
+        revision: async () => revision,
+        files: async commit => (await load(state, commit)).files,
+        documents: origin => withCommitDocuments(origin, async () => (await load(state, revision)).commit),
+      }
+      const base = createContentInstance(state.name, state.input, options, undefined, commits)
+      // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
+      const instance = base.withRef(sha)
+      open = { key, state, sha, instances: [base], view: instance, hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+      allViews.set(key, open)
     }
-    const base = createContentInstance(state.name, state.input, options, undefined, commits)
-    // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
-    const instance = base.withRef(sha)
-    const open: OpenView = { key, state, sha, instances: [base], view: instance, hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+    // An evicted view with active readers can rejoin the pool without creating another owner of its namespace.
+    open.evicted = false
+    views.delete(key)
     views.set(key, open)
-    allViews.add(open)
+    // Reserve the reader before yielding, so eviction cannot close the view between acquisition and use.
+    if (acquire) open.readers++
     while (views.size > MAX_SOURCE_VIEWS) {
       const [oldest] = views.values()
       views.delete(oldest!.key)
@@ -779,8 +815,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   /** Run one read on the view of a commit. A view that left the pool opens again, from the commit cache. */
   async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>, view: ComarkContent) => Promise<T>): Promise<T> {
-    const open = openView(state, sha)
-    open.readers++
+    const open = await openView(state, sha, true)
     try {
       return await read(open.hub, open.view)
     }
@@ -821,11 +856,17 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
+  function activeRejection(head: StoredHead | null): ContentSourceHead["rejected"] {
+    if (!head?.rejected) return null
+    const resolved = head.rejectionResolved ?? Boolean(head.movedAt && head.rejected.at < head.movedAt)
+    return resolved ? null : head.rejected
+  }
+
   function diagnostic(state: HeadState, head: StoredHead | null, live: boolean): ContentSourceHeadDiagnostic | null {
     if (!live) return state.offline ?? null
     if (state.limited) return state.limited
-    // A rejection from before the head last moved, such as a pin or a later valid push, is history, not a problem now.
-    if (head?.rejected && (!head.movedAt || head.rejected.at >= head.movedAt)) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha }))
+    const rejected = activeRejection(head)
+    if (rejected) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null }))
     return null
   }
 
@@ -878,7 +919,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })
-      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null }
+      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null, rejectionResolved: true }
       await write(state, head)
       hold(state, head)
       await serve(state, head)
@@ -897,7 +938,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
       const loaded = await load(state, { id: target.sha, immutable: true })
       if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
-      openView(state, target.sha)
+      await openView(state, target.sha)
       const read = <T>(run: (hub: ContentHub<ComarkContent[]>) => Promise<T>) => readAt(state, target.sha, run)
       return {
         ...target,
@@ -972,10 +1013,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async dispose() {
       disposed = true
       views.clear()
-      await Promise.all([...allViews].map(close))
+      await Promise.all([...allViews.values()].map(close))
     },
-    async sync() {
-      await Promise.all([...states.values()].map(state => sync(state)))
+    async sync(names) {
+      await Promise.all([...states.values()].filter(state => names === undefined || names.includes(state.name)).map(state => sync(state)))
     },
     commits(name: string, input: ContentSourceInput, snapshot?: ContentSnapshotLoader): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)

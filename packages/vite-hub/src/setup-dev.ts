@@ -9,6 +9,7 @@ import process from "node:process"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 
 import { resolveConsoleOrigins } from "./console/vite.ts"
 
@@ -111,34 +112,37 @@ async function authorizeSetupApply(server: ViteDevServer, req: IncomingMessage):
     // The TCP destination comes only from our accepted socket, never from Host or forwarding headers.
     // Re-enter the app listener so this also reaches Nuxt's separate Nitro worker and mounted apps.
     const request = "encrypted" in req.socket && req.socket.encrypted ? httpsRequest : httpRequest
-    const response = await new Promise<{ status: number, body: string }>((done, fail) => {
-      const call = request({
-        agent: false,
-        headers,
-        hostname: address,
-        method: "POST",
-        path: `${viteHubPageToolsBase(server.config).base}/_vitehub/rpc/__call`,
-        port,
-        // This is our own TLS listener, which may use a development certificate.
-        rejectUnauthorized: false,
-        signal: AbortSignal.timeout(5_000),
-      }, (res) => {
-        let body = ""
-        let size = 0
-        res.setEncoding("utf8").on("data", (chunk: string) => {
-          size += Buffer.byteLength(chunk)
-          if (size > maxBodyBytes) return res.destroy(new RangeError("Console access response is too large."))
-          body += chunk
-        }).on("end", () => done({ body, status: res.statusCode ?? 500 })).on("error", fail)
+    const outcome = await callOperationRpc("sections.list", {}, async (body) => {
+      const response = await new Promise<{ status: number, body: string }>((done, fail) => {
+        const call = request({
+          agent: false,
+          headers,
+          hostname: address,
+          method: "POST",
+          path: `${viteHubPageToolsBase(server.config).base}${operationRpcPath}`,
+          port,
+          // This is our own TLS listener, which may use a development certificate.
+          rejectUnauthorized: false,
+          signal: AbortSignal.timeout(5_000),
+        }, (res) => {
+          let body = ""
+          let size = 0
+          res.setEncoding("utf8").on("data", (chunk: string) => {
+            size += Buffer.byteLength(chunk)
+            if (size > maxBodyBytes) return res.destroy(new RangeError("Console access response is too large."))
+            body += chunk
+          }).on("end", () => done({ body, status: res.statusCode ?? 500 })).on("error", fail)
+        })
+        call.once("error", fail)
+        call.end(body)
       })
-      call.once("error", fail)
-      call.end(JSON.stringify({ input: {}, operation: "sections.list" }))
+      const document: unknown = JSON.parse(response.body)
+      return { body: document, status: response.status }
     })
-    const document: unknown = JSON.parse(response.body)
-    const value: unknown = document && typeof document === "object" && Reflect.get(document, "ok") === true ? Reflect.get(document, "value") : undefined
+    const value = outcome.ok ? outcome.value : undefined
     const sections: unknown = value && typeof value === "object" ? Reflect.get(value, "sections") : undefined
     const readOnly: unknown = value && typeof value === "object" ? Reflect.get(value, "readOnly") : undefined
-    if (response.status === 200 && Array.isArray(sections) && sections.includes("setup") && (readOnly === undefined || (Array.isArray(readOnly) && !readOnly.includes("setup")))) return
+    if (outcome.answer.status === 200 && Array.isArray(sections) && sections.includes("setup") && (readOnly === undefined || (Array.isArray(readOnly) && !readOnly.includes("setup")))) return
     return new Response("This Console access does not allow Setup writes.", { status: 403 })
   }
   catch {

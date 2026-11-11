@@ -3,10 +3,12 @@
  * reach an app on another origin.
  */
 export interface ConsoleProject {
-  /** The app origin, such as `https://agents.example.com`. An empty string is the origin of the Console page. */
+  /** The request origin, such as `https://agents.example.com`. An empty string is the Console page origin. */
   origin: string
-  /** The application mount, such as `/portal`, or an empty string when the app is at the root. */
+  /** The request mount, such as `/portal` or `/p/<project>`, or an empty string at the origin root. */
   base: string
+  /** The original app location when requests go through the Console server. Links and served media use it. */
+  app?: { origin: string, base: string }
   /**
    * The `authorization` header of each request, such as `Bearer <token>`. Cookies go only to the origin of the Console
    * page, so a project on another origin needs it. It can wait, such as for an OAuth refresh before the token expires.
@@ -17,6 +19,11 @@ export interface ConsoleProject {
    * the request again with, such as after an OAuth refresh, or `undefined` to keep the `401`.
    */
   renew?: (response: Response, sent: string) => Promise<string | undefined>
+  /**
+   * The Console server forwards the requests, such as `/p/<project>` of an `account` Console. The origin is the page's,
+   * but the app is elsewhere, so its cookies, frames, and WebSockets do not work.
+   */
+  remote?: boolean
 }
 
 let active: ConsoleProject = { origin: "", base: "" }
@@ -34,9 +41,14 @@ function urlOf(project: ConsoleProject, path: string): string {
   return `${project.origin}${project.base}${path}`
 }
 
-/** The URL of an app path on the project, such as `/_vitehub/rpc/__call` → `/portal/_vitehub/rpc/__call`. */
+/** The URL of an app path on the project, such as `/_vitehub/rpc` → `/portal/_vitehub/rpc`. */
 export function projectUrl(path: string): string {
   return urlOf(active, path)
+}
+
+/** An app link, such as a provider sign-in page or the MCP endpoint, without the Console request forward. */
+export function projectAppUrl(path: string): string {
+  return urlOf(active.app ?? active, path)
 }
 
 /**
@@ -44,7 +56,8 @@ export function projectUrl(path: string): string {
  * `/api/_vitehub/blob/a.png` gets the project origin. An absolute URL stays as it is.
  */
 export function resolveProjectUrl(url: string): string {
-  return active.origin && url.startsWith("/") && !url.startsWith("//") ? `${active.origin}${url}` : url
+  const origin = (active.app ?? active).origin
+  return origin && url.startsWith("/") && !url.startsWith("//") ? `${origin}${url}` : url
 }
 
 /**
@@ -103,5 +116,5 @@ export function isRemoteProject(): boolean {
   // Read the page origin without depending on DOM types in the package's server build.
   const location: unknown = Reflect.get(globalThis, "location")
   const pageOrigin: unknown = location instanceof Object ? Reflect.get(location, "origin") : undefined
-  return active.origin !== "" && active.origin !== pageOrigin
+  return active.remote === true || (active.origin !== "" && active.origin !== pageOrigin)
 }

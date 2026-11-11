@@ -35,7 +35,7 @@ describe("Auth Console editing", () => {
 
   it("opens the organization drawer before its data loads and opens a member's user drawer", async () => {
     const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
-    mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"
+    mocks.read.mockReset().mockImplementation((operation) => operation === "organization"
       ? new Promise((resolve, reject) => pending.push({ resolve, reject }))
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
@@ -68,7 +68,7 @@ describe("Auth Console editing", () => {
       await nextPage
       expect(state.orgOffset).toBe(0)
       const retry = state.retryOrganization()
-      expect(mocks.read).toHaveBeenLastCalledWith("/manage", "organization", { id: "org", query: { offset: 25, limit: 25 } }, expect.any(AbortSignal))
+      expect(mocks.read).toHaveBeenLastCalledWith("organization", { id: "org", query: { offset: 25, limit: 25 } }, expect.any(AbortSignal))
       pending[2]!.resolve({ id: "org" })
       await retry
       expect(state.orgOffset).toBe(25)
@@ -81,7 +81,7 @@ describe("Auth Console editing", () => {
 
   it("ignores stale organization successes and errors after selection, closing, and unmount", async () => {
     const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
-    mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"
+    mocks.read.mockReset().mockImplementation((operation) => operation === "organization"
       ? new Promise((resolve, reject) => pending.push({ resolve, reject }))
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })

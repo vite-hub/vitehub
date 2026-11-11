@@ -49,7 +49,7 @@ function appAccess() {
 describe("Console access on an H3 1 event (Nuxt 4)", () => {
   it("matches the app Auth routes by the path of an event with no url", async () => {
     const { access, requireAuthAccessRoutes, requireSession } = appAccess()
-    const rpc = new H3V1Event("/_vitehub/rpc/__call", { method: "POST" })
+    const rpc = new H3V1Event("/_vitehub/rpc", { method: "POST" })
     expect("url" in rpc).toBe(false)
     await access.check(rpc)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(rpc, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
@@ -70,7 +70,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
 
   it("still reads an H3 2 event", async () => {
     const { access, requireAuthAccessRoutes } = appAccess()
-    const event = { req: new Request("https://app.example.com/_vitehub/rpc/__call", { method: "POST" }), res: { headers: new Headers() }, url: new URL("https://app.example.com/_vitehub/rpc/__call") }
+    const event = { req: new Request("https://app.example.com/_vitehub/rpc", { method: "POST" }), res: { headers: new Headers() }, url: new URL("https://app.example.com/_vitehub/rpc") }
     installStandardContext(event)
     await access.check(event)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
@@ -82,7 +82,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     const headers = { "cf-access-jwt-assertion": "token" }
     expect(await handleCloudflareAccessConsoleRequest(new H3V1Event("/api/app"), settings, "/", verify)).toBeUndefined()
     expect(verify).not.toHaveBeenCalled()
-    expect((await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub/rpc/__call", { method: "POST" }), settings, "/", verify))?.status).toBe(401)
+    expect((await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub/rpc", { method: "POST" }), settings, "/", verify))?.status).toBe(401)
     expect(await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub", { headers }), settings, "/", verify)).toBeUndefined()
     const identity = await handleCloudflareAccessConsoleRequest(new H3V1Event("/portal/_vitehub/api/auth/identity", { headers }), settings, "/portal/", verify)
     expect(await identity?.json()).toMatchObject({ email: "maintainer@example.com" })

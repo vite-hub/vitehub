@@ -46,7 +46,7 @@ describe("Auth access handlers", () => {
     second.mockReturnValue(true)
     await expect(handler(request)).resolves.toBeUndefined()
     expect(resolve).toHaveBeenLastCalledWith(request, request, false)
-    for (const path of ["/portal/_vitehub/mcp/extra", "/portal/_vitehub/rpc/__call", "/_vitehub/mcp"]) {
+    for (const path of ["/portal/_vitehub/mcp/extra", "/portal/_vitehub/rpc", "/_vitehub/mcp"]) {
       expect((await handler(new Request(`https://app.example${path}`)))?.status).toBe(401)
     }
     expect(resolve).toHaveBeenCalledTimes(2)
