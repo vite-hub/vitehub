@@ -57,9 +57,9 @@ app/
 layers/
   accounts/
     server/auth.ts
-    server/databases/config.ts   # users table
+    server/databases/default.ts   # users table
   blog/
-    server/databases/config.ts   # posts table
+    server/databases/default.ts   # posts table
 ```
 
 The app wins over its layers:

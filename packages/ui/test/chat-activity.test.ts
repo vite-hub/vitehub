@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { mount } from "@vue/test-utils";
+import { defineComponent, h } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 
@@ -20,6 +21,11 @@ const started = { data: { kind: "turn.started", value: {} }, id: "run", type: "d
 const note = { state: "done", text: "I'll check the installation page.", type: "text" } as const;
 const running = { input: { command: "cat install.md" }, state: "input-available", title: "cat install.md", toolCallId: "t1", type: "tool-command_execution" } as const;
 const ran = { ...running, output: "# Install Lumen", state: "output-available" } as const;
+const global = {
+  components: {
+    UButton: defineComponent({ setup: (_, { attrs, slots }) => () => h("button", attrs, slots.default?.()) }),
+  },
+};
 
 describe("chatActivity", () => {
   it.each([
@@ -40,7 +46,7 @@ describe("chatActivity", () => {
 
 describe("Chat activity line", () => {
   it("shows one still line under the last message while the Agent works, then removes it", async () => {
-    const wrapper = mount(Chat, { props: { messages: [question, reply(started)], status: "streaming" } });
+    const wrapper = mount(Chat, { global, props: { messages: [question, reply(started)], status: "streaming" } });
     const content = wrapper.get("[data-slot=message-scroller-content]");
 
     expect(content.element.lastElementChild?.getAttribute("data-slot")).toBe("chat-status");
@@ -58,15 +64,18 @@ describe("Chat activity line", () => {
 
     await wrapper.setProps({ status: "ready" });
     expect(wrapper.find("[data-slot=chat-status]").exists()).toBe(false);
+    wrapper.unmount();
   });
 
   it("lets the status slot draw the line and keeps it out of the message slots", () => {
     const wrapper = mount(Chat, {
+      global,
       props: { messages: [question], status: "submitted" },
       slots: { status: ({ label }: { label: string }) => `Agent: ${label}` },
     });
 
     expect(wrapper.get("[data-slot=message-scroller-content]").text()).toContain("Agent: Working");
     expect(wrapper.text().match(/Agent: Working/g)).toHaveLength(1);
+    wrapper.unmount();
   });
 });
