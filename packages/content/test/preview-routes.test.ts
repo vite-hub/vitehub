@@ -255,6 +255,68 @@ describe("content.sources.route()", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
 
+  it("keeps a signed link on internal links and redirects of its ref", async () => {
+    const { pulls } = repository()
+    const content = server()
+    const { token } = await content.sources.sign(draftBranch, "docs")
+    const query = `${contentRefTokenParameter}=${encodeURIComponent(token)}`
+    const prefix = `/tree/${draftBranch}/-`
+    const { text } = await serve(content, `https://docs.example${prefix}/guide?${query}`)
+    expect(hrefs(text)).toEqual([`${prefix}/next?${query}`, "#install", `${prefix}/?${query}`, "https://example.com/next", "//cdn.example/next"])
+    // A reader without a preview cookie follows the link.
+    const next = await serve(content, `https://docs.example${prefix}/next?${query}`)
+    expect(next.response.status).toBe(200)
+    expect(next.text).toContain('"title":"Next"')
+    const moved = await serve(content, `https://docs.example${prefix}/old?${query}`)
+    expect(moved.response.headers.get("location")).toBe(`${prefix}/guide?from=old&${query}`)
+    // A public ref adds no token.
+    expect(hrefs((await serve(content, `https://docs.example/pr/${pulls.open}/guide`)).text)[0]).toBe(`/pr/${pulls.open}/next`)
+  })
+
+  it("never makes a private application response public", async () => {
+    const { published, pulls } = repository()
+    const content = server()
+    const account = async (url: string, headers: Record<string, string>) => await content.sources.route(new Request(url, { headers: { cookie: "session=1" } }), async () => new Response("secret", { headers }))
+    for (const url of [`https://docs.example/pr/${pulls.open}/api/account`, `https://docs.example/blob/${published}/api/account`]) {
+      expect((await account(url, { "cache-control": "private, no-store" })).headers.get("cache-control")).toBe("private, no-store")
+      expect((await account(url, { "cache-control": "no-cache" })).headers.get("cache-control")).toBe("private, no-cache")
+      expect((await account(url, { "set-cookie": "session=2" })).headers.get("cache-control")).toBe("private, no-store")
+      expect((await account(url, { "cache-control": "public, max-age=3600" })).headers.get("cache-control")).toMatch(/^public/)
+    }
+  })
+
+  it("keeps the host fields of the request when it changes the URL", async () => {
+    const { pulls } = repository()
+    const content = server()
+    const request = new Request(`https://docs.example/pr/${pulls.open}/guide`)
+    const waitUntil = vi.fn()
+    for (const [key, value] of Object.entries({ runtime: { name: "cloudflare", cloudflare: { env: { KEY: 1 } } }, context: { user: "ada" }, ip: "203.0.113.1", waitUntil })) {
+      Object.defineProperty(request, key, { value })
+    }
+    let seen: Request | undefined
+    await content.sources.route(request, async (next) => {
+      seen = next
+      return new Response("ok")
+    })
+    expect(new URL(seen!.url).pathname).toBe("/guide")
+    expect(seen).toBeInstanceOf(Request)
+    expect(seen).toMatchObject({ runtime: { name: "cloudflare" }, context: { user: "ada" }, ip: "203.0.113.1", waitUntil })
+    expect(seen!.headers).toBe(request.headers)
+  })
+
+  it("reads the commit of the ref from from() and getSource() too", async () => {
+    const { pulls } = repository()
+    const content = server()
+    // SAFETY: The test Source has no generated registry, so the typed `from()` cannot name it.
+    const from = content.from as unknown as (name: string) => { get(path: string): Promise<{ data: { title?: unknown } } | null | undefined> }
+    const response = await content.sources.route(new Request(`https://docs.example/pr/${pulls.open}/guide`), async () => {
+      const direct = await from("docs").get("/guide")
+      return Response.json({ get: (await content.get("/guide"))?.data.title, from: direct?.data.title })
+    })
+    expect(await response.json()).toEqual({ get: "Guide on feat/open", from: "Guide on feat/open" })
+    expect((await from("docs").get("/guide"))?.data.title).toBe("Guide")
+  })
+
   it("keeps a same-site redirect under the prefix", async () => {
     const { pulls } = repository()
     const content = server()
@@ -288,6 +350,21 @@ describe("content.sources.route()", () => {
 })
 
 describe("defineContentPreviewRoutesPlugin()", () => {
+  it("reaches a server entry that took nitroApp.fetch before the plugin ran", async () => {
+    const { pulls } = repository()
+    const content = server()
+    const h3 = { fetch: async (request: Request) => await app(content)(request) }
+    // Nitro's fetch entry calls h3.fetch() on each request.
+    const nitroApp = { h3, fetch: (request: Request) => nitroApp.h3.fetch(request) }
+    // An earlier async plugin lets the Node server take the entry before this plugin runs.
+    const captured = nitroApp.fetch
+    defineContentPreviewRoutesPlugin(content)(nitroApp)
+    const response = await captured(new Request(`https://docs.example/pr/${pulls.open}/guide`))
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("Guide on feat/open")
+  })
+
+
   it("loads Content on the first preview URL only, and serves the page with its production path", async () => {
     const { pulls } = repository()
     const content = server()
