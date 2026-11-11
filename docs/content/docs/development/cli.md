@@ -1211,7 +1211,7 @@ pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 ```
 
-Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
+Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
 
 | Variable | Value |
 | --- | --- |

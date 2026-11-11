@@ -10,9 +10,25 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 
 | Route | Use |
 | --- | --- |
-| `POST /_vitehub/rpc/__call` | The Operations endpoint. Each call sends `{ operation, input }`. An [operation](/docs/development/operations) is a named action, such as `invocations.list` or `content.publish`. |
+| `POST /_vitehub/rpc` | The Operations endpoint. Each request carries one [birpc](https://github.com/antfu-collective/birpc) call, as the next section shows. An [operation](/docs/development/operations) is a named action, such as `invocations.list` or `content.publish`. |
 | `/_vitehub/mcp` | The [MCP endpoint](/docs/development/mcp) for agents. |
 | `/_vitehub/.well-known/skills/` | The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
+
+### Call format
+
+Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
+
+```json [Request]
+{ "m": "sections.list", "a": [{}], "t": "q", "i": "V1StGXR8_Z5jdHi6B-myT" }
+```
+
+The response carries one reply. `r` holds the value. The HTTP status is `200`, or the status that the operation sets, such as `202`:
+
+```json [Response]
+{ "t": "s", "i": "V1StGXR8_Z5jdHi6B-myT", "r": { "sections": ["agents", "kv"] } }
+```
+
+A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
 
 The sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
 
@@ -322,7 +338,7 @@ On Cloudflare, `packages/vite-hub/console.hosted.wrangler.jsonc` is the configur
 
 ## Protect the Console route
 
-The Console endpoint is the RPC under `/_vitehub/rpc/**`, the MCP endpoint, and the data routes of some sections. The skill files under `/_vitehub/.well-known/skills/` need no sign-in. ViteHub sends `X-Robots-Tag: noindex, nofollow` on these routes. This does not block access, so choose an access policy with `console.auth`:
+The Console endpoint is the RPC at `/_vitehub/rpc`, the MCP endpoint, and the data routes of some sections. The skill files under `/_vitehub/.well-known/skills/` need no sign-in. ViteHub sends `X-Robots-Tag: noindex, nofollow` on these routes. This does not block access, so choose an access policy with `console.auth`:
 
 | `auth` | Who can call the endpoint |
 | --- | --- |
@@ -509,22 +525,22 @@ The server accepts a cross-origin call only when `console.origins` lists the `Or
 
 Cookies never authorize a cross-origin call, so another site cannot use a signed-in browser session. A call from an origin that is not listed gets `403` with `CONSOLE_ORIGIN_REJECTED`. Cloudflare Access and session calls keep every Console data route same-origin.
 
-The rule covers the Console data routes: the RPC at `/_vitehub/rpc/__call`, impersonation at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, and Schedule runs at `/_vitehub/schedules/run`. Env management still authenticates the request with its provider and checks the provider permissions. A Schedule run with a signed dispatch keeps the signature as its own authority. Without a signature, the route takes a bearer token as `Authorization: Bearer`, the Console token or an OAuth access token with `vitehub:write`, and needs the full `schedules` grant. A session runs a Schedule through the RPC instead.
+The rule covers the Console data routes: the RPC at `/_vitehub/rpc`, impersonation at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, and Schedule runs at `/_vitehub/schedules/run`. Env management still authenticates the request with its provider and checks the provider permissions. A Schedule run with a signed dispatch keeps the signature as its own authority. Without a signature, the route takes a bearer token as `Authorization: Bearer`, the Console token or an OAuth access token with `vitehub:write`, and needs the full `schedules` grant. A session runs a Schedule through the RPC instead.
 
 The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Access-Control-Expose-Headers: WWW-Authenticate`, and `Origin` in `Vary`, so the Console can read the challenge of a `401`. They never carry `Access-Control-Allow-Credentials`. A Nitro plugin answers the `OPTIONS` preflight of these routes before every app middleware, including the files in `server/middleware/`, and before app Auth. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. The actual call then goes through your middleware as usual, so middleware that requires a session must let the Console data routes through and leave the check to the Console.
 
 Check the setup with curl:
 
 ```bash [Terminal]
-curl -i -X OPTIONS https://app.example.com/_vitehub/rpc/__call \
+curl -i -X OPTIONS https://app.example.com/_vitehub/rpc \
   -H 'Origin: https://console.vitehub.dev' \
   -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: authorization, content-type'
-curl -i https://app.example.com/_vitehub/rpc/__call \
+curl -i https://app.example.com/_vitehub/rpc \
   -H 'Origin: https://console.vitehub.dev' \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  --data '{"operation":"sections.list","input":{}}'
+  --data '{"m":"sections.list","a":[{}],"t":"q","i":"1"}'
 ```
 
 A same-origin call must come from the app origin. The route rejects opaque origins and browser requests marked `same-site` or `cross-site`. When a client sends no `Origin` and no Fetch Metadata, it must send `x-vitehub-console: 1`. A foreign page cannot add this header without a CORS preflight. The marker is not a credential: authentication and authorization still apply.

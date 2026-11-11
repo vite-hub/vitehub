@@ -10,7 +10,7 @@ An operation is a named action of your app, such as `content.publish` or `invoca
 
 | Surface | How it calls the operation |
 | --- | --- |
-| Console | Sends `{ operation, input }` to `POST /_vitehub/rpc/__call`. |
+| Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](/docs/development/console#call-format). |
 | CLI | `vitehub <namespace> <command>` sends the same request. |
 | Agent | The `operations()` capability turns the operation into a tool. |
 
