@@ -23,6 +23,7 @@ const ConsoleKv = () => import("../components/console-kv.vue");
 const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
 const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 const ConsoleSkills = () => import("../components/console-skills.vue");
+const ConsoleSetup = () => import("../components/console-setup.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -269,6 +270,19 @@ const router = createRouter({
         searchBase: "/_vitehub/api/search",
         sectionsBase,
         usageBase: "/_vitehub/api/usage",
+      },
+    },
+    {
+      component: ConsoleSetup,
+      name: "vitehub-console-setup",
+      path: "/setup",
+      meta: { consoleSection: "setup", title: "Setup · ViteHub Console" },
+      props: {
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
+        sectionsBase,
       },
     },
     {

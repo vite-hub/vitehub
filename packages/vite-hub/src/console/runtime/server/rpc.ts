@@ -145,7 +145,9 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
       context.response.headers = consoleScopeRejection({ kind: "write" }, "an upload").headers
       throw consoleRequestError(403, "The access token does not have the vitehub:write scope, which an upload needs.", "CONSOLE_ACCESS_DENIED")
     }
-    return (await loadConsoleMedia()).uploadConsoleMedia(request, section, context.access)
+    // Only a document editor section has a media library. Builds without one leave its code out.
+    const { uploadConsoleMedia } = await (import.meta.viteHubConsoleDocuments === false ? Promise.reject(consoleRequestError(404, "The Console document editor section is disabled.")) : loadConsoleMedia())
+    return uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
