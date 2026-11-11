@@ -33,8 +33,7 @@
   --vh-info: var(--vh-ui-info, var(--ui-info, var(--vh-highlighted)));
   --vh-success: var(--vh-ui-success, var(--ui-success, var(--vh-highlighted)));
   --vh-warning: var(--vh-ui-warning, var(--ui-warning, var(--vh-highlighted)));
-  /* The color of an area drawn for a comment: the focus blue, else Nuxt UI's info color. A line in the text color
-     vanishes on a white image in a dark page. */
+  /* A drawn comment area: the focus blue, else Nuxt UI's info color. The text color would vanish on a white image. */
   --vh-comment-mark: var(--vh-ui-comment-mark, var(--vh-focus, var(--ui-info, var(--vh-highlighted))));
 }
 
