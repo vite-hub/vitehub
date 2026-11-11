@@ -35,7 +35,7 @@ function appAccess() {
   const requireSession = vi.fn(async () => undefined)
   const getSession = vi.fn(async ({ headers }: { headers: Headers }) => headers.get("cookie") === "session=1" ? { user: { id: "ada" } } : null)
   const access = createConsoleAppAuthAccess({
-    getAuthForRequest: () => ({ api: { getSession } }),
+    authForRequest: () => ({ api: { getSession } }),
     requireAuthAccessRoutes,
     requireSession,
     routes,
@@ -45,8 +45,8 @@ function appAccess() {
 
 describe("Console canonical authorization paths", () => {
   it.each(["H3 1", "H3 2"])("authorizes canonical paths for %s", async (kind) => {
-    const request = new Request("https://app.example.com/_%76itehub/rpc/__call", { method: "POST" })
-    const event = kind === "H3 1" ? new H3V1Event("/_%76itehub/rpc/__call", { method: "POST" }) : new H3Event(request)
+    const request = new Request("https://app.example.com/_%76itehub/rpc", { method: "POST" })
+    const event = kind === "H3 1" ? new H3V1Event("/_%76itehub/rpc", { method: "POST" }) : new H3Event(request)
     const { access, requireAuthAccessRoutes, requireSession } = appAccess()
     await access.check(event)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
@@ -72,10 +72,10 @@ describe("Console canonical authorization paths", () => {
   })
 
   it("preserves the event pathname after an H3 mount rewrites it", () => {
-    const request = new Request("https://app.example.com/portal/_vitehub/rpc/__call")
+    const request = new Request("https://app.example.com/portal/_vitehub/rpc")
     const event = new H3Event(request)
-    event.url = new URL("https://app.example.com/_vitehub/rpc/__call")
-    expect(consoleEventPath(event, request)).toBe("/_vitehub/rpc/__call")
+    event.url = new URL("https://app.example.com/_vitehub/rpc")
+    expect(consoleEventPath(event, request)).toBe("/_vitehub/rpc")
   })
 
   it.each(["%2F", "%25", "%3F"])("keeps reserved escape %s encoded", (escape) => {
@@ -85,7 +85,7 @@ describe("Console canonical authorization paths", () => {
 
   it.each([
     "/_vitehub",
-    "/_%76itehub/rpc/__call",
+    "/_%76itehub/rpc",
     "/_%56ITEHUB",
     "/_vitehub/%7E%2d%5F%2E%41%7a",
     "/_vitehub/%2e%2e/%2E/admin",
@@ -104,9 +104,9 @@ describe("Console canonical authorization paths", () => {
     vi.doMock("h3", () => import("h3-v1"))
     try {
       const { consoleEventPath: readPath } = await import("../src/console/auth-path.ts")
-      const request = new Request("https://app.example.com/_%76itehub/rpc/__call")
+      const request = new Request("https://app.example.com/_%76itehub/rpc")
 
-      expect(readPath(request, request)).toBe("/_vitehub/rpc/__call")
+      expect(readPath(request, request)).toBe("/_vitehub/rpc")
     }
     finally {
       vi.doUnmock("h3")

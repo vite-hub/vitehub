@@ -3,7 +3,7 @@ title: Avatar Stack
 description: "Show who is in a document as overlapping avatars, with a count for the rest."
 navigation.order: 30
 navigation.group: Collaboration
-icon: i-ph-users-three-light
+icon: i-lucide-users
 ---
 
 `AvatarStack` shows the people in a document or room as overlapping avatars. It works like the stacks of [Liveblocks](https://liveblocks.io/docs/api-reference/liveblocks-react-ui#AvatarStack), [Kibo UI](https://www.kibo-ui.com/components/avatar-stack), and [Supabase UI](https://supabase.com/ui/docs/nextjs/realtime-avatar-stack): same name, a `max` that counts the "+N" item, and one avatar per person. Pass Realtime's `people` as they are.

@@ -9,7 +9,7 @@ import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDa
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 /** The generated Agent Invocations plugin, which installs the default journal with the Console on or off. */
 async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ info: string[], plugin: string }> {
@@ -62,7 +62,7 @@ describe("Node storage defaults", () => {
   it.each(["serve", "build"] as const)("keeps the default Agent journal under dataDir during %s, with the Console on or off", async (command) => {
     const dataDir = "/var/lib/app data"
     const databaseUrl = JSON.stringify(pathToFileURL(join(dataDir, "agent-invocations.sqlite")).href)
-    for (const options of [{ preset: "node", dataDir, agent: true }, { preset: "node", dataDir, agent: true, console: { auth: false } }] satisfies ViteHubOptions[]) {
+    for (const options of [{ preset: "node", dataDir, agent: true }, { preset: "node", dataDir, agent: true, console: command === "build" ? productionConsole : { auth: false } }] satisfies ViteHubOptions[]) {
       const { plugin } = await generatedJournalPlugin(options, command)
       expect(plugin).toContain(`default: {"databaseUrl":${databaseUrl}}`)
       expect(plugin).toContain("journal: { projectRoot: ")
@@ -144,7 +144,7 @@ describe("Default Agent journal host defaults", () => {
 
   it("reads the D1 binding from the default Database Definition", async () => {
     const definition = `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n`
-    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/config.ts": definition })
+    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/default.ts": definition })
     expect(plugin).toContain(`d1: { binding: "APP_DB",`)
     const withoutDefinition = await generatedJournalPlugin({ ...cloudflare, database: true }, "build")
     expect(withoutDefinition.plugin).not.toContain("cloudflare:workers")
@@ -152,19 +152,19 @@ describe("Default Agent journal host defaults", () => {
 
   it("reads the D1 binding from the only named Database and skips ambiguous ones", async () => {
     const named = (name: string, binding: string) => `export default defineDatabase({ name: "${name}", cloudflare: { binding: "${binding}", databaseName: "${name}" }, schema: {} })\n`
-    const only = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/config.ts": named("app", "APP_DB") })
+    const only = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/index.ts": named("app", "APP_DB") })
     expect(only.plugin).toContain('d1: { binding: "APP_DB",')
     const ambiguous = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", {
-      "server/databases/app/config.ts": named("app", "APP_DB"),
-      "server/databases/audit/config.ts": named("audit", "AUDIT_DB"),
+      "server/databases/app/index.ts": named("app", "APP_DB"),
+      "server/databases/audit/index.ts": named("audit", "AUDIT_DB"),
     })
     expect(ambiguous.plugin).not.toContain("cloudflare:workers")
   })
 
   it("reads the D1 binding from the Database project root", async () => {
     const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { projectRoot: "data" } }, "build", {
-      "server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',
-      "data/server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "DATA_DB", databaseName: "data" }, schema: {} })\n',
+      "server/databases/default.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',
+      "data/server/databases/default.ts": 'export default defineDatabase({ cloudflare: { binding: "DATA_DB", databaseName: "data" }, schema: {} })\n',
     })
     expect(plugin).toContain('d1: { binding: "DATA_DB",')
     expect(plugin).not.toContain('d1: { binding: "APP_DB",')
@@ -176,7 +176,7 @@ describe("Default Agent journal host defaults", () => {
     ["", "JOURNAL_DB"],
   ])("selects the effective D1 binding with Definition config %s", async (config, binding) => {
     const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { driver: "d1", binding: "JOURNAL_DB" } }, "build", {
-      "server/databases/config.ts": `export default defineDatabase({ ${config} schema: {} })\n`,
+      "server/databases/default.ts": `export default defineDatabase({ ${config} schema: {} })\n`,
     })
     expect(plugin).toContain(`d1: { binding: "${binding}",`)
   })
@@ -190,8 +190,8 @@ describe("Default Agent journal host defaults", () => {
 
   it("installs the same D1 journal with the Console on", async () => {
     const definition = 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n'
-    const off = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/config.ts": definition })
-    const on = await generatedJournalPlugin({ ...cloudflare, database: true, console: { auth: false, authorize: hostManagedAuthorize } }, "build", { "server/databases/config.ts": definition })
+    const off = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/default.ts": definition })
+    const on = await generatedJournalPlugin({ ...cloudflare, database: true, console: productionConsole }, "build", { "server/databases/default.ts": definition })
     expect(off.plugin).toContain('d1: { binding: "APP_DB",')
     expect(off.info).toEqual(["[vitehub] Agent Invocation journal: D1 binding APP_DB, table vitehub_agent_invocations. The journal creates the table on first use."])
     expect(on.plugin.replace(/"\/[^"]*"/g, "ROOT")).toBe(off.plugin.replace(/"\/[^"]*"/g, "ROOT"))
@@ -201,7 +201,7 @@ describe("Default Agent journal host defaults", () => {
     const node = await generatedJournalPlugin({ ...cloudflare, preset: "node" }, "build")
     expect(node.plugin).not.toContain("cloudflare:workers")
     const explicit = await generatedJournalPlugin({ ...cloudflare, agent: { invocations: { databaseUrl: "libsql://journal.example.com" } }, database: true }, "build", {
-      "server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',
+      "server/databases/default.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',
     })
     expect(explicit.plugin).toContain(`"databaseUrl":"libsql://journal.example.com"`)
     expect(explicit.plugin).not.toContain("cloudflare:workers")

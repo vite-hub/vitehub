@@ -25,10 +25,10 @@ Set `database: true` and `preset: 'node'` in your ViteHub options.
 
 ## Define a Postgres table
 
-Create the Database Definition `server/databases/config.ts`. If it exists,
+Create the Database Definition `server/databases/default.ts`. If it exists,
 change it instead of adding a second one.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 

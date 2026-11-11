@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { consoleDocumentEditorSectionIds, describeConsoleDocumentEditors } from "../src/console/contributions.ts"
-import { consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { insertConsoleSection } from "../src/console/runtime/sections.ts"
@@ -20,22 +20,21 @@ import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/consol
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Content contributes its Console actions by the path of its own file.
 const contentConsoleModule = ownModule(new URL("../../content/package.json", import.meta.url).href, "runtime/console")
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
 const policyKey = Symbol.for("vitehub.console.access")
 const roots: string[] = []
 
 afterEach(async () => {
-  for (const key of [consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey, policyKey]) {
-    Reflect.deleteProperty(scope, key)
+  for (const key of [consoleStateKey, policyKey]) {
+    Reflect.deleteProperty(globalThis, key)
   }
   vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -82,14 +81,14 @@ function install(actions: ConsoleDocumentActions, sections: readonly string[] = 
 }
 
 async function call(operation: string, input: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
-  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+  const request = new Request("http://localhost/_vitehub/rpc", {
     // The client puts the operation first, so a large document body can be classified within the ordinary limit.
-    body: JSON.stringify({ operation, input }),
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   })
   const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
-  const body: Record<string, unknown> = Object(await response.json())
+  const body: Record<string, unknown> = Object(await operationRpcResponseResult(response))
   return { body, status: response.status }
 }
 
@@ -143,6 +142,7 @@ describe("Console document editor route", () => {
   })
 
   it("tells the client which visible sections it may only read", async () => {
+    install(fakeActions())
     installConsoleAccess({ authorize: () => ({ sections: ["content", "kv:read", "blob:read", "blob"] }), mode: "open" })
     await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { readOnly: ["kv"], scoped: true } } })
     installConsoleAccess({ authorize: () => true, mode: "open" })
@@ -295,11 +295,11 @@ describe("Console document editor discovery", () => {
 
     await mkdir(join(root, "server"), { recursive: true })
     // Read-only Sources have nothing to edit.
-    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nexport const content = defineContent({ source: "content" })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nexport default defineContent({ source: "content" })\n`)
     const sourcesOnly = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["kv"] })
     expect(sourcesOnly.documents).toEqual({})
 
-    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["env", "kv"] })
     expect(catalog.documents).toEqual({ content: join(root, "server/content.ts") })
     // Without Schedule, nothing runs scheduled publishes, so Content names the fix.
@@ -311,12 +311,12 @@ describe("Console document editor discovery", () => {
   it("reads whether a Schedule Definition runs scheduled Content publishes", async () => {
     const root = await temporaryRoot()
     await mkdir(join(root, "server/schedules"), { recursive: true })
-    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     await writeFile(join(root, "server/schedules/cleanup.ts"), `import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 * * * *", handler: () => {} })\n`)
     const without = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
     expect(without.content.content).toMatchObject({ setup: { schedule: { message: "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`." } } })
 
-    await writeFile(join(root, "server/schedules/content-publish.ts"), `import { defineSchedule } from "vite-hub/schedule"\nimport { content } from "../content"\nexport default defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })\n`)
+    await writeFile(join(root, "server/schedules/content-publish.ts"), `import { defineSchedule } from "vite-hub/schedule"\nimport content from "../content"\nexport default defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })\n`)
     const withRunner = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
     expect(withRunner.content.content).toEqual({ collections: [], kind: "document-editor" })
   })
@@ -337,7 +337,7 @@ describe("Console document editor discovery", () => {
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
       { entry, export: "createContentConsoleActions", module: contentConsoleModule, section: "content" },
     ])
-    expect(source).toContain(`import { installConsoleDocuments } from "vite-hub/console/documents"`)
+    expect(source).toContain(`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`)
     // Content reaches MCP through its operations, so the plugin registers no Content tools.
     expect(source).not.toContain("registerContentMcpTools")
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from ${JSON.stringify(contentConsoleModule)}`)

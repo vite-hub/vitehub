@@ -166,8 +166,8 @@ export async function bundleSandboxTaskDefinition(
             '}',
             '',
             'export function defineSandboxTask(input) {',
-            '  const { project: _project, run, ...options } = input',
-            '  return { run, options: Object.keys(options).length ? options : undefined }',
+            '  const { project: _project, handler, ...options } = input',
+            '  return { handler, options: Object.keys(options).length ? options : undefined }',
             '}',
           ].join('\n')
         },

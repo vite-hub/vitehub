@@ -46,7 +46,7 @@ type NuxtLike = {
   }
 }
 
-const composables = ["useAuthClient", "useSession", "useSignIn", "useSignUp", "useUserSession"]
+const composables = ["useAuthClient", "useSession", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()

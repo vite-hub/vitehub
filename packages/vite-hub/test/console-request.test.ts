@@ -16,19 +16,22 @@ import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../
 import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 
 // Decode each stateless call and answer with the result that mocks.call returns.
 const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-  const payload: { input: unknown; operation: string } = JSON.parse(String(init?.body))
+  const payload = operationRpcRequest(init?.body)
   const signal = init?.signal ?? undefined
   const result = await new Promise<ConsoleRpcResult>((resolve, reject) => {
     signal?.throwIfAborted()
     signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
     Promise.resolve(mocks.call(payload.operation, payload.input)).then(resolve, reject)
   })
-  return Response.json(result, { status: result.ok ? 200 : result.status })
+  // A failure without a code stands for host middleware, which answers without a birpc reply.
+  if (!result.ok && !result.code) return Response.json(result, { status: result.status })
+  return operationRpcResponse(init?.body, result)
 })
 
 beforeEach(() => {
@@ -69,14 +72,15 @@ describe("Console requests", () => {
     await expect(requestConsole("/_vitehub/api/sections", { signal }))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
-      body: JSON.stringify({ operation: "sections.list", input: {} }),
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc", {
+      body: expect.any(String),
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
       signal,
     })
+    expect(operationRpcRequest(fetchMock.mock.calls[0]![1]!.body)).toEqual({ input: {}, operation: "sections.list" })
   })
 
   it("lets a release outlive the page with keepalive", async () => {
@@ -92,7 +96,7 @@ describe("Console requests", () => {
     await expect(requestConsole("/_vitehub/api/sections"))
       .resolves.toEqual({ sections: ["kv"] })
 
-    expect(fetchMock).toHaveBeenCalledWith("/tenant/_vitehub/api/thing/_vitehub/rpc/__call", expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith("/tenant/_vitehub/api/thing/_vitehub/rpc", expect.any(Object))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
@@ -148,7 +152,7 @@ describe("Console requests", () => {
 
     await expect(requestConsole("/_vitehub/api/sections"))
       .resolves.toEqual({ sections: ["kv"] })
-    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", expect.objectContaining({ method: "POST", signal: undefined }))
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc", expect.objectContaining({ method: "POST", signal: undefined }))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
@@ -370,14 +374,14 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
-  it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
+  it("requests no page tools session, since apps serve no page tools", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
     setConsoleProject({ origin: "", base: "/page-tools-app" })
     const base = "/_vitehub/api/sections?page-tools-app"
     await loadConsoleNavigation(base)
     await loadConsoleNavigation(base)
     const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
-    expect(sessions).toEqual([["/page-tools-app/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } }]])
+    expect(sessions).toEqual([])
   })
 
   it("keeps permitted operations alongside read-only section metadata", async () => {
@@ -425,19 +429,17 @@ describe("Console requests", () => {
     ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
-  it.each(["", "/admin"])("requests the shared page session under the app mount %s", async (mount) => {
+  it.each(["", "/admin"])("loads navigation without a page session under the app mount %s", async (mount) => {
     const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" } }
     const hidden = { ...comments, id: "hidden" }
-    const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
-    // Navigation uses RPC; the shared page session is an ordinary GET that sets the app cookie.
-    const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
+    const navigation = { ok: true as const, value: { contributions: [comments, hidden], sections: ["comments"] } }
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? operationRpcResponse(init.body, navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
     setConsoleProject({ origin: "", base: mount })
     const base = `/_vitehub/api/sections?page-session-test${mount}`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch.mock.calls.map(([url]) => url)).not.toContainEqual(`${mount}/_vitehub/page/session`)
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

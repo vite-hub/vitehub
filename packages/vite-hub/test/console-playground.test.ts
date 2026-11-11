@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin } from "vite"
 
 import { requestConsole } from "../src/console/runtime/client/request.ts"
+import { operationRpcBody, operationRpcFetch, operationRpcRequest, operationRpcResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // The playground is outside this package's TypeScript project, so load its real module at test time.
 const { callConsoleFixture, consoleMockRPC } = await vi.importActual<{
@@ -19,12 +20,12 @@ afterEach(() => {
 
 it("loads Console data through the playground's stateless RPC endpoint", async () => {
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    if (String(input) === "/_vitehub/rpc/__call") {
-      return Response.json(await callConsoleFixture("http://localhost:5173", JSON.parse(String(init?.body))))
+    if (String(input) === "/_vitehub/rpc") {
+      return Response.json(await callConsoleFixture("http://localhost:5173", operationRpcRequest(init?.body) as { input?: Record<string, unknown>, operation: string }))
     }
     return Response.json({ sections: ["agents"] })
   })
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
 
   await expect(requestConsole("/_vitehub/api/sections"))
     .resolves.toEqual({ sections: ["agents"] })
@@ -39,12 +40,12 @@ it("loads Console data through the playground's stateless RPC endpoint", async (
 it("loads bundled Skill files through the playground's operation bridge", async () => {
   const file = { path: ".agents/skills/review/SKILL.md", content: "# Review", size: 8 }
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    if (String(input) === "/_vitehub/rpc/__call") {
-      return Response.json(await callConsoleFixture("http://localhost:5173", JSON.parse(String(init?.body))))
+    if (String(input) === "/_vitehub/rpc") {
+      return Response.json(await callConsoleFixture("http://localhost:5173", operationRpcRequest(init?.body) as { input?: Record<string, unknown>, operation: string }))
     }
     return Response.json(file)
   })
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
 
   await expect(requestConsole("/_vitehub/api/skills", { query: { agent: "reviewer", path: file.path } })).resolves.toEqual(file)
   const fixture = new URL("http://localhost:5173/_vitehub/api/skills")
@@ -218,14 +219,14 @@ it.each([
   [404, "CONSOLE_NOT_FOUND"],
   [500, "CONSOLE_REQUEST_FAILED"],
 ])("answers a failed %i fixture with the code the server gives it", async (status, code) => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("Playground failure", { status })))
+  vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async () => new Response("Playground failure", { status }))))
   await expect(callConsoleFixture("http://localhost:5173", { operation: "env.get", input: {} }))
     .resolves.toMatchObject({ code, fix: expect.any(String), message: "Playground failure", ok: false, status })
 })
 
 it("forwards failure cookies while translating write operations to fixture requests", async () => {
   const fetch = vi.fn(async () => new Response("Playground failure", { status: 503 }))
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
 
   await expect(callConsoleFixture("http://localhost:5173", {
     operation: "invocations.cancel",
@@ -277,21 +278,21 @@ it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the
   expect((await call("mcp-client.list")).value.connections).toHaveLength(6)
 })
 
-async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload: unknown): Promise<unknown> {
+async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload: { input?: unknown, operation: string }): Promise<unknown> {
   type Middleware = (request: IncomingMessage, response: ServerResponse, next: (error?: unknown) => void) => void
   let handler: Middleware | undefined
   // SAFETY: The playground hook only reads resolved URLs and registers middleware.
   const configure = consoleMockRPC().configureServer as (server: { resolvedUrls: { local: string[] }, middlewares: { use: (middleware: Middleware) => void } }) => void
   configure({ resolvedUrls: { local: ["http://localhost:5173/_vitehub/"] }, middlewares: { use: middleware => { handler = middleware } } })
   // SAFETY: The route consumes the body stream, headers, method, and URL from this fixture.
-  const request = Readable.from([JSON.stringify(payload)]) as IncomingMessage
+  const request = Readable.from([operationRpcBody(payload.operation, payload.input)]) as IncomingMessage
   request.method = "POST"
-  request.url = "/_vitehub/rpc/__call"
+  request.url = "/_vitehub/rpc"
   request.headers = headers
   const middleware = handler
   if (!middleware) throw new Error("Expected playground RPC middleware")
   return new Promise((resolve, reject) => {
-    const response = { statusCode: 200, setHeader: vi.fn(), end: (body: string) => { resolve(JSON.parse(body)) } }
+    const response = { statusCode: 200, setHeader: vi.fn(), end: (body: string) => { resolve(operationRpcResult(JSON.parse(body))) } }
     // SAFETY: The middleware only writes the status, headers, and body of this response.
     middleware(request, response as unknown as ServerResponse, error => { reject(error ?? new Error("Unexpected next middleware")) })
   })
@@ -322,7 +323,7 @@ it.each([
   expect(new URL(reconnected.value.authorizationUrl).origin).toBe(origin)
 
   const fetch = vi.fn(async () => Response.json({ sections: ["mcp-client"] }))
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
   await playgroundRpcRequest(headers, { operation: "sections.list" })
   expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/_vitehub/api/sections"), expect.any(Object))
 })

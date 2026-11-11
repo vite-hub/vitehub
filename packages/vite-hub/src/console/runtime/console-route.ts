@@ -58,3 +58,6 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
 
   return `${targetRouteName}${consoleRouteName ? currentRouteName.slice(consoleRouteName.length) : ""}`
 }
+
+/** The Console data routes below `/_vitehub` that a hosted Console calls with an OAuth access token, next to MCP. */
+export const consoleOAuthDataRoutes: readonly string[] = ["/rpc", "/auth/manage", "/env/manage"]

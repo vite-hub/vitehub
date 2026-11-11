@@ -20,6 +20,7 @@ import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.
 import { pushedBranches, workspaceHooksNamespace } from "../src/hooks-cli.ts"
 import { useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 /** The paths that `readdir` and `readFile` opened, to check what the hooks read. */
 const opened = vi.hoisted((): string[] => [])
@@ -70,9 +71,9 @@ async function app() {
   const { history } = useWorkspace("content", { definition: { name: "content", store }, mode: "write" })
   const registry = createOperationRegistry([{ operations: workspaceOperations }])
   const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-    const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
+    const { input, operation } = operationRpcRequest(init!.body)
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
-    return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
+    return operationRpcResponse(init!.body, result)
   }
   const edit = async (put: Record<string, string>) => {
     const head = await history.head({ ref: "draft" })
