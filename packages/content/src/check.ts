@@ -109,7 +109,7 @@ export interface ContentCheckInput {
   options?: ContentCheckOptions
   /** Other configured Sources. The candidate's own documents remain authoritative. */
   targets?: readonly (Pick<ContentCheckInput, "items" | "url"> & {
-    /** A failed Source still contributes its configured URL scope, so its outage cannot weaken link validation. */
+    /** An incomplete target set stays unknown unless its configured URL scope excludes the unresolved link. */
     unavailable?: string
   })[]
 }
@@ -416,10 +416,13 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
       const found = targets.get(target)
       if (!found) {
         const unavailable = input.targets?.find(source => {
-          if (!source.unavailable || typeof source.url !== "string") return false
+          if (!source.unavailable) return false
+          // A reader's paths, a function URL, and a root pattern can serve any internal path. Without their
+          // documents, only a known fixed URL or prefix can prove that this Source is irrelevant to the link.
+          if (typeof source.url !== "string") return true
           if (!source.url.includes(":")) return target === normalizePath(source.url)
-          const base = urlBase(source.url)
-          return base !== "/" && (target.startsWith(base) || `${target}/` === base)
+          const base = normalizePath(urlBase(source.url))
+          return base === "/" || target === base || target.startsWith(`${base}/`)
         })
         if (unavailable) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] ${page.path}: ${page.url} links to ${url.pathname}, but Source "${unavailable.unavailable}" could not load its link targets. Retry the check when that Source is available.` })
       }
