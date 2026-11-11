@@ -57,7 +57,7 @@ You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type
 
 ## Configure ViteHub
 
-Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectPreset()` from `vite-hub/deployment` returns the same detected preset, or `undefined`, so a config can choose host-specific options.
+Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectHost()` from `vite-hub/runtime` returns the same detected host, or `undefined`, so a config can choose host-specific options.
 
 ```ts
 // vite.config.ts
@@ -273,6 +273,7 @@ Set `invocations` on an Agent Definition to record into another journal, such as
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  driver: { model: "openai/gpt-5.1-mini" },
   invocations: "database",
 })
 ```
@@ -289,7 +290,7 @@ The Console **Skills** page shows the bundled files of each discovered Agent Def
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
-Apps do not serve a Console page. They serve the Console endpoint, which the hosted Console at console.vitehub.dev, the CLI, and agents call. `console: true` reuses the app Auth Definition and its server access policy. Enable app Auth and authorize the Console routes in that Definition. A `console` object requires an explicit `auth` choice. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: "token" }` to accept `Authorization: Bearer` with a token whose SHA-256 is in the `VITEHUB_CONSOLE_TOKEN_SHA256` runtime env var, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `auth: false` also works in production, but the build and the production server log a warning. Only `auth: "token"` lets the hosted Console call a production build. `console.signInPage` is removed and fails the build.
+Apps do not serve a Console page. They serve the Console endpoint, which the hosted Console at console.vitehub.dev, the CLI, and agents call. `console: true` reuses the app Auth Definition and its server access policy. Enable app Auth and authorize the Console routes in that Definition. A `console` object requires an explicit `auth` choice. Use `console: { auth: false }` for development without sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: "token" }` to accept `Authorization: Bearer` with a token whose SHA-256 is in the `VITEHUB_CONSOLE_TOKEN_SHA256` runtime env var, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. A production build with `auth: false` fails with `VITE_HUB_B0022`, even with `authorize` set. Only `auth: "token"` lets the hosted Console call a production build. `console.signInPage` is removed and fails the build.
 
 App Auth and the Console endpoint must use the same public origin, including the protocol and port.
 

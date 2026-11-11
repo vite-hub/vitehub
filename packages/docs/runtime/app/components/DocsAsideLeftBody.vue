@@ -57,12 +57,13 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
 <template>
   <nav v-if="panel && section" class="vh-docs-sidebar-nav" :aria-label="`${panel.title} pages`">
     <section class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" :aria-label="`${panel.title} overview`">
-      <NuxtLink :to="docsSectionHome(section)" class="vh-docs-sidebar-link vh-docs-sidebar-back">
+      <NuxtLink data-focus-inset :to="docsSectionHome(section)" class="vh-docs-sidebar-link vh-docs-sidebar-back">
         <UIcon name="i-lucide-arrow-left" class="size-4 shrink-0" />
         <span class="min-w-0">{{ section.title }}</span>
       </NuxtLink>
       <NuxtLink
         :to="panel.path"
+        data-focus-inset
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(panel.path) }]"
         :aria-current="isActive(panel.path) ? 'page' : undefined"
       >
@@ -78,7 +79,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         class="vh-docs-sidebar-page-group vh-docs-sidebar-fold"
         :open="holdsCurrent(pageGroup)"
       >
-        <summary class="vh-docs-sidebar-page-group-heading">
+        <summary data-focus-inset class="vh-docs-sidebar-page-group-heading">
           <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
           {{ pageGroup.label }}
           <span class="vh-docs-sidebar-count">{{ pageGroup.pages.length }}</span>
@@ -87,6 +88,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -99,6 +101,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-grouped': pageGroup.label, 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -114,6 +117,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         v-for="link in siteLinks"
         :key="link.to"
         :to="link.to"
+        data-focus-inset
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
@@ -133,6 +137,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         <NuxtLink
           v-if="entry.home"
           :to="entry.home.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(entry.home.path) }]"
           :aria-current="isActive(entry.home.path) ? 'page' : undefined"
         >
@@ -150,7 +155,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
             class="vh-docs-sidebar-fold"
             :open="holdsCurrent(pageGroup)"
           >
-            <summary class="vh-docs-sidebar-page-group-heading is-nested">
+            <summary data-focus-inset class="vh-docs-sidebar-page-group-heading is-nested">
               <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
               {{ pageGroup.label }}
             </summary>
@@ -158,6 +163,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
               v-for="page in pageGroup.pages"
               :key="page.path"
               :to="page.path"
+              data-focus-inset
               :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
               :aria-current="isActive(page.path) ? 'page' : undefined"
             >
@@ -171,6 +177,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
               v-for="page in pageGroup.pages"
               :key="page.path"
               :to="page.path"
+              data-focus-inset
               :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
               :aria-current="isActive(page.path) ? 'page' : undefined"
             >
@@ -183,6 +190,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
           v-for="entryPanel in docsSectionPanels(entry.section)"
           :key="entryPanel.page.path"
           :to="entryPanel.page.path"
+          data-focus-inset
           class="vh-docs-sidebar-link vh-docs-sidebar-panel-link is-nested"
         >
           <span class="min-w-0">{{ entryPanel.page.title }}</span>
@@ -198,6 +206,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         v-for="relatedSection in related"
         :key="relatedSection.id"
         :to="docsSectionHome(relatedSection)"
+        data-focus-inset
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
@@ -212,6 +221,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         v-for="link in startLinks"
         :key="link.to"
         :to="link.to"
+        data-focus-inset
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
@@ -227,7 +237,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         class="vh-docs-sidebar-page-group vh-docs-sidebar-fold"
         :open="holdsCurrent(pageGroup)"
       >
-        <summary class="vh-docs-sidebar-page-group-heading">
+        <summary data-focus-inset class="vh-docs-sidebar-page-group-heading">
           <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
           {{ pageGroup.label }}
         </summary>
@@ -235,6 +245,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -249,6 +260,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -262,6 +274,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -276,6 +289,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
       v-for="entry in panels"
       :key="entry.page.path"
       :to="entry.page.path"
+      data-focus-inset
       class="vh-docs-sidebar-link vh-docs-sidebar-panel-link"
     >
       <UIcon :name="icons.page(entry.page)" class="size-4 shrink-0" />
@@ -290,6 +304,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         v-for="relatedSection in related"
         :key="relatedSection.id"
         :to="docsSectionHome(relatedSection)"
+        data-focus-inset
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
@@ -306,6 +321,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
         v-for="catalogSection in group.sections"
         :key="catalogSection.id"
         :to="docsSectionHome(catalogSection)"
+        data-focus-inset
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(catalogSection)" class="size-4 shrink-0" />
@@ -361,7 +377,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
   align-items: flex-start;
   gap: 0.5rem;
   margin: 0 -0.5rem;
-  border-radius: 0.375rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   padding: 0.3rem 0.5rem;
   color: var(--ui-text-muted);
   line-height: 1.25rem;
@@ -381,7 +397,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
   transition: color 150ms ease;
 }
 
-.vh-docs-sidebar-link:is(:hover, :focus-visible, .is-active) > .iconify {
+.vh-docs-sidebar-link:is(:hover, .is-active) > .iconify {
   color: currentcolor;
 }
 
@@ -402,7 +418,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
 .vh-docs-sidebar-link.is-nested,
 .vh-docs-sidebar-link.is-grouped {
   margin-left: 0.25rem;
-  border-radius: 0 0.375rem 0.375rem 0;
+  border-radius: 0 calc(var(--ui-radius) * 1.5) calc(var(--ui-radius) * 1.5) 0;
   padding-left: 0.875rem;
   box-shadow: inset 1px 0 0 var(--ui-border);
 }
@@ -461,13 +477,11 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
   line-height: 1.25rem;
 }
 
-.vh-docs-sidebar-link:focus-visible {
-  color: var(--ui-text-highlighted);
-}
-
+/* Hover tints the row and keeps the body text. The current page takes the highlighted text, so a hovered row never looks current. */
 @media (hover: hover) {
   .vh-docs-sidebar-link:hover {
-    color: var(--ui-text-highlighted);
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text);
   }
 }
 

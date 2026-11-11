@@ -87,14 +87,14 @@ describe("@vite-hub/ui package contract", () => {
       "./agent-trace",
     ]));
     expect(packageJson.peerDependencies).toMatchObject({
-      "@iconify-json/ph": expect.any(String),
+      "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
       vite: expect.any(String),
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
-      "@iconify-json/ph": { optional: true },
+      "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },

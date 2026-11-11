@@ -11,8 +11,10 @@ import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -35,6 +37,9 @@ export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
 export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const EMAIL_RESOLVE_ID_PATTERN = /^#vitehub\/(?:email\/definition$|emails\/)/
+const EMAIL_LOAD_ID_PATTERN = /^\0#vitehub\/email\/definition$|\?markdown-template$/
 const noExternalAddition = createNoExternalAddition("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
@@ -121,10 +126,6 @@ interface InternalEmailVitePluginOptions {
   hosting?: string
   runtimeEnvImport?: string
   workflowProvider?: string
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: Record<string, unknown> } {
@@ -282,16 +283,6 @@ function renderConfiguredEmailDefinitionModule(
     "export default definition",
     "",
   ].join("\n")
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 /** Returns true when this call adds the `EMAIL` binding to the Nitro Wrangler config. */
@@ -666,32 +657,38 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       }
     },
-    resolveId(id) {
-      if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
-      const name = emailTemplateName(id)
-      if (name) return (async () => {
-        for (const templatesRoot of templatesRoots) {
-          const file = resolve(templatesRoot, `${name}.md`)
-          try {
-            if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+    resolveId: {
+      filter: { id: EMAIL_RESOLVE_ID_PATTERN },
+      handler(id) {
+        if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
+        const name = emailTemplateName(id)
+        if (name) return (async () => {
+          for (const templatesRoot of templatesRoots) {
+            const file = resolve(templatesRoot, `${name}.md`)
+            try {
+              if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+            }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+            }
           }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-          }
-        }
-      })()
+        })()
+      },
     },
-    load(id) {
-      if (id === resolvedEmailDefinitionId && definition) {
-        return renderEmailDefinitionModule(definition)
-      }
-      if (id.endsWith("?markdown-template")) {
-        const file = normalizeTemplateModulePath(id)
-        if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
-        return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
-          `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
-        )
-      }
+    load: {
+      filter: { id: EMAIL_LOAD_ID_PATTERN },
+      handler(id) {
+        if (id === resolvedEmailDefinitionId && definition) {
+          return renderEmailDefinitionModule(definition)
+        }
+        if (id.endsWith("?markdown-template")) {
+          const file = normalizeTemplateModulePath(id)
+          if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
+          return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
+            `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
+          )
+        }
+      },
     },
   }
 }

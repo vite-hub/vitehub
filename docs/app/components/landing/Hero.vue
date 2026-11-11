@@ -20,12 +20,11 @@
               to="/docs/getting-started/first-server-primitive"
               label="Start building"
               trailing-icon="i-lucide-arrow-right"
-              color="neutral"
-              class="hero-cta h-10 rounded-none px-4"
+              class="hero-cta"
             />
             <NuxtLink
               to="/docs"
-              class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+              class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-highlighted"
             >
               Explore the docs
               <UIcon name="i-lucide-arrow-up-right" class="size-3.5" aria-hidden="true" />

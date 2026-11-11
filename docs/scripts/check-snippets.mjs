@@ -83,7 +83,7 @@ const options = {
   types: ["node", "vite/client"],
 }
 
-/** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue shim of a Vite app. */
+/** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue and `?raw` shims of a Vite app. */
 const ambientFiles = [join(packagesRoot, "env/dist/virtual-module.d.ts")]
 const nuxtModules = {
   "@nuxt/ui": "ui",
@@ -103,6 +103,11 @@ const appDeclarations = [
       `declare module "*.vue" {`,
       `  const component: import("vue").DefineComponent`,
       `  export default component`,
+      `}`,
+      // `vite/client` types a `?raw` import as the text of the file.
+      `declare module "*?raw" {`,
+      `  const text: string`,
+      `  export default text`,
       `}`,
     ].join("\n"),
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
@@ -247,6 +252,12 @@ const registries = [
   { definitions: channelNames, render: globalModules("ViteHubChannelDefinitionModules"), type: "channels" },
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
+  {
+    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` is the Auth Definition of the app.
+    definitions: label => /^server\/auth\.m?ts$/.test(label) ? ["definition"] : [],
+    render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
+    type: "auth",
+  },
   {
     // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
     definitions: collectionNames,

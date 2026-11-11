@@ -20,6 +20,7 @@ import {
   useLogger,
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
+import { vitehubTheme } from "@vite-hub/ui/theme"
 import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
@@ -248,6 +249,7 @@ interface DocsNuxtOptions {
   agentDiscovery?: AgentDiscoveryOptions
   llms?: LlmsOptions
   linkChecker?: { excludeLinks?: Array<string | RegExp> }
+  fonts?: { families?: Array<{ name: string, global?: boolean }> }
 }
 
 export interface DocsNuxtModule {
@@ -362,6 +364,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
     moduleOptions.appConfig.ui = docsAppConfigUi(docsUi(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    // The design system lists "Geist Variable" first, the font that the Console bundles. @nuxt/fonts, which Nuxt UI
+    // installs, serves only the first family of a declaration, so it served no Geist. The docs ask for both families.
+    const fonts = moduleOptions.fonts ??= {}
+    const families = fonts.families ??= []
+    for (const name of ["Geist", "Geist Mono"]) {
+      if (!families.some(family => family.name === name)) families.push({ name, global: true })
+    }
 
     // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
     const head = nuxt.options.app.head
@@ -518,7 +527,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       })
     }
 
-    // Tailwind scans the app; the docs components and the Markdown pages live outside it.
+    // Tailwind scans the app; the docs components and the Markdown pages live outside it. The ViteHub design system
+    // resolves from this package, so a site gets its tokens and focus rule without listing @vite-hub/ui itself.
     nuxt.options.css.unshift(addTemplate({
       filename: "docs/docs.css",
       write: true,
@@ -527,6 +537,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         `@layer theme, base, comark, components, utilities;`,
         `@import "tailwindcss";`,
         `@import "@nuxt/ui";`,
+        `@import "${dependency("@vite-hub/ui/theme.css")}";`,
         `@source "${join(runtime, "app")}";`,
         `@source "${resolver.resolve("./theme.js")}";`,
         ...contentDirsToWatch.map(dir => `@source "${dir}";`),
@@ -539,6 +550,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     Reflect.apply(nuxt.hook, nuxt, ["icon:clientBundleIcons", (icons: Set<string>) => {
       const names = [
         ...shellIcons,
+        ...Object.values(vitehubTheme.icons),
         config.icons.page,
         config.icons.section,
         ...[...config.start?.links ?? [], ...config.socials].map(link => link.icon),
@@ -733,11 +745,11 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: strin
   }
 }
 
-/** Icons of the shell components and the theme. */
+/** Icons of the shell components. The icons of the theme come from `vitehubTheme`. */
 const shellIcons = [
   "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
-  "i-lucide-moon", "i-lucide-star", "i-lucide-sun", "i-simple-icons-anthropic", "i-simple-icons-cursor",
+  "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
   "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
   "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",

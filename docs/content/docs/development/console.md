@@ -359,13 +359,13 @@ The Console endpoint is the RPC under `/_vitehub/rpc/**`, the MCP endpoint, and 
 
 | `auth` | Who can call the endpoint |
 | --- | --- |
-| `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
+| `false` | Development only. Accepts local requests and calls from `console.origins`. A production build fails. |
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. The hosted Console, the CLI, and agents. This is the only mode that the hosted Console can use in production. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth), such as the CLI with a session cookie, and MCP clients that sign in with [OAuth](/docs/development/mcp#set-up-oauth). |
 | `{ ... }` | Users of a separate Console Auth: GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
 > [!WARNING]
-> `auth: false` also works in a production build. The build and the server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`.
+> A production build with `auth: false` fails with `VITE_HUB_B0022`, including when `authorize` is set. Use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. Development, CLI discovery, and `nuxi prepare` still accept `auth: false`.
 
 When `console` is missing or `false`, a production build registers no Console route, and the host returns its normal not-found response. A development server without `console` serves only the Operations endpoint.
 
@@ -391,6 +391,63 @@ The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, wit
 ```bash [Terminal]
 VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
 ```
+
+A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the hash in its environment:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub kv list --url http://localhost:3000
+```
+
+To use the commands and the Console at `/_vitehub` without a token during development, set `auth: false` for the dev server only. The build keeps `auth: 'token'`. A dev server without sign-in answers only requests from this machine.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  },
+  $development: {
+    vitehub: { console: { auth: false } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  }), nitro()],
+}))
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  })],
+}))
+```
+:::
+::
 
 A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
 
@@ -686,7 +743,7 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 
 ### Use another authentication library
 
-With another authentication library, set `auth: false` and give the Console an `authorize` function:
+In development, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`. In production, use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. `authorize` still runs after authentication.
 
 ```ts
 import { vitehub } from 'vite-hub'
@@ -772,7 +829,7 @@ Each Console route checks access itself. The Console Auth middleware stays as a 
 
 | Configuration | Check in each Console route |
 | --- | --- |
-| `auth: false` | Allows the request. A production build and server log a warning. On the development server, accepts a call from `console.origins`. |
+| `auth: false` | Allows development access, including calls from `console.origins`. A production build fails with `VITE_HUB_B0022`. |
 | `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. |
 | `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
 | `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback. Returns `401` or `403`. |
@@ -834,13 +891,12 @@ A finished session shows **Abort stale execution**. It sends an abort signal to 
 
 Nuxt needs no SEO module for the `X-Robots-Tag` default. If the app uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route rules so its robots and sitemap modules skip the Console routes:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  routeRules: {
-    '/_vitehub': { robots: false },
-    '/_vitehub/**': { robots: false },
-  },
-})
+```ts [nuxt.config.ts] fragment
+// With @nuxtjs/robots or @nuxtjs/seo in `modules`
+routeRules: {
+  '/_vitehub': { robots: false },
+  '/_vitehub/**': { robots: false },
+},
 ```
 
 Do not use `robots.txt` as access control. Crawlers can ignore it, and a blocked URL can still be listed. Read [Auth](/docs/auth/server-api#authorize-access-routes) for the full callback contract.
