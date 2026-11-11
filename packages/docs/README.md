@@ -290,7 +290,7 @@ The design follows the comark-ui site on top of the ViteHub design system (`@vit
 In an app with its own `app.vue`, the theme stays on the docs pages:
 
 - The theme's CSS applies below the `vh-docs` class. The docs layouts put it on `<html>` on docs pages only.
-- The docs layouts give the theme's slot classes to Nuxt UI's `<UTheme>`. The app's `app.config.ts` stays as written, and its pages keep their look.
+- The docs layouts give the theme's slot classes and default props to Nuxt UI's `<UTheme>`, with the live `app.config.ts` UI values above the design. The app's pages keep their look.
 - The docs pages use the app's Nuxt UI colors and icons. To change the docs pages only, set the CSS variables on `:root.vh-docs`.
 
 ### Link checks

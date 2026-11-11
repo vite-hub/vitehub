@@ -73,7 +73,7 @@ describe("a Database that the app migrates", () => {
     const client = createClient({ url: ":memory:" })
     await client.executeMultiple(liveCommentsMigration)
     // SAFETY: the libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-    const database = drizzle(client) as unknown as CommentsDatabase
+    const database = drizzle({ client }) as unknown as CommentsDatabase
     const comments = defineComments({ authorize: () => true })
     installComments(comments, { database })
     const failure = await comments.list().then(() => undefined, (error: unknown) => error)
@@ -96,7 +96,7 @@ describe("a Database that the app migrates", () => {
     await client.executeMultiple(liveCommentsMigration)
     const comments = defineComments({ authorize: () => true })
     // SAFETY: the libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-    installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+    installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
     const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
     const response = await app.fetch(new Request("http://site.test/api/_vitehub/comments/threads?page=/"))
     expect(response.status).toBe(503)
@@ -109,7 +109,7 @@ describe("a Database that the app migrates", () => {
     await client.executeMultiple("CREATE TABLE `vitehub_comment_threads` (`id` text PRIMARY KEY NOT NULL, `scope` text NOT NULL, `n` integer NOT NULL, `subject_kind` text NOT NULL, `subject_id` text NOT NULL, `anchor` text NOT NULL, `status` text NOT NULL, `resolved_by` text, `resolved_at` integer, `author_id` text NOT NULL, `author_name` text, `author_image` text, `actor` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL);")
     // SAFETY: the libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
     const comments = defineComments({ authorize: () => true })
-    installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+    installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
     const failure = await comments.get("x").then(() => undefined, (error: unknown) => error)
     expect(failure).toMatchObject({ code: "COMMENTS_R0019" })
     expect(String(Reflect.get(Object(failure), "why"))).toContain("metadata, context, revision")
@@ -123,7 +123,7 @@ describe("a Database that the app migrates", () => {
     const execute = vi.spyOn(client, "execute")
     // SAFETY: the libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
     const comments = defineComments({ authorize: () => true })
-    installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+    installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
     await comments.list()
     await comments.list()
     expect(execute.mock.calls.filter(([query]) => String(Reflect.get(Object(query), "sql") ?? query).includes("pragma_table_info"))).toHaveLength(1)

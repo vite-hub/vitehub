@@ -12,6 +12,8 @@ import * as vue from "vue"
 import { compileScript, parse } from "vue/compiler-sfc"
 import { renderToString } from "vue/server-renderer"
 
+import { resolveDocsTheme } from "../runtime/app/utils/docs-theme.ts"
+
 // Vue captures these at import time. Hold idle hydration until the test releases it.
 const { idleCallbacks } = vi.hoisted(() => {
   const idleCallbacks: Array<() => void> = []
@@ -89,7 +91,10 @@ function app(loader: () => Promise<vue.Component>) {
   // with the empty scope a docs-only site gets, while exercising the real lazy hydration boundary below.
   app.config.globalProperties.withDocsTheme = evaluate(
     readFileSync(resolve(import.meta.dirname, "../runtime/app/composables/docs-theme.ts"), "utf8"),
-    { "#docs/theme": { __esModule: true, default: { ui: {}, props: {} } } },
+    {
+      "#docs/theme": { __esModule: true, default: { ui: {}, props: {} } },
+      "../utils/docs-theme": { resolveDocsTheme },
+    },
   ).withDocsTheme
   return app
 }
