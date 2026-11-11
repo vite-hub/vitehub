@@ -96,6 +96,15 @@ For a rule with one argument, required or optional, pass it in `with`. For every
 
 In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, `<Can>` shows nothing until Better Auth answers.
 
+Nuxt uses the Auth Definition's configured base path for browser session refreshes too. In other Vue apps with a custom client, call `provideAuthClient(client)` from a parent component's setup. Descendant `<Can>` components and Auth composables then share that client. For a single check, pass the client directly to `useAbility(client)`.
+
+```ts fragment
+import { createAuthClient, provideAuthClient } from 'vite-hub/auth/vue'
+
+const client = createAuthClient({ basePath: '/auth' })
+provideAuthClient(client)
+```
+
 ## Abilities and route guards
 
 [`requireAuthorization(event, authorize)` and `withAuthorization()`](/docs/auth/server-api) check the caller with an `authorize` callback. `requireAuthorization()` runs inside the handler; `withAuthorization()` wraps it. Use them when the decision needs only the user, such as an admin area. Use an ability when the decision needs data that the handler loads, such as the post, or when the page must show the same decision.

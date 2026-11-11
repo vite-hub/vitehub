@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import ts from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
-import { createServer, mergeConfig, resolveConfig } from "vite"
+import { createServer, mergeConfig, optimizeDeps, resolveConfig } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { AUTH_ABILITIES_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
@@ -57,6 +57,38 @@ afterEach(async () => {
 })
 
 describe("hubAuth", () => {
+  it("preserves app rules when a non-linked Auth package is dependency-optimized", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    await mkdir(join(root, "shared"))
+    await writeFile(join(root, "shared/abilities.ts"), 'export default { "app.rule": Object.assign(() => true, { guest: true }) }\n')
+    await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>')
+    await writeFile(join(root, "main.js"), 'import { Can, useAbility } from "@vite-hub/auth/vue"; console.log(Can, useAbility)')
+    const installed = join(root, "node_modules/@vite-hub/auth")
+    await mkdir(installed, { recursive: true })
+    await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
+    await cp(join(packageRoot, "package.json"), join(installed, "package.json"))
+    for (const dependency of ["vue", "better-auth", "nostics"]) {
+      await symlink(await realpath(join(packageRoot, "node_modules", dependency)), join(root, "node_modules", dependency), "dir")
+    }
+    const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [hubAuth()], server: { watch: null } })
+    try {
+      const metadata = await optimizeDeps(server.config, true)
+      expect(metadata.optimized).not.toHaveProperty("@vite-hub/auth/vue")
+      expect(Object.keys(metadata.optimized).some(id => id.includes("better-auth/vue"))).toBe(true)
+      const entry = await server.transformRequest("/main.js")
+      expect(entry?.code).toContain("/node_modules/@vite-hub/auth/dist/vue.js")
+      const vue = await server.transformRequest("/node_modules/@vite-hub/auth/dist/vue.js")
+      expect(vue?.code).toContain("/@id/__x00__#vitehub/auth/abilities")
+      const rules = await server.transformRequest("\0#vitehub/auth/abilities")
+      expect(rules?.code).toContain("/shared/abilities.ts")
+      expect((await server.ssrLoadModule(AUTH_ABILITIES_ID)).default["app.rule"](null)).toBe(true)
+    }
+    finally {
+      await server.close()
+    }
+  }, 30_000)
+
   it("filters resolveId and load to the Auth virtual modules", () => {
     const plugin = hubAuth()
     const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id

@@ -1,12 +1,12 @@
 import abilities from "#vitehub/auth/abilities"
-import { computed, defineComponent, getCurrentInstance, getCurrentScope, shallowRef, watch } from "vue"
+import { computed, defineComponent, getCurrentInstance, getCurrentScope, inject, provide, shallowRef, watch } from "vue"
 
 import { checkAbility } from "./ability-check.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
 
 import type { BetterAuthClientOptions, SessionQueryParams } from "better-auth"
 import type { createAuthClient as createBetterAuthClient, BetterFetchError, VueAuthClient } from "better-auth/vue"
-import type { ComputedRef, DeepReadonly, EffectScope, Ref, VNode } from "vue"
+import type { ComputedRef, DeepReadonly, EffectScope, InjectionKey, Ref, VNode } from "vue"
 import type { AbilityArgs, AbilityName, AbilityRefusal } from "./abilities.ts"
 import type { AbilityCheckRefusal } from "./ability-check.ts"
 
@@ -15,7 +15,9 @@ export type { VueAuthClient } from "better-auth/vue"
 const LOAD = Symbol.for("vitehub.auth.client.load")
 
 type Callable = (...args: unknown[]) => unknown
-type NuxtApp = { runWithContext<T>(run: () => T): T }
+type NuxtApp = { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: VueAuthClient<any> }
+
+const authClientKey: InjectionKey<VueAuthClient<any>> = Symbol("vitehub.auth.client")
 
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
 let sessionSeedResolver: (() => unknown) | undefined
@@ -114,8 +116,16 @@ export async function loadAuthClient<Client extends VueAuthClient<any>>(client: 
 
 export const authClient: VueAuthClient<{}> = createAuthClient({ basePath: resolveAuthMountPath("/api/auth") })
 
+/** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
+export function provideAuthClient(client: VueAuthClient<any>): void {
+  provide(authClientKey, client)
+}
+
 export function useAuthClient(): typeof authClient {
-  return authClient
+  const instance = getCurrentInstance()
+  const client = instance ? inject(authClientKey, undefined) : undefined
+  const nuxtApp = nuxtAppResolver?.() || instance?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
+  return client ?? nuxtApp?.$vitehubAuthClient ?? authClient
 }
 
 export interface AuthSessionState<Client extends VueAuthClient<any> = typeof authClient> {
@@ -128,7 +138,7 @@ export interface AuthSessionState<Client extends VueAuthClient<any> = typeof aut
 
 type AuthSessionRef<Client extends VueAuthClient<any> = typeof authClient> = DeepReadonly<Ref<AuthSessionState<Client>>>
 
-export function useSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = authClient as Client): AuthSessionRef<Client> {
+export function useSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = useAuthClient() as Client): AuthSessionRef<Client> {
   return client.useSession() as AuthSessionRef<Client>
 }
 
@@ -152,7 +162,7 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   user: ComputedRef<ClientSession<Client>["user"] | null>
 }
 
-export function useUserSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = authClient as Client): UserSession<Client> {
+export function useUserSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = useAuthClient() as Client): UserSession<Client> {
   const state = client.useSession() as AuthSessionRef<Client>
   return {
     data: computed(() => state.value.data),
@@ -203,8 +213,8 @@ function abilityRefusal(state: { isPending: boolean, data: { user: object } | nu
  * const { can } = useAbility()
  * const editable = computed(() => post.value && can("posts.edit", post.value))
  */
-export function useAbility(): Ability {
-  const state = useSession()
+export function useAbility(client: VueAuthClient<any> = useAuthClient()): Ability {
+  const state = useSession(client)
   return {
     can: (name, ...args) => {
       const refusal = abilityRefusal(state.value, name, args)

@@ -366,6 +366,11 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
         Object.assign(config, { nitro })
       }
       const contribution: UserConfig = {
+        // The optimizer resolves package #imports without Vite's virtual-module hooks.
+        optimizeDeps: {
+          exclude: [authPackageName, "vite-hub/auth"],
+          include: [`${authPackageName} > better-auth/vue`],
+        },
         ssr: {
           noExternal: mergeNoExternal(config.ssr?.noExternal),
         },

@@ -392,6 +392,8 @@ A rule gets the signed-in user, then its arguments, and returns at once. `true` 
 - Server: `requireAbility(event, name, ...args)` from `@vite-hub/auth/server` returns the checked `{ request, session, user }`, or throws `AbilityError`. H3 2 sends it with the rule's status and `{ code, details }` in `data`. `can(event, name, ...args)` returns a boolean.
 - Vue: `useAbility().can(name, ...args)` and `<Can do="posts.edit" :with="post">` from `@vite-hub/auth/vue`. Both give no answer (`undefined`, or no content) until the session is known. `<Can>` takes the one argument of a rule in `with`, the list of any other rule in `args` (`:args="[from, to]"`), and `pending` to show nothing while data loads. The arguments go to the rule as they are, the same as on the server. `<Can>` renders the `#denied` slot with `{ code, details }` when the rule refuses. The Nuxt module auto-imports both.
 
+Nuxt uses the Auth Definition's base path for the shared browser client. In other Vue apps, call `provideAuthClient(client)` from `@vite-hub/auth/vue` in a parent component's setup to share a custom client with descendant Auth composables and `<Can>`. You can also pass a client directly to `useAbility(client)`.
+
 `requireAuthorization(event, authorize)` checks inside the handler, and `withAuthorization()` wraps it. Use them for checks that need only the user. A rule that needs data the handler loads belongs in `shared/abilities.ts`.
 
 ## Nuxt: server session and page guard
