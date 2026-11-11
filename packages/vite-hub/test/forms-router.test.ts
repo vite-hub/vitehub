@@ -1,10 +1,14 @@
 // @vitest-environment happy-dom
+import type { Window } from "happy-dom"
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 import { createApp, h } from "vue"
 import { createRouter, createWebHistory, RouterView } from "vue-router"
 
 import { AutoForm } from "@vite-hub/forms/vue"
+
+// SAFETY: This test runs in happy-dom, whose window is the global scope.
+const { document, history, location } = globalThis as unknown as Pick<Window, "document" | "history" | "location">
 
 describe("AutoForm result cleanup with Vue Router", () => {
   it.each([false, true])("waits for initial navigation and rechecks its result (redirected: %s)", async (redirected) => {
