@@ -7,10 +7,6 @@ import { expect } from "vitest"
 
 import { createProject } from "./setup-helpers.ts"
 
-/** The SHA-256 that `vitehub init --console` stores. No argv and no CLI output may show it. */
-export const HASH = "9b74c9897bac770ffc029102a200c5de1c4f6ed3cf5bd2c7a6c3f0e4d2b1a098"
-export const PENDING_ID = "pending_42"
-
 export interface FakeCall {
   name: string
   argv: string[]
@@ -91,12 +87,8 @@ export async function builtProject(host: "cloudflare" | "vercel" | "netlify" | "
   })
 }
 
-export function consoleLink(): Record<string, string> {
-  return { ".vitehub/link.json": JSON.stringify({ console: { pendingId: PENDING_ID, tokenSha256: HASH }, schemaVersion: 1 }) }
-}
-
-/** The Console hash and the tokens appear in no argv, no CLI output, and no request URL. */
-export function expectNoLeak(calls: readonly FakeCall[], output: string, values: readonly string[] = [HASH]): void {
+/** The tokens appear in no argv and no CLI output. */
+export function expectNoLeak(calls: readonly FakeCall[], output: string, values: readonly string[]): void {
   for (const value of values) {
     for (const call of calls) expect(call.argv.join(" "), `${call.name} ${call.argv.join(" ")}`).not.toContain(value)
     expect(output).not.toContain(value)

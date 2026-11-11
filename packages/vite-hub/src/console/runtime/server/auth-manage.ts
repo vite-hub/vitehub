@@ -7,14 +7,10 @@ import {
   consoleAccessWrites,
   consoleImpersonation,
   consoleRequest,
-  readConsoleAccessUser,
   withConsoleAccess,
-  consoleScopeRejection,
-  consoleScopesAllow,
   type ConsoleAccess,
   type ConsoleAccessRoute,
 } from "./access.ts";
-import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts";
 import {
   assertConsoleRequest,
   consoleRequestError,
@@ -58,16 +54,13 @@ function isRequestEvent(event: unknown): event is ConsoleRequestEvent {
 
 export type AuthOperationContext = Omit<OperationContext, "access"> & { access: ConsoleAccess };
 
-/** The Auth Console of one operation call, with the request that carries the app session or the OAuth access token. */
+/** The Auth Console of one operation call, with the request of the call. */
 async function operationAuthConsole(context: AuthOperationContext): Promise<{ api: AuthConsole; request: Request }> {
   if (!getConsoleSections().includes("auth")) throw consoleRequestError(404, "Auth section not found.");
-  const { access, request } = context;
+  const { request } = context;
   if (!request) throw consoleRequestError(400, "Auth management needs the request of the call.");
-  // An OAuth access token has no app session, so the Auth Console acts as the user of the token.
-  const user = access.via === "oauth" ? access.user ?? (await readConsoleAccessUser(access)) : undefined;
   const api = getAuthConsoleForRequest(request, isRequestEvent(context.event) ? context.event : undefined, {
     impersonation: consoleImpersonation(),
-    ...(user ? { bearer: { user, sessionId: access.sessionId } } : {}),
   });
   return { api, request };
 }
@@ -113,11 +106,10 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   const site = request.headers.get("sec-fetch-site");
   // Browser-controlled Fetch Metadata survives trusted TLS termination, as in Console RPC.
   if (
-    (origin === "null" ||
-      site === "cross-site" ||
-      site === "same-site" ||
-      (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)) &&
-    !isConsoleCrossOriginCall(request, access)
+    origin === "null" ||
+    site === "cross-site" ||
+    site === "same-site" ||
+    (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
@@ -125,9 +117,6 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   if (!parsed.success)
     return Response.json({ message: "Invalid Auth Console request. Run the other Auth management calls as auth.* operations." }, { status: 400 });
   const { output } = parsed;
-  // A missing OAuth scope gets the insufficient_scope challenge, so the Console can ask for the scope again.
-  if (!consoleScopesAllow(access, { kind: "write" }))
-    return consoleScopeRejection({ kind: "write" }, "changing Auth data");
   // A read-only grant (`"auth:read"`) never changes Auth data.
   if (!consoleAccessWrites(access, "auth"))
     return Response.json(
@@ -140,11 +129,10 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
       { message: "Impersonation is off. Set console.impersonation to true to enable it." },
       { status: 404, headers: { "cache-control": "no-store" } },
     );
-  // Impersonation swaps the session cookie on the app origin. A bearer call has no session to swap, and a Console
-  // token names no administrator that the record could name.
+  // Impersonation swaps the session cookie on the app origin. A signed call has no app session to swap.
   if (access.via !== undefined)
     return Response.json(
-      { message: "Impersonation needs a signed-in administrator on the app origin. A bearer token cannot start or stop it." },
+      { message: "Impersonation needs a signed-in administrator on the app origin. A signed call cannot start or stop it." },
       { status: 403, headers: { "cache-control": "no-store" } },
     );
   const api = getAuthConsoleForRequest(request, event, { impersonation });
@@ -162,11 +150,8 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     );
   }
 }
-const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, {
-  section: "auth",
-  user: true,
-});
+const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, { section: "auth" });
 
 /** `POST <base>/_vitehub/auth/manage`: impersonation only. */
-const consoleAuthManageRoute: ConsoleRoute = consoleRoute(withConsoleCors(guarded));
+const consoleAuthManageRoute: ConsoleRoute = consoleRoute(guarded);
 export default consoleAuthManageRoute;

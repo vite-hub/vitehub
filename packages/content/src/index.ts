@@ -17,6 +17,9 @@ import type {
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
+import { createContentSourceHeads } from "./source-heads.ts"
+import { createContentReadScope } from "./read-scope.ts"
+import type { ContentSourceHeads } from "./source-heads.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
@@ -86,6 +89,8 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export { registerContentKV } from "./source-heads.ts"
+export type { ContentKV, ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
 export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export { contentSessionTimeouts } from "./defaults.ts"
@@ -366,6 +371,11 @@ export interface ContentRuntimeList {
 /** Named-source operations retained across the Comark instance API migration. */
 export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search" | "media"> & {
   list: ContentRuntimeList
+  /**
+   * The head commit of each `github()` Source. With a GitHub token, Content serves one validated commit per Source, keeps
+   * it in ViteHub KV, and moves it with `advance()`. Reads follow a moved head within 5 seconds.
+   */
+  sources: ContentSourceHeads
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -433,10 +443,12 @@ export function defineContent<
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" })
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
-    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.revision(name, input))
+    heads.attach(name, instance)
     if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
     return instance
   })
@@ -470,6 +482,7 @@ export function defineContent<
     collectionInstances.push({ instance, source: historySource })
   }
   const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
+  const readScope = createContentReadScope(hub.names, hub.basePath)
 
   // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
   let draft: { hub: ContentHub<ComarkContent[]>, instances: Array<{ instance: ComarkContent, source: ContentHistorySource }> } | undefined
@@ -517,8 +530,10 @@ export function defineContent<
     await Promise.all(refreshes)
   })
   /** Run a read on the hub of the current request's ref after refreshing stale instances. */
-  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, select: (...args: TArgs) => readonly string[] | undefined): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
+      // Comark can serve cached artifacts and shared indexes without calling guarded instance methods.
+      await heads.sync(select(...args))
       if (documentsRuntime && preview.active()) {
         await sync("draft")
         return await method(draftHub().hub, ...args)
@@ -613,13 +628,14 @@ export function defineContent<
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
     ...documentsApi,
+    sources: heads.api,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
-    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
-    handler: fresh((target, request: Request) => target.handler(request)),
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key) as ContentHub["get"],
+    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
+    handler: fresh((target, request: Request) => target.handler(request), readScope.request),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
-    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat())) as ContentRuntimeList,
-    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
+    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
+    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names }), names => readScope.names(names)),
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.

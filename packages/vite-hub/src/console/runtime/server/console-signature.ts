@@ -38,7 +38,7 @@ export function isConsoleRpcPath(pathname: string): boolean {
 }
 
 /**
- * Check the signature of a request for `console: { auth: "token" }`, before its body is read. The public keys come from
+ * Check the signature of a request to an app with `console: true`, before its body is read. The public keys come from
  * the `VITEHUB_CONSOLE_KEY_<NAME>` variables of the host env on each request, so a deploy or a Worker secret change
  * takes effect without a build.
  *

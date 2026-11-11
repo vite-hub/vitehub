@@ -52,7 +52,7 @@ function writeUsage(context: ChannelReplayCliContext, queryHelp: string[] = []):
     "Without --url, the command uses the running Vite Development Server.",
     "",
     "Options:",
-    "  --url <url>          Origin of the deployed app. The command calls its channels.replay operation. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to authenticate.",
+    "  --url <url>          Origin of the deployed app. The command calls its channels.replay operation. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the call.",
     "  --server <url>       Vite Development Server URL. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --dry-run            Record Channel message writes in the trace instead of sending them.",
     "  --force              Replay items that already have an Invocation.",
