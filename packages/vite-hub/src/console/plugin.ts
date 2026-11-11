@@ -43,10 +43,7 @@ export interface ConsoleAccessBuild {
   oauth?: { issuer?: string, path: string, resource?: string }
   /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
   impersonation?: true
-  /**
-   * `console.origins`: the browser origins that may call the data routes, such as the hosted Console. `token` mode
-   * accepts them with the token. `local` and `open` accept them on the development server only.
-   */
+  /** Browser origins that may call the data routes with a bearer token, or without sign-in on the development server. */
   origins?: readonly string[]
   /** `console.sections`: the sections that the app leaves out of its Console. */
   hiddenSections?: readonly ConsoleSectionId[]
@@ -83,6 +80,12 @@ function renderConsoleRuntimeCapabilities(imports: Record<string, false | string
   return `capabilities: async () => { const [${bindings}] = await Promise.all([${modules}]); return { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} } }`
 }
 
+/** The exact mounted paths where the app Auth middleware accepts an OAuth access token: MCP and each Console data route. */
+function consoleOAuthIdentityPaths(mcpPath: string): string[] {
+  const base = mcpPath.replace(/\/mcp\/?$/, "")
+  return [mcpPath, ...consoleOAuthDataRoutes.map(route => `${base}${route}`)]
+}
+
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
   if (!access) return { imports: [], install: [] }
   const imports: string[] = []
@@ -109,27 +112,25 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     // App Auth keeps its session guard and matching route policies; the MCP identity resolver also accepts tokens.
     const routes = JSON.stringify(access.check.appRoutes)
     imports.push(`import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from ${JSON.stringify(generatedModules.consoleSections)}`)
-    oauthAuth = "(request, event) => vitehubGetAuthForRequest(request, undefined, event)"
+    oauthAuth = "(request, event) => vitehubAuthForRequest(request, undefined, event)"
     fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "signedIn: vitehubConsoleAppPages.signedIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
     // The Auth server module loads Better Auth. Import it on the first Console request, not when the server starts.
     setup.push(
       'const vitehubAuthServer = () => import("#vitehub/auth/server")',
-      "const vitehubGetAuthForRequest = async (request, runtimeOptions, event) => (await vitehubAuthServer()).getAuthForRequest(request, runtimeOptions, event)",
+      // The Console reads app Auth for its own request URL and `baseURL`, which `useAuth(event)` does not take.
+      "const vitehubAuthForRequest = async (request, runtimeOptions, event) => (await import(\"@vite-hub/auth/runtime/console\")).authForRequest(request, runtimeOptions, event)",
       "const vitehubRequireAuthAccessRoutes = async (...input) => (await vitehubAuthServer()).requireAuthAccessRoutes(...input)",
       "const vitehubRequireSession = async event => (await vitehubAuthServer()).withAuthorization(true, () => undefined)(event)",
-      "const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubGetAuthForRequest)",
-      `const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession${access.impersonation ? ", impersonation: true" : ""} })`,
+      "const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubAuthForRequest)",
+      `const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, authForRequest: vitehubAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession${access.impersonation ? ", impersonation: true" : ""} })`,
     )
     if (access.oauth) {
       imports.push(
         'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "vite-hub/auth/runtime/server"',
         `import { resolveConsoleAppAuthIdentity as vitehubResolveConsoleAppAuthIdentity } from ${JSON.stringify(generatedModules.consoleSections)}`,
       )
-      // The MCP endpoint, and the data routes that a hosted Console calls with an access token.
-      const base = access.oauth.path.slice(0, -"/mcp".length)
-      for (const path of [access.oauth.path, ...consoleOAuthDataRoutes.map(route => `${base}${route}`)]) {
-        afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(path)}, vitehubResolveConsoleAppAuthIdentity)`)
-      }
+      // The MCP endpoint and the Console data routes accept access tokens in place of a session.
+      for (const path of consoleOAuthIdentityPaths(access.oauth.path)) afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(path)}, vitehubResolveConsoleAppAuthIdentity)`)
     }
   }
   if (access.oauth && access.mode === "auth" && oauthAuth) {

@@ -17,7 +17,7 @@ it.each(["node-worker", "miniflare"] as const)("writes Content declarations on t
     await mkdir(join(root, "server"))
     await writeFile(join(root, "server/content.ts"), `
       import { defineContent } from "vite-hub/content"
-      export const content = defineContent({ sources: {
+      export default defineContent({ sources: {
         docs: { async items() { return [{ key: "about.md", content: "---\\ntitle: About\\n---\\n" }] } },
       } })
     `)
@@ -54,7 +54,7 @@ it("starts and closes the writer through Nitro modules as used by Nuxt", async (
   const root = await mkdtemp(join(tmpdir(), "vitehub-content-types-nitro-"))
   try {
     await mkdir(join(root, "server"))
-    await writeFile(join(root, "server/content.ts"), "export const content = defineContent({})")
+    await writeFile(join(root, "server/content.ts"), "export default defineContent({})")
     const handlers = await hubSource().api.prepareSources({ projectRoot: root })
     // SAFETY: Source contributes this Nitro config through the same boundary as Nuxt.
     const contribution = mergeGeneratedSourceNitroConfig({}, handlers) as NitroConfig

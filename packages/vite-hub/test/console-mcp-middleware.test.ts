@@ -185,11 +185,12 @@ it.each([
       setup(plugin) {
         plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
         plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
+        plugin.onResolve({ filter: /^@vite-hub\/auth\/runtime\/console$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
         plugin.onResolve({ filter: /^@vite-hub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/server"), external: true }))
         plugin.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
           import * as auth from "@vite-hub/auth/server";
           const definition = globalThis[Symbol.for("test.console.mcp.middleware")];
-          export const getAuthForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
+          export const authForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
           export const requireAuthAccessRoutes = (event, indexes, _, required, options) => auth.requireAuthAccessRoutes(event, indexes, definition, required, options);
           export const withAuthorization = (authorize, handler) => auth.withAuthorization(authorize, handler, definition);
           export const setAuthAccessIdentityResolver = auth.setAuthAccessIdentityResolver;
