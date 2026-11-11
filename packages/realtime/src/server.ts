@@ -1141,6 +1141,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       try {
         if (await bus.writeRoom(key, record, record.epoch)) return
         console.error("[vitehub] Realtime room record compare-and-set failed.", key)
+        // Internal invariant: compare-and-set rejection is caught here and retried before the room save reports failure.
         throw new Error("Realtime room record compare-and-set failed.")
       }
       catch (error) { failure = error }
