@@ -7,6 +7,7 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setu
 import { github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 import { runContentCli } from "../src/cli.ts"
 import { contentSource, defineContent, registerContentKV } from "../src/index.ts"
@@ -158,9 +159,9 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
     Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
     cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
     const app = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-      const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+      const { input, operation } = operationRpcRequest(init?.body)
       const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
-      return Response.json(result, { status: result.ok ? 200 : result.status })
+      return operationRpcResponse(init?.body, result)
     })
 
     const shown = await cli("/app", ["--sha", sha], app)
