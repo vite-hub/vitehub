@@ -2,7 +2,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, withAuth, withAuthorization } from "../src/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAuth, withAuthorization } from "../src/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const provider = vi.hoisted(() => ({
@@ -12,6 +12,12 @@ const provider = vi.hoisted(() => ({
 }))
 
 vi.mock("better-auth", () => ({ betterAuth: provider.betterAuth }))
+
+// The app's discovered Definition, which `useAuth(event)` reads. A callback resolves it again for each request.
+vi.mock("#vitehub/auth/definition", async () => {
+  const { defineAuth } = await import("../src/index.ts")
+  return { default: defineAuth(({ requestOrigin }) => ({ appName: "ViteHub", baseURL: requestOrigin })) }
+})
 
 const session = { session: { id: "session" }, user: { id: "user" } }
 
@@ -139,14 +145,23 @@ describe("Auth request instances", () => {
     expect(provider.betterAuth).toHaveBeenCalledTimes(2)
   })
 
+  it("reuses the instance of the discovered Definition in useAuth()", () => {
+    const first = useAuth(requestEvent(request("https://app.example/one")))
+    expect(useAuth(request("https://app.example/two"))).toBe(first)
+    expect(provider.betterAuth).toHaveBeenCalledOnce()
+    expect(useAuth(request("https://other.example/one"))).not.toBe(first)
+    expect(provider.betterAuth).toHaveBeenCalledTimes(2)
+  })
+
   it("reads the session once for every guard of one request", async () => {
     const definition = defineAuth({ access: { routes: ["/private/**"] }, appName: "ViteHub" })
     const access = createAuthAccessHandler([{ route: "/private/**" }], definition)
     const handler = withAuthorization(true, withAuth(() => "ok", definition), definition)
     const app = new H3().get("/private/data", async (event) => {
       expect(await access(event)).toBeUndefined()
+      await requireAuth(event, definition)
       return handler(event)
-    }, { middleware: [requireAuth(definition)] })
+    })
 
     expect(await (await app.fetch(request("https://app.example/private/data"))).text()).toBe("ok")
     expect(provider.getSession).toHaveBeenCalledOnce()

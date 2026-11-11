@@ -89,7 +89,10 @@ function cachedAuth<TAuth>(definition: AuthDefinition): TAuth {
 const maxRequestProviders = 16
 
 /** The instance for these resolved options. Requests with an equal key share it; others get their own. */
-export function requestProvider(definition: AuthDefinition, resolved: ReturnType<typeof resolveAuthOptions>): ViteHubAuth {
+export function requestProvider(
+  definition: AuthDefinition,
+  resolved: { readonly providerKey: string | undefined, readonly providerOptions: AuthBetterAuthRuntimeOptions },
+): ViteHubAuth {
   const key = resolved.providerKey
   if (key === undefined) return createAuthenticationProvider(resolved.providerOptions)
   const state = getAuthRuntimeState()
