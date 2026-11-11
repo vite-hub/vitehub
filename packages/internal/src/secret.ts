@@ -34,7 +34,6 @@ function hex(buffer: ArrayBuffer): string {
 /** Reads the root app secret, `VITEHUB_SECRET`, from an env record. Returns `undefined` when it is not a non-empty string. */
 export function readViteHubSecret(env: Readonly<Record<string, unknown>>): string | undefined {
   const value = env.VITEHUB_SECRET
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host env records are untrusted values.
   return typeof value === "string" && value ? value : undefined
 }
 

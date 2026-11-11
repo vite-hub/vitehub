@@ -74,12 +74,10 @@ function invalid(message: string): Error {
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Records come from stored JSON.
   return typeof value === "string"
 }
 
 function isNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Records come from stored JSON.
   return typeof value === "number" && Number.isFinite(value)
 }
 

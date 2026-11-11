@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./runtime-type.ts"
 import { isProcessRunning, signalProcess } from "./drain-process.ts"
 import { runtimeErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -21,7 +20,7 @@ async function readStatus(statusUrl: string): Promise<DrainStatus> {
     }
     const body: unknown = await response.json()
     // SAFETY: The status endpoint response is validated before its value is used.
-    const status = body && hasRuntimeType(body, "object") ? (body as { status?: unknown }).status : undefined
+    const status = body && typeof body === "object" ? (body as { status?: unknown }).status : undefined
     return status === "accepting" || status === "drained" || status === "draining" || status === "failed"
       ? status
       : "invalid"

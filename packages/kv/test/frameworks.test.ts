@@ -57,8 +57,8 @@ describe("hubKV", () => {
   })
 
   it("filters the resolveId and load hooks to the ids that they handle", async () => {
-    const { hubKv, hubKvOptionalPeerResolver } = await import("../src/vite.ts")
-    const plugin = hubKv({ driver: "fs-lite" })
+    const { hubKV, hubKVOptionalPeerResolver } = await import("../src/vite.ts")
+    const plugin = hubKV({ driver: "fs-lite" })
     const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
     const matches = (pattern: RegExp, ids: string[]) => ids.filter(id => pattern.test(id))
 
@@ -67,7 +67,7 @@ describe("hubKV", () => {
       .toEqual(["@vite-hub/kv", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config"])
     expect(matches(idFilter(plugin.load), ["\0#vitehub/kv/runtime", "\0#vitehub/kv/config", "#vitehub/kv/config", "\0#vitehub/kv/config.mjs"]))
       .toEqual(["\0#vitehub/kv/runtime", "\0#vitehub/kv/config"])
-    expect(matches(idFilter(hubKvOptionalPeerResolver().resolveId), ["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "@vite-hub/kv", ...nearMisses]))
+    expect(matches(idFilter(hubKVOptionalPeerResolver().resolveId), ["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "@vite-hub/kv", ...nearMisses]))
       .toEqual(["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers"])
   })
 

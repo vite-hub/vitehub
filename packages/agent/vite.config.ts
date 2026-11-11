@@ -1,7 +1,7 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
 // (`agentRuntimeModule()` in `./vite`). They are not public exports.
@@ -31,7 +31,7 @@ function alwaysBundle(id: string, importer: string | undefined): boolean {
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle,
       neverBundle: [
@@ -116,10 +116,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

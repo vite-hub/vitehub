@@ -95,12 +95,13 @@ function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean):
   return option
 }
 
-function selectsDatabaseOwner(config: CmsPresetConfig): boolean {
+function selectsDatabaseOwner(config: CmsPresetConfig, comments: unknown): boolean {
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
   const project = { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
-  return usesComments(project) || usesForms(project)
+  // `comments: false` keeps `server/comments.ts` from turning the Database on, as `resolveCmsPresetFeatures()` does.
+  return (comments !== false && usesComments(project)) || usesForms(project)
 }
 
 /**
@@ -196,7 +197,7 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   const comments = databaseUnset ? attempt({ ...options, database: true }) : undefined
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   let merged = flattenPluginOptions(create(options), [])
-  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config) && !(cmsUnset && selectedCmsPresetStore(config)))
+  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config, options.comments) && !(cmsUnset && selectedCmsPresetStore(config)))
   if (blob) merged = composeVariants(merged, "error" in blob ? failing(blob.error) : blob, config => selectedCmsPresetStore(config) === "blob-database")
   if (github) merged = composeVariants(merged, "error" in github ? failing(github.error) : github, config => selectedCmsPresetStore(config) === "github")
   // SAFETY: The merged list holds the Vite plugin options of every build.
