@@ -338,12 +338,21 @@ function createRefusalResponse(code: AuthRefusalCode): Response {
   return refusal(Response.json({ status, statusText, message: `${statusText}.`, data: { code } }, { status, statusText }), code)
 }
 
+/**
+ * A text 403 for an HTML request. The phrase on the status line is also the `statusText` of the error that the inline
+ * guards throw.
+ */
+function createTextRefusalResponse(text: string, code: AuthRefusalCode): Response {
+  return refusal(new Response(text, {
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    status: 403,
+    statusText: "Forbidden",
+  }), code)
+}
+
 function createForbiddenResponse(request: Pick<Request, "headers" | "method">): Response {
   return wantsHtml(request)
-    ? refusal(new Response("Forbidden.", {
-        headers: { "content-type": "text/plain; charset=utf-8" },
-        status: 403,
-      }), "FORBIDDEN")
+    ? createTextRefusalResponse("Forbidden.", "FORBIDDEN")
     : createRefusalResponse("FORBIDDEN")
 }
 
@@ -675,10 +684,7 @@ async function checkAuthRequest(
   }
 
   if (new URL(request.url).searchParams.has("auth_error")) {
-    return reject(refusal(new Response("Unauthorized.", {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-      status: 403,
-    }), "SIGNED_OUT"))
+    return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn

@@ -117,6 +117,18 @@ describe("Auth inline guards", () => {
       expect(response.headers.get("location")).toBe("https://github.com/login/oauth/authorize")
       expect(response.headers.getSetCookie()).toEqual(["state=1; Path=/", "verifier=2; Path=/"])
     })
+
+    it("answers the refusal body for the text 403 after a failed sign-in", async () => {
+      const { app } = signedInApp(signInDefinition)
+      providerMocks.getSession.mockResolvedValue(null)
+
+      const response = await app.fetch(new Request("https://example.com/app?auth_error=denied", { headers: { accept: "text/html" } }))
+
+      expect(response.status).toBe(403)
+      expect(response.statusText).toBe("Forbidden")
+      expect(await response.json()).toEqual({ data: { code: "SIGNED_OUT" }, message: "Unauthorized.", status: 403, statusText: "Forbidden" })
+      expect(providerMocks.handler).not.toHaveBeenCalled()
+    })
   })
 
   describe("requireAuthorization", () => {
@@ -144,14 +156,16 @@ describe("Auth inline guards", () => {
       expect(deleted).not.toHaveBeenCalled()
     })
 
-    it("keeps the code of the text 403 that an HTML request gets", async () => {
+    it("answers the refusal body for the text 403 that an HTML request gets", async () => {
+      const { app, deleted } = authorizedApp(() => false)
       providerMocks.getSession.mockResolvedValue(signedIn)
-      const page = new Request("https://example.com/posts/1", { headers: { accept: "text/html" } })
 
-      const error = await requireAuthorization(page, () => false, definition).catch((error: unknown) => error)
+      const response = await app.fetch(new Request("https://example.com/posts/1", { headers: { accept: "text/html" } }))
 
-      expect(HTTPError.isError(error)).toBe(true)
-      expect(error).toMatchObject({ data: { code: "FORBIDDEN" }, message: "Forbidden.", status: 403 })
+      expect(response.status).toBe(403)
+      expect(response.statusText).toBe("Forbidden")
+      expect(await response.json()).toEqual({ data: { code: "FORBIDDEN" }, message: "Forbidden.", status: 403, statusText: "Forbidden" })
+      expect(deleted).not.toHaveBeenCalled()
     })
 
     it("throws the status, headers, and text of the callback's Response", async () => {
