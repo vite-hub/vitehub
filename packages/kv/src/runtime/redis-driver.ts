@@ -27,7 +27,7 @@ function ttlMilliseconds(ttl: number): number {
  */
 export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig): KVRuntimeDriver {
   const base = normalizeKey(options.base)
-  // `kv.clear()` deletes every key under the prefix, so a store never runs without one.
+  // Internal invariant: resolveRedisStore() always supplies a non-empty prefix to keep clear() inside this store.
   if (!base) throw new TypeError("A Redis KV store needs a non-empty `base`.")
   // `maxRetriesPerRequest` fails a command after a few reconnect attempts, so a lost server returns an error.
   // `lazyConnect` opens the connection on the first command.

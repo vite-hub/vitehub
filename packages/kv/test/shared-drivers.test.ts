@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { kvTable } from "../src/runtime/database.ts"
 import { normalizeKVOptions } from "../src/config.ts"
+import { kvResult } from "../src/errors.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
@@ -180,7 +181,17 @@ describe.each(targets)("$name", (target) => {
     await storage!.setItem("top", Number.MAX_SAFE_INTEGER)
     await storage!.setItem("almost", Number.MAX_SAFE_INTEGER - 1)
 
-    await expect(storage!.incrementItem!("text", 30)).rejects.toThrow()
+    if (target.name.startsWith("database")) {
+      const [error, value] = await kvResult("increment", "default", () => storage!.incrementItem!("text", 30))
+      expect(value).toBeUndefined()
+      expect(error?.code).toBe("KV_OPERATION_FAILED")
+      expect(error?.cause).toMatchObject({
+        code: "KV_INVALID_COUNTER",
+        fix: expect.stringContaining("Delete the key"),
+        docs: "https://vitehub.dev/docs/kv/diagnostics/kv_invalid_counter",
+      })
+    }
+    else await expect(storage!.incrementItem!("text", 30)).rejects.toThrow()
     await expect(storage!.incrementItem!("padded", 30)).rejects.toThrow()
     await expect(storage!.incrementItem!("top", 30)).rejects.toThrow()
     expect(await storage!.getItem("text")).toBe("hello")

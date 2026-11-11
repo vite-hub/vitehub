@@ -116,6 +116,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Provider and tool errors.
+    KV_INVALID_COUNTER: {
+      why: "kv.increment() needs a stored integer below 9007199254740991. The value did not change.",
+      fix: "Delete the key or replace its value with a canonical integer below Number.MAX_SAFE_INTEGER, then retry kv.increment().",
+    },
     KV_CLI_USAGE: {
       why: ({ problem }: { problem: string }) => problem,
       fix: "Run `vitehub kv --help` to see the commands and options.",

@@ -791,7 +791,7 @@ describe("ViteHub Nuxt integration", () => {
     const root = await mkdtemp(resolve(tmp, "kv-database-"))
     const directory = source === "application" ? resolve(nuxt.options.serverDir!, "databases") : resolve(root, "server/databases")
     await mkdir(directory, { recursive: true })
-    const definition = resolve(directory, "config.ts")
+    const definition = resolve(directory, "default.ts")
     await writeFile(definition, `import { defineDatabase } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/database")))}\nexport default defineDatabase({ dialect: "postgresql", schema: {} })`)
     if (source === "layer") Object.assign(nuxt.options, { _layers: [{ config: { rootDir: root }, cwd: root }] })
     if (source === "contribution") nuxt.options.vite.plugins!.push({

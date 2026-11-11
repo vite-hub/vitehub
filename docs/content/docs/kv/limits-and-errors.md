@@ -160,6 +160,10 @@ In `vite dev`, `remote` conflicts with the driver of the store. `remote: true` c
 
 A KV operation does not return these errors.
 
+### KV_INVALID_COUNTER
+
+The Database driver cannot increment the stored value because it is not a canonical integer below `Number.MAX_SAFE_INTEGER`. The value stays unchanged. This diagnostic is the `cause` of `KV_OPERATION_FAILED`. Delete the key or replace it with a valid integer, then retry.
+
 ### KV_PROVIDER_INVALID_RESPONSE
 
 The provider returned a page or value that ViteHub cannot use. It is the `cause` of `KV_OPERATION_FAILED`. Retry. If it fails again, open an issue with the driver name.
