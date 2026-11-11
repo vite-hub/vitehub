@@ -6,6 +6,7 @@ import { consoleProjectProblem, probeConsoleProject } from "../src/console/runti
 import { browserProjectStorage, consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
 import type { ConsoleBrowserStorage } from "../src/console/runtime/client/projects.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 const pageProject = consoleProject()
 afterEach(() => {
@@ -16,9 +17,11 @@ afterEach(() => {
 
 const target = { origin: "https://app.example.com", base: "/portal" }
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
-  async () => Response.json(body, { headers, status })
+  operationRpcFetch(async () => Response.json(body, { headers, status }))
 const projectGet = { ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv", "logs"], operations: ["kv.list"] } }
-const tokenRejection = { code: "CONSOLE_TOKEN_INVALID", message: "This request has no Console token.", ok: false, status: 401 }
+const signatureRejection = { code: "CONSOLE_KEY_UNKNOWN", message: "The request was signed with the key `CONSOLE_P1`, and this app has no `VITEHUB_CONSOLE_KEY_CONSOLE_P1`.", ok: false, status: 401 }
+// The hosted and embedded Consoles still ask for a token on a Bearer challenge without a code.
+const tokenChallenge = () => Response.json({ message: "Sign in.", ok: false, status: 401 }, { headers: { "www-authenticate": "Bearer realm=\"vitehub-console\"" }, status: 401 })
 
 function pendingResponse() {
   let resolve!: (response: Response) => void
@@ -185,18 +188,24 @@ describe("project.get probe", () => {
     const probe = await probeConsoleProject(target, "secret", { fetch })
     expect(probe).toEqual({ kind: "ready", info: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv", "logs"], operations: ["kv.list"] } })
     const [url, init] = fetch.mock.calls[0]! as unknown as [string, RequestInit]
-    expect(url).toBe("https://app.example.com/portal/_vitehub/rpc/__call")
+    expect(url).toBe("https://app.example.com/portal/_vitehub/rpc")
     expect(init.credentials).toBe("same-origin")
     expect(init.headers).toEqual({ "authorization": "Bearer secret", "content-type": "application/json", [consoleRpcHeader]: "1" })
-    expect(JSON.parse(String(init.body))).toEqual({ operation: "project.get", input: {} })
+    expect(operationRpcRequest(init.body)).toEqual({ operation: "project.get", input: {} })
   })
 
-  it("asks for a token on a 401 of auth: \"token\", also when the challenge header is hidden", async () => {
-    expect(await probeConsoleProject(target, undefined, { fetch: json(401, tokenRejection) })).toEqual({ kind: "token", rejected: false })
-    expect(await probeConsoleProject(target, "wrong", { fetch: json(401, tokenRejection, { "www-authenticate": 'Bearer realm="vitehub-console", error="invalid_token"' }) })).toEqual({ kind: "token", rejected: true })
-    // The server keeps only the hash of the token, so the fix names the hash variable and how to replace a lost token.
-    expect(consoleProjectProblem({ kind: "token", rejected: true }, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" }).message)
-      .toBe("app.example.com refused this token. Use the token whose SHA-256 hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash.")
+  it("reads a refused signature of auth: \"token\" by its code, also when the challenge header is hidden", async () => {
+    const missing = { code: "CONSOLE_SIGNATURE_MISSING", fix: "Open the app from the ViteHub Console.", message: "This request is not signed.", ok: false, status: 401 }
+    expect(await probeConsoleProject(target, undefined, { fetch: json(401, missing) })).toEqual({ kind: "signed", code: "CONSOLE_SIGNATURE_MISSING", fix: "Open the app from the ViteHub Console.", message: "This request is not signed." })
+    expect(await probeConsoleProject(target, undefined, { fetch: json(401, signatureRejection, { "www-authenticate": "VitehubSignature realm=\"vitehub-console\"" }) })).toMatchObject({ kind: "signed", code: "CONSOLE_KEY_UNKNOWN" })
+    // A browser cannot sign, so the Console names the way in.
+    expect(consoleProjectProblem({ kind: "signed", code: "CONSOLE_SIGNATURE_MISSING" }, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" }).message)
+      .toBe("app.example.com uses `auth: \"token\"`. Open it from the ViteHub Console that linked it, or call it with the CLI and a signing key.")
+  })
+
+  it("asks for a token on a Bearer challenge without a code", async () => {
+    expect(await probeConsoleProject(target, undefined, { fetch: operationRpcFetch(async () => tokenChallenge()) })).toEqual({ kind: "token", rejected: false })
+    expect(await probeConsoleProject(target, "wrong", { fetch: operationRpcFetch(async () => tokenChallenge()) })).toEqual({ kind: "token", rejected: true })
   })
 
   it("tells OAuth and app sign-in apart from the token", async () => {
@@ -234,21 +243,133 @@ describe("project.get probe", () => {
 
   it("names a URL without a Console and a server error with its fix", async () => {
     expect(await probeConsoleProject(target, undefined, { fetch: async () => new Response("Not found", { status: 404 }) })).toEqual({ kind: "missing" })
-    const unset = await probeConsoleProject(target, "secret", { fetch: json(500, { code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.", ok: false, status: 500 }) })
-    expect(unset).toEqual({ kind: "failed", status: 500, message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256." })
+    const unset = await probeConsoleProject(target, "secret", { fetch: json(500, { code: "CONSOLE_KEY_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs a VITEHUB_CONSOLE_KEY_<NAME> variable in the server environment, and none is set.", fix: "Set VITEHUB_CONSOLE_KEY_<NAME>.", ok: false, status: 500 }) })
+    expect(unset).toEqual({ kind: "failed", status: 500, code: "CONSOLE_KEY_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs a VITEHUB_CONSOLE_KEY_<NAME> variable in the server environment, and none is set.", fix: "Set VITEHUB_CONSOLE_KEY_<NAME>." })
     // The fix stays its own field, so the Console shows it as its own paragraph.
     if (unset.kind !== "failed") throw new Error("expected a failed probe")
     expect(consoleProjectProblem(unset, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" })).toEqual({
       title: "app.example.com answered with an error",
-      message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.",
-      fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.",
+      message: "console: { auth: \"token\" } needs a VITEHUB_CONSOLE_KEY_<NAME> variable in the server environment, and none is set.",
+      fix: "Set VITEHUB_CONSOLE_KEY_<NAME>.",
     })
+  })
+})
+
+describe("account Console", () => {
+  const linked = { id: "p-1", url: "https://app.example.com/portal", label: "Docs", publicKey: "a".repeat(43), keyVariable: "VITEHUB_CONSOLE_KEY_CONSOLE_P1" }
+
+  async function account(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const storage = memoryProjectStorage()
+    storage.setItem(consoleProjectsStorageKey, JSON.stringify({ active: linked.id, projects: [{ id: linked.id, url: linked.url, label: linked.label }] }))
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "account", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage })
+    state.account.value = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    return { module, state }
+  }
+
+  it("sends the project's calls to the Console server, with the page cookies and no token", async () => {
+    const fetch = vi.fn(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
+    const { module, state } = await account(fetch)
+    await module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "ready" })
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("/p/p-1/_vitehub/rpc")
+    expect(init.credentials).toBe("same-origin")
+    expect(new Headers(init.headers).has("authorization")).toBe(false)
+    // project-session imported its own copy of the transport after the module reset.
+    const transport = await import("../src/console/runtime/client/project.ts")
+    expect(transport.consoleProject()).toMatchObject({ origin: "", base: "/p/p-1", remote: true })
+    expect(transport.isRemoteProject()).toBe(true)
+  })
+
+  it("keeps media and provider sign-in links on the app while forwarding data requests", async () => {
+    const { module } = await account(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
+    await module.openConsoleProject()
+    const media = await import("../src/console/runtime/client/media-library.ts")
+    const connections = await import("../src/console/runtime/client/connections-management.ts")
+    const transport = await import("../src/console/runtime/client/project.ts")
+    expect(media.consoleMediaUrl("/portal/images/", "photo.png")).toBe("https://app.example.com/portal/images/photo.png")
+    expect(connections.connectionConnectURL("/_vitehub/api/connections", "github", "/home")).toBe("https://app.example.com/portal/_vitehub/api/connections/connect/github")
+    expect(transport.projectAppUrl("/_vitehub/connections")).toBe("https://app.example.com/portal/_vitehub/connections")
+    expect(transport.projectAppUrl("/_vitehub/mcp")).toBe("https://app.example.com/portal/_vitehub/mcp")
+    expect(transport.projectUrl("/_vitehub/rpc")).toBe("/p/p-1/_vitehub/rpc")
+  })
+
+  it("shows the variable to set while the project has no public key for the link, or another one", async () => {
+    for (const answer of [
+      json(500, { code: "CONSOLE_KEY_NOT_CONFIGURED", message: "not set", ok: false, status: 500 }),
+      json(401, { code: "CONSOLE_KEY_UNKNOWN", message: "unknown", ok: false, status: 401 }),
+      json(401, { code: "CONSOLE_SIGNATURE_INVALID", message: "refused", ok: false, status: 401 }),
+    ]) {
+      const { module, state } = await account(answer)
+      await module.openConsoleProject()
+      expect(state.gate.value).toEqual({ kind: "setup", project: linked })
+      vi.resetModules()
+    }
+  })
+
+  it("starts with the empty state when the team has no project", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "account", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage: memoryProjectStorage() })
+    expect(state.gate.value).toEqual({ kind: "empty" })
+    // The Console server keeps the list, so the page never says that it ends with the page.
+    expect(state.persistent.value).toBe(true)
+  })
+
+  it("shows an account page in place before a project opens, and loads it from an open project", async () => {
+    const { module, state } = await account(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
+    state.gate.value = { kind: "empty" }
+    module.showConsoleAccountPage("team")
+    expect(state.gate.value).toEqual({ kind: "home", page: "team" })
+    expect(state.navigate).not.toHaveBeenCalled()
+
+    await module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "ready" })
+    // The router owns the path of an open project, so the Console loads the page.
+    module.showConsoleAccountPage("settings")
+    expect(state.navigate).toHaveBeenCalledWith("/settings")
+
+    module.openAccountProject(linked.id)
+    expect(state.navigate).toHaveBeenLastCalledWith("/")
+  })
+
+  describe.each(["home", "team", "settings"] as const)("while %s is selected", (page) => {
+    it.each([200, 401])("ignores a late %s app response", async (status) => {
+      const pending = pendingResponse()
+      const { module, state } = await account(() => pending.promise)
+      state.openingView = "shell"
+      const opening = module.openConsoleProject()
+      expect(state.gate.value).toEqual({ kind: "opening" })
+
+      module.showConsoleAccountPage(page)
+      pending.resolve(Response.json(status === 200 ? projectGet : signatureRejection, { status }))
+      await opening
+
+      expect(state.gate.value).toEqual({ kind: "home", page })
+      expect(state.info.value).toBeUndefined()
+      expect(state.navigate).not.toHaveBeenCalled()
+    })
+  })
+
+  it.each([200, 401])("uses a late %s app response when the user stays on the opening view", async (status) => {
+    const pending = pendingResponse()
+    const { module, state } = await account(() => pending.promise)
+    state.openingView = "shell"
+    const opening = module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "opening" })
+
+    pending.resolve(Response.json(status === 200 ? projectGet : signatureRejection, { status }))
+    await opening
+
+    expect(state.gate.value).toEqual(status === 200 ? { kind: "ready" } : { kind: "setup", project: linked })
   })
 })
 
 describe("linking a project", () => {
   async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, pageOrigin = "https://console.example.com", storage = memoryProjectStorage()) {
-    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin, storage })
@@ -259,7 +380,7 @@ describe("linking a project", () => {
     const fetch = vi.fn(async (_url: string, init: RequestInit) => {
       const authorization = new Headers(init.headers).get("authorization")
       if (authorization === "Bearer right") return Response.json(projectGet)
-      return Response.json(tokenRejection, { status: 401 })
+      return tokenChallenge()
     })
     const { module, navigate, state } = await session(fetch)
     expect(state.gate.value).toEqual({ kind: "empty" })
@@ -299,7 +420,7 @@ describe("linking a project", () => {
 
   it("opens the active project with its token and sends every request there", async () => {
     const fetch = vi.fn(async () => Response.json(projectGet))
-    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const storage = memoryProjectStorage()
     const store = createConsoleProjectStore(storage)
@@ -312,15 +433,15 @@ describe("linking a project", () => {
     expect(state.info.value?.name).toBe("Shop")
     expect(state.store.active()?.label).toBe("Shop")
     const { consoleProject: active, projectUrl } = await import("../src/console/runtime/client/project.ts")
-    expect(projectUrl("/_vitehub/rpc/__call")).toBe("https://b.example.com/_vitehub/rpc/__call")
+    expect(projectUrl("/_vitehub/rpc")).toBe("https://b.example.com/_vitehub/rpc")
     expect(await active().authorization?.()).toBe("Bearer token-b")
   })
 
   it.each(["https:", "http:"])("signs in to an embedded token app over %s", async (protocol) => {
     if (protocol === "http:") vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
     const fetch = vi.fn(async (_url: string, init: RequestInit) =>
-      new Headers(init.headers).get("authorization") === "Bearer right" ? Response.json(projectGet) : Response.json(tokenRejection, { status: 401 }))
-    vi.stubGlobal("fetch", fetch)
+      new Headers(init.headers).get("authorization") === "Bearer right" ? Response.json(projectGet) : tokenChallenge())
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const storage = memoryProjectStorage()
     const state = module.startConsoleProjects({ base: "/portal", home: "/portal/_vitehub/", mode: "embedded", navigate: () => {}, pageOrigin: `${protocol}//app.example.com`, storage })
@@ -328,7 +449,7 @@ describe("linking a project", () => {
     await module.openConsoleProject()
     expect(state.gate.value).toEqual({ kind: "token", rejected: false })
     // The embedded Console calls its own origin, so the request path has no origin.
-    expect(fetch.mock.calls[0]![0]).toBe("/portal/_vitehub/rpc/__call")
+    expect(fetch.mock.calls[0]![0]).toBe("/portal/_vitehub/rpc")
     expect(await module.signInConsoleProject("wrong")).toEqual({ kind: "token", rejected: true })
     expect(await module.signInConsoleProject("right")).toEqual({ kind: "ready" })
     expect(createConsoleProjectStore(storage).find(`${protocol}//app.example.com/portal`)?.token).toBe("right")
@@ -347,7 +468,7 @@ describe("linking a project", () => {
     module.switchConsoleProject(b.id)
 
     if (order === "after") {
-      responseB.resolve(Response.json(tokenRejection, { status: 401 }))
+      responseB.resolve(tokenChallenge())
       await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: true }))
     }
     responseA.resolve(Response.json(projectGet))
@@ -361,13 +482,13 @@ describe("linking a project", () => {
     expect(active().origin).toBe("https://b.example.com")
     expect(await active().authorization?.()).toBe("Bearer token-b")
 
-    responseB.resolve(Response.json(tokenRejection, { status: 401 }))
+    responseB.resolve(tokenChallenge())
     await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: true }))
   })
 
   it("ignores a token sign-in result after switching projects", async () => {
     const responseA = pendingResponse()
-    const { module, state } = await session((_url, init) => new Headers(init.headers).get("authorization") === "Bearer token-a" ? responseA.promise : json(401, tokenRejection)())
+    const { module, state } = await session((_url, init) => new Headers(init.headers).get("authorization") === "Bearer token-a" ? responseA.promise : operationRpcFetch(async () => tokenChallenge())(_url, init))
     const a = state.store.save({ url: "https://a.example.com", label: "A" })
     const b = state.store.save({ url: "https://b.example.com", label: "B" })
     module.switchConsoleProject(a.id)
@@ -398,7 +519,7 @@ describe("linking a project", () => {
 
 describe("projects in a browser that refuses writes", () => {
   it("links the first project and opens it in place, so the list in memory stays", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json(projectGet)))
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async () => Response.json(projectGet))))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const storage = browserProjectStorage(() => refusingStorage())
@@ -417,8 +538,8 @@ describe("projects in a browser that refuses writes", () => {
   })
 
   it("signs in to an embedded token app when the first write fails", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) =>
-      new Headers(init.headers).get("authorization") === "Bearer right" ? Response.json(projectGet) : Response.json(tokenRejection, { status: 401 })))
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async (_url: string, init: RequestInit) =>
+      new Headers(init.headers).get("authorization") === "Bearer right" ? Response.json(projectGet) : tokenChallenge())))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const fallback = vi.fn(() => module.noteConsoleProjectsVolatile())
     // The probe passes, so storage looks fine until the token is saved.
@@ -449,7 +570,7 @@ describe("remote project links", () => {
   it("allows Env management for a same-origin project and blocks another origin", async () => {
     vi.stubGlobal("location", new URL("https://app.example.com/console/"))
     const fetch = vi.fn(json(200, { events: [] }))
-    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
     setConsoleProject({ origin: "https://app.example.com", base: "/portal" })
     await expect(requestEnvManagement("/_vitehub/env/manage", "env.server.token", "activity", envActivitySchema)).resolves.toEqual({ events: [] })
     expect(fetch).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/env/manage", expect.objectContaining({ credentials: "same-origin", method: "POST" }))

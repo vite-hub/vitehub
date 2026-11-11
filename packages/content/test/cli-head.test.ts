@@ -7,6 +7,7 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setu
 import { github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 import { runContentCli } from "../src/cli.ts"
 import { defineContent, registerContentKV } from "../src/index.ts"
@@ -44,6 +45,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -69,9 +71,9 @@ function app(sources: Record<string, ReturnType<typeof github>> = { docs: github
   Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
   cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
   const server = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+    const { input, operation } = operationRpcRequest(init?.body)
     const result = await runOperation(registry, operation, input, { access, development: true, surface: "cli", user: null })
-    return Response.json(result, { status: result.ok ? 200 : result.status })
+    return operationRpcResponse(init?.body, result)
   })
   const run = async (...args: string[]) => {
     const stdout = stream()
@@ -121,6 +123,7 @@ describe("vitehub content head", { timeout: 30_000 }, () => {
   })
 
   it("does not report a rejection from before the head moved", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
     fake.commit("main", { "guide.md": page("Guide") })
     const { content, run } = app()
     await content.sources.head("docs")
@@ -132,6 +135,35 @@ describe("vitehub content head", { timeout: 30_000 }, () => {
     expect(unpinned.code).toBe(0)
     expect(JSON.parse(unpinned.stdout)).toMatchObject({ sha: fixed, pinned: false, rejected: { sha: bad }, diagnostic: null })
     expect(await run("advance")).toMatchObject({ code: 0 })
+  })
+
+  it.each(["advance", "unpin"])("clears a rejection after %s confirms the branch returned to the serving commit", async (command) => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    fake.branch("last-valid", "main")
+    const { run } = app()
+    await run("head")
+    const bad = fake.commit("main", { "broken.md": broken })
+    fake.branch("rejected", "main")
+    expect(await run("advance")).toMatchObject({ code: 1 })
+    expect(await run("advance")).toMatchObject({ code: 1 })
+
+    fake.branch("main", "last-valid")
+    const recovered = await run(command, "--json")
+    expect(recovered.code).toBe(0)
+    expect(JSON.parse(recovered.stdout)).toMatchObject({ sha: first, pinned: false, rejected: { sha: bad }, diagnostic: null })
+    expect(await run("advance")).toMatchObject({ code: 0 })
+
+    // Recovery is stored in KV and survives a new server instance.
+    vi.mocked(console.warn).mockClear()
+    const restarted = app()
+    const shown = await restarted.run("head", "--json")
+    expect(JSON.parse(shown.stdout)).toMatchObject({ heads: [{ sha: first, rejected: { sha: bad }, diagnostic: null }] })
+    expect(console.warn).not.toHaveBeenCalled()
+    // Returning to the invalid commit must make its rejection active again.
+    fake.branch("main", "rejected")
+    const blocked = await restarted.run("advance", "--json")
+    expect(blocked.code).toBe(1)
+    expect(JSON.parse(blocked.stdout)).toMatchObject({ sha: first, diagnostic: { code: "CONTENT_R0019" } })
   })
 
   it("pins a commit for a rollback and unpins it", async () => {

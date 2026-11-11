@@ -151,6 +151,16 @@ describe("docs in an existing app", () => {
     const options = await setupDocs({ dir: app.dir }, "/", false, [{ config: { srcDir: app.srcDir } }]) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
     expect(options.app.head).toEqual({})
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
+    // The app config keeps the app's colors and slot classes. The docs layouts scope the theme with <UTheme>.
+    expect(options.appConfig).toEqual({ ui: { prose: { codeIcon: expect.any(Object) } } })
+    expect(templates.get("docs/theme.mjs")?.()).toContain('"pageHeader":{')
+    const css = templates.get("docs/theme.css")!()
+    expect(templates.get("docs/docs.css")!()).toContain(`${options.buildDir}/docs/theme.css`)
+    expect(css).toContain("html:where(.vh-docs)")
+    expect(css).toContain(":root:where(.vh-docs).dark")
+    expect(css).toContain(":where(.vh-docs) :focus-visible")
+    expect(css).not.toContain("@theme")
+    expect(css).not.toContain("--ui-primary:")
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["docs", "docs-article"])
@@ -163,8 +173,12 @@ describe("docs in an existing app", () => {
   })
 
   it("draws the site with the docs app.vue when the app has none", async () => {
-    const options = await setupDocs({}) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: { titleTemplate?: string } } }
+    const options = await setupDocs({}) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: { titleTemplate?: string, htmlAttrs?: { class?: string } } } }
     expect(options.app.head.titleTemplate).toBe("%s · Docs")
+    expect(options.app.head.htmlAttrs?.class).toBe("vh-docs")
+    expect(options.appConfig).toMatchObject({ ui: { colors: { primary: "neutral", neutral: "neutral" } } })
+    expect(templates.get("docs/theme.mjs")?.()).toBe('export default {"ui":{},"props":{}}\n')
+    expect(templates.has("docs/theme.css")).toBe(false)
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })

@@ -18,8 +18,8 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import authManageRoute from "../src/console/runtime/server/auth-manage.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import scheduleRunRoute from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
 
@@ -168,8 +168,8 @@ async function consoleTokens(options: { cookie?: string, resource?: string, scop
 }
 
 function rpc(token: string | undefined, operation: string, input: Record<string, unknown>, origin = local): Promise<Response> {
-  return consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
-    body: JSON.stringify({ input, operation }),
+  return consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc`, {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", origin, "sec-fetch-site": "cross-site", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     method: "POST",
   }))
@@ -193,7 +193,7 @@ describe("OAuth Console tokens", () => {
     expect(new Set(fetched)).toEqual(new Set([clientId]))
     const answer = await rpc(access_token, "fixture.greet", { name: "Ada" })
     expect(answer.status, await answer.clone().text()).toBe(200)
-    await expect(answer.json()).resolves.toMatchObject({ ok: true, value: { greeting: "Hello Ada", user: "ada@example.com" } })
+    await expect(operationRpcResponseResult(answer)).resolves.toMatchObject({ ok: true, value: { greeting: "Hello Ada", user: "ada@example.com" } })
     expect(answer.headers.get("access-control-allow-origin")).toBe(local)
     expect(answer.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
     // The same token from an origin that is not listed is refused.
@@ -233,7 +233,7 @@ describe("OAuth Console tokens", () => {
     expect(write.status).toBe(403)
     expect(write.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
     expect(write.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
-    await expect(write.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("vitehub:write") })
+    await expect(operationRpcResponseResult(write)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("vitehub:write") })
   })
 
   it("offers mixed operations to a read-only token and checks the scope of each call", async () => {
@@ -247,7 +247,7 @@ describe("OAuth Console tokens", () => {
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
     const project = await rpc(access_token, "project.get", {})
     expect(project.status).toBe(200)
-    const { value } = v.parse(v.object({ value: v.object({ operations: v.array(v.string()) }) }), await project.json())
+    const { value } = v.parse(v.object({ value: v.object({ operations: v.array(v.string()) }) }), await operationRpcResponseResult(project))
     expect(value.operations).toContain("fixture.greet")
     expect(value.operations).not.toContain("fixture.save")
     for (const operation of mixed) {
@@ -269,44 +269,44 @@ describe("OAuth Console tokens", () => {
 
   it("challenges a read-only token for the write scope on uploads", async () => {
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
-    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=fixture`, {
-      headers: { authorization: `Bearer ${access_token}`, origin: local },
-      method: "POST",
-    }))
+    const response = await rpc(access_token, "media.upload", { data: "eA==", filename: "a.txt", section: "fixture" })
     expect(response.status).toBe(403)
     expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
     expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
   })
 
   it.each([
-    ["read", "vitehub:write", { operation: "users" }],
-    ["write", "vitehub:read", { action: "ban", userId: "someone" }],
-  ] as const)("challenges a token without the %s scope on Auth management", async (kind, granted, body) => {
+    ["read", "vitehub:write", "auth.users", {}],
+    ["write", "vitehub:read", "auth.ban", { userId: "someone" }],
+  ] as const)("challenges a token without the %s scope on Auth management", async (kind, granted, operation, input) => {
     installConsoleSections("console-oauth-auth-manage", ["auth"])
     const { access_token } = await consoleTokens({ scope: granted })
-    const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
-      body: JSON.stringify(body),
-      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
-      method: "POST",
-    }))
+    const response = await rpc(access_token, operation, input)
     expect(response.status).toBe(403)
     expect(response.headers.get("www-authenticate")).toContain(`error="insufficient_scope", scope="vitehub:${kind}"`)
     expect(response.headers.get("access-control-allow-origin")).toBe(local)
   })
 
-  it("rejects malformed Auth commands before challenging a read-only token for write scope", async () => {
+  it("rejects malformed Auth input before challenging a read-only token for write scope", async () => {
     installConsoleSections("console-oauth-auth-manage", ["auth"])
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
-    for (const body of [{ action: "ban" }, { operation: "unknown" }]) {
-      const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
-        body: JSON.stringify(body),
-        headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
-        method: "POST",
-      }))
-      expect(response.status).toBe(400)
-      expect(response.headers.has("www-authenticate")).toBe(false)
-      await expect(response.json()).resolves.toMatchObject({ message: "Invalid Auth Console request." })
-    }
+    const response = await rpc(access_token, "auth.ban", {})
+    expect(response.status).toBe(400)
+    expect(response.headers.has("www-authenticate")).toBe(false)
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "INTERNAL_R0022" })
+  })
+
+  it("keeps impersonation on the Auth management route away from an OAuth token", async () => {
+    installConsoleSections("console-oauth-auth-manage", ["auth"])
+    const { access_token } = await consoleTokens()
+    const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
+      body: JSON.stringify({ action: "impersonate", userId: "someone" }),
+      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
+      method: "POST",
+    }))
+    // Impersonation is off in this app. With it on, a bearer call still gets 403, since it has no app session to swap.
+    expect(response.status).toBe(404)
+    expect(response.headers.get("access-control-allow-origin")).toBe(local)
   })
 
   it("runs Auth management as the OAuth administrator without app cookies", async () => {
@@ -315,27 +315,22 @@ describe("OAuth Console tokens", () => {
     database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
     const member = await signUp("member@example.com")
     const { access_token } = await consoleTokens({ cookie: administrator.cookie })
-    const manage = (body: Record<string, unknown>) => authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
-      body: JSON.stringify(body),
-      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
-      method: "POST",
-    }))
-    const description = await manage({ operation: "describe" })
+    const description = await rpc(access_token, "auth.describe", {})
     expect(description.status, await description.clone().text()).toBe(200)
-    await expect(description.json()).resolves.toMatchObject({ actions: { ban: { enabled: true }, impersonate: { enabled: false } } })
+    await expect(operationRpcResponseResult(description)).resolves.toMatchObject({ value: { actions: { ban: { enabled: true }, impersonate: { enabled: false } } } })
     const session = database.prepare('SELECT "id" FROM "session" WHERE "userId" = ?').get(member.id)
-    for (const body of [
-      { action: "editField", userId: member.id, field: "plan", value: "pro" },
-      { action: "setRole", userId: member.id, role: "user" },
-      { action: "revokeSession", id: session?.id },
-      { action: "revokeSessions", userId: member.id },
-      { action: "ban", userId: member.id },
-      { action: "unban", userId: member.id },
-      { action: "remove", userId: member.id },
-    ]) {
-      const response = await manage(body)
+    for (const [operation, input] of [
+      ["auth.edit-field", { userId: member.id, field: "plan", value: "pro" }],
+      ["auth.set-role", { userId: member.id, role: "user" }],
+      ["auth.revoke-session", { id: session?.id }],
+      ["auth.revoke-sessions", { userId: member.id }],
+      ["auth.ban", { userId: member.id }],
+      ["auth.unban", { userId: member.id }],
+      ["auth.remove", { userId: member.id }],
+    ] as const) {
+      const response = await rpc(access_token, operation, input)
       expect(response.status, await response.clone().text()).toBe(200)
-      await expect(response.json()).resolves.toMatchObject({ action: body.action, actor: `user:${administrator.id}`, ok: true })
+      await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { actor: `user:${administrator.id}`, ok: true } })
       expect(response.headers.has("set-cookie")).toBe(false)
       expect(response.headers.get("access-control-allow-origin")).toBe(local)
     }
@@ -347,9 +342,9 @@ describe("OAuth Console tokens", () => {
     const administrator = await signUp("admin@example.com")
     database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
     const { access_token } = await consoleTokens()
-    const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
-      body: JSON.stringify({ action: "ban", userId: administrator.id }),
-      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "cookie": administrator.cookie, "origin": local, "x-vitehub-console": "1" },
+    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc`, {
+      body: operationRpcBody("auth.ban", { userId: administrator.id }),
+      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "cookie": administrator.cookie, "origin": local, "sec-fetch-site": "cross-site" },
       method: "POST",
     }))
     expect(response.status).toBe(403)
@@ -402,23 +397,6 @@ describe("OAuth Console tokens", () => {
     database.prepare('UPDATE "consoleClient" SET "inactive" = 0 WHERE "publicId" = ?').run(clientId)
     database.prepare('UPDATE "loginSession" SET "expiresOn" = 0 WHERE "id" = ?').run(v.parse(v.string(), claims(access_token).sid))
     expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(401)
-  })
-
-  it("runs a Schedule with a write token from a listed origin, and refuses a read-only token", async () => {
-    const run = (token: string) => scheduleRunRoute.fetch(new Request(`${app}/_vitehub/schedules/run`, {
-      body: JSON.stringify({ name: "nightly" }),
-      headers: { "authorization": `Bearer ${token}`, "content-type": "application/json", "origin": local },
-      method: "POST",
-    }))
-    const { access_token: write } = await consoleTokens()
-    const listed = await run(write)
-    // The access, scope, and origin checks passed: the route now looks for the Schedule.
-    expect(listed.status, await listed.clone().text()).toBe(404)
-    expect(listed.headers.get("access-control-allow-origin")).toBe(local)
-    const { access_token: read } = await consoleTokens({ cookie: (await signUp("grace@example.com")).cookie, scope: "vitehub:read" })
-    const refused = await run(read)
-    expect(refused.status).toBe(403)
-    expect(refused.headers.get("www-authenticate")).toContain("error=\"insufficient_scope\"")
   })
 
   it("refuses a client document on an origin that console.origins does not list, before it fetches the document", async () => {
@@ -520,7 +498,7 @@ describe("OAuth Console tokens", () => {
 
   it("accepts a Console token at the app Auth middleware of a data route, and answers a signed-out call with the challenge", async () => {
     const { access_token } = await consoleTokens()
-    const request = (authorization?: string) => new Request(`${app}/_vitehub/rpc/__call`, { headers: { origin: local, ...(authorization ? { authorization } : {}) }, method: "POST" })
+    const request = (authorization?: string) => new Request(`${app}/_vitehub/rpc`, { headers: { origin: local, ...(authorization ? { authorization } : {}) }, method: "POST" })
     await expect(resolveConsoleAppAuthIdentity(request(`Bearer ${access_token}`), {}, false)).resolves.toMatchObject({ email: "ada@example.com" })
     const signedOut = await resolveConsoleAppAuthIdentity(request(), {}, false)
     expect(signedOut).toBeInstanceOf(Response)
@@ -539,8 +517,8 @@ describe("OAuth Console tokens", () => {
       mode: "auth",
       oauth: { auth: request => real(request) as unknown as ConsoleOAuthAuth, path: "/_vitehub/mcp", resource: mcpResource, verify: verifyConsoleJwt },
     })
-    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
-      body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
+    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc`, {
+      body: operationRpcBody("fixture.greet", { name: "Ada" }),
       headers: { "authorization": "Bearer app-key", "content-type": "application/json", "x-vitehub-console": "1" },
       method: "POST",
     }))

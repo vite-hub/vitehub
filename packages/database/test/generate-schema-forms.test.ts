@@ -86,8 +86,8 @@ async function generateMigration(rootDir: string) {
   ], { cwd: rootDir })
   const migrationsDir = join(rootDir, "server/databases/default/migrations")
   const files = await readdir(migrationsDir).catch(() => [])
-  const migration = files.find(file => file.endsWith(".sql"))
-  return { sql: migration ? await readFile(join(migrationsDir, migration), "utf8") : "" }
+  const [migration] = files
+  return { sql: migration ? await readFile(join(migrationsDir, migration, "migration.sql"), "utf8") : "" }
 }
 
 describe("database generate schema forms", () => {
@@ -127,7 +127,7 @@ describe("Database table names", () => {
 
   it("lists views and skips relations and other schema values", async () => {
     const rootDir = await createProject([
-      "import { relations } from 'drizzle-orm'",
+      "import { relations } from 'drizzle-orm/_relations'",
       "import { sqliteTable, sqliteView, text } from 'drizzle-orm/sqlite-core'",
       notesTable,
       "const noteTitles = sqliteView('note_titles').as(qb => qb.select({ title: notes.title }).from(notes))",
