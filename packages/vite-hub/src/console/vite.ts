@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
-import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
@@ -20,8 +19,6 @@ import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
 import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild, type ConsoleNitroPluginOptions } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
-import { createConsoleCliNamespace } from "./cli.ts"
-import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
@@ -31,15 +28,8 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 const frameworkAgentSpecifier = "vite-hub/agent"
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 
-export function resolveGeneratedConsolePlugin(
-  root: string,
-  fixture: string | undefined,
-  state: ConsoleInvocationRootState | undefined,
-): string {
-  if (!fixture) return resolve(root, generatedConsolePlugin)
-  const binding = state?.binding ?? randomUUID()
-  if (state) state.binding = binding
-  return resolve(root, ".vitehub/nitro/console", `plugin-${binding}.mjs`)
+export function resolveGeneratedConsolePlugin(root: string): string {
+  return resolve(root, generatedConsolePlugin)
 }
 
 type ConsoleNitroConfig = {
@@ -206,10 +196,6 @@ export interface ConsoleVitePluginOptions {
 export interface ConsoleInvocationRootState {
   binding?: string
   closed?: boolean
-  fixtureLifecycle?: {
-    close: () => Promise<void>
-    reopen: () => Promise<void>
-  }
   identity?: string
   projectRoot?: string
 }
@@ -218,25 +204,10 @@ export function createConsoleInvocationRootState(): ConsoleInvocationRootState {
   return { binding: randomUUID() }
 }
 
-export function configureConsoleFixtureLifecycle(
-  state: ConsoleInvocationRootState,
-  generatedPlugin: string,
-  refresh: () => Promise<void>,
-): void {
-  state.fixtureLifecycle = {
-    async close() {
-      await refresh().catch(() => undefined)
-      await rm(generatedPlugin, { force: true })
-    },
-    reopen: refresh,
-  }
-}
-
 export async function closeConsoleInvocationRootState(state: ConsoleInvocationRootState): Promise<void> {
   if (state.closed) return
   state.closed = true
   if (state.binding) releaseConsoleInvocationsBinding(state.binding)
-  await state.fixtureLifecycle?.close()
 }
 
 export function updateConsoleInvocationRootState(
@@ -455,7 +426,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let scheduleDiscoveryRoot: string | undefined
   let workspaceDiscoveryRoot: string | undefined
   let resolvedPlugins: readonly unknown[] | undefined
-  let fixture: string | undefined
   let cliDiscovery = false
   let development = false
   let invoke = false
@@ -481,12 +451,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     authConfig: ResolvedConsoleAuthConfig
     handlers?: ConsoleAuthHandlers
     blobStores: typeof blobStores
-    fixture?: string
     invoke: boolean
     consoleAuthMode: true | "cloudflare-access" | false
     runtimeCapabilityImports: typeof options.runtimeCapabilityImports
     development: boolean
-    invocationBinding?: string
     invocationState?: ConsoleInvocationRootState
   }
 
@@ -502,10 +470,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       active: () => !options.invocationRootState?.closed,
       blobStores,
       development,
-      fixture,
       independentAuth: consoleAuthMode,
       invoke,
-      runtimeBinding: options.invocationRootState?.binding,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
     }
@@ -643,24 +609,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           })
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
-      const configuredFixture = viteConfig.vitehubCliDiscovery
-        ? undefined
-        : process.env[consoleFixtureEnvironmentVariable]
-      fixture = undefined
-      if (configuredFixture) {
-        if (environment.command === "build") {
-          throw viteHubErrorDiagnostics.VITE_HUB_B0007({ message: "[vitehub] Console fixture mode is development-only." })
-        }
-        fixture = resolve(projectRoot, configuredFixture)
-        readConsoleFixture(fixture)
-      }
       const build = environment.command === "build"
-      invoke = !fixture && (configured.invoke ?? !build)
-      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
-      if (fixture && options.invocationRootState) {
-        configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
-      }
-      if (!cliDiscovery && !fixture) {
+      invoke = configured.invoke ?? !build
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
+      if (!cliDiscovery) {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
         const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
@@ -705,12 +657,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             authConfig: inlineConsoleAuthConfig,
             handlers: consoleAuthHandlers,
             blobStores,
-            fixture,
             invoke,
             consoleAuthMode,
             runtimeCapabilityImports: options.runtimeCapabilityImports,
             development,
-            invocationBinding: options.invocationRootState?.binding,
             invocationState: options.invocationRootState,
           }
         : undefined
@@ -747,8 +697,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 sections: callbackState.sections,
                 catalog: callbackState.catalog,
                 blobStores: callbackState.blobStores,
-                fixture: callbackState.fixture,
-                runtimeBinding: callbackState.invocationBinding,
                 invoke: callbackState.invoke,
                 active: () => !callbackState.invocationState?.closed,
                 independentAuth: callbackState.consoleAuthMode,
@@ -826,18 +774,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         ...(connectionsActor ? { alias: { ...alias, [consoleConnectionsActorId]: connectionsActor } } : {}),
         publicAssets,
       }
-      generatedPlugin = fixture && generatedPlugin
-        ? generatedPlugin
-        : resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      if (!cliDiscovery && !fixture) await refreshConsoleCatalog()
-    },
-    buildStart: {
-      order: "post",
-      async handler() {
-        if (!cliDiscovery && fixture) await refreshConsoleCatalog()
-      },
+      if (!cliDiscovery) await refreshConsoleCatalog()
     },
     configureServer(server) {
       publishDevServer(server)
@@ -850,7 +790,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           if (notice) server.config.logger[notice.level](notice.message)
         })
       }
-      if (fixture) server.watcher.add(fixture)
       const refresh = async () => {
         try {
           await refreshConsoleCatalog()
@@ -866,9 +805,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       server.watcher.on("unlink", refresh)
     },
     vitehub: {
-      cli: {
-        namespaces: [createConsoleCliNamespace()],
-      },
       // The Console runtime already holds these operations. The CLI and `vitehub inspect` read them from here.
       operations: [{
         export: "consoleOperations",
@@ -940,7 +876,6 @@ export function consoleInvocationRootPlugin(
   const activeEnvironments = new Set<Environment>()
   let projectRoot = configuredProjectRoot
   let identity = configuredIdentity
-  let fixtureConfigured = false
 
   function rememberFrameworkAgent(id: string): void {
     frameworkAgentEntries.add(normalizeModuleId(id))
@@ -962,25 +897,8 @@ export function consoleInvocationRootPlugin(
     },
     async configResolved(config) {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      // SAFETY: ViteHub extends Vite's resolved config with its CLI discovery marker.
-      const configuredFixture = (config as typeof config & { vitehubCliDiscovery?: true }).vitehubCliDiscovery
-        ? undefined
-        : process.env[consoleFixtureEnvironmentVariable]
-      const fixture = configuredFixture ? resolve(projectRoot, configuredFixture) : undefined
-      fixtureConfigured = Boolean(fixture)
-      const revision = fixture ? consoleFixtureRevision(readConsoleFixture(fixture)) : undefined
-      const resolvedIdentity = createConsoleInvocationsIdentity(
-        projectRoot,
-        fixture,
-        revision,
-        state.binding,
-      )
-      const activeIdentity = state.identity ?? identity
-      if (fixture && activeIdentity && activeIdentity !== resolvedIdentity && state.fixtureLifecycle) {
-        await state.fixtureLifecycle.reopen()
-      }
-      identity = state.identity ?? resolvedIdentity
-      if (!fixture) updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
+      identity = state.identity ?? createConsoleInvocationsIdentity(projectRoot)
+      updateConsoleInvocationRootState(state, projectRoot, identity)
     },
     async closeBundle() {
       await closeEnvironment(this.environment)
@@ -992,13 +910,9 @@ export function consoleInvocationRootPlugin(
       if (this.environment) activeEnvironments.add(this.environment)
       if (state.closed) {
         state.closed = false
-        if (state.fixtureLifecycle) await state.fixtureLifecycle.reopen()
-        else if (state.binding && state.identity && state.projectRoot) {
+        if (state.binding && state.identity && state.projectRoot) {
           bindConsoleInvocationsIdentity(state.binding, state.identity, state.projectRoot)
         }
-      }
-      else if (fixtureConfigured && projectRoot && identity) {
-        updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
       }
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
       if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)

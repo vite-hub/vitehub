@@ -5,7 +5,6 @@ import { randomUUID } from "node:crypto"
 import * as v from "valibot"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../../packages/agent/src/invocations.ts"
-import { parseConsoleFixture } from "../../packages/vite-hub/src/console/fixture.ts"
 import {
   createUsageSummary,
   invocationUsage,
@@ -19,21 +18,20 @@ import { createEmailDevOutboxDriver } from "../../packages/email/src/runtime/out
 import { emailProviderError } from "../../packages/email/src/provider.ts"
 
 import type { Plugin } from "vite"
+import type { AgentInvocationStoreCreateInput } from "../../packages/agent/src/invocations.ts"
 import databaseFixture from "./database.fixture.json" with { type: "json" }
 import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 import { playgroundSkillFiles } from "./skills.ts"
 import { playgroundCommentsSection, playgroundConsoleContributions } from "./sections.ts"
 
-const fixture = parseConsoleFixture(fixtureDocument)
+// SAFETY: console.fixture.json holds Agent Invocation records in the shape that the journal store creates.
+const fixture = fixtureDocument as { invocations: AgentInvocationStoreCreateInput[] }
 const invocationAgents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
 // `meal-logger` stands for a retired Agent. Its sessions stay in invocation history, but the application no longer registers it.
 const agents = invocationAgents.filter(agent => agent !== "meal-logger")
 const store = createMemoryAgentInvocationStore()
-for (const record of fixture.invocations) {
-  const { cursor: _cursor, ...input } = record
-  store.create(input)
-}
+for (const record of fixture.invocations) store.create(record)
 const invocations = defineAgentInvocations({ content: "content", store })
 const logs = createLogBuffer({ maxEntries: 256 })
 for (let index = 0; index < 120; index++) {

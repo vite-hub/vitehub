@@ -7,7 +7,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
-import { consoleFixtureRevision, readConsoleFixture, type ConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
@@ -164,10 +163,6 @@ export interface ConsoleNitroPluginOptions {
   /** The discovered Agents, Schedules, operations, and section content. */
   catalog: ConsoleBuildCatalog
   blobStores: readonly string[]
-  /** The Console fixture file in fixture mode. */
-  fixture?: string
-  /** The invocation journal binding of this dev server. */
-  runtimeBinding?: string
   /** Let the Console start Agent Invocations and run manual Schedules. */
   invoke?: boolean
   /** Write nothing when this returns `false`, such as after the dev server closed. */
@@ -185,15 +180,12 @@ function renderConsoleNitroPlugin(
     sections: configuredSections,
     catalog,
     blobStores,
-    fixture,
-    runtimeBinding,
     invoke = false,
     independentAuth = false,
     access,
     runtimeCapabilityImports,
     development = false,
   }: ConsoleNitroPluginOptions,
-  fixtureSnapshot: ConsoleFixture | undefined,
 ): string {
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
@@ -228,8 +220,6 @@ function renderConsoleNitroPlugin(
   })
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
-  const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
-  const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   const runtimeImports = [
     { bindings: "installConsoleOperations", module: generatedModules.consoleOperations },
     ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
@@ -254,14 +244,12 @@ function renderConsoleNitroPlugin(
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
     ...(agentsEnabled
-      // Fixture mode installs its journal at startup, below, so Agents that run before the first Console request use it.
-      ? [`installConsoleAgentDefinitions([${definitions}], ${fixture ? `{ invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }` : `{ projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }`})`]
+      ? [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`]
       : []),
   ]
   return [
     `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
-    ...(agentsEnabled && fixture ? [`import { installConsoleFixtureInvocations } from "vite-hub/console/server"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
@@ -279,9 +267,6 @@ function renderConsoleNitroPlugin(
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
       : []),
-    ...(agentsEnabled && fixture
-      ? [`const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`]
-      : []),
     "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
@@ -289,24 +274,13 @@ function renderConsoleNitroPlugin(
 
 /** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
 export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
-  const { file, projectRoot, fixture, runtimeBinding, active = () => true } = options
-  const snapshot = fixture ? readConsoleFixture(fixture) : undefined
-  const identity = createConsoleInvocationsIdentity(
-    projectRoot,
-    fixture,
-    snapshot ? consoleFixtureRevision(snapshot) : undefined,
-    runtimeBinding,
-  )
+  const { file, projectRoot, active = () => true } = options
+  const identity = createConsoleInvocationsIdentity(projectRoot)
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(options, snapshot)
+  const contents = renderConsoleNitroPlugin(options)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
-  }
-  if (fixture && snapshot) {
-    // The invocation runtime loads Drizzle and libSQL. Load it only for a Console fixture.
-    const { installConsoleFixtureInvocations } = await import("./runtime/server/invocations-fixture.ts")
-    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
   }
   return identity
 }

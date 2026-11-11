@@ -27,7 +27,6 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 
 export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
-import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
 import { isSafeExternalUrl } from "./internal/url.ts";
 import { Markdown } from "@vite-hub/ui/markdown";
@@ -119,7 +118,7 @@ type InspectHandler = (target: InspectTarget, path?: string) => void;
 
 
 function payloadPreview(value: unknown, text: string): string {
-  const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
+  const source = typeof value === "string" ? value : text.replaceAll(/\s+/g, " ");
   const compact = source.trim();
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
@@ -226,9 +225,9 @@ function diagnosticPayload(error: InvocationErrorValue): Record<string, unknown>
 }
 
 function jsonValueLabel(value: unknown): string {
-  if (hasRuntimeType(value, "string")) return JSON.stringify(value);
+  if (typeof value === "string") return JSON.stringify(value);
   if (value === null) return "null";
-  if (hasRuntimeType(value, "object")) return Array.isArray(value) ? `Array(${value.length})` : "Object";
+  if (typeof value === "object") return Array.isArray(value) ? `Array(${value.length})` : "Object";
   return String(value);
 }
 
@@ -247,7 +246,7 @@ function matchingPayloadRows(
     }
     result.rows.push({ path, value: label });
   }
-  if (!hasRuntimeType(value, "object") || value === null || depth >= 12) return result;
+  if (typeof value !== "object" || value === null || depth >= 12) return result;
   for (const [key, item] of Object.entries(value)) {
     matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, result, depth + 1);
     if (result.truncated) break;
@@ -265,16 +264,16 @@ function renderPayloadTree(
   if (budget.remaining < 0) {
     return h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden");
   }
-  if (depth >= 12 && hasRuntimeType(value, "object") && value !== null) {
+  if (depth >= 12 && typeof value === "object" && value !== null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
       h("code", { class: "vh-invocation-payload__value" }, "Nested content hidden"),
     ]);
   }
-  if (!hasRuntimeType(value, "object") || value === null) {
+  if (typeof value !== "object" || value === null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
-      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : runtimeType(value) }, jsonValueLabel(value)),
+      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : typeof value }, jsonValueLabel(value)),
     ]);
   }
   const entries = Object.entries(value);
@@ -313,14 +312,14 @@ const InvocationPayload = defineComponent({
     const { copied, copy, failed: copyFailed } = useCopy({ duration: 1_600 });
     const text = computed(() => payloadText(props.value));
     const normalized = computed<unknown>(() => {
-      if (!hasRuntimeType(props.value, "object") || props.value === null) return props.value;
+      if (typeof props.value !== "object" || props.value === null) return props.value;
       try {
         return JSON.parse(text.value);
       } catch {
         return text.value;
       }
     });
-    const structured = computed(() => hasRuntimeType(normalized.value, "object") && normalized.value !== null);
+    const structured = computed(() => typeof normalized.value === "object" && normalized.value !== null);
     const matches = computed(() => query.value
       ? matchingPayloadRows(normalized.value, query.value.toLocaleLowerCase())
       : { rows: [], truncated: false });
@@ -623,12 +622,12 @@ function imageViewPath(activity: InvocationActivity): string | undefined {
   if (name !== "image view" && name !== "view image" && name !== "view_image") return;
   for (const key of ["tool.input", "tool.output"]) {
     const payload = activity.attributes[key];
-    if (!hasRuntimeType(payload, "object") || payload === null || Array.isArray(payload)) continue;
-    const item = "item" in payload && hasRuntimeType(payload.item, "object") && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
-    if ("path" in item && hasRuntimeType(item.path, "string") && item.path) return item.path;
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) continue;
+    const item = "item" in payload && typeof payload.item === "object" && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
+    if ("path" in item && typeof item.path === "string" && item.path) return item.path;
     if (!("commandActions" in item) || !Array.isArray(item.commandActions)) continue;
     for (const value of item.commandActions) {
-      if (hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && "path" in value && hasRuntimeType(value.path, "string") && value.path) return value.path;
+      if (typeof value === "object" && value !== null && !Array.isArray(value) && "path" in value && typeof value.path === "string" && value.path) return value.path;
     }
   }
   return activity.preview?.startsWith("/") ? activity.preview : undefined;
@@ -665,7 +664,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
   const capturedDeliveryBody = activity.kind === "delivery"
     ? activity.attributes["channel.effect.content"]
     : undefined;
-  const deliveryBody = hasRuntimeType(capturedDeliveryBody, "string") && capturedDeliveryBody.trim()
+  const deliveryBody = typeof capturedDeliveryBody === "string" && capturedDeliveryBody.trim()
     ? capturedDeliveryBody
     : undefined;
   const visibleDelivery = Boolean(deliveryBody);
@@ -821,7 +820,7 @@ function renderPreparationAction(activity: InvocationActivity, inspect: InspectH
 function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
   const repository = invocation.annotations?.["github.repository"];
   const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (!hasRuntimeType(repository, "string") || (!hasRuntimeType(pullRequest, "number") && !hasRuntimeType(pullRequest, "string"))) {
+  if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
     return h("code", agentInvocationContext(invocation));
   }
   return h("span", { class: "vh-invocation-preparation__context" }, [
@@ -1224,8 +1223,8 @@ function statusIcon(status: AgentInvocationView["status"]) {
 }
 
 function sourcePresentation(source: string | { id: string; repository?: string }) {
-  const id = hasRuntimeType(source, "string") ? source : source.id;
-  const repository = hasRuntimeType(source, "string")
+  const id = typeof source === "string" ? source : source.id;
+  const repository = typeof source === "string"
     ? /^(?:gh|github):([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
     : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
   return repository
@@ -1259,13 +1258,13 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
 }
 
 function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
-  if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   // SAFETY: The guard above establishes a non-null, non-array object; its field values remain unknown until checked below.
   const channel = value as Record<string, unknown>;
   return Object.hasOwn(channel, "id")
-    && hasRuntimeType(channel.id, "string")
+    && typeof channel.id === "string"
     && Object.hasOwn(channel, "kind")
-    && hasRuntimeType(channel.kind, "string");
+    && typeof channel.kind === "string";
 }
 
 /** Runtime names that mean nothing to a reader on their own. */
@@ -1624,7 +1623,7 @@ type AgentInvocationEmits = {
 const agentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
+    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || typeof path === "string"),
   },
   props: {
     header: { default: true, type: Boolean },
