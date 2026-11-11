@@ -2,8 +2,9 @@
 export interface LedgerRow {
   createdAt: number | undefined
   hash: string
-  id: number
-  name: string | undefined
+  id: number | null
+  /** Undefined means the column is absent; null is an unnamed row in an already upgraded ledger. */
+  name: string | null | undefined
 }
 
 export interface LedgerMigration {
@@ -16,9 +17,9 @@ export interface LedgerMatch {
   /** Folder names of the local migrations that the ledger lists. */
   applied: Set<string>
   /** Rows without `name` and the local migration that each one matches. Drizzle 1.0 writes these names when it upgrades the ledger. */
-  backfill: Array<{ id: number, name: string }>
+  backfill: Array<{ column: "id" | "created_at" | "hash", name: string, row: LedgerRow, value: number | string }>
   /** Ids of rows without `name` that match no local migration. Drizzle 1.0 refuses to upgrade such a ledger. */
-  unmatched: number[]
+  unmatched: Array<number | null>
 }
 
 /**
@@ -29,24 +30,45 @@ export interface LedgerMatch {
 export function matchLedger(rows: readonly LedgerRow[], migrations: readonly LedgerMigration[]): LedgerMatch {
   const applied = new Set<string>()
   const backfill: LedgerMatch["backfill"] = []
-  const unmatched: number[] = []
+  const unmatched: LedgerMatch["unmatched"] = []
+  const ordered = [...migrations].sort((a, b) => a.when - b.when || a.tag.localeCompare(b.tag))
+  // Drizzle's hash fallback uses the last migration in folder order, not the first one.
+  const byHash = new Map(ordered.map(migration => [migration.hash, migration]))
   const tags = new Set(migrations.map(migration => migration.tag))
   for (const row of rows) {
     if (row.name !== undefined) {
-      if (tags.has(row.name)) applied.add(row.name)
+      if (row.name !== null && tags.has(row.name)) applied.add(row.name)
       continue
     }
     const second = row.createdAt === undefined ? undefined : Math.floor(row.createdAt / 1000) * 1000
-    const sameSecond = migrations.filter(migration => migration.when === second)
-    const match = sameSecond.length === 1 ? sameSecond[0] : sameSecond.length > 1 ? sameSecond.find(migration => migration.hash === row.hash) : migrations.find(migration => migration.hash === row.hash)
+    const sameSecond = ordered.filter(migration => migration.when === second)
+    const match = sameSecond.length === 1 ? sameSecond[0] : sameSecond.length > 1 ? sameSecond.find(migration => migration.hash === row.hash) : byHash.get(row.hash)
     if (!match) {
       unmatched.push(row.id)
       continue
     }
     applied.add(match.tag)
-    backfill.push({ id: row.id, name: match.tag })
+    // SQLite's old SERIAL PRIMARY KEY does not assign IDs. RC.5 falls back to the timestamp
+    // for a unique-second match and to the hash otherwise, so NULL-ID rows remain distinct.
+    const predicate = row.id
+      ? { column: "id" as const, value: row.id }
+      : sameSecond.length === 1
+        ? { column: "created_at" as const, value: row.createdAt! }
+        : { column: "hash" as const, value: row.hash }
+    backfill.push({ ...predicate, name: match.tag, row })
   }
   return { applied, backfill, unmatched }
+}
+
+/** Refuses updates that would invalidate per-row matches. D1 adoption does not run these updates. */
+export function assertLedgerUpgrade({ backfill }: LedgerMatch): void {
+  for (const { column, name, value } of backfill) {
+    // A hash update can overwrite a different row's timestamp match. Independent matches
+    // then overstate the applied set and hide SQL that Kit will replay. Refuse before any write.
+    if (backfill.some(({ row, name: other }) => (column === "created_at" ? row.createdAt : row[column]) === value && other !== name)) {
+      throw new Error("The Drizzle Kit 0.x ledger has overlapping backfill predicates for different migration names. Verify and upgrade the ledger on a database copy before retrying; Drizzle Kit could replay applied migrations.")
+    }
+  }
 }
 
 /** Reads one ledger row from an object row, such as a libSQL or postgres.js row. */
@@ -55,7 +77,7 @@ export function toLedgerRow(row: Record<string, unknown>): LedgerRow {
   return {
     createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
     hash: String(row.hash ?? ""),
-    id: Number(row.id),
-    name: typeof row.name === "string" ? row.name : undefined,
+    id: row.id === null || row.id === undefined ? null : Number(row.id),
+    name: row.name === null ? null : typeof row.name === "string" ? row.name : undefined,
   }
 }

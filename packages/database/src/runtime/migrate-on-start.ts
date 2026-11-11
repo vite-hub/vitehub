@@ -1,5 +1,5 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { assertLedgerUpgrade, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { LedgerMatch } from "../internal/migration-ledger.ts"
@@ -42,7 +42,7 @@ interface StartMigrationPlan {
   databases: StartMigrationDatabase[]
   /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
   upgrade: LibsqlStatement[]
-  pending: Map<string, { migration: StartMigration, name: string }>
+  pending: Array<{ migration: StartMigration, name: string }>
 }
 
 // Drizzle's ledger, created and upgraded with the same statements as `drizzle-orm/libsql/migrator` 1.0, so
@@ -69,12 +69,19 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   const named = Array.from(columns.rows).some(column => column.name === "name")
   const result = await client.execute(`SELECT * FROM "${migrationsTable}"`)
   const rows = Array.from(result.rows).map(row => toLedgerRow({ ...row }))
-  const match = matchLedger(rows, migrations)
+  let match: LedgerMatch
+  try {
+    match = matchLedger(rows, migrations)
+    assertLedgerUpgrade(match)
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem: error instanceof Error ? error.message : String(error) })
+  }
   // The hashes that the ledger stores for each applied folder name, including the names that the upgrade writes.
   const hashes = new Map<string, Set<string>>()
-  const backfilled = new Map(match.backfill.map(({ id, name }) => [id, name]))
+  const backfilled = new Map(match.backfill.map(({ row, name }) => [row, name]))
   for (const row of rows) {
-    const name = row.name ?? backfilled.get(row.id)
+    const name = row.name ?? backfilled.get(row)
     if (name) hashes.set(name, (hashes.get(name) ?? new Set()).add(row.hash))
   }
   if (named) return { ...match, hashes, upgrade: [] }
@@ -84,7 +91,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
     upgrade: [
       `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
       `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
-      ...match.backfill.map(({ id, name }) => ({ args: [name, id], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "id" = ?` })),
+      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
     ],
   }
 }
@@ -109,7 +116,7 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: new Map<string, { migration: StartMigration, name: string }>(), upgrade: [] }
+    const plan = plans.get(target) ?? { client, databases: [], pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
@@ -126,6 +133,7 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     // different SQL, or the ledger row of one would hide the other forever.
     const shared = plan.databases.length > 1
     const seen = new Map<string, { hash: string, name: string }>()
+    const pending = new Map<string, { migration: StartMigration, name: string }>()
     for (const database of plan.databases) {
       for (const migration of database.migrations) {
         const other = seen.get(migration.name)
@@ -144,23 +152,22 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
           })
         }
         // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
-        if (!applied.has(migration.name) && !plan.pending.has(migration.name)) plan.pending.set(migration.name, { migration, name: database.name })
+        if (!applied.has(migration.name) && !pending.has(migration.name)) pending.set(migration.name, { migration, name: database.name })
       }
     }
-    if (options.allowDataLoss) continue
     // Check the migrations in the order they run on the file, so a table that this run creates can lose its rows.
-    const pending = [...plan.pending.values()].sort((a, b) => a.migration.when - b.migration.when)
-    const checked = withoutNewTableDataLoss(pending.map(({ migration }) => migration))
+    plan.pending = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
+    if (options.allowDataLoss) continue
+    const checked = withoutNewTableDataLoss(plan.pending.map(({ migration }) => migration))
     for (const database of plan.databases) {
-      const losses = checked.flatMap((migration, index) => pending[index]!.name === database.name
+      const losses = checked.flatMap((migration, index) => plan.pending[index]!.name === database.name
         ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
         : [])
       if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
     }
   }
-  for (const { client, pending: migrations, upgrade } of plans.values()) {
-    if (!migrations.size) continue
-    const pending = [...migrations.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
+  for (const { client, pending, upgrade } of plans.values()) {
+    if (!pending.length && !upgrade.length) continue
     await client.migrate([
       createMigrationsTable,
       ...upgrade,

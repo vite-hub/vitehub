@@ -9,7 +9,7 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
 import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
-import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
+import { assertLedgerUpgrade, matchLedger, toLedgerRow } from "./migration-ledger.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
@@ -186,7 +186,9 @@ export async function readMigrationPlan(
       return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
-    const { applied, unmatched } = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
+    const match = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
+    assertLedgerUpgrade(match)
+    const { applied, unmatched } = match
     // Drizzle 1.0 adds `name` to a Drizzle Kit 0.x ledger first, and refuses rows that match no migration folder, for
     // example the rows of another Definition on the same database.
     if (unmatched.length) {
