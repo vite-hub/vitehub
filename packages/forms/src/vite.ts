@@ -94,7 +94,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     ...imports.standard ? [`import { getStandardContext } from ${JSON.stringify(imports.standard)}`] : [],
     ...options.database && imports.databases ? [`import { databases } from ${JSON.stringify(imports.databases)}`] : [],
     ...options.email && imports.email ? [`import { email } from ${JSON.stringify(imports.email)}`] : [],
-    ...options.auth && imports.auth ? [`import { getAuthForRequest } from ${JSON.stringify(imports.auth)}`] : [],
+    ...options.auth && imports.auth ? [`import { useAuth } from ${JSON.stringify(imports.auth)}`] : [],
     ...forms.map((form, index) => `import form${index} from ${JSON.stringify(form.file)}`),
     "",
     "export default createFormsHandler({",
@@ -104,7 +104,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     ...options.auth && imports.auth
       ? [
           "  session: async (request) => {",
-          "    const session = await getAuthForRequest(request).api.getSession({ headers: request.headers })",
+          "    const session = await useAuth(request).api.getSession({ headers: request.headers })",
           "    const user = session?.user",
           "    return user && typeof user.id === \"string\" ? { id: user.id, ...(user.name ? { name: user.name } : {}), ...(user.email ? { email: user.email } : {}) } : null",
           "  },",

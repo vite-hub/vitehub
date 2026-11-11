@@ -42,7 +42,8 @@ describe("renderFormsHandler", () => {
     const full = renderFormsHandler(forms, { imports, database: true, email: true, auth: true })
     expect(full).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
     expect(full).toContain("sendEmail: message => email.send(message),")
-    expect(full).toContain("getAuthForRequest(request)")
+    expect(full).toContain("import { useAuth } from \"vite-hub/auth/server\"")
+    expect(full).toContain("useAuth(request).api.getSession({ headers: request.headers })")
   })
 })
 
