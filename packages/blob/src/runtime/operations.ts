@@ -118,6 +118,7 @@ export interface BlobOperationInput {
 }
 
 /** A failure with the fields that every surface reports. */
+// Internal invariant: the CLI and Console read its status, code, and fix. Changing the class changes their output.
 export class BlobOperationError extends Error {
   constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
     super(redactInspectionText(message))

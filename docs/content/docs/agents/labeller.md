@@ -11,7 +11,7 @@ navigation.kind: Guides
 
 ```ts [server/agents/inbox.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { labeller } from '@vite-hub/presets/labeller'
+import { labeller } from 'vite-hub/presets/labeller'
 
 export default defineAgent({
   extends: labeller,
@@ -86,7 +86,7 @@ Run the rules from a daily [Schedule](/docs/schedule) with `cleanupLabeller()`:
 
 ```ts [server/schedules/cleanup.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { cleanupLabeller } from '@vite-hub/presets/labeller'
+import { cleanupLabeller } from 'vite-hub/presets/labeller'
 import inbox from '../agents/inbox'
 
 export default defineSchedule({
@@ -102,7 +102,6 @@ For each rule, `cleanupLabeller()` searches `label:"<label>" older_than:<days>d 
 
 - Each run moves at most 500 messages per rule, so a large backlog takes several runs.
 - `manual: true` lets `vitehub schedule run cleanup` start a run now.
-- For another Gmail Channel, call `cleanupGmailChannel(channel, { rules, apply })` from `vite-hub/agent/channels`.
 
 ## Label older mail
 

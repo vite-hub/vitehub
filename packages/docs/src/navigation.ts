@@ -21,14 +21,20 @@ export interface DocsIcons {
   /** Replacement per icon name. */
   aliases: Record<string, string>
   /**
-   * Icon prefix of the sidebar, such as `i-ph-`, or several prefixes, such as `["i-ph-", "i-vitehub-"]`. An icon outside
-   * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows every icon.
+   * Icon prefix of the sidebar, such as `i-lucide-`, or several prefixes, such as `["i-lucide-", "i-vitehub-"]`. An icon
+   * outside them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows
+   * every icon.
    */
   family: string | string[]
   /** Icon of a page without one. */
   page: string
   /** Icon of a section without one. */
   section: string
+  /**
+   * Stroke width of line icons that Iconify draws 2px wide, such as Lucide. The default `1.5` matches the ViteHub icon
+   * set. `false` keeps each icon as its set draws it.
+   */
+  stroke: number | false
 }
 
 /** One catalog row: the sections of one category, in rail order. */
@@ -129,11 +135,27 @@ export function docsSectionHome(section: DocsSection<DocsAppPage>): string {
   return (section.pages.find(page => page.path === section.path) ?? section.pages.find(page => page.navigation) ?? section.pages[0])?.path ?? section.path
 }
 
-/** The page that a "Docs" link opens: the docs base page, else the first section. `null` when the site has no docs pages. */
-export function docsHomePath(manifest: DocsManifest<DocsAppPage>): string | null {
-  if (manifest.root) return manifest.root.path
-  const first = manifest.sections[0]
-  return first ? docsSectionHome(first) : null
+/** The `start` option as the app reads it. Nuxt turns a `null` in runtime config into "", which reads as no start. */
+export type DocsStart = { section: string, links?: Pick<DocsLink, "to">[] } | ""
+
+/**
+ * The first start link that opens a docs page outside the docs base, such as an Introduction outside every section.
+ * It leads the start section, so the links that open it begin there. `null` when no start link is a docs page.
+ */
+export function docsStartPage(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
+  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home").map(page => page.path))
+  const link = start ? start.links?.find(candidate => pages.has(normalizeDocsPath(candidate.to))) : undefined
+  return link ? normalizeDocsPath(link.to) : null
+}
+
+/**
+ * The page that a "Docs" link opens: the docs base page, unless it is a `home` landing page, else the first start link
+ * that is a docs page, else the start section, else the first section. `null` when the site has no docs pages.
+ */
+export function docsHomePath(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
+  if (manifest.root && manifest.root.layout !== "home") return manifest.root.path
+  const first = (start ? manifest.sections.find(section => section.id === start.section) : undefined) ?? manifest.sections[0]
+  return docsStartPage(manifest, start) ?? (first ? docsSectionHome(first) : null)
 }
 
 /**
@@ -358,6 +380,16 @@ export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection<DocsApp
   return icons.rail[section.id] ?? docsSectionIcon(icons, section)
 }
 
+/**
+ * Draws a 2px line icon with `stroke` instead. @nuxt/icon passes only the icon body in its CSS mode, so the icon is
+ * recognized by its body: Lucide draws `stroke-width="2"` with round joins. Filled icons, such as brand logos, have no
+ * stroke and stay as they are.
+ */
+export function docsIconStroke(body: string, stroke: number): string {
+  if (!body.includes('stroke-linejoin="round"')) return body
+  return body.replaceAll('stroke-width="2"', `stroke-width="${stroke}"`)
+}
+
 /** URL of the raw Markdown twin of a page path, such as `/raw/docs/kv.md`. `/` has `/raw/index.md`. */
 export function docsRawPath(path: string): string {
   const normalized = normalizeDocsPath(path)
@@ -401,8 +433,16 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
   return `${docsRawSectionLinksMarker}${blocks.join("\n\n")}\n`
 }
 
-/** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */
+/**
+ * Cookie that keeps a collapsed sidebar open after the reader opens it, on every page that starts collapsed. A host
+ * that serves prerendered HTML reads it.
+ */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
+
+/** Whether a docs page starts with its sidebar collapsed: `sidebar: "collapsed"`, or a code panel tutorial that keeps it. */
+export function docsSidebarCollapses(page: Pick<DocsPage, "sidebar" | "codePanel">): boolean {
+  return page.sidebar === "collapsed" || (page.codePanel === true && page.sidebar !== false)
+}
 
 /** Links of the page actions: the Markdown twin and chat tools that read it. */
 export interface DocsMarkdownLinks {

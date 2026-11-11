@@ -13,7 +13,7 @@ The endpoint uses Streamable HTTP without a session: each `POST` sends one JSON-
 
 ## Connect an agent
 
-The Console's **Connect an agent** page, at `/_vitehub/connect`, is linked from the rail and the Overview. It shows the server URL, setup for Claude Code, Codex, Cursor, and VS Code with your origin, how the agent signs in, and the sections its tools can use. For Claude Code and Codex:
+Give the agent the server URL of your app. For Claude Code and Codex:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
@@ -24,7 +24,7 @@ claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
 url = "https://app.example.com/_vitehub/mcp"
 ```
 
-For Cloudflare Access, create a service token and allow it in the app's Service Auth policy. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in your shell. The Console shows these commands when Cloudflare Access protects it:
+For Cloudflare Access, create a service token and allow it in the app's Service Auth policy. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in your shell:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp --header "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" --header "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
@@ -111,22 +111,22 @@ Needs is the `authorize` action of [`defineComments()`](/docs/comments/configure
 | Console access | MCP sign-in |
 | --- | --- |
 | `console: { auth: 'app' }` or a session Console Auth | OAuth 2.1. The client registers itself, opens the browser once, and sends a bearer token. |
-| `console: { auth: { provider: 'cloudflare-access' } }` | The Cloudflare Access service token headers (`CF-Access-Client-Id` and `CF-Access-Client-Secret`) the Console already accepts. No OAuth flow, so the `401` has no `resource_metadata`. |
-| `console: { auth: false }`, or `vite dev` with no `console` option | None. Development serves only loopback requests, as for the [RPC](/docs/development/console). With `console: false`, there is no MCP route. |
+| `console: { auth: { provider: 'cloudflare-access' } }` | The Cloudflare Access service token headers (`CF-Access-Client-Id` and `CF-Access-Client-Secret`) that the Console already accepts. There is no OAuth flow, so the `401` has no `resource_metadata`. |
+| `console: { auth: false }` in `vite dev`, or `vite dev` with no `console` option | None. Only loopback requests are served in development, as for the [RPC](/docs/development/console). A production build refuses `auth: false`. With `console: false`, there is no MCP route. |
 
 A request without valid sign-in gets `401` and a `WWW-Authenticate: Bearer resource_metadata="…"` header. An invalid token gets `error="invalid_token"` in that header. The metadata, at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/_vitehub/mcp`, names the authorization server.
 
-To try the tools as yourself, open the Console's [MCP client](/docs/development/console#open-vitehub-mcp). It connects with your Console session.
+To try the tools as yourself, open the Console's [MCP client](/docs/development/console#open-vitehub-mcp). It connects with the credentials of your Console request.
 
 ### Set up OAuth
 
 This section covers the Console endpoint. An app with its own MCP server, such as `/mcp`, signs clients in with [`mcpOAuth()`](/docs/auth/configure#sign-mcp-clients-in) from `vite-hub/auth/mcp`.
 
-Better Auth is the authorization server. A Console Auth that ViteHub generates (inline GitHub, or `vitehub/console/auth/server.ts` with `defineConsoleAuth()`) already has the `jwt()` and `oauthProvider()` plugins. The Console sign-in page is also the login and consent page. A Console Auth with `migrate: false` manages its own schema, so it adds the plugins itself. ViteHub keeps a supplied OAuth provider and adds a registration hook that accepts MCP clients' loopback redirects, also with `migrate: false`.
+Better Auth is the authorization server. A Console Auth that ViteHub generates (inline GitHub, or `vitehub/console/auth/server.ts` with `defineConsoleAuth()`) already has the `jwt()` and `oauthProvider()` plugins. Its sign-in page, `/_vitehub/sign-in`, is the login and consent page. A Console Auth with `migrate: false` manages its own schema, so it adds the plugins itself. ViteHub keeps a supplied OAuth provider and adds a registration hook that accepts MCP clients' loopback redirects, also with `migrate: false`.
 
-A bearer token still runs the Console Auth `authorize` callback with the verified user, then `console.authorize`. With `console.auth: 'app'`, it also runs the `authorize` callback of each matching app Auth access route. There is no browser session, so these callbacks get an empty `session` object. Tokens work only on the exact mounted MCP endpoint. Other routes still need a session.
+A bearer token still runs the Console Auth `authorize` callback with the verified user, followed by `console.authorize`. With `console.auth: 'app'`, it also runs every matching app Auth access route’s `authorize` callback. It has no browser session, so these callbacks receive an empty `session` object. An MCP token authenticates only the exact mounted MCP endpoint. The Console data routes accept only tokens for the Console resource, which a [Console on another origin](/docs/development/console#sign-a-console-in-with-oauth) gets.
 
-For `console: { auth: 'app' }`, add `consoleMcpOAuth()` to the Auth that signs people in. It returns `jwt()`, `oauthProvider()`, and the registration hook, built with ViteHub's Better Auth, so do not install a second `@better-auth/oauth-provider`. Give it the same resource as `console.mcp.resource`. It fixes the token issuer to that origin plus Better Auth's `/api/auth` base path, or to `issuer`. Tokens then name the configured resource and issuer, also for requests through another host, such as a preview URL.
+For `console: { auth: 'app' }`, add `consoleMcpOAuth()` to the Auth that signs people in. It returns `jwt()`, `oauthProvider()` with the MCP resource and the Console resource, the registration hook, and `cimd()` for Consoles on `console.origins`, made with the Better Auth that ViteHub uses, so do not install a second `@better-auth/oauth-provider`. Give it the same resource as `console.mcp.resource`. It fixes the token issuer to that origin and Better Auth's `/api/auth` base path, or to `issuer`. Tokens then name the configured resource and issuer, also when a request comes through another host, such as a preview URL.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -142,7 +142,7 @@ export default defineAuth(({ requestOrigin }) => ({
 }))
 ```
 
-The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub db generate` writes their migration.
+The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub database generate` writes their migration.
 
 Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage` (default: `loginPage`). The default `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the Auth's social providers. Then it shows the client name and asks the person to allow or deny it.
 
@@ -157,7 +157,7 @@ Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests for 
 
 To configure the provider yourself, add `jwt()`, `consoleMcpNativeClients()`, and `oauthProvider()` with the options below. Use ViteHub's Better Auth version, or the plugin types do not fit `defineAuth()`.
 
-`resources` declares the MCP resource. `clientRegistrationDefaultResources` links dynamically registered clients to it when their registration has no resource list. Include both in a supplied `oauthProvider()`, also with `migrate: false`. Without `resources`, Better Auth issues opaque tokens, not JWTs, and the Console cannot check them. If the Auth lacks `jwt()`, `oauthProvider()`, the resource in either list, or the two `vitehub:` scopes, the Console answers `503` with `CONSOLE_MCP_OAUTH_INCOMPLETE` and the fix on both metadata endpoints.
+`resources` declares the MCP resource, and the Console resource `<origin>/_vitehub` when the hosted Console signs in. `clientRegistrationDefaultResources` links dynamically registered MCP clients to the MCP resource when their registration has no resource list. For app Auth, keep the Console resource out of that default list: `consoleOAuthClients()` links the listed CIMD clients to it. Include these options in a supplied `oauthProvider()`, also with `migrate: false`. Without `resources`, Better Auth issues opaque tokens, not JWTs, and the Console cannot check them. If the Auth lacks `jwt()`, `oauthProvider()`, the resource in either list, or the two `vitehub:` scopes, the Console answers `503` with `CONSOLE_MCP_OAUTH_INCOMPLETE` and the fix on both metadata endpoints.
 
 The server never takes the issuer or resource from the request's `Host` header, because the sender picks that header. They come from configuration, in this order:
 
@@ -217,7 +217,7 @@ export default defineConfig({
 :::
 ::
 
-The Console checks access tokens only on `/_vitehub/mcp`. The request path must be exactly the endpoint (`/portal/_vitehub/mcp` under a base path). A path that only contains it, such as `/_vitehub/rpc/_vitehub/mcp`, does not count. Other Console routes use the session.
+An MCP access token works only on the exact mounted MCP endpoint (`/_vitehub/mcp`, or `/portal/_vitehub/mcp` under a base path). A path that only contains it, such as `/_vitehub/rpc/_vitehub/mcp`, does not count. The [Console data routes](/docs/development/console#sign-a-console-in-with-oauth) accept tokens for the separate Console resource.
 
 The Console reads the signing keys from the Auth in the same process, without calling the authorization server. It checks the signature against those keys' algorithms, the issuer, the audience (the resource), and the expiry, with 30 seconds of tolerance. Then it loads the person by the `sub` claim, so a deleted or banned person loses access even with a valid token, and runs `console.authorize` with that user.
 

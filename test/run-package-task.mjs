@@ -6,7 +6,9 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_MAX_PARALLEL = 2
-const LEADING_BUILD = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/
+// A package build writes only inside its own package, so builds run in dependency order, four at a time, like `vp run build`.
+const BUILD_MAX_PARALLEL = 4
+const LEADING_BUILD = /^vp run (?:--cache )?-t ([@\w./-]+)#build(?:\s*&&\s*|$)/
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/env",
   "@vite-hub/gateways",
@@ -45,6 +47,7 @@ function parseArguments(argv) {
 
   const options = {
     affectedBase: undefined,
+    cache: false,
     excludedNames: [],
     list: false,
     maxParallel: DEFAULT_MAX_PARALLEL,
@@ -58,6 +61,10 @@ function parseArguments(argv) {
     const flag = rest[index]
     if (flag === "--list") {
       options.list = true
+      continue
+    }
+    if (flag === "--cache") {
+      options.cache = true
       continue
     }
     const value = rest[++index]
@@ -227,6 +234,11 @@ function executePackage(pkg, phase, options) {
       return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "--shell-mode", "exec", testScript], options.workspaceRoot, options.signal)
     }
   }
+  if (phase === "build" && options.cache) {
+    // --cache: the Vite+ task cache replays a build whose inputs did not
+    // change. CI restores that cache in every job.
+    return spawnCommand("corepack", ["pnpm", "exec", "vp", "run", "--cache", "--filter", pkg.name, "build"], options.workspaceRoot, options.signal)
+  }
   return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "run", phase], options.workspaceRoot, options.signal)
 }
 
@@ -376,6 +388,7 @@ export async function runPackageTask(options) {
   const execute = options.execute ?? ((pkg, phase, executionOptions) => executePackage(pkg, phase, {
     ...executionOptions,
     buildResults,
+    cache: options.cache,
     workspaceRoot,
   }))
   let buildResults
@@ -384,10 +397,10 @@ export async function runPackageTask(options) {
     const buildPackages = buildClosure(selected, packageByName)
     buildResults = await runPhase({
       execute,
-      maxParallel: options.maxParallel ?? DEFAULT_MAX_PARALLEL,
+      maxParallel: BUILD_MAX_PARALLEL,
       packages: buildPackages,
       packageByName,
-      parallelSafePackages: options.parallelSafePackages ?? DEFAULT_PARALLEL_SAFE_PACKAGES,
+      parallelSafePackages: buildPackages.map(pkg => pkg.name),
       phase: "build",
       signal: controller.signal,
     })

@@ -8,7 +8,7 @@ import { vitehub, type ViteHubOptions } from "../src/index.ts"
 /** The `/_vitehub` routes that `vite dev` serves for one `console` value. */
 function consolePlugins(value: ViteHubOptions["console"]): Plugin[] {
   // SAFETY: vitehub() returns concrete plugins, and the included Nitro plugins as one nested list.
-  const plugins = (vitehub({ comments: false, console: value, env: false, preset: "node" }) as PluginOption[]).flat() as Plugin[]
+  const plugins = (vitehub({ comments: false, console: value, env: false, preset: "node", schedule: true }) as PluginOption[]).flat() as Plugin[]
   return plugins.filter(plugin => plugin.name === "vite-hub/console")
 }
 
@@ -40,9 +40,11 @@ describe("console option in development", () => {
     await expect(devConsoleRoutes(false)).resolves.toEqual([])
   })
 
-  it("serves the Console page and the operation routes when the Console is on", async () => {
+  it("serves the operation routes for the hosted Console when the Console is on", async () => {
     const routes = await devConsoleRoutes({ auth: false })
-    expect(routes).toEqual(expect.arrayContaining(["/_vitehub", "/_vitehub/**", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp"]))
+    expect(routes).toEqual(expect.arrayContaining(["/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp"]))
+    expect(routes).not.toContain("/_vitehub")
+    expect(routes).not.toContain("/_vitehub/**")
   })
 
   it.each([[undefined, 1], [false, 0], [true, 1]] as const)("installs the Console plugin with console: %o (%i)", (value, count) => {
