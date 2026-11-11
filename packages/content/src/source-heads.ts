@@ -37,7 +37,7 @@ export interface ContentSourceHead {
   movedAt: string | null
   /** True after `pin()`. `advance()` keeps the head until `unpin()`. */
   pinned: boolean
-  /** The newest commit that failed validation, and why. Null after the head moves past it. */
+  /** The newest commit that failed validation, and why. May remain as history after recovery; `diagnostic` says whether it still blocks the head. */
   rejected: { sha: string, at: string, reason: string } | null
   /** When Content last resolved the branch, as an ISO date. Content resolves it again after one hour without a push. */
   checkedAt: string | null
@@ -152,6 +152,8 @@ interface StoredHead {
   movedAt: string | null
   pinned: boolean
   rejected: ContentSourceHead["rejected"]
+  /** True after a valid pin or a lookup confirms the serving commit. Older heads infer recovery from `movedAt`. */
+  rejectionResolved?: boolean
   /** When a server instance last resolved the branch. Older heads do not have it. */
   checkedAt?: string | null
 }
@@ -538,15 +540,15 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
     state.limited = undefined
     if (revision.id === before?.sha) {
-      if (!recheck || !before) return before
-      const checked = { ...before, checkedAt: new Date().toISOString() }
+      if (!before || (!recheck && !activeRejection(before))) return before
+      const checked = { ...before, rejectionResolved: true, checkedAt: new Date().toISOString() }
       await write(state, checked)
       return checked
     }
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
-      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, checkedAt: now }
+      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, rejectionResolved: false, checkedAt: now }
       : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null, checkedAt: now }
     // Best-effort conflict detection only. KV is not CAS: callers must serialize initialization and mutations through one writer.
     const latest = await read(state)
@@ -557,9 +559,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   function hold(state: HeadState, head: StoredHead | null): void {
     state.held = { head, at: Date.now() }
-    if (!head?.rejected || state.reported.has(head.rejected.sha)) return
-    state.reported.add(head.rejected.sha)
-    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha })))
+    const rejected = activeRejection(head)
+    if (!rejected || state.reported.has(rejected.sha)) return
+    state.reported.add(rejected.sha)
+    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null })))
   }
 
   /**
@@ -778,11 +781,17 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
+  function activeRejection(head: StoredHead | null): ContentSourceHead["rejected"] {
+    if (!head?.rejected) return null
+    const resolved = head.rejectionResolved ?? Boolean(head.movedAt && head.rejected.at < head.movedAt)
+    return resolved ? null : head.rejected
+  }
+
   function diagnostic(state: HeadState, head: StoredHead | null, live: boolean): ContentSourceHeadDiagnostic | null {
     if (!live) return state.offline ?? null
     if (state.limited) return state.limited
-    // A rejection from before the head last moved, such as a pin or a later valid push, is history, not a problem now.
-    if (head?.rejected && (!head.movedAt || head.rejected.at >= head.movedAt)) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha }))
+    const rejected = activeRejection(head)
+    if (rejected) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null }))
     return null
   }
 
@@ -835,7 +844,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })
-      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null }
+      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null, rejectionResolved: true }
       await write(state, head)
       hold(state, head)
       await serve(state, head)
