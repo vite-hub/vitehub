@@ -1,4 +1,4 @@
-import { generateDrizzleJson, generateMigration } from "drizzle-kit/api"
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -39,7 +39,7 @@ const appended = (id: number, content = `step ${id}`) => ({
  */
 async function journalMigration(tablePrefix?: string): Promise<string[]> {
   const tables = postgresAgentInvocationTables({ tablePrefix })
-  const statements = await generateMigration(generateDrizzleJson({}), generateDrizzleJson({ ...tables }))
+  const statements = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...tables }))
   return statements.map(statement => statement.replaceAll('"public".', ""))
 }
 

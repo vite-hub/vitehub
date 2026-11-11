@@ -6,7 +6,7 @@ navigation.order: 5
 icon: i-lucide-file-pen-line
 ---
 
-`content()` gives an Agent tools to list, read, draft, publish, and schedule documents in the [collections and singletons](/docs/content/configure#document-collections) of `server/content.ts`. Tool inputs follow each collection's fields, so the model sees typed data. Every tool calls `content.can()` with the run's [Actor](/docs/agents/actors) (who started it) and its Auth user, so your `authorize` policy decides per document. Publishing and scheduling ask for approval by default, and publish exactly the drafts the approver saw.
+`content()` gives an Agent tools to list, read, draft, publish, and schedule documents in the [collections and singletons](/docs/content/configure#document-collections) of `server/content.ts`. Tool inputs follow each collection's fields, so the model sees typed data. Every tool calls `content.can()` with the Invocation's [Invoker](/docs/agents/trusted-invokers) and the Auth user it stands for, so `defineContent({ authorize })` decides what the Agent may do, document by document. Publishing and scheduling ask for approval by default and publish exactly the drafts the approver saw.
 
 For application code, see the [Content server API](/docs/content/server-api).
 
@@ -44,7 +44,7 @@ export default defineAgent({
 })
 ```
 
-Generated Agent routes and Schedules pass the default export of `server/content.ts` to the Capability. With Auth, they also pass `agentAuth` from `vite-hub/auth/agent`, which reads the Auth user behind an Actor. A custom route that calls `runAgent()` passes both as `capabilities: { content, auth: agentAuth }`.
+Generated Agent routes and Schedules pass the default export of `server/content.ts` to the Capability. With Auth, they also pass `agentAuth` from `vite-hub/auth/agent`, which reads the Auth user behind an Invoker. A custom route that calls `runAgent()` passes both as `capabilities: { content, auth: agentAuth }`.
 
 ## Tools
 
@@ -138,30 +138,30 @@ content({ lease: 'override' })
 
 ## Access and approval
 
-Each check calls `content.can({ user, actor, collection, action, id })`. `user` is the Auth user behind `actor`. [`authenticated()`](/docs/agents/actors) from `vite-hub/auth/agent` stores its id as `actor.meta.authUserId`, and the Capability reads that user from the Auth database. It reads again when an approved call runs, so a removed role takes effect. An anonymous Actor, no `authUserId`, no Auth, or a deleted user gives `user: null`. One `authorize` policy covers the Console and the Agent, and can check `actor` to give the Agent less than its user.
+Each check calls `content.can({ user, actor, collection, action, id })`. `actor` is the Invocation's Invoker. `user` is the Auth user that Invoker stands for: [`authenticated()`](/docs/agents/trusted-invokers) from `vite-hub/auth/agent` records the user id as `invoker.meta.authUserId`, and the Capability reads that user from the Auth database through the `auth` primitive. It reads the user again when an approved call runs, so a role removed in the meantime takes effect. An anonymous Invoker, an Invoker without `authUserId`, an app without Auth, or a deleted user gives `user: null`. One `authorize` policy then covers the Console and the Agent, and it can check `actor` to give the Agent less than the user it acts for.
 
 Reads check `read` per document on both refs, also for published documents. Lists, search results, totals, statuses, and schedules never show a document that `authorize` hides, and `content_get_document` denies it. A schedule shows only if the user may read all its documents. To let an Agent read what the site serves, return `true` for `read`.
 
 Without `authorize`, `content.can()` returns `false` and the Agent can do nothing. A denied call fails with `CAPABILITY_DENIED` and runs nothing.
 
-If your users are not in ViteHub Auth, map the Actor with `user`. It replaces the Auth lookup:
+When your users live outside ViteHub Auth, map the Invoker yourself with `user`. It replaces the Auth lookup:
 
 ```ts [server/agents/editor.ts] fragment
 content({
-  user: async actor => actor.kind === 'authUser' ? await findMember(actor.id) : null,
+  user: async invoker => invoker.kind === 'authUser' ? await findMember(invoker.id) : null,
 })
 ```
 
 ### The user of a chat
 
-The user follows the Agent's [`invoker`](/docs/agents/actors), so your app's Auth decides who an Agent acts for:
+The user follows the Agent's [`invoker`](/docs/agents/trusted-invokers), so the same Auth that signs people in to your app decides who an Agent acts for:
 
-| Entry point | Actor | `user` in `authorize` |
+| Entry point | Invoker | `user` in `authorize` |
 | --- | --- | --- |
 | HTTP chat or Agent route, with `invoker: authenticated()` | The signed-in person, as `kind: 'authUser'` with `meta.authUserId` | The Auth user |
 | The same route without a session, with `authenticated({ required: false })` | Anonymous | `null` |
 | A Channel, such as Discord or Slack | `kind: 'chat'`, with the platform user id | `null`, unless your `invoker` maps it |
-| An Agent without `invoker` | Anonymous, or the trusted `context.invoker` of a custom route | `null`, unless the Actor has `meta.authUserId` |
+| An Agent without `invoker` | Anonymous, or the trusted `context.invoker` of a custom route | `null`, unless the Invoker has `meta.authUserId` |
 
 ```ts [server/agents/editor.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -175,7 +175,7 @@ export default defineAgent({
 })
 ```
 
-A Channel message has no session. Its Actor names the platform user, and `authorize` gets `kind: 'chat'` and `user: null`. To act for an Auth user, map the platform user in `invoker.resolve`, for example through an account the person linked at sign-in:
+A Channel message has no session. Its Invoker names the platform user, and `authorize` receives it with `kind: 'chat'` and `user: null`. To act for an Auth user, map the platform user in `invoker.resolve`, for example through an account the person linked when they signed in:
 
 ```ts [server/agents/editor.ts] fragment
 invoker: {
@@ -203,7 +203,7 @@ content({
 
 The tools check `content.can()` before the policy, so a denied call fails at once without waiting for an approver. They check again when the approved call runs. Approval cannot grant what `authorize` denies.
 
-Saves, publishes, schedules, and cancels record `metadata.agent = { name, actor }`. When `authorize` got a user, they also record `metadata.author = { id, name, email }`, like Console saves. [`content.revisions()`](/docs/content/server-api#revisions), [`content.schedules()`](/docs/content/scheduling#inspect-and-cancel), and the Console history show the person, Agent, and Actor of each change.
+Saves, publishes, schedules, and cancellations record `metadata.agent = { name, actor }` and, when `authorize` received a user, `metadata.author = { id, name, email }`, as Console saves do. [`content.revisions()`](/docs/content/server-api#revisions), [`content.schedules()`](/docs/content/scheduling#inspect-and-cancel), and the Console history then show the person, the Agent, and the Invoker of each change.
 
 ## Verify the tools
 
@@ -219,7 +219,7 @@ Saves, publishes, schedules, and cancels record `metadata.agent = { name, actor 
 | `collections` | `string[]` | every collection | Collections and singletons the Agent may use. An unknown name fails when the tools resolve. |
 | `operations` | `Array<"read" \| "write" \| "publish">` | `["read", "write", "publish"]` | Tool groups to expose. Without `read`, the Agent can only create documents, because saving over a draft needs its digest. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | save `allow`, publish, schedule, and unschedule `require-approval` | Replaces the policy of `content_save_draft`, `content_publish`, `content_schedule`, and `content_unschedule`. |
-| `user` | `(actor) => user \| null \| Promise<user \| null>` | the Auth user from `actor.meta.authUserId`, or `null` | Maps the Actor to the `user` that `authorize` gets, instead of the Auth lookup. |
+| `user` | `(invoker) => user \| null \| Promise<user \| null>` | the Auth user from `invoker.meta.authUserId`, or `null` | Maps the Invoker to the `user` that `authorize` receives, instead of the Auth lookup. |
 | `lease` | `"override"` | honor leases | Lets `content_save_draft` save while a person holds the edit lease. |
 
 The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its metadata lists `collections`, `operations`, `approval`, and `lease` when set.
@@ -245,6 +245,6 @@ The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its
 - [Scheduling](/docs/content/scheduling)
 - [Operations](/docs/development/operations)
 - [Editing together](/docs/content/editing-together)
-- [Agent Actors](/docs/agents/actors)
+- [Trusted Invokers](/docs/agents/trusted-invokers)
 - [Official capabilities](/docs/agents/capabilities/official)
 - [Runtime policy, approvals, and traces](/docs/agents/runtime-policy)

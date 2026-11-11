@@ -5,7 +5,7 @@ ViteHub looks like the Vercel dashboard and shadcn/ui: Geist, black and white wi
 ## Where it lives
 
 - `packages/ui/theme.css` (`@vite-hub/ui/theme.css`): tokens, fonts, status text colors, and the one focus rule.
-- `packages/ui/theme-focus-ring.css`: the wrapper focus ring, shared by `theme.css` and `styles.css` so the documented package installation keeps it.
+- `packages/ui/theme-focus-ring.css`: wrapper focus frames, including the row comment field, shared by `theme.css` and `styles.css` so the documented package installation keeps them.
 - `packages/ui/src/theme.ts` (`@vite-hub/ui/theme`): `vitehubTheme`, the Nuxt UI app config. It sets the default variant, size, radius, and surface of each component.
 - A surface imports both and adds slots only for parts that no other surface has, such as the Console's `dashboardNavbar` or the docs shell. It never restyles a component that the theme already styles.
 

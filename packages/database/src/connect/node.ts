@@ -6,10 +6,11 @@ import { connectDatabase as connect } from "../connect.ts"
 
 import type { SQLInputValue } from "node:sqlite"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
-import type { ConnectDatabaseOptions, SqlDriver, SqlQuery } from "../connect.ts"
+import type { ConnectDatabaseOptions, SqlDriver, SqlQuery, SqlResult } from "../connect.ts"
+import type { SchemaRelations } from "../types.ts"
 
 export { authTokenVariable, defaultDatabaseLocations, parseDatabaseLocation } from "../connect.ts"
-export type { ConnectDatabaseOptions, DatabaseLocation, SqlDriver, SqlMethod, SqlQuery } from "../connect.ts"
+export type { ConnectDatabaseOptions, DatabaseLocation, SqlDriver, SqlMethod, SqlQuery, SqlResult, SqlRow, SqlRowMode } from "../connect.ts"
 
 /** The path of a `file:` location, relative to the working directory of the server. */
 export function sqliteFilePath(path: string): string {
@@ -23,7 +24,7 @@ export function openSqliteFile(path: string): SqlDriver {
   const sqlite = new DatabaseSync(file)
   sqlite.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;")
 
-  function run({ sql, params, method }: SqlQuery): unknown[] | undefined {
+  function run({ sql, params, method, rowMode }: SqlQuery): SqlResult {
     const statement = sqlite.prepare(sql)
     // SAFETY: Drizzle binds only SQLite values: text, numbers, blobs, and null.
     const values = params as SQLInputValue[]
@@ -31,10 +32,9 @@ export function openSqliteFile(path: string): SqlDriver {
       statement.run(...values)
       return []
     }
-    statement.setReturnArrays(true)
+    statement.setReturnArrays(rowMode !== "object")
     if (method !== "get") return statement.all(...values)
-    const row: unknown = statement.get(...values)
-    return Array.isArray(row) ? row : undefined
+    return statement.get(...values)
   }
 
   return {
@@ -55,6 +55,6 @@ export function openSqliteFile(path: string): SqlDriver {
 }
 
 /** `connectDatabase()` of `@vite-hub/database/connect`, which also opens `file:` locations with `node:sqlite`. */
-export function connectDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(where: string | undefined, options: ConnectDatabaseOptions<TSchema> = {}): SqliteRemoteDatabase<TSchema> {
+export function connectDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(where: string | undefined, options: ConnectDatabaseOptions<TSchema> = {}): SqliteRemoteDatabase<unknown, SchemaRelations<TSchema>> {
   return connect(where, { openFile: openSqliteFile, ...options })
 }
