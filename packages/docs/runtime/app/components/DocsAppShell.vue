@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { docsAppPath, normalizeDocsPath } from "#docs/navigation"
 import { ownsApp } from "#docs/shell"
-import theme from "#docs/theme"
+import design from "#docs/theme"
+
+import { resolveDocsTheme } from "../utils/docs-theme"
 
 const props = defineProps<{
   /** Set by the docs layouts. They draw the shell only in an app with its own `app.vue`, where the docs `app.vue` does not. */
@@ -12,6 +14,8 @@ const active = !props.layout || !ownsApp
 const route = useRoute()
 const words = (text: string) => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `
 const { site, appBase } = useDocsConfig()
+const appConfig = useAppConfig()
+const theme = computed(() => resolveDocsTheme(design, appConfig.ui))
 
 if (active) {
   useHead({
