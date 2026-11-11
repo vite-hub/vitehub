@@ -14,7 +14,7 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 | `/_vitehub/mcp` | The [MCP endpoint](/docs/development/mcp) for agents. |
 | `/_vitehub/.well-known/skills/` | The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
 
-### Call format
+## Call format
 
 Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
 

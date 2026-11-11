@@ -36,6 +36,16 @@ describe("operation RPC over birpc", () => {
     expect(JSON.stringify(failed)).not.toContain("at ")
   })
 
+  it.each([undefined, null, false, 0, ""])("preserves a falsy rejection reason: %j", async (reason) => {
+    for (const run of [() => { throw reason }, () => Promise.reject(reason)]) {
+      const adapter = server()
+      const failure = vi.spyOn(adapter, "failure")
+      const reply = await answerOperationRpc(call("test.echo"), { ...adapter, run })
+      expect(reply).toEqual({ t: "s", i: "call-1", e: { code: "FAILED", message: "Failed.", status: 500 } })
+      expect(failure).toHaveBeenCalledExactlyOnceWith(reason)
+    }
+  })
+
   it.each([
     [{ t: "q", m: "test.echo", a: [] }, "an event without an id"],
     [{ t: "q", i: "1", m: "test.echo", a: [], o: true }, "an optional call"],

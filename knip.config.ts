@@ -116,7 +116,7 @@ const bundledInternal: Record<string, string[]> = {
   schedule: ["@valibot/to-json-schema"],
   "vite-hub": ["@valibot/to-json-schema", "semver"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
-  workspace: ["@valibot/to-json-schema", "@vercel/nft"],
+  workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
