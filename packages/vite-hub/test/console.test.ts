@@ -918,7 +918,6 @@ describe("Agent invocation console", () => {
         "/**",
         "/_vitehub/rpc",
         "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")

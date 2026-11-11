@@ -8,8 +8,7 @@ import { createBuilder } from "vite"
 import { expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
-import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
-import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
+import { consoleTestKey } from "./support/console-signature.ts"
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -57,9 +56,7 @@ it("starts a KV app with the Console from the Node output", async () => {
       expect(stderr).not.toContain("TypeError")
       expect(response?.status).toBe(200)
       expect(await response?.json()).toEqual({ ok: true })
-      // The built server verifies an Ed25519 signature with Web Crypto, and refuses an unsigned call.
-      const signed = await fetch(await signedRpcRequest({ key: ci.key, operation: "project.get", url: `http://127.0.0.1:${port}/_vitehub/rpc` }))
-      await expect(operationRpcResponseResult(signed)).resolves.toMatchObject({ ok: true, value: { protocol: 1 } })
+      // The built server refuses an unsigned call. plugin-order-build.test.ts checks a signed call on a Node build.
       const unsigned = await fetch(`http://127.0.0.1:${port}/_vitehub/rpc`, { body: "{}", headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
       expect(unsigned.status).toBe(401)
       // Without the Auth section, its Console route is absent. Apps no longer serve a Console page or a Schedule run route.

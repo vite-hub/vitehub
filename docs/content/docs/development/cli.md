@@ -120,6 +120,7 @@ Available namespaces:
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
+| `vitehub secret console-key` | Available | Env Package | Print a new key pair for signed Console requests. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear the messages that the development outbox captured, on the dev server or with `--url`. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
 | `vitehub database generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
