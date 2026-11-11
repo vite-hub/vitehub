@@ -125,7 +125,7 @@ function importsCmsPreset(file: string, seen = new Set<string>()): boolean {
     if (statement.type !== "ExportAllDeclaration" && statement.type !== "ExportNamedDeclaration") continue
     if (!statement.source?.value.startsWith(".")) continue
     if (statement.type === "ExportNamedDeclaration" && !statement.specifiers.some(specifier =>
-      specifier.exported.type === "Identifier" ? specifier.exported.name === "content" : specifier.exported.value === "content",
+      specifier.exported.type === "Identifier" ? specifier.exported.name === "default" : specifier.exported.value === "default",
     )) continue
     const base = resolve(dirname(file), statement.source.value)
     const extensions = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
@@ -184,6 +184,7 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "console/ui": "console ui",
   "decisions": "decisions",
   "email": "email",
+  "forge": "forge",
   "forms": "forms",
   "gateways": "gateways",
   "kv": "kv",

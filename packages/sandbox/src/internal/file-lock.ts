@@ -4,7 +4,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 
 import { abortable } from "./abortable.ts";
-import { isRuntimeNumber, isRuntimeString, runtimeRecord } from "./runtime-type.ts";
+import { runtimeRecord } from "./runtime-type.ts";
 
 /**
  * Acquire a cross-process lock directory. A lock whose owner process is gone
@@ -75,7 +75,7 @@ async function staleLock(path: string) {
       : undefined;
   }
   const { host, pid, token } = owner;
-  if (host !== hostname() || !isRuntimeNumber(pid) || !isRuntimeString(token)) return undefined;
+  if (host !== hostname() || typeof pid !== "number" || typeof token !== "string") return undefined;
   try {
     process.kill(pid, 0);
     return undefined;

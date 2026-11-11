@@ -19,7 +19,6 @@ function isString(value: unknown): value is string {
 }
 
 function isJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON validation must distinguish primitive values without coercion.
   switch (typeof value) {
     case "string":
     case "boolean": return true

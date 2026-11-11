@@ -67,6 +67,10 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_C0011: dynamicError,
     SANDBOX_TASK_C0012: dynamicError,
     SANDBOX_TASK_C0013: dynamicError,
+    SANDBOX_TASK_C0014: {
+      ...dynamicError,
+      fix: "Rename `run` to `handler`: `defineSandboxTask({ handler })`. Run `npx @vite-hub/codemods define-forms` to rename it in every Sandbox Task.",
+    },
     SANDBOX_TASK_R0048: dynamicError,
     SANDBOX_TASK_R0049: dynamicError,
     SANDBOX_TASK_R0050: dynamicError,
