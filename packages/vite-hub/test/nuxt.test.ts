@@ -4378,6 +4378,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(options.imports.imports).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
       { from: "vite-hub/auth/vue", name: "useUserSession" },
@@ -4576,7 +4577,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       imports: { imports: Array<{ from: string; name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(5)
+    expect(options.imports.imports).toHaveLength(6)
+    expect(options.imports.imports).toContainEqual({ from: "vite-hub/auth/vue", name: "useAbility" })
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({})
     expect(options.nitro).not.toHaveProperty("plugins")
