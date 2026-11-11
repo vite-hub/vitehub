@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-invocations"
 
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"

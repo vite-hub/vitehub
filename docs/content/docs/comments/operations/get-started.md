@@ -131,17 +131,16 @@ A production build never does this. There, a call without sign-in has no user. T
 Create a client to read and write comments from your pages:
 
 ```ts [app/comments.ts]
-import { createCommentsClient } from 'vite-hub/comments/client'
-import { createRpcTransport } from 'vite-hub/comments/rpc'
+import { createCommentsClient, createRestTransport } from 'vite-hub/comments/client'
 
 export const comments = createCommentsClient({
-  transport: createRpcTransport(),
+  transport: createRestTransport(),
   user: { id: 'ana', name: 'Ana Ruiz' },
   query: { page: location.pathname },
 })
 ```
 
-- `createRpcTransport()` sends each call to your server with the sign-in of the user. `authorize` decides each call. The user needs Console access.
+- `createRestTransport()` sends each call to the [Comments API](/docs/comments/server-api#rest-transport) of your app, with the sign-in of the user. `authorize` decides each call.
 - `query` picks the threads to load. Here, the threads of the current page.
 
 ## The overlay
@@ -171,7 +170,7 @@ Your app also needs a page, such as an `index.html` with a heading. Restart the 
 
 The overlay uses the [Comments API](/docs/comments/server-api#http-routes). It runs the same actions and the same `authorize` for the user of the request. To leave the overlay out, set `vitehub({ comments: { overlay: false } })`. The API and the CLI still work. See [Turn comment mode on and off](/docs/comments/configure#turn-comment-mode-on-and-off).
 
-Do people without Console access, such as guests or share-link readers, use your own comment UI? Then use `createRestTransport()` instead of `createRpcTransport()`. See [REST transport](/docs/comments/server-api#rest-transport).
+Guests and share-link readers use the same `createRestTransport()`. See [REST transport](/docs/comments/server-api#rest-transport).
 
 ## Next steps
 
