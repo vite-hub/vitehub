@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite"
 
 import { drizzle } from "drizzle-orm/d1"
-import { SQLiteSyncDialect } from "drizzle-orm/sqlite-core"
+import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { commentsSchemaState, migrateComments } from "../src/migrate.ts"
@@ -13,7 +13,7 @@ import type { SQLInputValue } from "node:sqlite"
 describe("migration driver contracts", () => {
   it.each([false, true])("rolls back synchronous SQLite transactions after DDL (failure: %s)", async (failure) => {
     const sqlite = new DatabaseSync(":memory:")
-    const dialect = new SQLiteSyncDialect()
+    const dialect = new SQLiteDialect()
     const query = (statement: SQL) => dialect.sqlToQuery(statement).sql
     const db = {
       all: (statement: SQL) => sqlite.prepare(query(statement)).all(),

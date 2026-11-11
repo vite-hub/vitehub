@@ -1,13 +1,16 @@
 import { createHmac } from "node:crypto"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
+import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
+import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeGitHub, fakeSha } from "../../workspace/test/fake-github.ts"
+import { prepareSourceGeneration } from "../../source/src/vite.ts"
 import { contentPreviewCookieName, contentRefTokenParameter, defineContent, defineContentPreset, registerContentKV } from "../src/index.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
@@ -179,6 +182,50 @@ describe("content.sources.allow()", () => {
 
     vi.setSystemTime(Date.now() + 61_000)
     expect(decision(await content.sources.allow(draftBranch, withToken(token), "docs"))).toEqual({ allowed: false, reason: "private" })
+  })
+
+  it("expires signed links through a cached route in a Source-only app", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    repository()
+    const content = server()
+    const { token } = await content.sources.sign(draftBranch, "docs", { maxAge: 60 })
+    const projectRoot = await mkdtemp(join(tmpdir(), "content-signed-cache-"))
+    cleanup.push(() => rm(projectRoot, { recursive: true, force: true }))
+    await mkdir(join(projectRoot, "server"))
+    await writeFile(join(projectRoot, "server/content.ts"), "import { defineContent } from '@vite-hub/content'\nexport default defineContent({ sources: {}, route: false })")
+    const handlers = await prepareSourceGeneration({ projectRoot })
+
+    // Execute the same rule-cache seam that wraps Nitro 3's H3/ocache handler.
+    const seam = nitroCacheBypass().load.handler(`\0vitehub-nitro-cache:rules:${import.meta.resolve("h3/rules/cache")}`)!
+    const { cache } = await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(seam).toString("base64")}`) as typeof import("h3/rules/cache")
+    let reads = 0
+    const app = new H3()
+      .use(cache.handler({ route: "/guide", options: { maxAge: 3600, allowQuery: [contentRefTokenParameter] } }))
+      .get("/guide", async (event) => {
+        reads++
+        const access = await content.sources.allow(draftBranch, event.req, "docs")
+        if (!access.allowed) return new Response("Not Found", { status: 404 })
+        const view = await content.sources.at(access.target)
+        event.res.headers.set("cache-control", "public, max-age=3600, s-maxage=3600")
+        return await view.get("/guide")
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app, hooks: { hook: (name: string, close: () => void) => { if (name === "close") cleanup.push(close) } } }
+    const preview = handlers.find(handler => handler.plugin && handler.handler.endsWith("/preview.mjs"))
+    if (preview) {
+      const generated = (await readFile(preview.handler, "utf8")).replace('"@vite-hub/content/preview"', JSON.stringify(import.meta.resolve("@vite-hub/content/preview")))
+      const { default: install } = await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(generated).toString("base64")}`) as { default: (app: unknown) => void }
+      install(nitroApp)
+    }
+
+    const first = await nitroApp.fetch(withToken(token))
+    expect(first.status).toBe(200)
+    expect(await first.json()).toMatchObject({ data: { title: `Guide on ${draftBranch}` } })
+    vi.setSystemTime(Date.now() + 61_000)
+    const expired = await nitroApp.fetch(withToken(token))
+    expect.soft(expired.status).toBe(404)
+    expect.soft(first.headers.get("cache-control")).toBe("private, no-store")
+    expect(expired.headers.get("cache-control")).toBe("private, no-store")
+    expect(reads).toBe(2)
   })
 
   it("allows a CMS publish pull request with its signed link", async () => {

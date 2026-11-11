@@ -49,11 +49,11 @@ useDocsSeo({
       :headline="page.eyebrow ?? undefined"
       :title="page.sourceTitle"
       :description="page.tagline ?? undefined"
-      :ui="{
+      :ui="withDocsTheme('pageHeader', {
         root: 'border-b border-default px-0 pb-10 pt-0',
         title: 'text-balance text-[38px] leading-[46px] sm:text-[46px] sm:leading-[54px]',
         description: 'max-w-2xl text-pretty text-lg leading-8',
-      }"
+      })"
     />
 
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">

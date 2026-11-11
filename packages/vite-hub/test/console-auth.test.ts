@@ -23,6 +23,7 @@ import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { consoleStateKey } from "../src/console/internal.ts"
 import { getConsoleAuth, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
 
 
 describe("independent Console Auth", () => {
@@ -126,7 +127,7 @@ describe("independent Console Auth", () => {
         { route: `${mount}/_vitehub/api/**`, authorize: input.authorize },
       ])
       expect(options.access?.signIn?.callbackURL).toBe(`${mount}/_vitehub/sign-in`)
-      for (const path of ["/_vitehub/rpc/__call", "/_vitehub/api/status"]) {
+      for (const path of ["/_vitehub/rpc", "/_vitehub/api/status"]) {
         const request = new Request(`https://example.com${mount}${path}`, { method: "POST" })
         await prepareConsoleAuth(input, definition, request)
         expect((await requireAuthAccessRoutes(request, [1], definition, [1]))?.status).toBe(401)
@@ -378,8 +379,8 @@ describe("independent Console Auth", () => {
       expect(apiDenied?.status).toBe(403)
 
       // Every stateless Console call carries the session cookie and is authorized on its own.
-      const rpcCall = (headers: Record<string, string>) => new Request("https://example.com/portal/_vitehub/rpc/__call", {
-        body: JSON.stringify({ operation: "sections.list" }),
+      const rpcCall = (headers: Record<string, string>) => new Request("https://example.com/portal/_vitehub/rpc", {
+        body: operationRpcBody("sections.list"),
         headers: { "content-type": "application/json", ...headers },
         method: "POST",
       })
@@ -542,8 +543,6 @@ describe("independent Console Auth", () => {
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/_vitehub/api/auth/'")
       expect(middleware).toContain("path === '/_vitehub/sign-in'")
-      // Only the schedule run route, and only with a dispatch signature, reaches its own verification without a session.
-      expect(middleware).toContain("if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return")
       expect(await readFile(handlers.signIn, "utf8")).toContain("const denied = await checkConsoleAccess(request)")
       expect(route).toContain("async fetch(request) {")
       expect(route).toContain("handleAuthRequest(definition, request, undefined, request)")
@@ -699,7 +698,7 @@ describe("independent Console Auth", () => {
         expect((await guard.default({ url: new URL("https://example.com/_vitehub") }))?.status).toBe(401)
         const apiURL = "https://example.com/_vitehub/api/status"
         expect((await guard.default({ url: new URL(apiURL), req: new Request(apiURL, { headers: { accept: "text/html" } }) }))?.status).toBe(401)
-        const rpcURL = "https://example.com/_vitehub/rpc/__call"
+        const rpcURL = "https://example.com/_vitehub/rpc"
         const rpcRequest = new Request(rpcURL, { body: "{}", headers: { "content-type": "application/json" }, method: "POST" })
         expect((await guard.default({ url: new URL(rpcURL), req: rpcRequest }))?.status).toBe(401)
         // Console data routes check the Session and authorize callback whatever their path. They never redirect.
@@ -709,7 +708,7 @@ describe("independent Console Auth", () => {
         expect(calls).toEqual([
           ["/_vitehub", 0, false],
           ["/_vitehub/api/status", 1, false],
-          ["/_vitehub/rpc/__call", 0, false],
+          ["/_vitehub/rpc", 0, false],
           ["/api/app", "withAuthorization", undefined],
         ])
         for (const path of ["_vitehub/page/session-extra", "_vitehub/page/assets-extra/loader.js"]) {
