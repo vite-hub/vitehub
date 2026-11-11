@@ -143,3 +143,48 @@ describe("DocsMarkdown", () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 })
+
+describe("diagrams", () => {
+  const page = readFileSync(resolve(import.meta.dirname, "fixtures/diagrams.md"), "utf8")
+
+  it("draws a Mermaid fence as an SVG on the server, without a network request", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+    try {
+      const document = await parseMarkdown(page)
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "pele")).toEqual(["pele", { language: "mermaid", content: expect.stringContaining("Router --> Handler") }])
+
+      const html = await renderToString(vue.createSSRApp(renderer(), { document }))
+      const diagram = html.slice(html.indexOf('class="cmm"'))
+      expect(diagram).toMatch(/^class="cmm" data-source="graph LR[^"]*"><div class="[^"]*" data-diagram="flowchart"[^>]*><svg/)
+      expect(diagram).toContain(">Handler<")
+      expect(fetch).not.toHaveBeenCalled()
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
+  it("keeps a D2 fence as code and does not send it to Kroki by default", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+    try {
+      const document = await parseMarkdown(page)
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "pre")?.[1]).toMatchObject({ language: "d2" })
+      expect(fetch).not.toHaveBeenCalled()
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
+  it("sends a D2 fence to the Kroki server a site opts in to", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('<svg viewBox="0 0 10 10"><text>server</text></svg>'))
+    try {
+      const document = await createDocsParser({ comarkUi: { diagrams: { server: "https://kroki.example.com" } } })(page)
+      expect(fetch).toHaveBeenCalledWith("https://kroki.example.com/d2/svg", expect.objectContaining({ method: "POST" }))
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "diagram")?.[1]).toMatchObject({ type: "d2", svg: expect.stringContaining("<svg") })
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+})
