@@ -269,10 +269,7 @@ describe("OAuth Console tokens", () => {
 
   it("challenges a read-only token for the write scope on uploads", async () => {
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
-    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=fixture`, {
-      headers: { authorization: `Bearer ${access_token}`, origin: local },
-      method: "POST",
-    }))
+    const response = await rpc(access_token, "media.upload", { data: "eA==", filename: "a.txt", section: "fixture" })
     expect(response.status).toBe(403)
     expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
     expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")

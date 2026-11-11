@@ -290,7 +290,7 @@ describe("Console preflight", () => {
     return new Request(`${app}${path}`, { headers: { "access-control-request-headers": "authorization, content-type", "access-control-request-method": method, origin }, method: "OPTIONS" })
   }
 
-  it.each(["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/portal/_vitehub/rpc/__call"])("answers a listed origin at %s", async (path) => {
+  it.each(["/_vitehub/rpc/__call", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/portal/_vitehub/rpc/__call"])("answers a listed origin at %s", async (path) => {
     installConsoleOrigins([consoleOrigin])
     const response = answerConsolePreflight(defineHandlerEvent(preflight(path, consoleOrigin)))
     expect(response?.status).toBe(204)

@@ -3,12 +3,11 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { loadConsoleMedia } from "./blob.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
 
 import type { ConsoleRoute } from "./request.ts"
@@ -16,8 +15,6 @@ import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleRpcResult } from "../rpc.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
-/** Media library uploads: one file per `multipart/form-data` request, so the browser can report progress. */
-export const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 const maximumConsoleRpcRequestBytes = 64 * 1_024
 
@@ -137,16 +134,6 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertOperationProject(request, installedConsoleProjectRoot())
-  if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
-    if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
-    const section = url.searchParams.get("section") ?? ""
-    if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
-    if (!consoleScopesAllow(context.access, { kind: "write" })) {
-      context.response.headers = consoleScopeRejection({ kind: "write" }, "an upload").headers
-      throw consoleRequestError(403, "The access token does not have the vitehub:write scope, which an upload needs.", "CONSOLE_ACCESS_DENIED")
-    }
-    return (await loadConsoleMedia()).uploadConsoleMedia(request, section, context.access)
-  }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown

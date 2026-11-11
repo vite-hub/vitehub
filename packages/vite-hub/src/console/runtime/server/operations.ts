@@ -3,7 +3,7 @@ import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
 import { loadConsoleMedia } from "./blob.ts"
-import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
+import { consoleAttachmentRequestBytes, consoleDocumentActionNames, consoleMediaUploadRequestBytes, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -86,6 +86,7 @@ export const consoleOperationRequestBytes = {
   "agents.invoke": consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes,
   "documents.action": maximumConsoleDocumentRequestBytes + maximumConsoleRpcRequestBytes,
   "media.action": maximumConsoleMediaRequestBytes + maximumConsoleRpcRequestBytes,
+  "media.upload": consoleMediaUploadRequestBytes,
 } as const
 
 // The handlers of these operations read the signed-in user themselves, when they need it.
@@ -324,6 +325,26 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
+const mediaUpload = defineConsoleOperation({
+  mcp: false,
+  description: "Upload one file, given as base64, to the media library of a Console section.",
+  input: v.strictObject({
+    contentType: optionalText,
+    // Each crop of an image may have its own replacement file, such as a portrait version for phones.
+    crop: optionalText,
+    data: text,
+    filename: v.pipe(text, v.minLength(1), v.maxLength(255)),
+    folder: optionalText,
+    pathname: optionalText,
+    section: text,
+  }),
+  kind: "write",
+  maxRequestBytes: consoleOperationRequestBytes["media.upload"],
+  name: "media.upload",
+  run: async (input, context) => (await loadConsoleMedia()).uploadConsoleMedia(input, context.access),
+  section: input => input.section,
+})
+
 const projectGet = defineConsoleOperation({
   cli: { command: "info", namespace: "project" },
   description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
@@ -427,6 +448,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  mediaUpload,
   projectGet,
   searchQuery,
   sectionsList,

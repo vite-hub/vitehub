@@ -246,8 +246,9 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
   it("checks upload scopes before loading the optional media library", async () => {
     install()
     for (const [token, status] of [[tokens.readOnly, 403], [tokens.console, 404]] as const) {
-      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=content`, {
-        headers: { authorization: `Bearer ${token}`, origin: hosted, [consoleRpcHeader]: "1" },
+      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
+        body: JSON.stringify({ operation: "media.upload", input: { data: "eA==", filename: "a.txt", section: "content" } }),
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin: hosted, [consoleRpcHeader]: "1" },
         method: "POST",
       }))
       expect(response.status, await response.clone().text()).toBe(status)

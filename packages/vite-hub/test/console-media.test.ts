@@ -81,10 +81,14 @@ function media(action: string, body: Record<string, unknown> = {}, section = "co
   }))
 }
 
-function upload(fields: Record<string, string | File>, headers: Record<string, string> = { [consoleRpcHeader]: "1" }, section = "content") {
-  const form = new FormData()
-  for (const [name, value] of Object.entries(fields)) form.set(name, value)
-  return respond(new Request(`http://localhost/_vitehub/rpc/__upload?section=${section}`, { body: form, headers, method: "POST" }))
+async function upload(fields: { crop?: string, file: File, folder?: string, pathname?: string }, headers: Record<string, string> = {}, section = "content") {
+  const { file, ...rest } = fields
+  const input = { ...rest, data: Buffer.from(await file.arrayBuffer()).toString("base64"), filename: file.name, section, ...(file.type ? { contentType: file.type } : {}) }
+  return respond(new Request("http://localhost/_vitehub/rpc/__call", {
+    body: JSON.stringify({ operation: "media.upload", input }),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
+    method: "POST",
+  }))
 }
 
 function file(name: string, text: string, type = "text/plain"): File {
@@ -220,8 +224,15 @@ describe("Console media library", () => {
 
   it("rejects cross-site and oversized uploads, and unknown actions", async () => {
     await expect(upload({ file: file("a.txt", "a") }, { origin: "https://evil.example" })).resolves.toMatchObject({ status: 403 })
-    const huge = new Request("http://localhost/_vitehub/rpc/__upload?section=content", { body: new Uint8Array(33 * 1024 * 1024), headers: { "content-type": "multipart/form-data; boundary=x", [consoleRpcHeader]: "1" }, method: "POST" })
-    await expect(respond(huge)).resolves.toMatchObject({ body: { code: "MEDIA_TOO_LARGE" }, status: 413 })
+    // The body limit of `media.upload` holds a 32 MiB file as base64. A larger body stops before the operation runs.
+    const huge = new Request("http://localhost/_vitehub/rpc/__call", { body: `{"operation":"media.upload","input":{"data":"${"A".repeat(45 * 1024 * 1024)}"}}`, headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })
+    await expect(respond(huge)).resolves.toMatchObject({ body: { code: "CONSOLE_REQUEST_INVALID" }, status: 413 })
+    const malformed = new Request("http://localhost/_vitehub/rpc/__call", {
+      body: JSON.stringify({ operation: "media.upload", input: { data: "not base64", filename: "a.txt", section: "content" } }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    })
+    await expect(respond(malformed)).resolves.toMatchObject({ body: { code: "MEDIA_INPUT" }, status: 400 })
     await expect(media("collections")).resolves.toMatchObject({ status: 400 })
     await expect(media("list", { folder: "_vitehub/media" })).resolves.toMatchObject({ body: { value: { items: [] } } })
     await expect(upload({ file: file("a.txt", "a"), folder: "vitehub" })).resolves.toMatchObject({ status: 400 })

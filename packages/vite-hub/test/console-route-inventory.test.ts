@@ -4,9 +4,9 @@ import { resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
-import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { createProject } from "./support/content-cms.ts"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { ConsoleOptions } from "../src/index.ts"
 
@@ -154,9 +154,9 @@ describe("paths that the Console RPC route serves below /_vitehub/rpc/", () => {
         body: "{}",
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
-      }), { access: { mode: "open", sections: "all" } })
+      }))
       if (response.status !== 404) served.push(path)
     }
-    expect(served).toEqual(["__call", "__upload"])
+    expect(served).toEqual(["__call"])
   })
 })
