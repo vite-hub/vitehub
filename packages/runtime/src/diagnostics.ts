@@ -1,6 +1,6 @@
 import { Diagnostic, formatDiagnostic } from "nostics"
 
-import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+import { isRuntimeObject } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "./errors.ts"
 
 import type { MaybePromise } from "./index.ts"
@@ -75,7 +75,7 @@ export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown
   if (!isRuntimeObject(error)) return false
   try {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
-    const isError = hasRuntimeType(nativeIsError, "function")
+    const isError = typeof nativeIsError === "function"
       ? nativeIsError(error) === true
       : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
     if (!isError) return false
@@ -86,13 +86,13 @@ export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown
     const fix: unknown = Reflect.get(error, "fix")
     const docs: unknown = Reflect.get(error, "docs")
     const sources: unknown = Reflect.get(error, "sources")
-    return hasRuntimeType(code, "string") && code.length > 0
-      && hasRuntimeType(name, "string")
-      && hasRuntimeType(message, "string") && why === message
-      && (fix === undefined || hasRuntimeType(fix, "string"))
-      && (docs === undefined || hasRuntimeType(docs, "string"))
-      && (sources === undefined || Array.isArray(sources) && sources.every(source => hasRuntimeType(source, "string")))
-      && hasRuntimeType(Reflect.get(error, "toJSON"), "function")
+    return typeof code === "string" && code.length > 0
+      && typeof name === "string"
+      && typeof message === "string" && why === message
+      && (fix === undefined || typeof fix === "string")
+      && (docs === undefined || typeof docs === "string")
+      && (sources === undefined || Array.isArray(sources) && sources.every(source => typeof source === "string"))
+      && typeof Reflect.get(error, "toJSON") === "function"
   }
   catch {
     return false
@@ -109,7 +109,7 @@ interface ErrorNormalizationState {
 }
 
 function boundedString(value: unknown, state: ErrorNormalizationState): string | undefined {
-  if (!hasRuntimeType(value, "string")) return
+  if (typeof value !== "string") return
   const maximum = Math.min(state.maxStringLength, state.remainingStringLength)
   if (maximum <= 0) return
   if (value.length <= maximum) {
@@ -144,8 +144,8 @@ function readProperty(value: unknown, key: PropertyKey): unknown {
 
 function scalarProperty(value: unknown, key: PropertyKey, state: ErrorNormalizationState): number | string | undefined {
   const property = readProperty(value, key)
-  if (hasRuntimeType(property, "string")) return boundedString(property, state)
-  return hasRuntimeType(property, "number") && Number.isFinite(property) ? property : undefined
+  if (typeof property === "string") return boundedString(property, state)
+  return typeof property === "number" && Number.isFinite(property) ? property : undefined
 }
 
 function errorChildren(value: unknown, maximum: number): unknown[] | undefined {
@@ -162,9 +162,9 @@ function errorChildren(value: unknown, maximum: number): unknown[] | undefined {
 function normalizeDetailValue(value: unknown, state: ErrorNormalizationState, depth: number): unknown {
   if (state.remainingNodes <= 0) return
   state.remainingNodes -= 1
-  if (value === null || hasRuntimeType(value, "boolean")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
-  if (hasRuntimeType(value, "string")) return boundedString(value, state)
+  if (value === null || typeof value === "boolean") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
+  if (typeof value === "string") return boundedString(value, state)
   if (depth > state.maxDepth) return boundedString("[Detail depth exceeded]", state)
   if (Array.isArray(value)) {
     return value.flatMap((item) => {
@@ -204,8 +204,8 @@ function normalizeDetails(
 function normalizeError(value: unknown, state: ErrorNormalizationState, depth: number): RuntimeDiagnosticError | undefined {
   if (state.remainingNodes <= 0) return
   state.remainingNodes -= 1
-  if (hasRuntimeType(value, "string")) return { message: boundedString(value, state) || "Error" }
-  if (!value || !hasRuntimeType(value, "object")) return { message: boundedString(safeString(value), state) || "Error" }
+  if (typeof value === "string") return { message: boundedString(value, state) || "Error" }
+  if (!value || typeof value !== "object") return { message: boundedString(safeString(value), state) || "Error" }
   if (state.ancestors.has(value)) return { message: boundedString("[Circular error cause]", state) || "Error" }
   if (depth > state.maxDepth) return { message: boundedString("[Error cause depth exceeded]", state) || "Error" }
 
@@ -226,7 +226,7 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
     }
     const code = publicError?.code
       ? boundedString(publicError.code, state)
-      : scalarProperty(value, "code", state) ?? (hasRuntimeType(why, "string") ? boundedString(name, state) : undefined)
+      : scalarProperty(value, "code", state) ?? (typeof why === "string" ? boundedString(name, state) : undefined)
     const fix = boundedString(readProperty(value, "fix"), state)
     const docs = boundedString(readProperty(value, "docs"), state)
     const requestId = publicError?.requestId ? boundedString(publicError.requestId, state) : boundedString(readProperty(value, "requestId"), state)

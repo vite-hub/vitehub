@@ -1,6 +1,6 @@
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 import packageManifest from "./package.json" with { type: "json" };
 
 // Generated code imports these modules by path. They are not public API.
@@ -16,7 +16,7 @@ const privateEntries = new Set([
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: ["vite", "esbuild", "#vitehub/workflow/registry"],
@@ -44,10 +44,5 @@ export default defineConfig({
       }).filter(([key]) => !privateEntries.has(key)))),
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

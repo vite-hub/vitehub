@@ -123,7 +123,7 @@ Behind Cloudflare Access, pass `cloudflareAccess()` as `headers`, such as `clipr
 A preset reads each value that you did not pass when it sends a request:
 
 - Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table.
-- Provider Drivers, ask Drivers, `llmGate()`, and `llmRoute()` supply [Server Env](/docs/env/configure) with the request's Cloudflare bindings.
+- Provider Drivers and ask Drivers supply [Server Env](/docs/env/configure) with the request's Cloudflare bindings.
 - `languageModel()` reads `process.env`, also in an AI SDK model Driver.
 
 For a direct call that needs provider-backed Server Env or request bindings, load the values yourself and pass them.
@@ -185,8 +185,6 @@ export default defineAgent({
   },
 })
 ```
-
-[`llmGate()`](/docs/agents/capabilities/llm-gate) and [`llmRoute()`](/docs/agents/capabilities/llm-route) take the same `gateway` option for their Jev decisions.
 
 ViteHub declares gateway variables in Server Env for the presets that Agent files import from `vite-hub/gateways`, as `env.server.<preset>.<field>`, such as `env.server.cloudflare.accountId`. A preset reads its own `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_CLOUDFLARE_TYPESAFE_API_KEY` for the TypeSafe key of `cloudflare()`. The Console shows them, and an [Env provider](/docs/env/server-api#read-external-env-storage) can supply them. They stay optional, so a server that does not use the gateway still starts. For the default `typesafe()` gateway, add `typesafe: typesafeEnv()` from `vite-hub/env` to `env.server`.
 

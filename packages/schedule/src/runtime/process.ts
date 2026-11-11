@@ -61,7 +61,6 @@ function isStaticScheduleDefinition(value: unknown): value is CronScheduleDefini
   return isObject(value)
     && Object.hasOwn(value, "cron")
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
 }
 
