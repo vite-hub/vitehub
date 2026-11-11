@@ -109,13 +109,13 @@ onBeforeUnmount(() => clearTimeout(timer));
         </MessageScrollerContent>
       </MessageScrollerViewport>
       <MessageScrollerButton>
-        <UIcon name="i-ph-arrow-down-light" />
+        <UIcon name="i-lucide-arrow-down" />
       </MessageScrollerButton>
     </MessageScroller>
     <UButton
       :label="replying ? 'Replying' : 'Send next message'"
       :disabled="replying || nextTurn >= turns.length"
-      icon="i-ph-paper-plane-right-light"
+      icon="i-lucide-send-horizontal"
       color="neutral"
       variant="outline"
       class="self-start"

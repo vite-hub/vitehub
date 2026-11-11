@@ -261,7 +261,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
 
 const adminContext = (overrides: Partial<OperationContext> = {}): OperationContext => ({
   access: { mode: "open", sections: "all" },
-  request: new Request("http://vitehub.local/_vitehub/rpc/__call"),
+  request: new Request("http://vitehub.local/_vitehub/rpc"),
   surface: "console",
   user: null,
   ...overrides,

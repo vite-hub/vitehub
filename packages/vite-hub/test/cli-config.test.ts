@@ -10,6 +10,7 @@ import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
 import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
+import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 
 const roots: string[] = []
 
@@ -362,9 +363,9 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       let body = "";
       request.on("data", (chunk: Buffer) => { body += chunk.toString(); });
       request.on("end", () => {
-        calls.push({ authorization: request.headers.authorization, body: JSON.parse(body), url: request.url });
+        calls.push({ authorization: request.headers.authorization, body: operationRpcRequest(body), url: request.url });
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } }));
+        response.end(JSON.stringify(operationRpcReply(body, { ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } })));
       });
     });
     await new Promise<void>(resolveListen => server.listen(0, "127.0.0.1", resolveListen));
@@ -380,7 +381,7 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       expect(calls).toEqual([{
         authorization: "Bearer cli-test",
         body: { input: { id: "ainv_1" }, operation: "invocations.cancel" },
-        url: "/_vitehub/rpc/__call",
+        url: "/_vitehub/rpc",
       }]);
     }
     finally {

@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer"
 import { createHash } from "node:crypto"
 
+import { createTarGz } from "../../source/test/sources/fixtures/github.ts"
+
 /** One file of a fake commit tree. `path` is from the repository root. */
 export interface FakeTreeEntry {
   mode: string
@@ -97,7 +99,8 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   let treeIndex = 0
 
   const state = {
-    archive: textBytes("archive"),
+    /** The tarball body. Without it, the tarball has the files of the commit that the request names. */
+    archive: undefined as Uint8Array | undefined,
     archiveFailures: 0,
     defaultBranch: "main",
     truncated: false,
@@ -313,9 +316,23 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     return failure(400, `Unknown GraphQL operation ${request.operation}`)
   }
 
+  /** The tarball of a commit, as GitHub serves it: every file under one `owner-repo-sha/` folder. */
+  function archive(ref: string): Response {
+    if (state.archive) return new Response(state.archive)
+    const commit = resolve(ref)
+    if (!commit) return failure(404, "Not Found")
+    const files = Object.fromEntries(commit.tree.map(entry => [entry.path, blobs.get(entry.sha) ?? new Uint8Array()]))
+    return new Response(createTarGz(files, `${owner}-${repo}-${commit.sha.slice(0, 7)}/`))
+  }
+
   function route(request: FakeRequest, url: URL): Response {
     const { method, path } = request
     if (path === "/graphql" && method === "POST") return graphql(request)
+    // An anonymous archive comes from codeload, as `/<owner>/<repo>/tar.gz/<ref>`.
+    if (url.host === "codeload.github.com" && method === "GET") {
+      const ref = path.match(new RegExp(`^/${owner}/${repo}/tar\\.gz/(?<ref>.+)$`))?.groups?.ref
+      return ref ? archive(ref) : failure(404, "Not Found")
+    }
     if (!path.startsWith(prefix)) return failure(404, "Not Found")
     const rest = path.slice(prefix.length)
     if (rest === "" && method === "GET") {
@@ -378,7 +395,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     }
     if (rest.startsWith("/tarball/") && method === "GET") {
       if (state.archiveFailures-- > 0) return new Response("retry", { headers: { "retry-after": "0" }, status: 503 })
-      return new Response(state.archive)
+      return archive(rest.slice("/tarball/".length))
     }
     if (rest.startsWith("/contents/") && method === "GET") {
       const commit = resolve(url.searchParams.get("ref") || state.defaultBranch)

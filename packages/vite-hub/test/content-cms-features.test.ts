@@ -19,7 +19,7 @@ it.each(["github", "blob-database"] as const)("resolves %s services for Nuxt and
   await mkdir(join(root, "server"))
   await writeFile(join(root, "server/content.ts"), `import { defineContent } from '@vite-hub/content'
 import { cms } from '@vite-hub/cms'
-export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
+export default defineContent({ extends: [cms, { store: '${store}' }] })`)
   const expected = { blob: store === "github" ? undefined : true, database: true, workspace: true }
   expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual(expected)
   expect(resolveCmsPresetFeatures({ blob: false }, { projectRoot: root })).toEqual({ ...expected, blob: false })
@@ -44,7 +44,7 @@ it.each([undefined, "github", "blob-database"] as const)("enables comments with 
   await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
   if (store) await writeFile(join(root, "server/content.ts"), `import { defineContent } from '@vite-hub/content'
 import { cms } from '@vite-hub/cms'
-export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
+export default defineContent({ extends: [cms, { store: '${store}' }] })`)
   const expected = { blob: store === "blob-database" ? true : undefined, database: true, workspace: store ? true : undefined }
   expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual(expected)
   expect(resolveCmsPresetFeatures({ database: false }, { projectRoot: root })).toEqual({ ...expected, database: false })
@@ -80,6 +80,13 @@ it("leaves the Database off for server/comments.ts with comments: false", async 
   await mkdir(join(root, "server"))
   await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
   expect(resolveCmsPresetFeatures({ comments: false }, { projectRoot: root })).toEqual({ comments: false })
+  // The Vite path agrees with the Nuxt path.
+  const config = await resolveConfig({
+    root,
+    configFile: false,
+    plugins: withCmsPresetPlugins({ comments: false, database: undefined }, resolved => resolved.database ? [{ name: "database-service" }] : []),
+  }, "build")
+  expect(config.plugins.some(plugin => plugin.name === "database-service")).toBe(false)
 })
 
 it.each([
@@ -92,7 +99,7 @@ it.each([
   const file = join(root, "server/content.ts")
   await writeFile(file, `import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
-export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
+export default defineContent({ extends: [cms, { store: '${store}' }] })`)
   const inspect = consoleContributedSections.get("content")!.documents!.inspect!
   await expect(inspect({ discoveryRoot: root, projectRoot: root, scheduleDefinitions: [] }, file)).resolves.toEqual(setup)
 })

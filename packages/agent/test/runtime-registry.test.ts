@@ -226,6 +226,48 @@ export async function inspect() {
 }, 30_000)
 
 
+// Nuxt with `experimental.nitroViteEnvironment: false` builds the server without the Vite transform of the Agent files.
+it('checks the workspace key of folder Agents that the registry loads without the Vite transform', async () => {
+  const { root, plugin, config } = await fixture(false)
+  const sources = {
+    // A github() pull request Channel adds a Workspace without the workspace key.
+    review: "import { defineAgent } from '@vite-hub/agent'\nimport { github } from '@vite-hub/agent/channels'\nexport default defineAgent({ channels: { github: github({ pullRequest: true }) }, driver: { run: () => 'ok' }, runtime: false })",
+    // Discovery cannot read options that a function returns, but the options have the key.
+    docs: "import { defineAgent } from '@vite-hub/agent'\nconst options = () => ({ driver: { run: () => 'ok' }, runtime: false, workspace: {} })\nexport default defineAgent(options())",
+    plain: "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ driver: { run: () => 'ok' }, runtime: false })",
+  }
+  for (const [name, source] of Object.entries(sources)) {
+    await mkdir(join(root, 'server/agents', name), { recursive: true })
+    await writeFile(join(root, 'server/agents', name, 'agent.ts'), source)
+  }
+  await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+  const entry = join(root, 'entry.ts')
+  await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
+export async function inspect() {
+  const result = {}
+  for (const name of ${JSON.stringify(Object.keys(sources))}) {
+    try { result[name] = Boolean((await getAgentFromRegistry(name)).__vitehubWorkspaceAgentOptions?.workspace) }
+    catch (error) { result[name] = error.code ?? String(error) }
+  }
+  return result
+}`)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
+  const registry = join(root, '.vitehub/agent/registry.mjs')
+  const artifact = join(packageRoot, 'dist', `registry-workspace-test-${Date.now()}.mjs`)
+  try {
+    await build({
+      entryPoints: [entry], outfile: artifact, bundle: true, platform: 'node', format: 'esm', packages: 'external', tsconfigRaw: { compilerOptions: {} },
+      plugins: [{ name: 'published-agent-registry', setup(builder) {
+        builder.onResolve({ filter: /^#vitehub\/agent\/registry$/ }, () => ({ path: registry }))
+        builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === '@vite-hub/agent' ? '.' : `.${args.path.slice('@vite-hub/agent'.length)}`].import) }))
+      } }],
+    })
+    const result = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', 'const mod = await import(process.argv[1]); console.log(JSON.stringify(await mod.inspect()))', pathToFileURL(artifact).href])
+    expect(JSON.parse(result.stdout)).toEqual({ review: 'AGENT_R1037', docs: true, plain: false })
+  } finally { await rm(artifact, { force: true }) }
+}, 30_000)
+
 it('loads discovered instructions through the Vite server registry', async () => {
   const { root } = await fixture(true, true)
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -288,6 +330,7 @@ it('replaces owned Workspaces after route reloads without removing application W
   await writeFile(probe, `export { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'`)
   const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
   try {
+    expect(server.config.server.watch).toBeNull()
     // This test regenerates routes itself. Stop discovery before it can race those writes.
     await server.watcher.close()
     const runtime = await server.ssrLoadModule(probe)

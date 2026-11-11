@@ -1,9 +1,10 @@
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation } from "../src/operations.ts"
+import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation, table } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
+import { operationRpcResponse } from "../test-utils/operation-rpc.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -155,12 +156,24 @@ describe("operations", () => {
       CF_ACCESS_CLIENT_ID: "client-id",
       CF_ACCESS_CLIENT_SECRET: "client-secret",
     }
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ ok: true, value: "done" }))
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: "done" }))
     expect(await callOperation({ env, fetch, url: "http://localhost:5173", ...(discovered ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })).toMatchObject({ ok: true })
     const headers = new Headers(fetch.mock.calls[0]![1]?.headers)
     for (const header of ["authorization", "cookie", "cf-access-client-id", "cf-access-client-secret"]) {
       expect(headers.has(header), header).toBe(!discovered)
     }
+  })
+
+  it.each([true, false])("says to pass --url when a dev server that the command found asks for sign-in (found: %s)", async found => {
+    const fix = "For the CLI, set `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`."
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ code: "CONSOLE_SIGNATURE_MISSING", fix, message: "This request is not signed.", ok: false, status: 401 }, { status: 401 }))
+    const result = await callOperation({ env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch, url: "http://localhost:5173", ...(found ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })
+    expect(result).toMatchObject({
+      code: "CONSOLE_SIGNATURE_MISSING",
+      fix: found ? `Pass --url http://localhost:5173 to send credentials. A command sends none to the dev server that it finds. ${fix}` : fix,
+      ok: false,
+      status: 401,
+    })
   })
 
   it("returns a coded failure when the operation response body is interrupted", async () => {
@@ -264,6 +277,15 @@ describe("operations", () => {
     expect(publish.readOnlyWhen?.({ name: "x" })).toBe(true)
     expect(() => defineOperation({ ...greet, readOnlyWhen: "yes" as never })).toThrowError(/readOnlyWhen must be a function/)
   })
+
+  it("keeps the MCP title and text format of an operation, and checks them", () => {
+    const titled = defineOperation({ ...greet, mcp: { format: () => "Hello.", title: "Greet someone" } })
+    expect(titled.mcp).toMatchObject({ title: "Greet someone" })
+    expect(defineOperation({ ...greet, mcp: false }).mcp).toBe(false)
+    for (const mcp of [true, { title: "" }, { format: "text" }]) {
+      expect(() => defineOperation({ ...greet, mcp: mcp as never })).toThrowError(/mcp must be false, or an object/)
+    }
+  })
 })
 
 
@@ -283,4 +305,10 @@ it("rejects an operation that claims a setup command name", () => {
     })
     expect(() => createOperationRegistry([{ operations: [operation] }])).toThrowError(/reserved/)
   }
+})
+
+describe("table", () => {
+  it("pads every column but the last", () => {
+    expect(table([["NAME", "STATUS"], ["queue-a", "ok "], ["b", "failed"]])).toBe("NAME     STATUS\nqueue-a  ok \nb        failed")
+  })
 })

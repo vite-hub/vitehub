@@ -541,7 +541,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
       undefined,
@@ -569,7 +569,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
       undefined,
@@ -590,7 +590,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).resolves.toEqual({ ok: true })
@@ -621,7 +621,7 @@ describe("executeSandboxTaskDefinition", () => {
     const entry = await sandbox.readFile(launch.args[2]!)
     expect(entry).toContain("if (typeof exported !== 'function')")
     expect(entry).toContain("const result = await exported(input.payload, input.context)")
-    expect(entry).not.toContain("definition.run")
+    expect(entry).not.toContain("definition.handler")
   })
 
   it("stages and revives nested binary values through Sandbox files", async () => {
@@ -1073,7 +1073,7 @@ describe("executeSandboxTaskDefinition", () => {
     const { sandbox, execCalls, hasFile, mkdirCalls } = createFakeSandbox()
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest: "a".repeat(64),
         files: {
@@ -1112,7 +1112,7 @@ describe("executeSandboxTaskDefinition", () => {
     const { sandbox, execCalls, releaseInstall } = createFakeSandbox({ holdInstall: true })
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest: "b".repeat(64),
         files: {
@@ -1142,7 +1142,7 @@ describe("executeSandboxTaskDefinition", () => {
     const secondSandbox = createFakeSandbox()
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest: "c".repeat(64),
         files: {
@@ -1172,7 +1172,7 @@ describe("executeSandboxTaskDefinition", () => {
     const digest = "d".repeat(64)
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest,
         files: {
@@ -1207,7 +1207,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).resolves.toEqual({ ok: true })
@@ -1229,7 +1229,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).rejects.toThrow(execError)
@@ -1252,7 +1252,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).rejects.toMatchObject({

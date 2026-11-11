@@ -1,9 +1,10 @@
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // Generated code imports these modules by path. They are not public API.
 const privateEntries = new Set([
+  "./internal/schema-worker",
   "./runtime/agent",
   "./runtime/chunk-parameters",
   "./runtime/d1",
@@ -14,13 +15,14 @@ const privateEntries = new Set([
   "./runtime/libsql-disabled",
   "./runtime/migrate-on-start",
   "./runtime/postgres",
+  "./runtime/use-database",
   "./runtime/virtual-databases",
   "./runtime/virtual-schema",
 ]);
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     copy: [
       { from: "src/drizzle-subpath.d.ts", rename: "drizzle-subpath.d.ts", to: "dist" },
       { from: "src/virtual-module.d.ts", rename: "virtual-module.d.ts", to: "dist" },
@@ -49,6 +51,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/connect.ts",
       "src/connect/node.ts",
+      "src/internal/schema-worker.ts",
       "src/runtime/agent.ts",
       "src/runtime/chunk-parameters.ts",
       "src/runtime/d1.ts",
@@ -65,6 +68,7 @@ export default defineConfig({
       "src/runtime/postgres.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
+      "src/runtime/use-database.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",
     ],
@@ -83,10 +87,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

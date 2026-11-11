@@ -9,7 +9,10 @@ const props = defineProps<{
 
 const config = useDocsConfig()
 const manifest = useDocsManifest()
-const isNotFound = computed(() => props.error.statusCode === 404)
+// Nuxt 5 names the code `status`. An error that the server rendered reaches the client as a plain object, which has no
+// `statusCode` getter.
+const status = computed(() => props.error.status ?? props.error.statusCode)
+const isNotFound = computed(() => status.value === 404)
 const title = computed(() => isNotFound.value ? "Page not found" : "This page failed to load")
 const description = computed(() => isNotFound.value
   ? "The page may have moved or been renamed. Search the docs, or open one of these sections."
@@ -41,7 +44,7 @@ useSeoMeta({
     <main class="mx-auto flex min-h-[calc(100svh-var(--ui-header-height))] w-full max-w-3xl items-center px-4 py-16 sm:px-6 lg:px-8">
       <section class="w-full border-y border-default py-12 sm:py-16">
         <p class="font-mono text-sm text-muted">
-          HTTP {{ error.statusCode }}
+          HTTP {{ status }}
         </p>
         <h1 class="mt-4 max-w-2xl text-balance text-4xl font-semibold tracking-[-0.04em] text-highlighted sm:text-5xl">
           {{ title }}
@@ -54,7 +57,6 @@ useSeoMeta({
           class="mt-8"
           icon="i-lucide-search"
           label="Search the docs"
-          color="neutral"
           variant="outline"
           @click="openSearch = true"
         />

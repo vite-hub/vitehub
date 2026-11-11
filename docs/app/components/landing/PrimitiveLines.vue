@@ -158,7 +158,8 @@ function draw(now: number) {
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, width, height);
   context.globalCompositeOperation = "source-over";
-  context.fillStyle = getComputedStyle(element).color;
+  const ink = getComputedStyle(element).color;
+  context.fillStyle = ink;
 
   // Hairlines give the icon a field to stand in. They fade out at the top and bottom of the box.
   context.globalAlpha = 0.22;
@@ -169,17 +170,18 @@ function draw(now: number) {
     context.rect(originX + (col + 0.5) * PITCH - 0.25, originY, 0.5, size * reveal);
   }
   context.fill();
+  // destination-in keeps only the alpha of the gradient, so its color does not matter.
   context.globalCompositeOperation = "destination-in";
   const fade = context.createLinearGradient(0, originY, 0, originY + size);
-  fade.addColorStop(0, "rgba(0,0,0,0)");
-  fade.addColorStop(0.2, "#000");
-  fade.addColorStop(0.8, "#000");
-  fade.addColorStop(1, "rgba(0,0,0,0)");
+  fade.addColorStop(0, "transparent");
+  fade.addColorStop(0.2, ink);
+  fade.addColorStop(0.8, ink);
+  fade.addColorStop(1, "transparent");
   context.globalAlpha = 1;
   context.fillStyle = fade;
   context.fillRect(originX - 1, originY, size + 2, size);
   context.globalCompositeOperation = "source-over";
-  context.fillStyle = getComputedStyle(element).color;
+  context.fillStyle = ink;
 
   // The icon itself: one segment per cell, wider where the icon is brighter.
   const t = clock;

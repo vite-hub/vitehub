@@ -20,7 +20,7 @@ import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -60,7 +60,7 @@ Start with the Blob + Database store. One option changes the store, and the coll
   :::
 
   :::product-feature-item{title="Edit in the Console" icon="i-lucide-file-pen-line" to="/docs/content/console"}
-  Editors open `/_vitehub/content`, edit fields and body, compare versions, and publish what they reviewed.
+  Editors open the Content section of the Console, edit fields and body, compare versions, and publish what they reviewed.
   :::
 ::
 

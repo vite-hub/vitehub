@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 import { CollectionCursorError, createCollectionCursorCodec } from "./collection-cursor.ts"
 import { parseCollectionSchema } from "./schema.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { CollectionFacets, CollectionFacetValue, ProviderCollectionPage, ProviderCollectionSource } from "./collection.ts"
 
@@ -98,10 +99,6 @@ const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
 }
 
 const cursorCodec = createCollectionCursorCodec(arrayCursorSchema)
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
 
 /** Read a dot path through own properties. Arrays fan out to every element. */
 function collectionValueAt(value: unknown, path: string): unknown {

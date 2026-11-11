@@ -9,6 +9,7 @@ import { installConsoleInvocations } from "../src/console/runtime/server/invocat
 
 import type { AgentRunContext, MessagePart } from "@vite-hub/agent"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 function setup() {
   const run = vi.fn((_context: AgentRunContext) => "From the requested receipt date.")
@@ -24,15 +25,15 @@ function setup() {
     projectRoot: root,
   })
   const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
-  const send = (body: Record<string, unknown>) => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ operation: "agents.invoke", input: { agent: "history-fixture", ...body } }),
+  const send = (body: Record<string, unknown>) => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody("agents.invoke", { agent: "history-fixture", ...body }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }), { waitUntil })
   return {
     invocations,
     async request(body: Record<string, unknown>): Promise<unknown> {
-      return (await send(body)).json()
+      return operationRpcResponseResult(await send(body))
     },
     send,
     run,
@@ -87,7 +88,7 @@ describe("Console invocation history", () => {
     const fixture = setup()
     const response = await fixture.send({ prompt: "Start." })
     expect(response.status).toBe(202)
-    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { agent: "history-fixture" } })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { agent: "history-fixture" } })
     await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
   })
 

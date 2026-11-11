@@ -1,11 +1,9 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { installRequestStandardContext } from "@vite-hub/runtime"
 
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
 import { runtimeBuilds } from "../installed.ts"
-import { commentsMcpTools } from "./mcp.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Comments } from "../index.ts"
@@ -86,8 +84,6 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     runtimeBuilds.set(options.comments, build)
     installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
-    // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
-    registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
 
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return
@@ -106,9 +102,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         installRequestStandardContext(request)
         // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
         const event = request as Request & CommentsRequestEvent
-        const identity = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
-        if (identity === false) return false
-        const { user, gate } = identity
+        const { user, gate } = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
         const page = new URL(request.url).searchParams.get("page")
         const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
         if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true

@@ -21,10 +21,10 @@ In this tutorial, you add Comments to a Vite app and pin a comment on a page. Th
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments
 
-Add Comments to your app:
+Add Comments and Drizzle to your app. Comments uses the `drizzle-orm` of your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5 valibot
 ```
 
 Add the `comments()` plugin to `vite.config.ts`. Keep the other plugins of your app. This example app uses Vue, but `comments()` does not need Vue.
@@ -58,12 +58,12 @@ pnpm vite dev
 
 Open `http://localhost:5173/?vitehub`. The `?vitehub` part turns on the ViteHub page tools, such as Comments. A pill named **Comments** shows at the bottom of the page. Select it. The pill becomes the Comments toolbar, and the thread list opens. Other pages of the site stay in comment mode until you select **×** in the pill.
 
-1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first, and select **Comment**. The browser keeps the name for the next pages.
+1. Press <kbd>C</kbd>, or select **Comments** in the toolbar. The button says **Click anywhere** while comment mode is on. As a guest, type your name first, and select **Comment**. The browser keeps the name for the next pages.
 2. Click a heading on the page. A comment box opens at that point.
 3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
 4. Select the pin, write a reply, and send it.
 5. Type `@` in a reply. The list shows the people that you can mention. As a guest, the list is empty, because nobody can mention a guest. When your team signs in, in the next step, `@` suggests the people who commented before. The server checks each mention.
-6. Select **Resolve**, the check mark on the thread. The pin goes away. To see it again, open the thread list from the toolbar and select **Resolved**.
+6. Select **Resolve**, the check mark on the thread. The pin goes away. To see it again, select **All comments** in the toolbar and then **Resolved**.
 
 On the dev server, anyone can comment as a guest with a name that they type. A production build lets in only the people that you choose. The next step lets in everyone who can push to the repository.
 
