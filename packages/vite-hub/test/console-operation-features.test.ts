@@ -19,7 +19,7 @@ it.each([
   for (const enabled of [false, true]) {
     const plugin = host === "nitro"
       ? consoleOperationFeatures(enabled ? ["agents", "auth", "databases"] : [])
-      : vitehub({ preset: "node", agent: enabled, auth: enabled, database: enabled, ...rpcOnly ? {} : { comments: false, console: { auth: "token" } } }).flat()
+      : vitehub({ preset: "node", agent: enabled, auth: enabled, database: enabled, ...rpcOnly ? {} : { comments: false, console: true } }).flat()
           .find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/console")
     const transform = typeof plugin?.transform === "function" ? plugin.transform : plugin?.transform?.handler
     if (!transform) throw new Error("Expected the Console operation transform.")

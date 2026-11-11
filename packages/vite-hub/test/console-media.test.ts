@@ -150,7 +150,7 @@ describe("Console media library", () => {
       import { maximumConsoleMediaUploadBytes, uploadConsoleMedia } from "./src/console/runtime/server/media.ts"
       import { installConsoleSections } from "./src/console/runtime/server/sections.ts"
 
-      const base = process.argv[1]
+      const base = process.argv.at(-1)
       const storage = createBlobStorage(createDriver({ base, driver: "fs" }), "default", { images: false })
       setBlobRuntimeConfig({ images: false, store: { base, driver: "fs" } })
       installConsoleSections(base, ["content", "blob"])
