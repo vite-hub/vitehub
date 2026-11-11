@@ -3,6 +3,7 @@ import html from "comark/plugins/html"
 import linkify from "comark/plugins/linkify"
 import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./host.ts"
@@ -303,7 +304,7 @@ export function createGitHubPullRequestOperations(
       if (data.node.comments.nodes.some(comment => comment.author?.login === data.viewer.login && comment.body === body)) return true
       if (!data.node.comments.pageInfo.hasNextPage) return false
       after = data.node.comments.pageInfo.endCursor
-      if (!after || cursors.has(after)) throw new Error("GitHub returned an invalid review comment cursor.")
+      if (!after || cursors.has(after)) throw presetsErrorDiagnostics.PRESETS_REVIEW_CURSOR_INVALID()
       cursors.add(after)
     } while (after)
     return false
@@ -487,13 +488,13 @@ export function createGitHubPullRequestOperations(
     async resolveThread(id, answer) {
       nonempty(id, "Review thread ID")
       const outcome = answer?.outcome
-      if (outcome !== undefined && !isReviewThreadOutcome(outcome)) throw new Error(`Review thread outcome must be one of ${Object.keys(reviewThreadOutcomes).join(", ")}.`)
+      if (outcome !== undefined && !isReviewThreadOutcome(outcome)) throw presetsErrorDiagnostics.PRESETS_REVIEW_OUTCOME_INVALID()
       const reason = answer?.reason?.trim()
       // A finding closed without a code change needs its reason on the thread: it is the record the
       // author and the reviewer read, and the outcome marker is what review metrics count.
-      if (outcome !== undefined && outcome !== "fixed" && !reason) throw new Error(`A ${outcome} review thread needs a one-sentence reason.`)
+      if (outcome !== undefined && outcome !== "fixed" && !reason) throw presetsErrorDiagnostics.PRESETS_REVIEW_REASON_REQUIRED({ outcome })
       const body = outcome === undefined ? undefined : `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
-      if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw new Error("Comments cannot contain GitHub mentions; use the guarded mention capability.")
+      if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw presetsErrorDiagnostics.PRESETS_REVIEW_MENTION_FORBIDDEN()
       await snapshot()
       const reader = await forge()
       const found = await (async () => {
@@ -505,7 +506,7 @@ export function createGitHubPullRequestOperations(
       if (found.resolved && body === undefined) return
       const answered = body === undefined || await hasThreadAnswer(id, body)
       const first = found.comments[0]
-      if (!answered && !first) throw new Error("Review thread has no comment to answer.")
+      if (!answered && !first) throw presetsErrorDiagnostics.PRESETS_REVIEW_COMMENT_MISSING()
       if (found.resolved && answered) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.

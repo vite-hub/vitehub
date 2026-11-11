@@ -1,5 +1,6 @@
 import type { AgentInvocationContextStore } from "@vite-hub/agent";
 import { defineCapability } from "@vite-hub/agent";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import type { GitHubPullRequestOperations } from "../github/index.ts";
 import { isRuntimeRecord, hasRuntimeType } from "../internal/runtime-type.ts";
 import { isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
@@ -162,7 +163,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
         },
         execute: async (input: unknown) => {
           const outcome = stringField(input, "outcome");
-          if (!isReviewThreadOutcome(outcome)) throw new Error(`outcome must be one of ${Object.keys(reviewThreadOutcomes).join(", ")}.`);
+          if (!isReviewThreadOutcome(outcome)) throw presetsErrorDiagnostics.PRESETS_REVIEW_OUTCOME_INVALID();
           const reason = isRuntimeRecord(input) && "reason" in input ? stringField(input, "reason", true) : undefined;
           await operations.resolveThread(stringField(input, "id"), { outcome, reason });
           return { resolved: true };

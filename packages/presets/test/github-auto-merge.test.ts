@@ -528,7 +528,12 @@ describe("host-owned repair operations", () => {
   it("requires a reason for every outcome except fixed", async () => {
     const f = await fixture()
     f.state.threadComments = [reviewComment]
-    await expect(f.operations.resolveThread("THREAD_1", { outcome: "disproved", reason: " " })).rejects.toThrow(/needs a one-sentence reason/)
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "disproved", reason: " " })).rejects.toMatchObject({
+      code: "PRESETS_REVIEW_REASON_REQUIRED",
+      why: "A disproved review thread needs a one-sentence reason.",
+      fix: expect.stringContaining("non-empty reason"),
+      docs: "https://vitehub.dev/docs/agents/diagnostics/presets_review_reason_required",
+    })
     expect(f.mutations()).toHaveLength(0)
     await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
     expect(f.mutations()).toHaveLength(1)
