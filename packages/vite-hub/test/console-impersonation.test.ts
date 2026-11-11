@@ -174,7 +174,7 @@ describe("App Auth Console during impersonation", () => {
     const auth = authForRequest(new Request(origin))
     await (await auth.$context).runMigrations()
     const access = createConsoleAppAuthAccess({
-      getAuthForRequest: authForRequest,
+      authForRequest: authForRequest,
       impersonation: true,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
