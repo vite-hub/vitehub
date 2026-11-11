@@ -457,7 +457,7 @@ describe("Auth tables in the app Database", () => {
     const root = await createTempProject()
     await writeAuthDatabase(root, "authDatabase('accounts')")
     await mkdir(join(root, "server", "databases", "accounts"), { recursive: true })
-    await writeFile(join(root, "server", "databases", "accounts", "config.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
+    await writeFile(join(root, "server", "databases", "accounts", "index.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
     expect((await contributions(root)).tables).toMatchObject([{ database: "accounts", definition: { export: "authPostgresSchema" }, dialect: "postgresql" }])
   })
 

@@ -20,7 +20,7 @@ afterEach(async () => {
 const contentFile = (imports: string) => [
   imports,
   "import { defineContent } from 'vite-hub/content'",
-  "export const content = defineContent({ sources: {} })",
+  "export default defineContent({ sources: {} })",
 ].join("\n")
 
 it.each([

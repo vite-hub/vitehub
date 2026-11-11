@@ -482,8 +482,8 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/database-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-page.md", pageRoot })
     const snippets = [
-      snippet("server/databases/postgres/config.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', schema: {} })"),
-      snippet("server/databases/config.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })"),
+      snippet("server/databases/postgres/index.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', schema: {} })"),
+      snippet("server/databases/default.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })"),
       snippet("postgres.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('postgres').db.execute('select 1')"),
       snippet("sqlite.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('default').db.run('select 1')"),
       snippet("wrong-postgres.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('postgres').db.run('select 1')"),
@@ -497,8 +497,10 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
   }, 60_000)
 
   it.each([
-    ["server/databases/config.cts", "default"],
-    ["server/databases/analytics/config.cts", "analytics"],
+    ["server/databases/default.cts", "default"],
+    ["server/databases/default/index.cts", "default"],
+    ["server/databases/analytics.cts", "analytics"],
+    ["server/databases/analytics/index.cts", "analytics"],
     ["src/database.ts", "default"],
     ["src/analytics.database.cts", "analytics"],
     ["analytics.database.cts", "analytics"],

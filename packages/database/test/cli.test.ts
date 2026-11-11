@@ -99,7 +99,7 @@ describe("DB CLI contributor", () => {
     tempDirs.push(rootDir)
     const definitionDir = join(rootDir, "server/databases")
     await mkdir(definitionDir, { recursive: true })
-    await writeFile(join(definitionDir, "config.ts"), [
+    await writeFile(join(definitionDir, "default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
       `const url = ${JSON.stringify(`file:${databaseFile}`)}`,
@@ -132,7 +132,7 @@ describe("DB CLI contributor", () => {
     const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
     const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
     await generate.run([], context)
-    const migrations = await readdir(join(definitionDir, "migrations"))
+    const migrations = await readdir(join(definitionDir, "default", "migrations"))
     expect(migrations.some(file => file.endsWith(".sql"))).toBe(true)
     const databasePath = join(rootDir, databaseFile)
     expect(existsSync(databasePath)).toBe(false)

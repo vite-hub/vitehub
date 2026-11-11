@@ -10,7 +10,7 @@ pnpm --dir playground/content run dev
 ```
 
 The migrations in `server/databases/content/migrations` are committed. `0000` to `0005` were written by hand;
-`vitehub database generate` wrote `0006_auth`. Generation needs the literal schema keys in `server/databases/content/config.ts`
+`vitehub database generate` wrote `0006_auth`. Generation needs the literal schema keys in `server/databases/content/index.ts`
 until #2377 lands.
 
 Open <http://localhost:5173/login> and sign in as one of the playground users. `server/auth.ts` installs the Better
