@@ -17,8 +17,8 @@ vi.mock("../../agent/src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
 }));
 
-vi.mock("../../agent/src/server/github-repair.ts", async importOriginal => ({
-  ...await importOriginal<typeof import("../../agent/src/server/github-repair.ts")>(),
+vi.mock("../src/github/repair.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/github/repair.ts")>(),
   prepareGitHubRepairBase: vi.fn(async () => {}),
 }));
 const sandboxDefinitions = vi.hoisted(() => vi.fn());
@@ -50,13 +50,15 @@ import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
 import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
-import * as githubRuns from "../../agent/src/server/github-pull-requests.ts";
-import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../../agent/src/server/github-repair.ts";
-import * as githubInstalls from "../../agent/src/server/github-install.ts";
+import * as githubRuns from "../src/github/pull-requests.ts";
+import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
+import * as githubInstalls from "../src/github/install.ts";
 import { agentInvocationId } from "@vite-hub/agent";
-import type { GitHubHost } from "@vite-hub/agent/server/github";
+import type { GitHubHost } from "../src/github/index.ts";
 import { RateLimitedError } from "@vite-hub/forge";
-import { githubError, githubForge, type GitHubTestRequest } from "../../agent/test/fixtures/github-forge.ts";
+import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`;
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -2155,7 +2157,7 @@ describe("Babysitter preset runtime", () => {
       const run = await createRun.mock.results[0]!.value;
       expect(run.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`),
       }]);
     } finally {
       await f.runtime.inbox.close();

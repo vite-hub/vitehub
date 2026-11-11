@@ -23,7 +23,7 @@ import type {
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   DatabaseDialect,
-  DBModulePublicOptions,
+  DatabaseOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
   ResolvedCloudflareHyperdriveConfig,
@@ -552,6 +552,18 @@ export function isStaticD1HttpDefinition(file: string) {
   return (http?.type === "Literal" && http.value === true) || http?.type === "ObjectExpression"
 }
 
+/**
+ * Reports whether a SQLite Database can query a libSQL server at runtime: its `connection.url` is remote, comes from
+ * the environment, or cannot be read at build time. A static D1 HTTP Definition never uses libSQL.
+ */
+export function mayUseRemoteLibsql(file: string, database: ResolvedDrizzleDatabaseConfig): boolean {
+  if (database.cloudflare?.http && isStaticD1HttpDefinition(file)) return false
+  const keys = existsSync(file) ? readDefinitionOptionKeys(file) : undefined
+  if (!keys || (keys.has("connection") && typeof readDefinitionConnectionConfig(file)?.url !== "string")) return true
+  const url = database.connection?.url
+  return typeof url !== "string" || /^(?:libsql|https?|wss?):/i.test(url)
+}
+
 function readDefinitionConnectionConfig(file: string) {
   const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"), file)
   if (!body) return
@@ -905,7 +917,7 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
 }
 
 export function resolveDBViteConfig(
-  options?: DBModulePublicOptions,
+  options?: DatabaseOptions,
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */

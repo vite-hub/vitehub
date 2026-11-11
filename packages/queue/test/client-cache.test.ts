@@ -43,15 +43,15 @@ describe("Queue client cache lifecycle", () => {
     setQueueRuntimeConfig(config, factory)
     setQueueRuntimeRegistry(registry)
 
-    const first = dynamicQueue.get("welcome")
+    const first = dynamicQueue.use("welcome")
     await started.promise
-    const second = dynamicQueue.get("welcome")
+    const second = dynamicQueue.use("welcome")
     const client = await createClient()
     pending.resolve(client)
 
     expect(await first).toBe(client)
     expect(await second).toBe(client)
-    expect(await dynamicQueue.get("welcome")).toBe(client)
+    expect(await dynamicQueue.use("welcome")).toBe(client)
     expect(factory).toHaveBeenCalledTimes(1)
   })
 
@@ -65,9 +65,9 @@ describe("Queue client cache lifecycle", () => {
     setQueueRuntimeConfig(config, factory)
     setQueueRuntimeRegistry(registry)
 
-    await expect(dynamicQueue.get("welcome")).rejects.toMatchObject({ cause })
-    expect(await dynamicQueue.get("welcome")).toBe(client)
-    expect(await dynamicQueue.get("welcome")).toBe(client)
+    await expect(dynamicQueue.use("welcome")).rejects.toMatchObject({ cause })
+    expect(await dynamicQueue.use("welcome")).toBe(client)
+    expect(await dynamicQueue.use("welcome")).toBe(client)
     expect(factory).toHaveBeenCalledTimes(2)
   })
 
@@ -94,12 +94,12 @@ describe("Queue client cache lifecycle", () => {
     setQueueRuntimeConfig(config, factory)
     setQueueRuntimeRegistry(registry)
 
-    const first = dynamicQueue.get("welcome")
+    const first = dynamicQueue.use("welcome")
     const failed = expect(first).rejects.toMatchObject({ cause: new Error("old creation failed") })
     await oldStarted.promise
     if (reset === "config") setQueueRuntimeConfig(config, factory)
     else setQueueRuntimeRegistry(registry)
-    const second = dynamicQueue.get("welcome")
+    const second = dynamicQueue.use("welcome")
     await replacementStarted.promise
     if (replacementState === "resolved") {
       replacement.resolve(client)
@@ -108,12 +108,12 @@ describe("Queue client cache lifecycle", () => {
 
     old.reject(new Error("old creation failed"))
     await failed
-    const third = dynamicQueue.get("welcome")
+    const third = dynamicQueue.use("welcome")
     replacement.resolve(client)
 
     expect(await second).toBe(client)
     expect(await third).toBe(client)
-    expect(await dynamicQueue.get("welcome")).toBe(client)
+    expect(await dynamicQueue.use("welcome")).toBe(client)
     expect(factory).toHaveBeenCalledTimes(2)
   })
 })

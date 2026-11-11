@@ -2,14 +2,14 @@ import type { DocsIcons } from "@vite-hub/docs";
 
 /**
  * Icons of the docs rail and sidebar, passed to the `docs.icons` option in `nuxt.config.ts`.
- * Sections use the ViteHub set (`i-vitehub-*` in each `.navigation.yml`), the same icons as the Console. Pages show
- * Lucide icons only, so a frontmatter icon of another set maps to Lucide.
+ * Sections use the ViteHub set (`i-vitehub-*` in each `.navigation.yml`), the same icons as the Console. Pages use
+ * Lucide, which the ViteHub set is drawn after: the same 24px grid and the same 1.5px stroke. Brand logos are filled,
+ * so a page with a logo icon shows a Lucide line icon in the sidebar instead.
  */
 export const docsIcons: Partial<DocsIcons> = {
   family: ["i-lucide-", "i-vitehub-"],
   page: "i-lucide-file-text",
   section: "i-lucide-folder",
-  /** Brand icons in frontmatter map to Lucide, so every sidebar page row shares one style. */
   aliases: {
     "i-simple-icons-vite": "i-lucide-zap",
     "i-simple-icons-cloudflare": "i-lucide-cloud",

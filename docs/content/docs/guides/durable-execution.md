@@ -133,8 +133,9 @@ In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts
 ```ts [server/workflows/checkout/index.ts]
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow<{ orderId: string, amountCents: number, email: string }>(
-  async ({ payload, steps }) => {
+export default defineWorkflow(
+  'checkout',
+  async (payload: { orderId: string, amountCents: number, email: string }, { steps }) => {
     // This code runs again on each replay. Keep side effects in the step files.
     const charged = await steps.chargeCard(payload)
     const shipped = await steps.createShipment(charged)
@@ -189,12 +190,12 @@ Start the run with an id from the order:
 
 ```ts [server/api/checkout.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from 'vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
   if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
-  return runWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
+  return startWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
 })
 ```
 
@@ -202,15 +203,15 @@ Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency k
 
 ## Inspect the run
 
-`runWorkflow()` returns the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
+`startWorkflow()` returns the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
 
 ```bash [Terminal]
-pnpm vitehub workflow start checkout --payload '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
+pnpm vitehub workflow start checkout '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
 pnpm vitehub workflow get <runId>
 pnpm vitehub inspect definitions --kind workflow
 ```
 
-The status is `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `runWorkflow()` only stores the run. A long-lived worker process runs it, and it stays `queued` until a worker takes it (see the [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker)). To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
+The status is `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `startWorkflow()` only stores the run. A long-lived worker process runs it, and it stays `queued` until a worker takes it (see the [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker)). To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
 
 ## Durable steps on Vercel
 

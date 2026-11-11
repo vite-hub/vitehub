@@ -15,13 +15,7 @@ describe("agent config", () => {
     expect(normalizeAgentOptions(undefined)).toEqual({
       execution: "inline",
       imports: true,
-      integrations: {
-        sandbox: "auto",
-        workflow: "auto",
-      },
       providers: {
-        sandbox: { provider: "auto" },
-        scheduler: { provider: "auto" },
         state: { provider: "auto" },
       },
       routes: {
@@ -43,11 +37,9 @@ describe("agent config", () => {
 
   it("preserves provider options", () => {
     expect(normalizeAgentOptions({
-      integrations: { sandbox: false },
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       runtime: "cloudflare-agents",
     })).toMatchObject({
-      integrations: { sandbox: false, workflow: "auto" },
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
         discordGateway: false,
@@ -145,8 +137,6 @@ describe("agent config", () => {
       expect(publicServer).not.toHaveProperty("createChannelChatRouteHandler")
       expect(publicServer).not.toHaveProperty("createChannelWebhookRouteHandler")
       expect(publicServer).not.toHaveProperty("createGitHubHost")
-      const githubServer = await import("../src/server/github.ts")
-      expect(githubServer.createGitHubHost).toBeTypeOf("function")
       const server = await import("../src/server/internal.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")

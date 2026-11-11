@@ -8,16 +8,15 @@ import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, cons
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { isConsoleDevelopmentRuntime } from "./request.ts"
+import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { Schema } from "@cfworker/json-schema"
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
 import type { McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import type { ConsoleAccess } from "./access.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const serverInfo = { name: "vitehub", title: "ViteHub MCP", version: "1" }
 
@@ -39,7 +38,7 @@ function invalidInput(tool: ViteHubMcpTool, input: Record<string, unknown>): str
 
 interface ToolContext {
   access: ConsoleAccess
-  event: H3Event
+  event: ConsoleRequestEvent
   request: Request
 }
 
@@ -177,7 +176,7 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
   }, { headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(await oauthState(event)) }, status: 401 })
 }
 
-const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
+const guarded = withConsoleAccess(async (event: ConsoleRequestEvent, access: ConsoleAccess) => {
   const request = getStandardContext(event).req
   const context = { access, event, request }
   const installed = getConsoleSections()
@@ -198,12 +197,11 @@ const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) 
  * `/_vitehub/mcp`: ViteHub MCP, a stateless Streamable HTTP MCP server. It runs with the Console access of the request,
  * a session or an OAuth access token, and lists the operations and registered tools that the person may use.
  */
-// A plain handler also loads when Nuxt 4 resolves h3 to h3 1, which has no defineHandler().
-const handler: (event: H3Event) => Promise<Response> = async (event) => {
+const consoleMcpRoute: ConsoleRoute = consoleRoute(async (event) => {
   const response = await guarded(event)
   if (isBearerRejection(response)) return response
   // A sign-in that is missing is a 401 for the client, even where the Console would redirect a browser.
   if (response.status === 401 || (response.status >= 300 && response.status < 400)) return mcpUnauthorized(event)
   return response
-}
-export default handler
+})
+export default consoleMcpRoute

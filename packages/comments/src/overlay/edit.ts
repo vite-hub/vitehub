@@ -6,11 +6,7 @@ import type { CommentsApiError } from "./api.ts"
 export interface InlineEditOptions {
   /** The page whose policy allows this edit. Captured when editing starts, even if the router moves before save. */
   page: () => string
-  /** Opens the Content tool of the page tools at a document path. False when there is no such tool. */
-  openTool: (path: string) => Promise<boolean>
-  /** Where the Content Console is, for the toasts of a saved draft and of a field that is not plain text. */
-  contentPath: () => string
-  info: (text: string, link: [string, string]) => void
+  info: (text: string) => void
   failed: (error: CommentsApiError) => void
   /** A field got a new draft. The outlines show it. */
   drafted: (field: string) => void
@@ -46,7 +42,7 @@ export function createInlineEdit(options: InlineEditOptions) {
       return options.failed(error)
     }
     options.drafted(field)
-    options.info("Saved as a draft. Publish it in the Console.", ["Review and publish", options.contentPath()])
+    options.info("Saved as a draft. Publish it in the Console at console.vitehub.dev.")
   }
 
   async function start(element: HTMLElement) {
@@ -60,10 +56,8 @@ export function createInlineEdit(options: InlineEditOptions) {
     const [error, value] = await api.field(field, page)
     if (request !== generation || !element.isConnected) return
     if (error) return options.failed(error)
-    const path = `/content/${encodeURIComponent(value.collection)}/${value.id.split("/").map(encodeURIComponent).join("/")}`
-    if (await options.openTool(path) || request !== generation || !element.isConnected) return
     if (!value.editable || value.value === null) {
-      options.info("This field is not plain text. Edit it in the Console.", ["Open Content", options.contentPath()])
+      options.info("This field is not plain text. Edit it in the Console at console.vitehub.dev.")
       return
     }
     editing = { element, field, page, digest: value.digest, original: element.textContent ?? "", initial: value.value }

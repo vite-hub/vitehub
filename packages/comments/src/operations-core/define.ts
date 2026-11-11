@@ -197,8 +197,8 @@ export interface CommentsPolicyGate {
   /** Vite's serve command. The generated Nitro plugin records it; it never comes from `NODE_ENV`. */
   development?: boolean
   /**
-   * The Console admitted the person to its Comments section before Comments ran: the comment operations (RPC, CLI,
-   * MCP) and, in an app with the Console, the overlay API.
+   * The Console admitted the person to its Comments section before Comments ran: the comment operations of the
+   * Operations endpoint, the CLI, and the Console MCP tools. The overlay API never sets it.
    */
   console?: boolean
 }
@@ -206,8 +206,9 @@ export interface CommentsPolicyGate {
 /**
  * The policy without `authorize`, for every action. On the development server, everyone may, anonymous people as
  * guests. In a production build, only people that a sign-in already vetted: a person signed in with GitHub who can
- * push to the repository of the build, or a person that the Console admitted to its Comments section. Users of
- * ViteHub Auth or `identify` get nothing until `authorize` says who may, because any visitor may be able to sign up.
+ * push to the repository of the build, or a person that the Console admitted to its Comments section through the
+ * comment operations or the Console MCP tools. Users of ViteHub Auth or `identify` get nothing until `authorize` says
+ * who may, because any visitor may be able to sign up. On the page, only people signed in with GitHub get in.
  */
 export function defaultPolicy(user: CommentsUser | null, gate: CommentsPolicyGate = {}): boolean {
   if (user?.github) return user.github.write

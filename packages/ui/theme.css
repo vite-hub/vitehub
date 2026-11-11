@@ -11,6 +11,8 @@
  * which token and component.
  */
 
+@import "./theme-focus-ring.css";
+
 /* Tailwind generates the classes that the Nuxt UI app config in theme.js uses. */
 @source "./theme.js";
 
@@ -240,12 +242,6 @@ a {
 :where([data-focus-frame]):has(:is(input, textarea)[aria-invalid="true"]:focus-visible) {
   border-color: var(--ui-error);
   box-shadow: 0 0 0 1px var(--ui-error);
-}
-
-/* A control whose visible face is a wrapper, such as a native select laid invisible over its label, marks the wrapper with data-focus-ring. */
-:where([data-focus-ring]):has(:focus-visible) {
-  outline: 2px solid var(--vh-focus);
-  outline-offset: 2px;
 }
 
 :where(input, textarea, select, [role="combobox"])[aria-invalid="true"]:focus-visible {

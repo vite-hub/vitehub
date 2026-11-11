@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
@@ -30,7 +31,7 @@ interface ExecuteStaticScheduleOptions {
 }
 
 export interface RunScheduleOptions {
-  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
+  /** Loads the definition from this registry instead of the registry that the build installs. */
   registry?: ScheduleDefinitionRegistry
   /**
    * The time the handler receives as `scheduledAt`, as if the cron fired then. A string is an ISO 8601 date-time with a
@@ -218,10 +219,6 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     target: options.name,
     waitUntil: options.waitUntil,
   })
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {

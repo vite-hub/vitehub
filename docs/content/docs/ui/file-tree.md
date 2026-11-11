@@ -44,6 +44,22 @@ With `paths`, the component creates the Pierre model and cleans it up on unmount
 - Pierre handles search, selection, keyboard navigation, and Git status.
 - With `useFileTree()`, your code holds the model.
 
+## Selected File
+
+Use `v-model:selected-path` to keep the open file in your app state, such as a route query. When the value changes, the tree selects only that file, opens its folders, and scrolls to it. When the reader selects a file, the tree updates the value. A folder never becomes the value.
+
+```vue
+<script setup lang="ts">
+const path = ref("src/chat/Message.vue");
+</script>
+
+<template>
+  <FileTree v-model:selected-path="path" :paths="paths" />
+</template>
+```
+
+A path that the tree does not have clears the selection. The tree selects it when `paths` gets it. [Code view](/docs/ui/code-view#open-a-file-at-its-lines) shows how to link to a file and its lines.
+
 ## Controlled Model
 
 Use `useFileTree()` when your code needs to select, search, rename, drag and drop, or change the tree. `useFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
@@ -91,6 +107,13 @@ Renders a Pierre file tree from paths or a model.
 | `options` | `Omit<FileTreeOptions, 'paths'>` |         | Pierre options for the internal model. |
 | `model`   | `FileTreeModel`                  |         | Your own model. Replaces `paths` and `options`. |
 | `searchLabel` | `string`                     | `"Search files"` | Search input name. |
+| `selectedPath` | `string`                    |         | The selected file. Use `v-model:selected-path`. |
+
+#### Events
+
+| Event | Description |
+| --- | --- |
+| `update:selectedPath` | The reader selected a file. Gets its path. |
 
 Other attributes go to the tree element. A template ref exposes `getModel()`.
 

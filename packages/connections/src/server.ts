@@ -5,7 +5,7 @@ export { createConnectionsRuntime } from "./runtime.ts"
 export { getConnectionsRuntime, installConnectionsRegistry, setConnectionsRuntime, useConnection } from "./runtime/state.ts"
 export { createDatabaseConnectionStore } from "./store.ts"
 
-export type { ConnectionsAccessPolicy, ConnectionsActor, ConnectionsHandlerOptions } from "./http.ts"
+export type { ConnectionsAccessPolicy, ConnectionsActor, ConnectionsHandler, ConnectionsHandlerOptions } from "./http.ts"
 export type { ConnectionRuntimeClient, ConnectionsRuntime, ConnectionsRuntimeOptions } from "./runtime.ts"
 export type { ConnectionActivityRetention, ConnectionFetchInit } from "./types.ts"
 export type { ConnectionAuthorization, ConnectionState, ConnectionStore } from "./store.ts"

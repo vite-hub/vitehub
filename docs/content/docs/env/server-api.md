@@ -13,7 +13,7 @@ icon: i-lucide-code-2
 | `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
-| `defineEnvProvider` from `vite-hub/env/provider` | Define a read-only provider for outside Env storage. |
+| `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |
 | `loadServerEnv` from `#vitehub/env/server` | Load one frozen Server Env snapshot, with provider values. |
 | `describeServerEnv` from `#vitehub/env/server` | List declaration metadata. Reads no values and calls no provider. |
 | `inspectServerEnv` from `#vitehub/env/server` | Report the status of each value, never the value. |
@@ -21,6 +21,7 @@ icon: i-lucide-code-2
 | `usePublicEnv` from `#vitehub/env/public` | Read Public Env in browser code. |
 | `useServerEnv` from `#vitehub/env/server` | Read Server Env in server code. |
 | `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
+| `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
 | `resolveServerEnv` from `vite-hub/env` | Resolve a Server Env registry yourself. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
@@ -28,6 +29,74 @@ icon: i-lucide-code-2
 | `parseSchema` from `vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime
+
+The examples in this section read these declarations:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv({
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv({
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 Read Public Env in browser code. ViteHub generates the module behind this import.
 
@@ -108,23 +177,21 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
     nitro(),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::
@@ -143,22 +210,20 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::
@@ -167,8 +232,8 @@ export default defineConfig({
 The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `#vitehub/env/server`.
 
 ```ts [server/env/credentials.ts]
-import { defineEnvProvider } from 'vite-hub/env/provider'
-import type { SecretEnv } from 'vite-hub/env/secret'
+import { defineEnvProvider } from 'vite-hub/env'
+import type { SecretEnv } from 'vite-hub/env'
 
 export default defineEnvProvider<{
   credentialsGatewayKey: SecretEnv<string>
@@ -207,7 +272,7 @@ This GitHub token lets the app fetch Sources. It is not the model or shell crede
 
 `describeServerEnv()` lists declarations without reading values or calling provider `read()`. Each entry has the path, [canonical variable name](/docs/env/configure#variable-names), source kind, provider alias, secret and required flags, whether a default exists, and the value type, such as `boolean` or `"draft" | "send"`. It leaves out defaults, conventional names, provider keys, and provider module paths. `inspectServerEnv()` entries also report `via` and `conflict`; see [Variable names](/docs/env/configure#variable-names).
 
-The Console Env section shows this metadata behind Console access. With Env Bridge, a provider panel adds masked previews and runtime replacement, and admins see activity and manage grants per credential. The provider's own auth and permissions still apply. Host variables stay read-only.
+The Console Env section shows this metadata behind Console access. Host variables stay read-only. Env management (masked previews, replacement, activity, and grants) needed the Console that the app served, which is removed.
 
 `inspectServerEnv()` loads providers the same way. It reports only paths, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 

@@ -2,6 +2,24 @@ import { defineConfig } from "vite-plus";
 
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
+// Generated code imports these modules by path. They are not public API.
+const privateEntries = new Set([
+  "./internal/schema-worker",
+  "./runtime/agent",
+  "./runtime/chunk-parameters",
+  "./runtime/d1",
+  "./runtime/default-database",
+  "./runtime/default-database-postgresql",
+  "./runtime/hosted",
+  "./runtime/libsql",
+  "./runtime/libsql-disabled",
+  "./runtime/migrate-on-start",
+  "./runtime/postgres",
+  "./runtime/use-database",
+  "./runtime/virtual-databases",
+  "./runtime/virtual-schema",
+]);
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -11,7 +29,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
+      neverBundle: ["vite", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
       onlyBundle: false,
     },
     plugins: [{
@@ -33,6 +51,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/connect.ts",
       "src/connect/node.ts",
+      "src/internal/schema-worker.ts",
       "src/runtime/agent.ts",
       "src/runtime/chunk-parameters.ts",
       "src/runtime/d1.ts",
@@ -42,10 +61,14 @@ export default defineConfig({
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",
+      "src/runtime/libsql.ts",
+      "src/runtime/libsql-disabled.ts",
+      "src/runtime/libsql-drizzle.ts",
       "src/runtime/migrate-on-start.ts",
       "src/runtime/postgres.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
+      "src/runtime/use-database.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",
     ],
@@ -53,7 +76,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters"),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && !privateEntries.has(key)),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",
@@ -68,6 +91,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

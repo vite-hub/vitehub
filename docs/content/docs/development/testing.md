@@ -73,8 +73,8 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 | KV | An `fs-lite` store in a folder under `.vitehub/test` | `kv.get()`, `kv.keys()` |
 | Blob | An `fs` store in a folder under `.vitehub/test` | `blob.get()`, `blob.list()` |
 | Database | In-memory SQLite with the migrations of each Definition | `useDatabase(name).db` |
-| Queue | A list of the jobs that `runQueue()`, `deferQueue()`, and `getQueue()` sent. No handler runs. | `hub.jobs` |
-| Workflow | A list of the runs that `runWorkflow()`, `deferWorkflow()`, and Workflow handles started. No handler runs. A second start with the same run id returns the first run. | `hub.workflows`, `getWorkflowRun()` |
+| Queue | A list of the jobs that `sendQueue()`, `deferQueue()`, and `useQueue()` sent. No handler runs. | `hub.jobs` |
+| Workflow | A list of the runs that `startWorkflow()`, `deferWorkflow()`, and Workflow handles started. No handler runs. A second start with the same run id returns the first run. | `hub.workflows`, `getWorkflowRun()` |
 | Schedule | `hub.runSchedule()` runs a Definition once, with a run record in memory. No cron fires in a test. | The returned run record |
 | Email | A list of the messages that `email.send()` accepted. No provider runs. | `hub.emails` |
 | Rate Limit | Memory counters, also when the host is Cloudflare. A request without a client address counts as one client. | `checkRateLimit()` |
@@ -82,7 +82,7 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 
 `reset()` deletes the test folders, closes the databases, empties the lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
 
-Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/migrations/`. Run `vitehub db generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
+Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/migrations/`. Run `vitehub database generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
 
 To run a Queue handler, import its Definition and call the handler with a job from `hub.jobs`.
 
@@ -153,4 +153,4 @@ The Channel adapter still calls the provider API for replies and files, so stub 
 
 `vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses.
 
-Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch keeps the host's `waitUntil()` behavior; wait for that work before reading `jobs`. Workflow signals are not supported by the test backend: `resumeWorkflowSignal()` rejects with `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.
+Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` rejects with `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.

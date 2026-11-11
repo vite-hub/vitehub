@@ -14,17 +14,17 @@ A Trigger turns a product event, such as a new chat message or an opened ticket,
 When no Capability prepares the event, call `runAgent()` from a route.
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
+  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.pipe(v.string(), v.nonEmpty()) })))
   const runtime = getRuntimeContext(event)
   try {
-    const [error, result] = await runAgent(support, { prompt: body.prompt }, { runtimeContext: runtime })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
     if (error) throw error
     return { text: result.text }
   }
@@ -312,6 +312,8 @@ With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` 
 `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 
 ### Run a task later from server code
+
+`enqueueChannelTask()` skips the trigger's `invoke`. To run `invoke` too, with its delivery ID, `serialize`, `debounce`, and Channel State, use [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code) from `vite-hub/channels`, for example to reconcile a webhook that a provider lost.
 
 `enqueueChannelTask()` runs a declared task at `notBefore` or after `delayMs` through the Channel's webhook queue. `prepare`, `failed`, retries, restart replay, and the delivery record work as for a queued webhook delivery. `input` is what `invoke` would return for the task.
 

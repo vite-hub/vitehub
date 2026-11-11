@@ -4,6 +4,8 @@
 @import "comark-chat/style.css";
 /* xterm.js needs its own rules for the WorkspaceTerminal rows, cursor, and helper textarea. */
 @import "@xterm/xterm/css/xterm.css" layer(components);
+/* Share the theme's wrapper focus ring without requiring its palette or fonts. */
+@import "./theme-focus-ring.css";
 
 /*
  * Theme tokens. Set `--vh-ui-*` on any element to change the parts inside it; the package sets none of them. The parts
@@ -436,6 +438,10 @@
   --vh-primitive-icon-motion: translateY(-1.5px);
 }
 
+.vh-primitive-icon[data-icon="decisions"] {
+  --vh-primitive-icon-motion: translate(1px, -1px);
+}
+
 .vh-primitive-icon[data-icon="development"] {
   --vh-primitive-icon-motion: rotate(14deg);
 }
@@ -452,6 +458,10 @@
 .vh-primitive-icon[data-icon="env"] {
   --vh-primitive-icon-motion: rotate(-16deg);
   --vh-primitive-icon-origin: 7.5px 16.5px;
+}
+
+.vh-primitive-icon[data-icon="gateways"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
 }
 
 .vh-primitive-icon[data-icon="guides"] {
@@ -1896,6 +1906,16 @@
     position: absolute;
   }
 
+  /* The area that a drag in comment mode draws. */
+  [data-slot="comment-layer-area"] {
+    background: color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
+    border: 1.5px solid var(--vh-highlighted);
+    border-radius: 3px;
+    box-sizing: border-box;
+    pointer-events: none;
+    position: absolute;
+  }
+
   [data-slot="comment-layer-item"] {
     pointer-events: none;
     position: absolute;
@@ -1978,9 +1998,10 @@
     width: 22.5rem;
   }
 
+  /* `--vh-comment-x` is the x of the spot on the screen. On a narrow screen the card moves so that it stays on screen. */
   [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
     left: auto;
-    right: 0.5rem;
+    right: clamp(calc(var(--vh-comment-x, 0px) + 0.5rem - 100vw), 0.5rem, calc(var(--vh-comment-x, 100vw) - min(22.5rem, 100vw - 1rem) - 0.5rem));
   }
 
   [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
@@ -2093,6 +2114,17 @@
     color: var(--vh-error);
     font-size: 0.75rem;
     margin: 0.375rem 0 0;
+  }
+
+  /* "Press Esc again to discard." after an Esc in a box with text. It takes no room while it is empty. */
+  [data-slot="comment-composer-status"] {
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    margin: 0;
+  }
+
+  [data-slot="comment-composer-status"]:not(:empty) {
+    padding: 0.25rem 0.625rem 0.125rem;
   }
 
   [data-slot="comment-thread"] {
@@ -3347,11 +3379,6 @@
     height: var(--vh-device-frame-control);
     padding-inline: 0.5rem 0.375rem;
     position: relative;
-  }
-  /* Keep the invisible select's focus visible when the app imports only styles.css. */
-  .vh-device-frame__select:has(select:focus-visible) {
-    outline: 2px solid var(--vh-focus, var(--vh-primary));
-    outline-offset: 2px;
   }
   /* The native select lies invisible over its label: the label shows the device, and the platform's own list opens. */
   .vh-device-frame__select select {
