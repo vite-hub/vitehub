@@ -83,7 +83,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     const { createClient } = await import("@libsql/client")
     const { drizzle } = await import("drizzle-orm/libsql")
     const client = createClient({ url: "file::memory:" })
-    useDatabase.mockReturnValue({ db: drizzle(client) })
+    useDatabase.mockReturnValue({ db: drizzle({ client }) })
 
     const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
     const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
