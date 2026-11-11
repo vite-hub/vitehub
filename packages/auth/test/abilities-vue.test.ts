@@ -12,13 +12,14 @@ const { document } = globalThis as unknown as Window
 type SessionState = { data: unknown, error: null, isPending: boolean, isRefetching: boolean, refetch: () => Promise<void> }
 
 // Better Auth's session in the browser, which a test sets once the client has "loaded".
-const betterAuth = vi.hoisted(() => ({ session: undefined as unknown, watched: 0, current: null as unknown, asked: 0 }))
+const betterAuth = vi.hoisted(() => ({ session: undefined as unknown, watched: 0, current: null as unknown, asked: 0, askedAt: [] as unknown[] }))
 
 vi.mock("better-auth/vue", () => ({
-  createAuthClient: () => ({
+  createAuthClient: (options?: { basePath?: string }) => ({
     // What `/get-session` answers now.
     getSession: async () => {
       betterAuth.asked++
+      betterAuth.askedAt.push(options?.basePath)
       return { data: betterAuth.current, error: null }
     },
     useSession: () => {
@@ -34,7 +35,7 @@ async function untilLoaded(watched: number): Promise<void> {
 }
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
-const { Can, Cannot, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts")
+const { Can, Cannot, createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts")
 const { AbilityError } = await import("../src/ability-error.ts")
 
 const author = { session: { id: "s1" }, user: { id: "u1", name: "Ada", emailVerified: true } }
@@ -244,6 +245,17 @@ describe("useAbility().authorize()", () => {
     setSessionSeedResolver(() => author)
     betterAuth.current = null
     await expect(mountAbility().authorize("posts.edit", ownPost)).rejects.toMatchObject({ status: 401, data: { code: "signed-out" } })
+  })
+
+  it("asks the Auth endpoint of the Nuxt page guard, also with a custom basePath below app.baseURL", async () => {
+    // `defineAuth({ basePath: '/auth' })` under Nuxt `app.baseURL: '/app/'`: the Nuxt plugin provides the client of the guard.
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: createAuthClient({ basePath: "/app/auth" }) }))
+    setSessionSeedResolver(() => null)
+    betterAuth.session = ref({ data: author, error: null, isPending: false, isRefetching: false, refetch: async () => {} })
+    betterAuth.current = author
+    betterAuth.askedAt = []
+    await expect(mountAbility().authorize("posts.edit", ownPost)).resolves.toBeUndefined()
+    expect(betterAuth.askedAt).toEqual(["/app/auth"])
   })
 
   it("uses the server's session while Nuxt hydrates the page that the server rendered with it", async () => {

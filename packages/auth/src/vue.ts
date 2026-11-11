@@ -229,8 +229,9 @@ function abilityRefusal(state: SessionState, name: string, args: unknown[]): Abi
 
 /**
  * The user that `authorize()` checks. The server uses the session it read for the request. While Nuxt hydrates, the
- * browser uses the same session, so it decides as the server did. Otherwise the browser asks Better Auth, as the page
- * guard does, because a sign-in or sign-out in the tab makes the server's session old.
+ * browser uses the same session, so it decides as the server did. Otherwise the browser asks the client of
+ * `useAbility()`, because a sign-in or sign-out in the tab makes the server's session old. In Nuxt, that is the client of
+ * the page guard, at the configured Auth `basePath` below `app.baseURL`.
  */
 async function authorizedUser(client: Pick<typeof authClient, "getSession">, state: Readonly<Ref<SessionState>>): Promise<object | null> {
   const known = !state.value.isPending
