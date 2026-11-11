@@ -137,6 +137,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
@@ -153,6 +154,9 @@
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "drizzle-kit": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     },

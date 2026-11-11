@@ -20,6 +20,7 @@ export const featureIds = [
   "env",
   "i18n",
   "kv",
+  "mcp",
   "observability",
   "queue",
   "rateLimit",
@@ -359,6 +360,14 @@ export default defineDatabase({
     packages: ["@vite-hub/kv"],
     summary: "Key-value storage with one API on every host.",
     title: "KV",
+  }),
+  mcp: feature({
+    docs: "/docs/development/app-mcp",
+    hosts: everywhere("nitro", "Nitro"),
+    id: "mcp",
+    packages: ["@vite-hub/mcp"],
+    summary: "The app's own MCP server, with one tool per file in `server/mcp/tools/`.",
+    title: "MCP server",
   }),
   observability: feature({
     docs: "/docs/agents/observability",

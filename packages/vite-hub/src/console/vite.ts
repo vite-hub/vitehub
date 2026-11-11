@@ -26,7 +26,6 @@ import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, relea
 import { addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
-import { consoleOpenAccessWarning } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
@@ -52,7 +51,7 @@ type ConsoleNitroConfig = {
 
 /**
  * The Console options. `auth` is required in every environment, so the Console is never open by accident.
- * - `auth: false`: no sign-in. A production build and a production server log a warning.
+ * - `auth: false`: no sign-in, for development only. A production build fails.
  * - `auth: "app"`: the app Auth Session. The app Auth access routes or `authorize` decide who may use the Console.
  * - `auth: "token"`: `Authorization: Bearer` with a token whose SHA-256 is in the `VITEHUB_CONSOLE_TOKEN_SHA256` runtime env var.
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
@@ -76,8 +75,10 @@ export interface ConsoleOptions {
   /**
    * Browser origins that may call the Console data routes from another origin, such as a hosted or self-hosted Console.
    * Defaults to `["https://console.vitehub.dev"]`. `[]` turns cross-origin calls off. An entry is an `https://` origin,
-   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs `auth: "token"` and
-   * the token in `Authorization: Bearer`. Cookies never authorize a cross-origin call.
+   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a token in
+   * `Authorization: Bearer`: the Console token of `auth: "token"`, or with `auth: "app"`, an OAuth access token for the
+   * Console resource `<origin><base>/_vitehub`. A development server without sign-in needs none. Cookies never
+   * authorize a cross-origin call.
    */
   origins?: string[]
   /**
@@ -317,14 +318,10 @@ function authRouteProtects(
   return targetBase === routeBase || (recursive && targetBase.startsWith(`${routeBase}/`))
 }
 
-/**
- * The warning that a production build logs for `auth: false`, or `undefined` when there is nothing to warn about.
- * Without `authorize`, anyone can use the Console. On Cloudflare, `authorize` alone does not verify the Cloudflare Access token.
- */
-export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset: string | undefined): string | undefined {
+/** Reject unauthenticated Console access in production, including host-managed access. */
+export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
   if (configured.auth !== false) return
-  if (!configured.authorize) return consoleOpenAccessWarning
-  if (preset === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
+  throw viteHubErrorDiagnostics.VITE_HUB_B0022({ message: '[vitehub] console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256 (create a token with openssl rand -hex 32, store printf %s "$TOKEN" | sha256sum), or auth: "app".' })
 }
 
 /** Resolve the `console.authorize` file. A configured path must exist. */
@@ -383,9 +380,10 @@ export function resolveConsoleAccessBuild(
   if ("local" in configured && configured.local === true) return { mode: "local", origins: resolveConsoleOrigins(configured.origins) }
   if (configured.auth === false || configured.auth === undefined) return withAccessOptions({ mode: "open", origins: resolveConsoleOrigins(configured.origins) })
   if (configured.auth === "token") return withAccessOptions({ mode: "token", origins: resolveConsoleOrigins(configured.origins) })
+  // App Auth accepts an OAuth access token for the Console resource from `console.origins`, never a cookie.
   if (configured.auth === "app") {
     return withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base) }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins: resolveConsoleOrigins(configured.origins) }
       : { mode: "auth" })
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })
@@ -457,7 +455,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthHandlers: (() => Promise<void>) | undefined
   let inlineConsoleAuthConfig: ResolvedConsoleAuthConfig | undefined
-  let openAccessBuildWarning: string | undefined
   const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
   let baseURL = "/"
   let applicationBase = "/"
@@ -609,7 +606,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         development: !isProductionBuild(config, environment),
         sections,
       })
-      openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
+      if (isProductionBuild(config, environment) && !cliDiscovery) assertConsoleProductionAuth(configured)
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
@@ -683,7 +680,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       }
     },
     async configResolved(config) {
-      if (openAccessBuildWarning) config.logger.warn(openAccessBuildWarning)
       root = config.root
       const resolvedConfigState: DeferredConsoleState | undefined = inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github"
         ? {

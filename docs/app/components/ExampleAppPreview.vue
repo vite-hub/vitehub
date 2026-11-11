@@ -54,14 +54,14 @@ defineProps<{ preview: ExamplePreview }>();
               <span class="bg-primary/15 text-highlighted">Share a private review link.</span>
             </p>
             <div class="mt-3 space-y-1.5">
-              <div class="h-1 w-full rounded bg-muted" />
-              <div class="h-1 w-4/5 rounded bg-muted" />
-              <div class="h-1 w-3/5 rounded bg-muted" />
+              <div class="h-1 w-full rounded-full bg-muted" />
+              <div class="h-1 w-4/5 rounded-full bg-muted" />
+              <div class="h-1 w-3/5 rounded-full bg-muted" />
             </div>
           </div>
           <div class="col-span-2 min-w-0 bg-elevated/50 p-2.5">
             <p class="text-[10px] font-medium text-highlighted">Comments</p>
-            <div class="mt-3 rounded border border-default bg-default p-2">
+            <div class="mt-3 rounded-md border border-default bg-default p-2">
               <p class="text-[10px] font-semibold text-highlighted">Alex</p>
               <p class="mt-1 text-[10px] leading-4 text-muted">
                 Can reviewers comment without editing the plan?
@@ -77,7 +77,7 @@ defineProps<{ preview: ExamplePreview }>();
             <p class="text-[10px] text-muted">2 meals</p>
           </div>
           <div
-            class="mt-2 grid grid-cols-2 gap-3 rounded border border-default bg-elevated/50 p-2.5"
+            class="mt-2 grid grid-cols-2 gap-3 rounded-md border border-default bg-elevated/50 p-2.5"
           >
             <div>
               <p class="text-[10px] text-muted">Calories</p>
@@ -117,7 +117,7 @@ defineProps<{ preview: ExamplePreview }>();
         :href="preview.source"
         target="_blank"
         rel="noopener noreferrer"
-        class="rounded underline decoration-default underline-offset-2 hover:text-muted focus-visible:outline-2 focus-visible:outline-primary"
+        class="underline decoration-default underline-offset-2 hover:text-muted"
         >Screenshot from the project</a
       >
       <template v-else>App mockup · Sample content</template>

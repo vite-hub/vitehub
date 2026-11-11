@@ -19,10 +19,10 @@ pnpm add @vite-hub/workflow
 
 Then install the dependency required by the selected provider:
 
-| Provider             | Additional dependency                                               | Durable state                                                            |
-| -------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Cloudflare Workflows | None in application code                                            | Cloudflare owns run state.                                               |
-| Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions  | Native definitions survive function restarts; plain handlers run inline. |
+| Provider             | Additional dependency                                              | Durable state                                                            |
+| -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
+| Vercel Workflow      | `@vercel/functions`; add `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | None. `@vite-hub/workflow` depends on `openworkflow` and `postgres` | Postgres Default Database, else a local SQLite file.                     |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
@@ -191,7 +191,7 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Make a Vercel workflow durable
 
-A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same handler and register a native Workflow DevKit entry:
+A plain Vercel definition executes inline and does not survive a function restart. Install `@vercel/functions` as shown in the provider table above for all Vercel definitions. For durable execution, also install the Workflow DevKit packages, keep the same handler, and register a native entry:
 
 ```sh
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6

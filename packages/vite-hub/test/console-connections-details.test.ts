@@ -10,7 +10,7 @@ vi.mock("../src/console/runtime/client/connections-management", async importOrig
   ...await importOriginal<typeof import("../src/console/runtime/client/connections-management")>(),
   requestConnectionsManagement: mocks.request,
 }))
-vi.mock("../src/console/runtime/components/console-connections-activity.vue", () => ({ default: { render: () => null } }))
+vi.mock("../src/console/runtime/components/console-credential-activity.vue", () => ({ default: { render: () => null } }))
 vi.mock("../src/console/runtime/components/console-connections-approvals.vue", async () => {
   const { h } = await import("vue")
   return { default: { render: () => h("div", { "data-approvals": "" }) } }

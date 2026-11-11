@@ -2,7 +2,10 @@ import ui from "@vite-hub/ui/vite";
 import vue from "@vitejs/plugin-vue";
 import { copyFileSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { bundledLanguagesInfo } from "shiki/langs";
 import { defineConfig } from "vite";
+
+import type { Plugin } from "vite";
 
 import { consoleAppConfig } from "./src/console/app.config";
 import { consoleContributedSectionIcons } from "./src/console/contributions";
@@ -16,6 +19,41 @@ import { consoleOAuthClientDocument, consoleOAuthClientPath, resolveConsoleHoste
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
 const entry = resolve(import.meta.dirname, "src/console/hosted/index.html");
 const outDir = resolve(import.meta.dirname, ".vitehub/console-hosted");
+
+const consoleShikiId = "\0vitehub-console-shiki";
+
+/**
+ * The code views of `@vite-hub/ui` import the full Shiki bundle: every grammar and theme, 9 MB of chunks in the
+ * hosted Console build. The Console resolves `shiki` to a bundle with the languages it highlights. The other languages keep
+ * their names and render as plain text, so a diff of a Python file still opens.
+ */
+function consoleShiki(): Plugin {
+  const aliases = Object.fromEntries(bundledLanguagesInfo.flatMap(info => (info.aliases ?? []).map(alias => [alias, info.id])));
+  const names = bundledLanguagesInfo.flatMap(info => [info.id, ...(info.aliases ?? [])]);
+  const languages = resolve(clientRoot, "highlight-languages.ts");
+  return {
+    name: "vitehub-console-shiki",
+    enforce: "pre",
+    resolveId: { filter: { id: /^shiki$/ }, handler: () => consoleShikiId },
+    load: {
+      filter: { id: /^\0vitehub-console-shiki$/ },
+      handler: () => `import { createBundledHighlighter } from "shiki/core";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { consoleHighlightLanguages } from ${JSON.stringify(languages)};
+export * from "shiki/core";
+export { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+export { createOnigurumaEngine } from "shiki/engine/oniguruma";
+const aliases = ${JSON.stringify(aliases)};
+const plain = name => async () => ({ default: [{ name, scopeName: \`text.plain.\${name}\`, patterns: [] }] });
+export const bundledLanguages = Object.fromEntries(${JSON.stringify(names)}.map((name) => {
+  const id = aliases[name] ?? name;
+  return [name, Object.hasOwn(consoleHighlightLanguages, id) ? consoleHighlightLanguages[id] : plain(name)];
+}));
+export const createHighlighter = createBundledHighlighter({ engine: createJavaScriptRegexEngine, langs: bundledLanguages, themes: {} });
+`,
+    },
+  };
+}
 
 const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
@@ -49,6 +87,7 @@ export default defineConfig({
         }
       },
     },
+    consoleShiki(),
     vue(),
     ...ui({
       comark: false,

@@ -34,4 +34,21 @@ describe("Agent Vite plugin", () => {
     await expect(resolveId.call({ resolve: async () => null }, "advocaat", "C:\\app\\node_modules\\@vite-hub\\agent\\dist\\index.js", {})).resolves.toEqual({ external: true, id: "advocaat" })
     await expect(resolveId.call({ resolve: async () => null }, "ai", "/agent.js", {})).resolves.toBeUndefined()
   })
+
+  it("filters resolveId and transform to the ids the plugin handles", () => {
+    const plugin = hubAgent()
+    const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id
+    const transformFilter = (plugin.transform as { filter: { id: RegExp } }).filter.id
+
+    expect(["advocaat", "@vite-hub/kv", "@ai-sdk/openai", "ai", "@vite-hub/kv/vite", "advocaat/sub", "@ai-sdk/openai/internal"].map(id => resolveFilter.test(id))).toEqual([true, true, true, false, false, false, false])
+    expect([
+      "/app/server/agents/reviewer.ts",
+      "/app/server/agents/reviewer.MTS?v=1",
+      "/app/.vitehub/workflow/registry-runtime.mjs",
+      "/app/server/api/route.js#hash",
+      "/app/src/app.vue",
+      "/app/src/style.css",
+      "\0virtual:vitehub-agent",
+    ].map(id => transformFilter.test(id))).toEqual([true, true, true, true, false, false, false])
+  })
 })
