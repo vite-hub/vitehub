@@ -1,5 +1,5 @@
-import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
-import { computed, defineComponent, h, ref, useId } from "vue"
+import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, validate } from "@formisch/vue"
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId, watch } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
 import { unwrap } from "./schema.ts"
@@ -11,6 +11,13 @@ import type { SchemaNode } from "./schema.ts"
 
 export { FormSubmitError, formRoute, submitForm } from "./client.ts"
 export type { FormAnchor, FormIssue, SubmitFormOptions } from "./client.ts"
+
+/** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */
+interface QueryRouter {
+  currentRoute: { value: { query: Record<string, unknown>, hash: string } }
+  isReady: () => Promise<void>
+  replace: (to: { query: Record<string, unknown>, hash: string }) => Promise<unknown>
+}
 
 /** What `useFormSubmit()` returns. */
 export interface FormSubmitState {
@@ -32,10 +39,14 @@ export interface FormSubmitState {
 export function useFormSubmit<TSchema extends FormSchema>(name: string, form: FormStore<TSchema>, options: SubmitFormOptions = {}): FormSubmitState {
   const sent = ref<string | true>()
   const error = ref<FormSubmitError>()
+  let pending = false
   async function send(extra: Record<string, unknown> = {}) {
+    // A second click on a slow network would store the message twice.
+    if (pending) return
+    pending = true
     sent.value = undefined
     error.value = undefined
-    const [failure, data] = await submitForm(name, { ...getInput(form), ...extra }, options)
+    const [failure, data] = await submitForm(name, { ...getInput(form), ...extra }, options).finally(() => { pending = false })
     if (!failure) {
       sent.value = data.id ?? true
       reset(form)
@@ -51,7 +62,11 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
     }
     // Move focus to the first field with a server issue, as Formisch does for its own validation.
     const first = failure.issues.find(issue => issue.path.length)
-    if (first) (focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
+    // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
+    if (first) {
+      await nextTick()
+      ;(focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
+    }
     const message = formIssues[0] ?? (failure.issues.length ? undefined : failure.message)
     if (message) setErrors(form, { errors: [message, ...formIssues.slice(1)] })
   }
@@ -69,6 +84,7 @@ export interface AutoFormField {
   /** The values of a select, with their type: a picklist of numbers gives numbers. */
   options?: readonly (string | number)[]
   required: boolean
+  minLength?: number
   maxLength?: number
 }
 
@@ -93,8 +109,9 @@ export function describeFormFields(schema: unknown): AutoFormField[] {
     const action = (type: string) => actions.find(item => item.type === type)
     const label = action("title")?.title ?? humanize(key)
     const description = action("description")?.description
+    const min = action("min_length")?.requirement
     const max = action("max_length")?.requirement
-    const field: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(typeof max === "number" ? { maxLength: max } : {}) }
+    const field: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(typeof min === "number" ? { minLength: min } : {}), ...(typeof max === "number" ? { maxLength: max } : {}) }
     const base = node.type
     if (base === "boolean") return { ...field, control: "checkbox", required: false }
     if (base === "number") return { ...field, inputType: "number" }
@@ -140,8 +157,9 @@ const AutoFormControl = defineComponent({
         const options = field.options ?? []
         control = h("select", { ...common, value: value === undefined || value === null ? "" : String(value), onChange: (event: Event) => { const text = (event.target as HTMLSelectElement).value; store.input = options.find(option => String(option) === text) as never } }, [
           // An optional select can go back to empty.
-          h("option", { value: "", disabled: field.required }, "Choose one"),
-          ...options.map(option => h("option", { value: String(option) }, String(option))),
+          // `selected` on the options, since a server-rendered select has no value: the browser would show the first option.
+          h("option", { value: "", disabled: field.required, selected: value === undefined || value === null || value === "" }, "Choose one"),
+          ...options.map(option => h("option", { value: String(option), selected: value !== undefined && value !== null && String(option) === String(value) }, String(option))),
         ])
       }
       else {
@@ -149,6 +167,10 @@ const AutoFormControl = defineComponent({
         control = h(tag, {
           ...common,
           ...(tag === "input" ? { type: field.inputType ?? "text" } : { rows: 5 }),
+          // The browser checks a number input before the app runs. Its default step of 1 would refuse 1.5.
+          ...(field.inputType === "number" ? { step: "any" } : {}),
+          // The browser checks the lengths before the app runs, so a short message is not lost to a round trip.
+          ...(field.minLength ? { minlength: field.minLength } : {}),
           ...(field.maxLength ? { maxlength: field.maxLength } : {}),
           ...(field.inputType === "email" ? { autocomplete: "email", spellcheck: false } : {}),
           value: value ?? "",
@@ -163,7 +185,8 @@ const AutoFormControl = defineComponent({
           ? h("label", { for: id }, [control, " ", field.label])
           : [h("label", { for: id }, field.label), control],
         field.description ? h("p", { id: helpId, "data-help": "" }, field.description) : null,
-        store.errors ? h("p", { id: errorId, "data-error": "", role: "alert" }, store.errors[0]) : null,
+        // No alert role: focus moves to the first invalid field, which reads its error through `aria-describedby`.
+        store.errors ? h("p", { id: errorId, "data-error": "" }, store.errors[0]) : null,
       ])
     }
   },
@@ -186,6 +209,14 @@ export const AutoForm = defineComponent({
     schema: { type: Object as PropType<FormSchema>, required: true },
     submitLabel: { type: String, default: "Send" },
     sentMessage: { type: String, default: "Thanks. Your message was sent." },
+    /**
+     * The `form` query of the page after a post without JavaScript, such as `contact.sent` or `contact.error`. Pass it
+     * from the route, so a server-rendered page shows the result before JavaScript runs. Without it, `AutoForm` reads
+     * the query when it mounts. A result of another form is ignored.
+     */
+    result: { type: String, default: undefined },
+    /** Shown after a post without JavaScript that the server refused. */
+    errorMessage: { type: String, default: "The message was not sent. Check the form and try again." },
     /** The honeypot field of `defineForm()`. `false` leaves it out. */
     honeypot: { type: [String, Boolean] as PropType<string | false>, default: "website" },
     anchor: { type: Object as PropType<FormAnchor>, default: undefined },
@@ -201,20 +232,80 @@ export const AutoForm = defineComponent({
       get anchor() { return props.anchor },
       get base() { return props.base },
     } as SubmitFormOptions)
+    // A post without JavaScript comes back with `?form=<name>.sent` or `?form=<name>.error`. Show it in the status region.
+    const resultOf = (value: string | null | undefined): "sent" | "error" | undefined => value === `${props.name}.sent` ? "sent" : value === `${props.name}.error` ? "error" : undefined
+    const returned = ref(resultOf(props.result))
+    // The browser checks `required` and `type` itself until the app runs, so a post without JavaScript is checked too.
+    const mounted = ref(false)
+    const statusElement = ref<HTMLElement>()
+    // Vue Router keeps its own copy of the address, so the query goes through it when the app has one.
+    const router = getCurrentInstance()?.appContext.config.globalProperties.$router as QueryRouter | undefined
+    onMounted(async () => {
+      mounted.value = true
+      const url = globalThis.location ? new URL(globalThis.location.href) : undefined
+      returned.value ??= resultOf(url?.searchParams.get("form"))
+      // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
+      // Not when the visitor is already in a field: that would close the keyboard on a phone.
+      const active = globalThis.document?.activeElement
+      if (returned.value && (!active || active === document.body)) statusElement.value?.focus()
+      // A reload, a shared link, or a later navigation back must not show the result again.
+      if (url && resultOf(url.searchParams.get("form"))) {
+        if (router) {
+          // An app-shell form can mount before the router reaches the requested page.
+          await router.isReady()
+          const route = router.currentRoute.value
+          // A guard may have redirected to a page with another form's result while we waited.
+          if (typeof route.query.form !== "string" || !resultOf(route.query.form)) return
+          const { form: _form, ...query } = route.query
+          await router.replace({ query, hash: route.hash })
+        }
+        else {
+          url.searchParams.delete("form")
+          history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`)
+        }
+      }
+    })
+    const status = () => {
+      if (sent.value || returned.value === "sent") return slots.sent?.() ?? props.sentMessage
+      return returned.value === "error" ? props.errorMessage : undefined
+    }
     // The event form of `handleSubmit()`, so it cancels the browser post.
     const submit = handleSubmit(form, async (_output: unknown, _event: SubmitEvent) => {
       await send(props.honeypot ? { [props.honeypot]: trap.value } : {})
       if (sent.value) emit("sent", sent.value)
     })
     // The button stays focusable while it sends, so a second submit is ignored here instead.
-    const onSubmit = (event: SubmitEvent) => {
-      if (!form.isSubmitting) return submit(event)
+    // Reactive, so the button shows that it is busy while a slow check runs.
+    const checking = ref(false)
+    // Pre-validation is outside Formisch's submission lifecycle. Track edits through it, including an edit that
+    // restores the old value, so an outdated attempt cannot start a fresh submission after its check finishes.
+    let inputRevision = 0
+    watch(() => getInput(form), () => { inputRevision++ }, { deep: true, flush: "sync" })
+    const onSubmit = async (event: SubmitEvent) => {
       event.preventDefault()
+      if (form.isSubmitting || checking.value) return
+      // A new send replaces the result of an earlier post without JavaScript.
+      returned.value = undefined
+      // Formisch `handleSubmit()` focuses the first invalid field before Vue renders its error. Validate and render
+      // first, so the field already points to its error when `handleSubmit()` focuses it. It also marks the form
+      // submitted, so a corrected field validates again as the user types.
+      checking.value = true
+      const revision = inputRevision
+      try {
+        // A schema check that throws is left to `handleSubmit()`, which shows it as the form error.
+        const result = await validate(form).catch(() => undefined)
+        if (!result?.success) await nextTick()
+        if (inputRevision !== revision) return
+        await submit(event)
+      }
+      finally {
+        checking.value = false
+      }
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.
     const prefix = `vitehub-form-${props.name}-${useId()}`
     // `method` and `action` post the form to its route before the app hydrates, or without JavaScript.
-    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: true, onSubmit }, [
+    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: mounted.value, onSubmit }, [
       ...fields.value.map(field => h(AutoFormControl, { key: field.key, form, field, id: `${prefix}-${field.key}` })),
       props.honeypot
         ? h("input", {
@@ -229,8 +320,9 @@ export const AutoForm = defineComponent({
         : null,
       form.errors ? h("p", { "data-error": "", role: "alert" }, form.errors[0]) : null,
       // The live region is always there, so screen readers announce the text when it appears.
-      h("p", { "data-sent": sent.value ? "" : undefined, role: "status" }, sent.value ? slots.sent?.() ?? props.sentMessage : undefined),
-      h("button", { type: "submit", "aria-disabled": form.isSubmitting ? "true" : undefined, "aria-busy": form.isSubmitting ? "true" : undefined }, form.isSubmitting ? `${props.submitLabel}…` : props.submitLabel),
+      h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status", tabindex: "-1", ref: statusElement }, status()),
+      // The label stays the same while it sends, so the button keeps its width. `aria-busy` tells that it sends.
+      h("button", { type: "submit", "aria-disabled": form.isSubmitting || checking.value ? "true" : undefined, "aria-busy": form.isSubmitting || checking.value ? "true" : undefined }, props.submitLabel),
     ])
   },
 })

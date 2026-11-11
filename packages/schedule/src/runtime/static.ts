@@ -3,6 +3,7 @@ import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
@@ -293,10 +294,6 @@ function restoreGlobalEnv(
 ): void {
   if (hadGlobalEnv) globals.__env__ = previousGlobalEnv
   else delete globals.__env__
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function isCallable(value: unknown): value is CallableFunction {

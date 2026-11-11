@@ -123,7 +123,7 @@ function externalImports(outputs: Record<string, { imports?: Array<{ external?: 
 }
 
 describe("packed Source capability closures", () => {
-  it("keeps lightweight Workers MCP-free and ships MCP privately when selected", async () => {
+  it("keeps lightweight Workers MCP-free and runs MCP with the SDK the app installs", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-source-closures-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -137,7 +137,7 @@ describe("packed Source capability closures", () => {
           packageManager: "pnpm@10.33.0",
           private: true,
           type: "module",
-          dependencies: { "vite-hub": overrides["vite-hub"] },
+          dependencies: { "@modelcontextprotocol/sdk": "1.32.2", "vite-hub": overrides["vite-hub"] },
           // The facade also exports table(), whose documented peer is Drizzle.
           devDependencies: { "drizzle-orm": "0.45.3", typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
@@ -208,8 +208,9 @@ console.log(item.content)
 
       const lightweight = await buildWorker(appDir, "src/lightweight.ts", "lightweight")
       const lightweightInputs = Object.keys(lightweight.inputs).join("\n")
-      expect(lightweightInputs).not.toMatch(/@modelcontextprotocol|mcp-resources|pkce-challenge/)
-      expect(await readFile(join(appDir, "dist/lightweight.js"), "utf8")).not.toMatch(/@modelcontextprotocol|pkce-challenge/)
+      // pnpm names the peer in Source's store folder, so match SDK files, not the folder name.
+      expect(lightweightInputs).not.toMatch(/@modelcontextprotocol\/|mcp-resources|pkce-challenge/)
+      expect(await readFile(join(appDir, "dist/lightweight.js"), "utf8")).not.toMatch(/@modelcontextprotocol\/|pkce-challenge/)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")

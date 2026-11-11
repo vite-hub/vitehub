@@ -105,5 +105,3 @@ export function isRemoteProject(): boolean {
   const pageOrigin: unknown = location instanceof Object ? Reflect.get(location, "origin") : undefined
   return active.origin !== "" && active.origin !== pageOrigin
 }
-
-

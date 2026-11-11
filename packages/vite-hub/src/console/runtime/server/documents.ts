@@ -1,4 +1,4 @@
-import { installConsoleDocumentsScope, resolveConsoleDocuments } from "../../internal.ts"
+import { consoleState } from "../../internal.ts"
 import { readConsoleAccessUser, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
@@ -99,12 +99,12 @@ export function installConsoleDocuments(projectRoot: string, editors: Readonly<R
       return loading
     }
   }
-  return installConsoleDocumentsScope(projectRoot, Object.freeze(loaders))
+  return consoleState().documents = Object.freeze(loaders)
 }
 
 /** Loads the owner actions of a document editor section that the project enables. */
 export async function loadConsoleDocumentActions(section: string): Promise<ConsoleDocumentActions> {
-  const load = getConsoleSections().includes(section) ? resolveConsoleDocuments()?.[section] : undefined
+  const load = getConsoleSections().includes(section) ? consoleState().documents?.[section] : undefined
   if (!load) throw consoleRequestError(404, "Document editor section not found.")
   try {
     return await load()

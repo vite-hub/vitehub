@@ -8,11 +8,21 @@ import ConsoleState from "../src/console/runtime/components/console-state.vue"
 
 const UButton = defineComponent({
   props: { label: String, onClick: Function, target: String, to: String },
-  setup(props) {
+  setup(props, { slots }) {
     return () => props.to
       ? h("a", { "data-button": props.label, href: props.to, target: props.target }, props.label)
-      : h("button", { "data-button": props.label, onClick: props.onClick }, props.label)
+      : h("button", { "data-button": props.label, onClick: props.onClick }, props.label ?? slots.default?.())
   },
+})
+// UEmpty as ConsoleState uses it: the title, the description, and the body.
+const UEmpty = defineComponent({
+  props: { description: String, title: String },
+  setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.(), slots.actions?.()]),
+})
+// UAlert as the compact state uses it: the title, the description, and the actions.
+const UAlert = defineComponent({
+  props: { description: String, title: String },
+  setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.actions?.()]),
 })
 const UIcon = defineComponent({ props: { name: String }, setup: props => () => h("span", { "data-icon": props.name }) })
 const UTooltip = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() })
@@ -20,7 +30,7 @@ const UTooltip = defineComponent({ setup: (_props, { slots }) => () => slots.def
 function render(props: Record<string, unknown>) {
   const root = new Window().document.createElement("div")
   const app = createApp(ConsoleState as Component, props)
-  app.component("UButton", UButton).component("UIcon", UIcon).component("UTooltip", UTooltip)
+  app.component("UAlert", UAlert).component("UButton", UButton).component("UEmpty", UEmpty).component("UIcon", UIcon).component("UTooltip", UTooltip)
   app.mount(root)
   const buttons = [...root.querySelectorAll("[data-button]")].map(button => button.getAttribute("data-button"))
   return { app, buttons, root }
