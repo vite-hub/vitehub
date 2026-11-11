@@ -3,7 +3,7 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { getConsoleSchedules } from "./definitions.ts"
 import { consoleRequestText, consoleRequestURL, consoleRoute } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -135,7 +135,7 @@ async function runScheduleWithConsoleAccess(event: ConsoleRequestEvent, access: 
   if (access.mode !== "token") return failure(unsignedRunMessage, 401)
   const request = getStandardContext(event).req
   const origin = request.headers.get("origin")
-  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginBearerCall(request, access)) {
+  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginCall(request, access)) {
     return failure("Schedule run origin is not allowed.", 403)
   }
   const read = await readScheduleRunBody(request)

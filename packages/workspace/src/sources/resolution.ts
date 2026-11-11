@@ -19,6 +19,7 @@ import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExec
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView, type WorkspaceSourceWriteGrant } from "./view.ts"
 import { isWorkspaceSourceSyncMetaKey } from "./sync-state.ts"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 
 import type {
   ReadonlyWorkspaceFacade,
@@ -943,10 +944,6 @@ function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSo
   }
   if (ownSourceOption(source, "sync")) return source
   return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {

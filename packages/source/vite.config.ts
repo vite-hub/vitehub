@@ -41,10 +41,8 @@ try {
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [
-        /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "fdir",
-        "ocache",
         "picomatch",
         "tinyglobby",
       ],

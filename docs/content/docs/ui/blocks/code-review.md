@@ -3,7 +3,7 @@ title: Code Review
 description: "Review an Agent's changes with a file tree, a patch diff for the selected file, and the verification trace."
 navigation.order: 12
 navigation.group: Blocks
-icon: i-ph-git-diff-light
+icon: i-lucide-git-compare
 ---
 
 This block combines [`FileTree`](/docs/ui/file-tree), [`PatchDiff`](/docs/ui/diff), and [`TraceRun`](/docs/ui/trace). Select a changed file to see its diff. The trace below shows the verification run. The patches and run are fake.

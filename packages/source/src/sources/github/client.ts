@@ -1,6 +1,7 @@
 import { forgeArchive, forgeEnv, forgeErrorStatus, forgeProvider, readForgeEnv } from "@vite-hub/forge"
 
 import { sourceError } from "../../core/errors.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 type GitHubProvider = Awaited<ReturnType<typeof forgeProvider>>
 
@@ -21,10 +22,6 @@ export function githubEnvToken(): string | undefined {
 /** The HTTP status of the Forge request behind a GitHub Source error. */
 export function githubErrorStatus(error: unknown): number | undefined {
   return error instanceof Error ? forgeErrorStatus(error.cause) : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {

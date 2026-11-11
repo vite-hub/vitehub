@@ -7,6 +7,7 @@ import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule } from "./execute.ts"
 import { runStartedSchedules } from "./started.ts"
 import { getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
+import { isRecordOrFunction as isObject } from "@vite-hub/internal/object"
 
 import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
 import type { ScheduleCronRecord } from "./due.ts"
@@ -54,10 +55,6 @@ interface StaticScheduleEntry extends ProcessScheduleTiming {
   /** The Definition, loaded at startup or on the first wake. */
   definition: () => Promise<CronScheduleDefinition>
   name: string
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function isStaticScheduleDefinition(value: unknown): value is CronScheduleDefinition {

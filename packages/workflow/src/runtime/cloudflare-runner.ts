@@ -22,50 +22,13 @@ export interface RunCloudflareWorkflowOptions {
   step?: WorkflowProviderStep
 }
 
+// Check the fields that the generated NonRetryableError reads, so an Error from another realm also matches.
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  if (typeof error !== "object" || error === null) return false
-  try {
-    const candidate = error as object
-    const retryable = Reflect.get(candidate, "isRetryable")
-    if (retryable !== false) return false
-    const nativeIsError: unknown = Reflect.get(Error, "isError")
-    if (typeof nativeIsError === "function") {
-      return (nativeIsError as (value: unknown) => unknown)(candidate) === true
-    }
-
-
-    const clone = Reflect.get(globalThis, "structuredClone")
-    if (typeof clone !== "function") return false
-    try {
-      return (clone as (value: unknown) => unknown)(candidate) instanceof Error
-    }
-    catch {
-      // Error objects can carry configurable, non-cloneable application fields.
-      // Hide those fields for the brand check, then restore the object exactly.
-      const descriptors = new Map<PropertyKey, PropertyDescriptor>()
-      try {
-        for (const key of Reflect.ownKeys(candidate)) {
-          const descriptor = Reflect.getOwnPropertyDescriptor(candidate, key)
-          if (!descriptor?.configurable || !("value" in descriptor)) continue
-          descriptors.set(key, descriptor)
-          Reflect.defineProperty(candidate, key, { ...descriptor, value: undefined })
-        }
-        try {
-          return (clone as (value: unknown) => unknown)(candidate) instanceof Error
-        }
-        catch {
-          return false
-        }
-      }
-      finally {
-        for (const [key, descriptor] of descriptors) Reflect.defineProperty(candidate, key, descriptor)
-      }
-    }
-  }
-  catch {
-    return false
-  }
+  return typeof error === "object" && error !== null
+    && "isRetryable" in error && error.isRetryable === false
+    && "message" in error && typeof error.message === "string"
 }
+
 function translateNonRetryableError(
   error: unknown,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],

@@ -1,7 +1,21 @@
-import { createSSRApp, h } from "vue"
+import { createSSRApp, defineComponent, h } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { describe, expect, it } from "vitest"
 import History from "../src/console/runtime/components/console-workspace-history.vue"
+
+import type { App } from "vue"
+
+// Nuxt UI stand-ins that render the props a reader sees: labels, item labels, and link targets.
+function stubs(app: App): void {
+  app.component("UIcon", { props: { name: String }, template: "<span />" })
+  app.component("UFormField", defineComponent({ props: { label: String }, setup: (props, { slots }) => () => h("label", [h("span", props.label), slots.default?.()]) }))
+  app.component("USelect", { props: { items: Array, modelValue: String }, render(this: { items: Array<{ label: string, value: string }>, modelValue: string }) {
+    return h("select", { value: this.modelValue }, this.items.map(item => h("option", { value: item.value }, item.label)))
+  } })
+  app.component("UButton", { props: { label: String, to: String }, render(this: { label: string, to?: string }) {
+    return this.to ? h("a", { href: this.to }, this.label) : h("button", this.label)
+  } })
+}
 
 const revision = {
   bytes: 24,
@@ -25,7 +39,7 @@ describe("Console Workspace history navigator", () => {
         cursor: "main:2",
       }),
     })
-    app.component("UIcon", { props: { name: String }, template: "<span />" })
+    stubs(app)
     const html = await renderToString(app)
     expect(html).toContain("Workspace history ref")
     expect(html).toContain("rev-2ab · Update docs")
@@ -43,7 +57,7 @@ describe("Console Workspace history navigator", () => {
         selectedRevision: revision.id,
       }),
     })
-    app.component("UIcon", { props: { name: String }, template: "<span />" })
+    stubs(app)
     const html = await renderToString(app)
     expect(html).not.toContain("Open revision on GitHub")
     expect(html).not.toContain("javascript:")

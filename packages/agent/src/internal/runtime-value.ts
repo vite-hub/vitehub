@@ -11,8 +11,7 @@ export function isRuntimeBoolean(value: unknown): value is boolean {
 }
 
 export function isRuntimeFunction(value: unknown): value is Function {
-  // Callable HTMLDDA browser values report undefined without being undefined.
-  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
+  return typeof value === "function"
 }
 
 export function isRuntimeNumber(value: unknown): value is number {

@@ -12,6 +12,7 @@ import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOption
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
+import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 
 import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
@@ -40,10 +41,6 @@ const mergeNoExternal = createNoExternalAddition(packageName)
 export type RateLimitVitePluginOptions = RateLimitOptions
 export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 type RateLimitConfig = UserConfig | ResolvedConfig
-
-function cloneNitroConfig(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
-}
 
 function mergeNitroConfig(
   config: RateLimitConfig,
