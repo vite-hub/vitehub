@@ -363,7 +363,7 @@ function connectionMountBase(base: unknown): string {
 }
 
 /**
- * The management action route takes only `POST`, so a `GET` of the same path reaches the Console page.
+ * The management action route takes only `POST`, so a `GET` of the same path reaches the app.
  * The connect and callback routes are the only `GET` routes under it.
  */
 function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {

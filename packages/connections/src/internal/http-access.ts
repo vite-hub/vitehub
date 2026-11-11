@@ -69,7 +69,7 @@ export async function checkConnectionsAccess(
   let actor: unknown
   if (policy === "development") {
     if (!v.is(developmentProcessSchema, globalThis.process)) {
-      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
+      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires an actor module outside local development.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
     }
     actor = "user:local"
   }

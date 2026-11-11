@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -113,10 +114,6 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
       why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
     },
-    SETUP_CONSOLE_INVALID: {
-      fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",
-      why: () => "--console must be `<pendingId>:sha256:<64 hex characters>`. The value is not printed, because it can hold a secret.",
-    },
     SETUP_DEPLOY_HOST_UNSUPPORTED: {
       fix: "Set `preset` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
       why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
@@ -158,14 +155,6 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_DEPLOY_FAILED: {
       fix: "Read the host output above, fix the cause, and run the command again.",
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
-    },
-    SETUP_DEPLOY_SECRET_UNVERIFIED: {
-      fix: "Check the project's environment variables on the host, then run the command again.",
-      why: ({ host, name }: { host?: unknown, name?: unknown }) => `${String(name)} was set on ${String(host)}, but the host does not list it. The app was not deployed with the Console link.`,
-    },
-    SETUP_DEPLOY_SECRET_UNSUPPORTED: {
-      fix: "Run the command on Linux or macOS, or set the variable in the host dashboard.",
-      why: ({ host, reason }: { host?: unknown, reason?: unknown }) => `ViteHub cannot set the Console secret on ${String(host)} without putting it in a command argument. ${String(reason)}`,
     },
     SETUP_DEPLOYMENTS_NOT_LINKED: {
       fix: "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",

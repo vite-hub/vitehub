@@ -135,12 +135,9 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
 
 /** Prerequisites selected by feature options, which do not participate in unconditional implications. */
 function optionPrerequisites(id: FeatureId, value: JsonValue | undefined): FeatureId[] {
-  if (id === "console" && value === true) return ["auth"]
   if (!isRecord(value)) return []
   if (id === "cache" && value.driver === "kv") return ["kv"]
   if (id === "agent" && (value.invocations === "database" || (isRecord(value.invocations) && value.invocations.store === "database"))) return ["database"]
-  if (id === "connections" && value.management) return ["console"]
-  if (id === "console" && value.auth === "app") return ["auth"]
   const required: FeatureId[] = []
   if (id === "observability" && value.papercuts) required.push("agent", "console")
   if (id === "observability" && value.posthog) required.push("env")

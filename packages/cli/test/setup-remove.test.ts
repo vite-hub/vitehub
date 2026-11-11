@@ -355,12 +355,6 @@ describe("vitehub remove", () => {
       uninstall: ["@libsql/client", "@vite-hub/agent", "drizzle-orm"],
     },
     {
-      config: '{ preset: "node", auth: true, console: { auth: { provider: "github", org: "vite-hub" } } }',
-      feature: "console",
-      packages: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
-      uninstall: ["@better-auth/oauth-provider"],
-    },
-    {
       config: '{ preset: "node", database: true, agent: true, console: { auth: false } }',
       feature: "database",
       packages: ["@vite-hub/database", "@libsql/client", "drizzle-orm"],
@@ -388,12 +382,9 @@ describe("vitehub remove", () => {
     { by: "cache", feature: "kv", options: 'preset: "netlify", cache: { driver: "kv" }, kv: { driver: "upstash" }' },
     { by: "agent", feature: "database", options: 'agent: { invocations: "database" }, database: true' },
     { by: "agent", feature: "database", options: 'agent: { invocations: { store: "database" } }, database: true' },
-    { by: "connections", feature: "console", options: 'connections: { management: true }, console: { auth: false }' },
     { by: "observability", feature: "agent", options: 'observability: { service: "app", papercuts: true }, agent: true, console: { auth: false }' },
     { by: "observability", feature: "console", options: 'observability: { service: "app", papercuts: true }, agent: true, console: { auth: false }' },
     { by: "observability", feature: "env", options: 'observability: { service: "app", posthog: true }, env: {}' },
-    { by: "console", feature: "auth", options: 'auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }' },
-    { by: "console", feature: "auth", options: 'auth: true, console: true' },
   ])("preserves $feature required by $by options ($options)", async ({ by, feature, options }) => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -434,28 +425,10 @@ describe("vitehub remove", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it("refuses to uninstall app Auth while Console uses it", async () => {
-    const root = await createProject({
-      "package.json": JSON.stringify({ dependencies: { "@vite-hub/auth": "1.0.0", "better-auth": "1.0.0", "@better-auth/oauth-provider": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
-      "vite.config.ts": viteConfig('{ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" } }'),
-      "server/auth.ts": "export default {}\n",
-      "server/console-authorize.ts": "export default () => false\n",
-    })
-    const before = await snapshot(root)
-    const pm = fakePackageManager(root)
-
-    const refused = await remove(["auth", "--yes"], root, pm.spawn)
-
-    expect(refused.exitCode).toBe(3)
-    expect(refused.json.impliedBy).toEqual(["console"])
-    expect(await snapshot(root)).toEqual(before)
-    expect(pm.calls).toEqual([])
-  })
-
-  it.each(["false", '"token"', '{ provider: "github", org: "vite-hub" }'])("allows Auth removal with independent Console access: %s", async (auth) => {
+  it.each(["true", "{ auth: false }", '{ authorize: "server/console-authorize.ts" }'])("allows Auth removal with the Console on: %s", async (console) => {
     const root = await createProject({
       "package.json": pnpmManifest,
-      "vite.config.ts": viteConfig(`{ auth: true, console: { auth: ${auth} } }`),
+      "vite.config.ts": viteConfig(`{ auth: true, console: ${console} }`),
     })
 
     const result = await remove(["auth", "--yes"], root)
