@@ -195,6 +195,8 @@ interface OpenView {
 const HOLD_MS = 5_000
 /** How long a head waits for a push before a read resolves the branch again. A push webhook moves it sooner. */
 const CHECK_MS = 60 * 60 * 1000
+/** How long the lease of an hourly check holds off the checks of other server instances. */
+const CHECK_LEASE_MS = 60_000
 /** How long a server instance holds the commit that a branch or pull request ref resolved to. */
 const REF_HOLD_MS = 30_000
 /** The ref lookups that one server instance holds. */
@@ -226,6 +228,11 @@ function isDiagnostic(error: unknown, code: string): boolean {
 /** The KV key of a head, such as `content:head:docs`. `vitehub kv get content:head:docs` shows it. */
 function headKey(name: string): string {
   return `content:head:${name}`
+}
+
+/** The KV key of the lease of the hourly check of a Source, such as `content:check:docs`. */
+function checkKey(name: string): string {
+  return `content:check:${name}`
 }
 
 /** The KV key of the last push webhook delivery of a Source, such as `content:webhook:docs`. */
@@ -488,14 +495,23 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
-  /** Move the head to the latest valid commit of the branch, and return the stored head. */
-  async function move(state: HeadState): Promise<StoredHead | null> {
+  /**
+   * Move the head to the latest valid commit of the branch, and return the stored head. With `recheck`, a branch that did
+   * not move still stores the time of the check.
+   */
+  async function move(state: HeadState, recheck = false): Promise<StoredHead | null> {
     const before = await read(state)
     if (before?.pinned) return before
     // A fresh reader resolves the branch, not the head that the instance reads.
     const revision = await createSource(state.definition).revision()
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
-    if (!revision?.immutable || revision.id === before?.sha) return before
+    if (!revision?.immutable) return before
+    if (revision.id === before?.sha) {
+      if (!recheck || !before) return before
+      const checked = { ...before, checkedAt: new Date().toISOString() }
+      await write(state, checked)
+      return checked
+    }
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
@@ -517,13 +533,17 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   /**
    * The head without a push for one hour resolves its branch again, so it moves without a webhook too. The server
-   * instance that reads it first writes the time before it checks, so other server instances do not check too.
+   * instance that reads it first takes a one-minute lease under another KV key, so other server instances do not check
+   * too. Only the head write of the check stores `checkedAt`: a stale copy of the head never goes back to KV, and a
+   * failed check is tried again after the lease.
    */
   async function recheck(state: HeadState, head: StoredHead): Promise<StoredHead | null> {
     const checkedAt = Date.parse(head.checkedAt ?? head.movedAt ?? "")
     if (head.pinned || Date.now() - (Number.isNaN(checkedAt) ? 0 : checkedAt) < CHECK_MS) return head
-    await write(state, { ...head, checkedAt: new Date().toISOString() })
-    return await move(state)
+    const lease = await kvCall(state, store => store.get<{ at: number }>(checkKey(state.name)))
+    if (lease && Date.now() - lease.at < CHECK_LEASE_MS) return head
+    await kvCall(state, store => store.set(checkKey(state.name), { at: Date.now() }))
+    return await move(state, true)
   }
 
   /** The head held in memory, or read from KV. The first read of a Source without a stored head resolves one. */

@@ -193,6 +193,62 @@ describe("hourly check without a webhook", () => {
     expect(Date.parse(head.checkedAt!)).toBe(Date.now())
   })
 
+  it("keeps a pin that another server instance stores while a read checks the branch", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const reader = await server()
+    const writer = await server()
+    fake.commit("main", { "guide.md": page("Guide v2") })
+    vi.advanceTimersByTime(61 * 60 * 1000)
+
+    // The reader stops after it reads the old head, and the writer pins the first commit.
+    let paused: Promise<void> | undefined
+    let resume!: () => void
+    let reached!: () => void
+    const atHead = new Promise<void>((resolve) => { reached = resolve })
+    paused = new Promise<void>((resolve) => { resume = resolve })
+    registerContentKV({
+      async get<T>(key: string) {
+        const result = await kv.get<T>(key)
+        const gate = key === "content:head:docs" ? paused : undefined
+        if (gate) {
+          paused = undefined
+          reached()
+          await gate
+        }
+        return result
+      },
+      set: (key, value) => kv.set(key, value),
+    })
+    const reading = reader.content.sources.head("docs")
+    await atHead
+    await writer.content.sources.pin(first, "docs")
+    resume()
+    expect(await reading).toMatchObject({ sha: first, pinned: true })
+    expect(await writer.content.sources.head("docs")).toMatchObject({ sha: first, pinned: true })
+  })
+
+  it("writes the head key once per check, within the KV limit of one write per key per second", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    const { content } = await server()
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    vi.advanceTimersByTime(61 * 60 * 1000)
+    // Cloudflare KV answers 429 to a second write of one key within a second.
+    const written = new Map<string, number>()
+    registerContentKV({
+      get: key => kv.get(key),
+      async set(key, value) {
+        const last = written.get(key)
+        if (last !== undefined && Date.now() - last < 1000) return [new Error("KV PUT failed: 429 Too Many Requests"), undefined] as const
+        written.set(key, Date.now())
+        return await kv.set(key, value)
+      },
+    })
+    expect(await title(content, "/guide")).toBe("Guide v2")
+    expect((await content.sources.head("docs")).sha).toBe(second)
+  })
+
   it("checks once per hour across server instances", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     fake.commit("main", { "guide.md": page("Guide") })
