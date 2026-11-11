@@ -404,6 +404,7 @@ const nitroRuntimeResolverNames = new Set([
 
 const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
+  "@vite-hub/content/vite",
   "@vite-hub/sandbox/task/vite",
 ])
 
