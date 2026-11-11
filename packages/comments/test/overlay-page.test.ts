@@ -74,6 +74,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   Reflect.deleteProperty(document, "elementsFromPoint")
+  getSelection()?.removeAllRanges()
 })
 
 async function startEdit() {
@@ -189,6 +190,35 @@ describe("the Comments overlay on a page", () => {
     await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer']")).not.toBeNull())
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it.each([["another subject", false], ["the same subject", true]])("opens the composer on text selected while a page of %s loads", async (_, shared) => {
+    await serveComments({
+      identify: () => ada,
+      ...(shared ? { subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })], page: () => ({ kind: "drop", id: "same" }) } : {}),
+    })
+    tools = pageTools()
+    document.documentElement.append(tools.pill)
+    ;({ shadow, overlay } = await startOverlay(tools))
+    await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
+    vi.spyOn(Range.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 100, 20))
+    const session = api.session
+    const held = deferred<void>()
+    vi.spyOn(api, "session").mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(api.session).toHaveBeenCalledWith("/next"))
+    const range = document.createRange()
+    range.selectNodeContents(document.querySelector("h1")!)
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(range)
+    press(document.body, "c")
+    held.resolve()
+    await vi.waitFor(() => expect(shadow.querySelector("textarea[aria-label='Comment']")).not.toBeNull())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(shadow.querySelector("textarea[aria-label='Comment']")).not.toBeNull()
   })
 
   it("ignores an older inline field lookup after a new selection", async () => {

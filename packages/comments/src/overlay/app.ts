@@ -907,7 +907,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
    */
   function resolvePage(next: string) {
     const current = ++navigations
-    void api.session(next).then(([error, answer]) => {
+    void api.session(next).then(async ([error, answer]) => {
       if (current !== navigations || page.value !== next) return
       if (error) {
         retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => {
@@ -924,6 +924,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
       // The same subject lists no threads again, so the new page joins its room here.
       else if (!room && state.status.value === "ready") void joinRoom()
+      // A new subject cancels the draft of the old one. Comment mode turns a selected text into a draft, so it waits.
+      await nextTick()
+      if (current !== navigations) return
       resolving.value = false
       const resume = paused.value
       paused.value = false
