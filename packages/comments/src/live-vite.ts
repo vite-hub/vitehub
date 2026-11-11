@@ -16,6 +16,7 @@ import { parseJSONC, parseTOML } from "confbox"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
+import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
 import { commentsTableNames } from "./table-names.ts"
 
@@ -81,11 +82,6 @@ export interface CommentsVitePluginOptions {
   enabled?: boolean
   /** Whether the app configures ViteHub Auth, so Comments reads its session. Default `false`. */
   auth?: boolean
-  /**
-   * The Console of the app: a module and its `consoleRealtimeAccess` export. With it, the people that the Console lets
-   * use its `comments` section are the people of Comments, and opening the Console turns the page tools on for them.
-   */
-  console?: { module: string }
   imports?: Partial<CommentsImports>
   /**
    * Comments without `vite-hub`, as `comments()` sets it: it turns on without `server/comments.ts`, keeps threads in a
@@ -333,33 +329,22 @@ function definitionLines(definition: string, runtime: string): string[] {
   ]
 }
 
-/** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
-function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], option: "session" | "consoleSession", value: string } {
-  if (options.console) {
-    return {
-      imports: [
-        `import { consoleRealtimeAccess } from ${JSON.stringify(options.console.module)}`,
-        `import { commentsConsoleSession } from ${JSON.stringify(imports.runtime)}`,
-      ],
-      option: "consoleSession",
-      value: `commentsConsoleSession(consoleRealtimeAccess(${JSON.stringify(commentsConsoleSection.id)}))`,
-    }
-  }
+/** Generated session reader: the ViteHub Auth user of a request. */
+function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], value: string } {
   return options.auth
-    ? { imports: [`import { commentsAuthSession } from ${JSON.stringify(imports.auth)}`], option: "session", value: "commentsAuthSession" }
-    : { imports: [], option: "session", value: "undefined" }
+    ? { imports: [`import { commentsAuthSession } from ${JSON.stringify(imports.auth)}`], value: "commentsAuthSession" }
+    : { imports: [], value: "undefined" }
 }
 
-/** The session reader of presence and MCP: the Console or Auth user, else the person signed in with GitHub. */
-function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], option: "session" | "consoleSession", value: string, githubLogin?: true } {
-  if (options.auth || options.console) return sessionLines(options, imports)
+/** The session reader of presence and MCP: the Auth user, else the person signed in with GitHub. */
+function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], value: string, githubLogin?: true } {
+  if (options.auth) return sessionLines(options, imports)
   const route = mountedCommentsRoute(base)
   return {
     imports: [
       `import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`,
       `const githubLogin = createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })})`,
     ],
-    option: "session",
     value: "githubLogin.user",
     githubLogin: true,
   }
@@ -368,8 +353,8 @@ function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: Com
 export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: CommentBuild, base?: string }): string {
   const session = sessionLines(input.session, input.imports)
   const route = mountedCommentsRoute(input.base)
-  // An app with neither Auth nor the Console gets Sign in with GitHub, which works once the server has an OAuth client.
-  const githubLogin = !input.session.auth && !input.session.console
+  // An app without Auth gets Sign in with GitHub, which works once the server has an OAuth client.
+  const githubLogin = !input.session.auth
   return [
     `import { createCommentsHandler${githubLogin ? ", createCommentsGitHubLogin" : ""} } from ${JSON.stringify(input.imports.runtime)}`,
     `import components from "./components.mjs"`,
@@ -384,7 +369,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     "",
     "export default createCommentsHandler({",
     "  comments,",
-    `  ${session.option}: ${session.value},`,
+    `  session: ${session.value},`,
     ...(githubLogin ? [`  githubLogin: createCommentsGitHubLogin(${JSON.stringify({ ...(input.build?.repository ? { repository: input.build.repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })}),`] : []),
     ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
@@ -413,18 +398,18 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
       // Comments opened this database itself, so it creates and migrates its tables before the first query.
-      `export default defineCommentsPlugin({ comments, database, schema: "comments", ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")} })`,
+      `export default defineCommentsPlugin({ comments, database, schema: "comments", session: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")} })`,
       "",
     ].join("\n")
   }
 
   return [
     `import { defineCommentsPlugin, selectCommentsDatabase } from ${JSON.stringify(input.imports.runtime)}`,
-    `import { databases } from ${JSON.stringify(input.imports.databases)}`,
     ...definitionLines(input.definition, input.imports.runtime),
     ...session.imports,
     "",
-    `const database = () => selectCommentsDatabase(databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
+    // The Database registry imports the app's schema and drizzle-orm, so it loads on the first Comments call.
+    `const database = async () => selectCommentsDatabase((await import(${JSON.stringify(input.imports.databases)})).databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
     "",
     // With Auth, `@` suggests the users of Auth.
     ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
@@ -433,7 +418,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     `export default defineCommentsPlugin({ ${[
       "comments",
       "database",
-      `${session.option}: ${session.value}`,
+      `session: ${session.value}`,
       ...(session.githubLogin ? ["githubLogin"] : []),
       ...(input.session?.auth ? ["users: commentsAuthUsers"] : []),
       ...(input.session?.blob ? ["attachments: blob"] : []),
@@ -510,22 +495,28 @@ async function addD1Binding(projectRoot: string, nitro: NitroOptions, where: str
   nitro.cloudflare = { ...cloudflare, wrangler: { ...wrangler, d1_databases: [...bindings, { binding, database_name: "comments" }] } }
 }
 
-/** Whether `vite-hub` is in the app, so it runs Comments and `comments()` steps aside. */
+/** Whether `vite-hub` is in the app, so Comments runs through `vitehub()` and not `comments()`. */
 function hasViteHubComments(config: UserConfig): boolean {
-  const find = (value: unknown): boolean => Array.isArray(value)
-    ? value.some(find)
-    : value !== null && typeof value === "object" && Reflect.get(value, "name") === "@vite-hub/comments/vite"
+  const find = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(find)
+    if (value === null || typeof value !== "object") return false
+    const name = Reflect.get(value, "name")
+    return name === "@vite-hub/comments/vite" || name === "vite-hub/comments-off"
+  }
   return find(config.plugins)
 }
 
 /**
  * Comments for any Vite app, without `vite-hub`: the comment overlay on every page with `?vitehub`, threads in a
- * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. With `vite-hub`, it does
- * nothing, because `vitehub()` runs Comments.
+ * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. Next to `vitehub()` it fails
+ * with `COMMENTS_B0003`, because `vitehub({ comments })` and `server/comments.ts` turn Comments on there.
  */
 export function comments(options: CommentsOptions = {}): PluginOption[] {
   const plugin = hubComments({ standalone: options })
-  plugin.apply = config => !hasViteHubComments(config)
+  plugin.apply = (config) => {
+    if (hasViteHubComments(config)) throw commentsErrorDiagnostics.COMMENTS_B0003()
+    return true
+  }
   return [plugin, ...includedNitro({ unless: hasViteHubComments })]
 }
 
@@ -600,7 +591,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { ${session.option}: ${session.value} })`,
+          `export default commentsRealtime(comments, { session: ${session.value} })`,
           "",
         ].join("\n"))
         return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }

@@ -1,16 +1,21 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
+// The Node build of vega-canvas loads the optional `canvas` package with a top-level await, which Nitro's es2019 target rejects.
+// Without `canvas`, both builds return null in Node, so the browser build is bundled for every host.
+const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import.meta.resolve("vega-canvas")));
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
-    copy: [{ from: "styles.css", to: "dist" }],
+    alias: { "vega-canvas": vegaCanvasBrowser },
+    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }],
     deps: {
-      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", /^comark-(?!chat(?:\/|$))/],
-      // Keep Vega's Node/browser exports selectable by the consuming host.
+      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
+      // Keep vega-loader's Node/browser exports selectable by the consuming host.
       neverBundle: [
-        "vega-canvas",
         "vega-loader",
         "#app",
         "@comark/vue",
@@ -27,6 +32,8 @@ export default defineConfig({
         /^@codemirror\//,
         "@lezer/highlight",
         /^@xterm\//,
+        // MarkdownEditor's Tiptap must be the app's own, the one Nuxt UI's editor menus use.
+        /^@tiptap\//,
       ],
       onlyBundle: false,
     },
@@ -41,12 +48,14 @@ export default defineConfig({
       "src/choices-input.ts",
       "src/code-block.ts",
       "src/markdown.ts",
+      "src/markdown-editor.ts",
       "src/marker.ts",
       "src/message.ts",
       "src/message-parts.ts",
       "src/prompt-input.ts",
       "src/trace.ts",
       "src/headless.ts",
+      "src/theme.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",
       "src/runtime/nuxt-plugin.ts",
@@ -61,6 +70,7 @@ export default defineConfig({
       "src/workspace-boot-status.ts",
       "src/connect-panel.ts",
       "src/browser-support-notice.ts",
+      "src/playground.ts",
     ],
     exports: {
       customExports(exports) {
@@ -79,16 +89,11 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        const remapped = Object.fromEntries(
-          Object.entries(normalized).map(([key, value]) =>
-            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
-          ),
-        );
-        return { ...remapped, "./styles.css": "./dist/styles.css" };
+        return { ...normalized, "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
       },
       inlinedDependencies: false,
     },
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: true,
+    publint: "ci-only",
   },
 });

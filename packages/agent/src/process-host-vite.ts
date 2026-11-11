@@ -48,7 +48,7 @@ export function processAgentHost(options: { entry: string; exportName?: string; 
       );
       await writeFile(
         drain,
-        `${hostImport}\nexport default () => ({ status: host.status() })\n`,
+        `${hostImport}\nexport default { fetch: () => Response.json({ status: host.status() }) }\n`,
       );
       const result: import("vite").UserConfig & { nitro: { plugins: string[], handlers: { route: string, handler: string }[] } } = { nitro: { plugins: [plugin], handlers: [{ route: drainRoute, handler: drain }] } };
       return result

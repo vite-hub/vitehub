@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { github } from "../src/channels.ts"
 import { defineCapability } from "../src/capability-runtime.ts"
-import { defineAgent, runAgentInline, streamAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
 import { forgeAccessKey, readForgeAccess } from "../src/internal/forge-access.ts"
 import type { AgentCallbackContext, AgentRuntimeContext } from "../src/types.ts"
 
@@ -60,7 +61,7 @@ describe("Agent forge access", () => {
     })
 
     // SAFETY: streamAgent returns an async iterable for a driver that yields text.
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(agent, runtime(), {}) as AsyncIterable<unknown>
     for await (const _event of stream) { /* consume the stream */ }
 
     expect(seen).toHaveLength(2)

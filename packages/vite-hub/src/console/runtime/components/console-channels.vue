@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { consoleDateTime } from "../client/format";
 import { inlineChannelArchiveMedia } from "@vite-hub/internal/channel-archive";
-import { ChatMessage } from "@vite-hub/ui";
+import { ChatMessage, Status } from "@vite-hub/ui";
 import type { UIMessage } from "ai";
 import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -8,11 +9,11 @@ import { useRoute, useRouter } from "vue-router";
 
 import { requestConsole } from "../client/request";
 import { queryText, useConsoleQuery } from "../client/route-query";
+import { consoleMountBase, consoleMountPath } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
 interface Retention {
@@ -28,6 +29,9 @@ interface ChannelRow {
   conversations: boolean;
   provider: string;
   retention: Retention;
+  simulated: boolean;
+  /** The Agent's chat page of a simulated Channel, a path on this origin. */
+  simulator?: string;
 }
 
 interface ThreadRow {
@@ -78,6 +82,7 @@ const threadsLoading = ref(false);
 const messagesLoading = ref(false);
 const downloading = ref<"json" | "markdown">();
 const error = ref<unknown>();
+const simulatorFrame = ref<HTMLIFrameElement>();
 let channelsRequest: AbortController | undefined;
 let threadsRequest: AbortController | undefined;
 let messagesRequest: AbortController | undefined;
@@ -93,6 +98,12 @@ function record(value: unknown): Record<string, unknown> {
 
 function list(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(record) : [];
+}
+
+/** A path on this origin, so a page from the Channel list cannot send the browser elsewhere. */
+function localPath(value: unknown): string | undefined {
+  const path = text(value);
+  return path?.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : undefined;
 }
 
 function queryString(value: LocationQueryValue | LocationQueryValue[]): string | undefined {
@@ -116,6 +127,9 @@ const selectedThread = computed(() => queryString(route.query.thread));
 const selected = computed(() => channels.value.find(entry => entry.agent === selectedAgent.value && entry.channel === selectedChannel.value));
 // The thread search lives in the URL with the Channel and the thread, so a reload or a shared link opens the same list.
 const { q: threadSearch } = useConsoleQuery({ q: queryText() });
+function clearThreadSearch(): void {
+  threadSearch.value = "";
+}
 /** Loaded threads whose title, participants, or id contain the search. */
 const visibleThreads = computed(() => {
   const query = threadSearch.value.trim().toLowerCase();
@@ -134,13 +148,19 @@ async function loadChannels(): Promise<void> {
   channelsLoading.value = true;
   try {
     const value = record(await requestConsole(props.channelsBase, { signal: controller.signal }));
-    channels.value = list(value.channels).map(entry => ({
-      agent: text(entry.agent) ?? "",
-      channel: text(entry.channel) ?? "",
-      conversations: entry.conversations === true,
-      provider: text(entry.provider) ?? "",
-      retention: parseRetention(entry.retention),
-    }));
+    channels.value = list(value.channels).map(entry => {
+      const path = entry.simulated === true ? localPath(entry.simulator) : undefined;
+      const simulator = path ? consoleMountPath(consoleMountBase(window.location.pathname), path) : undefined;
+      return {
+        agent: text(entry.agent) ?? "",
+        channel: text(entry.channel) ?? "",
+        conversations: entry.conversations === true,
+        provider: text(entry.provider) ?? "",
+        retention: parseRetention(entry.retention),
+        simulated: entry.simulated === true,
+        ...(simulator ? { simulator } : {}),
+      };
+    });
     error.value = undefined;
   } catch (failure) {
     if (!isAbort(failure)) error.value = failure;
@@ -149,8 +169,10 @@ async function loadChannels(): Promise<void> {
   }
 }
 
-async function loadThreads(append = false): Promise<void> {
+/** `append` adds the next page. `refresh` keeps the loaded threads on screen until the new first page arrives. */
+async function loadThreads(mode: "append" | "refresh" | "replace" = "replace"): Promise<void> {
   threadsRequest?.abort();
+  const append = mode === "append";
   const entry = selected.value;
   if (!entry?.conversations) {
     threads.value = [];
@@ -160,7 +182,7 @@ async function loadThreads(append = false): Promise<void> {
   const controller = new AbortController();
   threadsRequest = controller;
   threadsLoading.value = true;
-  if (!append) threads.value = [];
+  if (mode === "replace") threads.value = [];
   try {
     const value = record(await requestConsole(`${props.channelsBase}/threads`, {
       query: { agent: entry.agent, channel: entry.channel, cursor: append ? threadsCursor.value : undefined },
@@ -234,8 +256,7 @@ function select(query: { agent?: string; channel?: string; thread?: string }): v
 }
 
 function when(value: string | undefined): string {
-  const date = value ? new Date(value) : undefined;
-  return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "";
+  return value && Number.isFinite(Date.parse(value)) ? consoleDateTime(value) : "";
 }
 
 function view(message: MessageRow): UIMessage {
@@ -280,6 +301,13 @@ async function download(format: "json" | "markdown"): Promise<void> {
   }
 }
 
+// The chat page of a simulated Channel posts this message at the end of each reply, so a new thread shows at once.
+function onSimulatorMessage(event: MessageEvent): void {
+  const frame = simulatorFrame.value?.contentWindow;
+  if (!frame || event.source !== frame || event.origin !== location.origin) return;
+  if (record(event.data).type === "vitehub:channel-reply") void loadThreads("refresh");
+}
+
 watch(() => [selectedAgent.value, selectedChannel.value], () => void loadThreads());
 watch(() => [selectedAgent.value, selectedChannel.value, selectedThread.value], () => void loadMessages());
 watch(channels, () => {
@@ -289,10 +317,12 @@ watch(channels, () => {
 
 onMounted(() => {
   rememberConsoleSection("channels");
+  window.addEventListener("message", onSimulatorMessage);
   void loadChannels();
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("message", onSimulatorMessage);
   channelsRequest?.abort();
   threadsRequest?.abort();
   messagesRequest?.abort();
@@ -308,15 +338,16 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="channels-conversation" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="channels-conversation">
       <ConsolePageHeader title="Channels" :description="selectedThread ?? selected?.channel" :toggle="false">
         <template #right>
+          <UButton v-if="selected?.simulator" label="Open chat" icon="i-lucide-external-link" size="sm" variant="outline" color="neutral" :href="selected.simulator" external target="_blank" rel="noopener" />
           <template v-if="selectedThread">
-            <UButton label="Markdown" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
-            <UButton label="JSON" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
+            <UButton label="Markdown" icon="i-lucide-download" variant="outline" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
+            <UButton label="JSON" icon="i-lucide-download" variant="outline" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
           </template>
           <UTooltip text="Refresh">
-            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
+            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
@@ -327,21 +358,27 @@ onBeforeUnmount(() => {
           <template v-if="channelsLoading && !channels.length">
             <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
           </template>
-          <p v-else-if="!channels.length" class="px-2 py-1.5 text-xs text-muted">No Agent has a Channel yet.</p>
+          <UEmpty v-else-if="!channels.length" variant="naked" size="xs" icon="i-lucide-message-square" title="No Channels yet" description="Add a Channel to an Agent, such as Slack or Teams, to see its threads here." />
           <template v-else>
-            <button
+            <div
               v-for="entry in channels"
               :key="`${entry.agent}/${entry.channel}`"
-              type="button"
-              class="vitehub-console__section-link shrink-0 text-start"
-              :aria-current="entry === selected && !selectedThread ? 'true' : undefined"
-              @click="select({ agent: entry.agent, channel: entry.channel })"
+              class="flex shrink-0 items-center"
             >
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
-                <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.retention.durable ? " · durable" : " · provider window" }}</span>
-              </span>
-            </button>
+              <button
+                type="button"
+                class="vitehub-console__section-link min-w-0 flex-1 text-start"
+                :aria-current="entry === selected && !selectedThread ? 'true' : undefined"
+                @click="select({ agent: entry.agent, channel: entry.channel })"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
+                  <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.simulated ? " · simulated" : entry.retention.durable ? " · durable" : " · provider window" }}</span>
+                </span>
+                <UBadge v-if="entry.simulated" class="shrink-0" color="neutral" variant="subtle" size="sm" label="Simulated" />
+              </button>
+              <a v-if="entry.simulator" :href="entry.simulator" :aria-label="`Open ${entry.agent} · ${entry.channel} chat page`" class="shrink-0 px-2 text-xs text-muted hover:text-default">Chat page</a>
+            </div>
           </template>
 
           <template v-if="selected">
@@ -351,17 +388,23 @@ onBeforeUnmount(() => {
               v-model="threadSearch"
               class="mt-1 w-full shrink-0"
               icon="i-lucide-search"
-              size="sm"
               placeholder="Filter threads…"
               aria-label="Filter threads"
-              :ui="{ base: 'text-base sm:text-sm' }"
             />
-            <p v-if="!selected.conversations" class="px-2 py-1.5 text-xs text-muted">This Channel has its own history collection and no per-thread conversation.</p>
+            <UEmpty v-if="!selected.conversations" variant="naked" size="xs" icon="i-lucide-messages-square" title="No threads to show" description="This Channel keeps its own history and has no conversation per thread." />
             <template v-else-if="threadsLoading && !threads.length">
               <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
             </template>
             <template v-else-if="threads.length">
-              <p v-if="!visibleThreads.length" class="px-2 py-1.5 text-xs text-muted">No loaded thread matches “{{ threadSearch.trim() }}”.</p>
+              <UEmpty
+                v-if="!visibleThreads.length"
+                variant="naked"
+                size="xs"
+                icon="i-lucide-search"
+                :title="`No loaded thread matches “${threadSearch.trim()}”`"
+                description="The search checks only the threads that loaded."
+                :actions="[{ label: 'Clear search', variant: 'ghost', onClick: clearThreadSearch }]"
+              />
               <button
                 v-for="thread in visibleThreads"
                 :key="thread.thread"
@@ -378,40 +421,51 @@ onBeforeUnmount(() => {
                   </span>
                 </span>
               </button>
-              <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="threadsLoading" @click="loadThreads(true)" />
+              <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="threadsLoading" @click="loadThreads('append')" />
             </template>
-            <p v-else class="px-2 py-1.5 text-xs text-muted">No conversations yet. A thread appears here after an Agent answers in it.</p>
+            <UEmpty v-else variant="naked" size="xs" icon="i-lucide-messages-square" title="No conversations yet" description="A thread shows here after an Agent answers in it." />
           </template>
         </nav>
 
         <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Conversation">
+          <!-- The warning is about a transcript, so it shows only when a thread is open. -->
           <UAlert
-            v-if="(retention ?? selected?.retention)?.warning && (selectedThread || selected)"
+            v-if="selectedThread && (retention ?? selected?.retention)?.warning"
             class="m-3"
             color="warning"
-            variant="subtle"
             icon="i-lucide-triangle-alert"
             title="Older messages may be missing"
             :description="(retention ?? selected?.retention)?.warning"
+          />
+          <!-- The chat page belongs to the Agent. The Console only shows it, and keeps it while a thread is open, so
+               the chat is still there after the thread closes. -->
+          <iframe
+            v-if="selected?.simulator"
+            v-show="!selectedThread"
+            ref="simulatorFrame"
+            :key="selected.simulator"
+            class="min-h-0 w-full flex-1 border-0"
+            :src="selected.simulator"
+            :title="`Chat with ${selected.agent} through ${selected.channel}`"
           />
           <div v-if="messagesLoading && !messages.length" class="grid gap-3 p-4" aria-busy="true">
             <USkeleton v-for="index in 5" :key="index" class="h-12" :class="index % 2 ? 'w-2/3' : 'ms-auto w-1/2'" />
           </div>
           <UEmpty
-            v-else-if="!selectedThread"
+            v-else-if="!selectedThread && !selected?.simulator"
             variant="naked"
             class="flex-1 py-16"
             icon="i-vitehub-channels"
             :title="selected ? 'Choose a thread' : 'Choose a Channel'"
             description="Read a whole conversation from the provider history, the transcripts, and the Agent's runs, then download it."
           />
-          <UEmpty v-else-if="!messages.length" variant="naked" class="flex-1 py-16" icon="i-lucide-message-square-off" title="No messages found" description="The provider and the transcripts have nothing for this thread." />
-          <ol v-else class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+          <UEmpty v-else-if="selectedThread && !messages.length" variant="naked" class="flex-1 py-16" icon="i-lucide-message-square-off" title="No messages found" description="The provider and the transcripts have nothing for this thread." />
+          <ol v-else-if="selectedThread" class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
             <li v-for="message in messages" :key="message.id">
               <ChatMessage :message="view(message)">
                 <template #header>
                   <span class="text-xs text-muted">{{ message.author.name || (message.role === "assistant" ? "Agent" : "Unknown") }} · {{ when(message.at) }}</span>
-                  <ConsoleStatus v-if="message.source !== 'provider'" tone="neutral" :label="message.source === 'transcript' ? 'transcript' : 'from the run'" />
+                  <Status v-if="message.source !== 'provider'" tone="neutral" :label="message.source === 'transcript' ? 'transcript' : 'from the run'" />
                 </template>
                 <template #actions>
                   <ul v-if="message.attachments.length" class="flex flex-wrap gap-2 text-xs">
@@ -426,7 +480,7 @@ onBeforeUnmount(() => {
               </ChatMessage>
             </li>
             <li v-if="messagesCursor" class="self-center">
-              <UButton label="Load more" size="sm" variant="ghost" :loading="messagesLoading" @click="loadMessages(true)" />
+              <UButton label="Load more" variant="ghost" :loading="messagesLoading" @click="loadMessages(true)" />
             </li>
           </ol>
         </section>

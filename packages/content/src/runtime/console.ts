@@ -1,4 +1,5 @@
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type {
   ViteHubConsoleActionFailure,
@@ -52,10 +53,6 @@ const maximumActivityScanPerRef = 500
 const maximumSearchLimit = 50
 const maximumReferencePathnames = 100
 const referencePageSize = 1_000
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 function isContentRuntime(value: unknown): value is ContentRuntime {
   return isRecord(value)
@@ -191,12 +188,18 @@ function titleOf(collection: AnyContentCollection, data: Record<string, unknown>
   return String(title) === title && title.trim() ? title : id
 }
 
-/** The `{ id, digest }` entries of a publish or schedule request. */
+/** The `{ id, digest, locale? }` entries of a publish or schedule request. */
 function expectations(value: readonly unknown[]): ViteHubConsoleDocumentPublishExpectation[] {
   return value.map((entry: unknown) => {
     if (!isRecord(entry)) throw invalidInput("Each expect entry must be { id, digest }.")
-    return { id: text(entry.id, "expect.id"), digest: digest(entry.digest, "expect.digest") }
+    return { id: text(entry.id, "expect.id"), digest: digest(entry.digest, "expect.digest"), ...localeInput(entry) }
   })
+}
+
+/** The `locale` of a request, for the Content options of a collection with `locales`. Content checks the value. */
+function localeInput(input: Record<string, unknown>): { locale?: string } {
+  const locale = optionalText(input.locale, "locale")
+  return locale === undefined ? {} : { locale }
 }
 
 /** The tab token that a write carries, so the tab's own lease does not block it. */
@@ -433,7 +436,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     return statuses.filter(status => ids.has(status.id))
   }
 
-  async function view(collection: AnyContentCollection, document: ContentDocument): Promise<ViteHubConsoleDocument> {
+  /**
+   * The editor view of a document. `locale` is the requested locale: a translation that does not exist yet reads as the
+   * source version with `fallback`, and has no state of its own.
+   */
+  async function view(collection: AnyContentCollection, document: ContentDocument, locale?: string): Promise<ViteHubConsoleDocument> {
     const result: ViteHubConsoleDocument = {
       collection: document.collection,
       id: document.id,
@@ -446,10 +453,20 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     }
     if (document.url !== undefined) result.url = document.url
     if (document.issues?.length) result.issues = json(document.issues)
-    const status = await collection.status(document.id)
+    if (document.locale !== undefined) result.locale = document.locale
+    if (document.fallback) result.fallback = true
+    if (document.source) result.source = { ...document.source }
+    const translated = collection.kind === "documents" && locale !== undefined && locale !== collection.locales?.[0]
+    const [status, source] = await Promise.all([
+      collection.kind === "documents" && locale !== undefined ? collection.status(document.id, { locale }) : collection.status(document.id),
+      // The translation states live on the source locale document.
+      translated ? collection.status(document.id) : undefined,
+    ])
     if (status) result.state = status.state
     if (status?.schedule) result.schedule = scheduleView(status.schedule)
     if (status?.conflict) result.conflict = { published: status.published }
+    const translations = (source ?? status)?.translations
+    if (translations) result.translations = { ...translations }
     return result
   }
 
@@ -490,7 +507,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           name: collection.name,
           label: collection.label,
           path: collection.path,
-          paths: [...collection.paths],
+          // The Console edits the source locale, the first globs of a collection with locales.
+          paths: collection.paths.slice(0, collection.paths.length / (collection.locales?.length ?? 1)),
           kind: collection.kind,
           format: collection.format,
           schema,
@@ -498,6 +516,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         }
         if (collection.kind === "singleton") entry.document = collection.id
         if (collection.kind === "documents" && collection.singularLabel) entry.singularLabel = collection.singularLabel
+        if (collection.kind === "documents" && collection.locales) entry.locales = [...collection.locales]
         if (collection.titleField) entry.titleField = collection.titleField
         const components = Object.entries(collection.kind === "documents" ? collection.components : {}).map(([name, component]) => {
           const described: ViteHubConsoleDocumentComponent = { name, kind: component.kind ?? "block", label: component.label ?? label(name), props: json(component.props ?? {}) }
@@ -586,6 +605,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             if (status?.schedule) summary.schedule = scheduleView(status.schedule)
             if (status?.issues) summary.issues = status.issues
             if (status?.conflict) summary.conflict = { published: status.published }
+            if (status?.translations) summary.translations = { ...status.translations }
             return summary
           }),
           nextCursor: page.nextCursor,
@@ -606,9 +626,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const ref = input.ref ?? "draft"
       if (ref !== "draft" && ref !== "published") throw invalidInput("ref must be draft or published.")
       await allow(context, collection, "read", id)
+      const { locale } = localeInput(input)
       return await attempt(async () => {
-        const document = await collection.get(id, { ref })
-        return document ? await view(collection, document) : null
+        const document = await collection.get(id, locale === undefined ? { ref } : { ref, locale })
+        return document ? await view(collection, document, locale) : null
       })
     },
 
@@ -649,7 +670,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       await allow(context, collection, "read", id)
       const revision = optionalText(input.revision, "revision")
       return await attempt(async () => {
-        const file = await collection.raw(id, revision ? { revision } : { ref: "draft" })
+        const file = await collection.raw(id, revision ? { revision, ...localeInput(input) } : { ref: "draft", ...localeInput(input) })
         return file ? { ...file } : null
       })
     },
@@ -663,7 +684,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const data = fieldValues(input.data)
       const ifDigest = digest(input.ifDigest)
       const published = input.ifPublishedDigest === undefined ? {} : { ifPublishedDigest: digest(input.ifPublishedDigest, "ifPublishedDigest") }
-      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, ...published, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) })))
+      const locale = localeInput(input)
+      // The source version that the person translated from. Without it, Content keeps the one the translation records.
+      const sourceDigest = optionalText(input.sourceDigest, "sourceDigest")
+      const source = sourceDigest === undefined ? {} : { sourceDigest }
+      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, ...published, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id), ...locale, ...source }), locale.locale))
     },
 
     async remove(input, context) {
@@ -672,7 +697,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const id = text(input.id, "id")
       await allow(context, collection, "write", id)
       const ifDigest = text(input.ifDigest, "ifDigest")
-      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) }))
+      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id), ...localeInput(input) }))
     },
 
     async publish(input, context) {
@@ -685,7 +710,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         // Publish exactly the reviewed drafts: a draft saved after review fails instead of being published.
         const result = await content.publish({
-          expect: expected.map(({ id, digest }) => ({ collection: collection.name, id, digest })),
+          expect: expected.map(({ id, digest, locale }) => ({ collection: collection.name, id, digest, ...(locale === undefined ? {} : { locale }) })),
           metadata: writeMetadata(context),
         })
         return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })), ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}) }
@@ -699,6 +724,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const collection = open(input.collection)
       const at = text(input.at, "at")
       const expected = expectations(input.expect)
+      if (expected.some(entry => entry.locale !== undefined)) throw invalidInput("schedule() publishes the source locale only. Publish translations with publish().")
       for (const { id } of expected) await allow(context, collection, "publish", id)
       return await attempt(async () => {
         const schedule = await content.schedule({
@@ -738,9 +764,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const cursor = optionalText(input.cursor, "cursor")
       return await attempt(async () => {
         // Saves live on `draft` and publishes on `published`. Later pages continue the draft history only.
+        const locale = localeInput(input)
         const [draft, published] = await Promise.all([
-          content.revisions(collection.name, id, cursor ? { ref: "draft", cursor } : { ref: "draft" }),
-          cursor ? undefined : content.revisions(collection.name, id, { ref: "published" }),
+          content.revisions(collection.name, id, cursor ? { ref: "draft", cursor, ...locale } : { ref: "draft", ...locale }),
+          cursor ? undefined : content.revisions(collection.name, id, { ref: "published", ...locale }),
         ])
         const revisions: ViteHubConsoleDocumentRevision[] = [...draft.revisions, ...published?.revisions ?? []]
           .map((revision) => {
@@ -762,7 +789,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       await allow(context, collection, "write", id)
       const revision = text(input.revision, "revision")
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) })))
+      const locale = localeInput(input)
+      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id), ...locale }), locale.locale))
     },
 
     async session(input, context): Promise<ViteHubConsoleDocumentPresence> {
@@ -781,6 +809,13 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         ({ user, lease: collection.editing.lease, ...result })
       const sessions = content.sessions
       if (!sessions) return presence({ available: false, reason: "This Content runtime does not track sessions.", editing: true, holder: null, sessions: [], now: new Date().toISOString() })
+      // Edit leases and live rooms belong to the source locale document, so a translation takes no lease.
+      const { locale } = localeInput(input)
+      const locales = collection.kind === "documents" ? collection.locales ?? [] : []
+      if (locale !== undefined && !locales.includes(locale)) throw invalidInput(`locale must be one of ${JSON.stringify(locales)}.`)
+      if (locale !== undefined && locale !== locales[0]) {
+        return presence({ available: false, reason: "Translations have no edit lease yet. Saves still refuse to overwrite a newer version.", editing: true, holder: null, sessions: [], now: new Date().toISOString() })
+      }
       try {
         if (action === "release") {
           await sessions.release(collection.name, id, { session })

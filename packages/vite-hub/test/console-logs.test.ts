@@ -5,10 +5,10 @@ import logsRoute, { consoleLogsHandler } from "../src/console/runtime/server/log
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import type { LogPage, LogSource } from "../src/logs/source.ts";
+import { consoleEvent } from "./console-event.ts";
+import { routeRequest } from "./console-event.ts";
 
-const request = (query = "") => ({
-  req: { method: "GET", url: `http://localhost/api/_vitehub/console/logs${query}` },
-});
+const request = (query = "") => consoleEvent({ url: `http://localhost/_vitehub/api/logs${query}` });
 afterEach(() => installConsoleAccess({ mode: "open" }));
 describe("Console Logs", () => {
   it("checks section access before querying a source", async () => {
@@ -16,7 +16,7 @@ describe("Console Logs", () => {
     const query = vi.spyOn(buffer.source, "query");
     installLogSource("/logs-tests", buffer.source);
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv"] }) });
-    const response = await logsRoute(request());
+    const response = await logsRoute.fetch(routeRequest(request()));
     expect(response).toBeInstanceOf(Response);
     expect(response instanceof Response && response.status).toBe(403);
     expect(query).not.toHaveBeenCalled();
@@ -111,18 +111,21 @@ describe("Console Logs", () => {
     installLogSource("/logs-abort-tests", source);
     const controller = new AbortController();
     const req = transport === "HTTP"
-      ? new Request("http://localhost/api/_vitehub/console/logs", { signal: controller.signal })
+      ? new Request("http://localhost/_vitehub/api/logs", { signal: controller.signal })
       : new Request("http://localhost/_vitehub/rpc/__call", {
           method: "POST",
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
           body: JSON.stringify({ operation: "logs.list", input: {} }),
           signal: controller.signal,
         });
-    const reading = transport === "HTTP" ? logsRoute({ req }) : handleConsoleRpcRequest(req);
+    const reading = transport === "HTTP" ? logsRoute.fetch(req) : handleConsoleRpcRequest(req);
     try {
       const signal = await started;
-      controller.abort();
-      expect(signal).toBe(req.signal);
+      expect(signal?.aborted).toBe(false);
+      const reason = new Error("Log request cancelled");
+      controller.abort(reason);
+      expect(signal?.aborted).toBe(true);
+      expect(signal?.reason).toBe(reason);
       expect(aborted).toBe(true);
     } finally {
       finish({ entries: [] });

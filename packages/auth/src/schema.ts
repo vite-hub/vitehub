@@ -1,7 +1,7 @@
 // The Better Auth tables that Auth adds to the app Database. It imports only Drizzle, because the generated Database
 // schema imports it when the server starts and Drizzle Kit loads it to write migrations.
 import { sql } from "drizzle-orm"
-import { boolean, index as pgIndex, integer as pgInteger, jsonb, pgTable, text as pgText, timestamp, uniqueIndex as pgUniqueIndex } from "drizzle-orm/pg-core"
+import { bigint as pgBigint, boolean, index as pgIndex, integer as pgInteger, jsonb, pgTable, text as pgText, timestamp, uniqueIndex as pgUniqueIndex } from "drizzle-orm/pg-core"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import type { PgColumn, PgTableWithColumns } from "drizzle-orm/pg-core"
@@ -21,6 +21,11 @@ export type AuthTableName =
   | "oauthAccessToken"
   | "oauthConsent"
   | "oauthClientAssertion"
+  | "rateLimit"
+  | "organization"
+  | "member"
+  | "invitation"
+  | "passkey"
 
 type AuthFieldType = "boolean" | "date" | "json" | "number" | "string" | "string[]"
 
@@ -30,9 +35,14 @@ export interface AuthTableField {
   required?: true
   unique?: true
   index?: true
-  /** `"now"` is the current time. Better Auth sets the value itself; the column default keeps a plain SQL insert valid. */
-  defaultValue?: boolean | number | readonly string[] | "now"
+  /**
+   * `"now"` is the current time. Better Auth sets the value itself; the column default keeps a plain SQL insert valid.
+   * Another string is that text, such as `"member"`.
+   */
+  defaultValue?: boolean | number | string | readonly string[]
   onUpdate?: true
+  /** A 64-bit integer, such as a time in milliseconds. */
+  bigint?: true
   references?: { model: AuthTableName, field: string, onDelete?: "cascade" | "set null" }
 }
 
@@ -54,10 +64,12 @@ const createdAt = { type: "date", required: true, defaultValue: now } as const
 const userReference = { model: "user", field: "id", onDelete: "cascade" } as const
 const clientReference = { model: "oauthClient", field: "clientId", onDelete: "cascade" } as const
 const sessionReference = { model: "session", field: "id", onDelete: "set null" } as const
+const organizationReference = { model: "organization", field: "id", onDelete: "cascade" } as const
 
 /**
  * The Better Auth core tables, with the fields of the plugins that ViteHub ships: `admin()` (`user.role`, bans, and
- * `session.impersonatedBy`), and the `jwt()` and `oauthProvider()` tables of `consoleMcpOAuth()`. A test checks this
+ * `session.impersonatedBy`), the `jwt()` and `oauthProvider()` tables of `consoleMcpOAuth()`, the tables of
+ * `organization()` and of `passkey()` from `@better-auth/passkey`, and the table of Better Auth's limiter. A test checks this
  * list against Better Auth's own `getAuthTables()`, so a Better Auth upgrade that changes a table fails it.
  */
 export const authTableSpecs: Readonly<Record<AuthTableName, AuthTableSpec>> = {
@@ -85,6 +97,7 @@ export const authTableSpecs: Readonly<Record<AuthTableName, AuthTableSpec>> = {
       userAgent: optionalString,
       userId: { type: "string", required: true, index: true, references: userReference },
       impersonatedBy: optionalString,
+      activeOrganizationId: optionalString,
     },
   },
   account: {
@@ -244,6 +257,59 @@ export const authTableSpecs: Readonly<Record<AuthTableName, AuthTableSpec>> = {
       expiresAt: { type: "date", required: true },
     },
   },
+  // Better Auth's limiter keeps its counters here, so every instance of the app sees the same counts.
+  rateLimit: {
+    fields: {
+      key: { type: "string", required: true, unique: true },
+      count: { type: "number", required: true },
+      lastRequest: { type: "number", bigint: true, required: true, defaultValue: now },
+    },
+  },
+  // `organization()`: teams, their members, and invitations. The session keeps the active team.
+  organization: {
+    fields: {
+      name: requiredString,
+      slug: { type: "string", required: true, unique: true, index: true },
+      logo: optionalString,
+      createdAt: { type: "date", required: true },
+      metadata: optionalString,
+    },
+  },
+  member: {
+    fields: {
+      organizationId: { type: "string", required: true, index: true, references: organizationReference },
+      userId: { type: "string", required: true, index: true, references: userReference },
+      role: { type: "string", required: true, defaultValue: "member" },
+      createdAt: { type: "date", required: true },
+    },
+  },
+  invitation: {
+    fields: {
+      organizationId: { type: "string", required: true, index: true, references: organizationReference },
+      email: { type: "string", required: true, index: true },
+      role: optionalString,
+      status: { type: "string", required: true, defaultValue: "pending" },
+      expiresAt: { type: "date", required: true },
+      createdAt,
+      inviterId: { type: "string", required: true, references: userReference },
+    },
+  },
+  // `passkey()` from `@better-auth/passkey`.
+  passkey: {
+    fields: {
+      name: optionalString,
+      publicKey: requiredString,
+      userId: { type: "string", required: true, index: true, references: userReference },
+      credentialID: { type: "string", required: true, index: true },
+      // WebAuthn counters are unsigned 32-bit values; Postgres integer is signed.
+      counter: { type: "number", required: true, bigint: true },
+      deviceType: requiredString,
+      backedUp: { type: "boolean", required: true },
+      transports: optionalString,
+      createdAt: optionalDate,
+      aaguid: optionalString,
+    },
+  },
 }
 
 /** `emailVerified` becomes `email_verified` and `oauthClient` becomes `oauth_client`, as the Better Auth CLI writes them. */
@@ -263,6 +329,8 @@ interface ColumnChain<TColumn> {
 interface Dialect<TColumn, TTable> {
   column(name: string, field: AuthTableField): ColumnChain<TColumn>
   now: unknown
+  /** The current time in milliseconds, for a `number` column. */
+  nowMs: unknown
   table(name: string, columns: Record<string, ColumnChain<TColumn>>, indexes: (table: Record<string, TColumn>) => unknown[]): TTable
   index(name: string, unique: boolean, columns: TColumn[]): unknown
   id(): ColumnChain<TColumn>
@@ -279,7 +347,7 @@ function buildTables<TColumn, TTable>(dialect: Dialect<TColumn, TTable>): Record
     const indexed: { name: string, unique: boolean, fields: readonly string[] }[] = []
     for (const [key, field] of Object.entries(spec.fields)) {
       let column = dialect.column(snakeCase(key), field)
-      if (field.defaultValue !== undefined) column = column.default(field.defaultValue === now ? dialect.now : field.defaultValue)
+      if (field.defaultValue !== undefined) column = column.default(field.defaultValue === now ? field.type === "number" ? dialect.nowMs : dialect.now : field.defaultValue)
       if (field.onUpdate) column = column.$onUpdate(() => new Date())
       if (field.required) column = column.notNull()
       if (field.unique) column = column.unique()
@@ -324,6 +392,7 @@ export const authSqliteSchema: AuthSqliteSchema = buildTables<SQLiteColumn, Auth
   id: () => text("id").primaryKey() as unknown as ColumnChain<SQLiteColumn>,
   index: (name, unique, columns) => (unique ? uniqueIndex(name) : index(name)).on(...columns as [SQLiteColumn, ...SQLiteColumn[]]),
   now: sql`(cast(unixepoch('subsecond') * 1000 as integer))`,
+  nowMs: sql`(cast(unixepoch('subsecond') * 1000 as integer))`,
   table: (name, columns, indexes) => sqliteTable(name, columns as never, table => indexes(table as unknown as Record<string, SQLiteColumn>) as never) as unknown as AuthSqliteTable,
 })
 
@@ -334,7 +403,7 @@ export const authPostgresSchema: AuthPostgresSchema = buildTables<PgColumn, Auth
       : field.type === "date"
         ? timestamp(name)
         : field.type === "number"
-          ? pgInteger(name)
+          ? field.bigint ? pgBigint(name, { mode: "number" }) : pgInteger(name)
           : field.type === "string"
             ? pgText(name)
             : field.type === "string[]"
@@ -345,5 +414,6 @@ export const authPostgresSchema: AuthPostgresSchema = buildTables<PgColumn, Auth
   id: () => pgText("id").primaryKey() as unknown as ColumnChain<PgColumn>,
   index: (name, unique, columns) => (unique ? pgUniqueIndex(name) : pgIndex(name)).on(...columns as [PgColumn, ...PgColumn[]]),
   now: sql`now()`,
+  nowMs: sql`(extract(epoch from now()) * 1000)::bigint`,
   table: (name, columns, indexes) => pgTable(name, columns as never, table => indexes(table as unknown as Record<string, PgColumn>) as never) as unknown as AuthPostgresTable,
 })

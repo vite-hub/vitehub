@@ -1,67 +1,127 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 /**
  * Owner packages that `vite-hub` declares as optional peers. An app installs only the packages of the features it
- * enables, so a Blob and Queue app does not install Agent, Auth, or editor dependencies.
+ * enables, so an app without features installs none of them, and a KV app does not install Blob, Queue, or Agent.
  */
 export type OptionalOwnerPackage
   = | "@vite-hub/agent"
     | "@vite-hub/auth"
+    | "@vite-hub/blob"
+    | "@vite-hub/browser"
+    | "@vite-hub/channels"
     | "@vite-hub/cms"
     | "@vite-hub/comments"
+    | "@vite-hub/connections"
     | "@vite-hub/content"
     | "@vite-hub/database"
+    | "@vite-hub/decisions"
+    | "@vite-hub/email"
+    | "@vite-hub/forms"
+    | "@vite-hub/gateways"
+    | "@vite-hub/i18n"
+    | "@vite-hub/kv"
+    | "@vite-hub/markdown-template"
+    | "@vite-hub/mcp"
     | "@vite-hub/presets"
+    | "@vite-hub/queue"
+    | "@vite-hub/rate-limit"
     | "@vite-hub/realtime"
+    | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
     | "@vite-hub/ui"
+    | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
 /**
  * The packages that the app installs for each feature, in `pnpm add` order. `vite-hub` declares each one as an optional
- * peer, so it resolves them from the app.
+ * peer, so it resolves them from the app. Features in the catalog of `@vite-hub/internal/features` read their packages
+ * from it.
  */
 export const optionalFeaturePackages = {
-  "agent": ["@vite-hub/agent"],
-  "auth": ["@vite-hub/auth", "better-auth"],
+  "agent": features.agent.packages,
+  "auth": features.auth.packages,
+  "blob": features.blob.packages,
+  "browser": features.browser.packages,
+  "channels": features.channels.packages,
   "cms": ["@vite-hub/cms"],
-  "comments": ["@vite-hub/comments"],
+  "comments": features.comments.packages,
   // Connections store grants in the default Database and turn `database` on.
-  "connections": ["@vite-hub/database", "drizzle-orm"],
-  // The Console journal of Agent Invocations.
-  "console agents": ["@libsql/client", "drizzle-orm"],
-  "console sign-in": ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+  "connections": features.connections.packages,
+  // The Console reads the Agent Invocation journal with libSQL, and its /debug command with Drizzle.
+  "console agents": consoleFeaturePackages.agents,
+  // `console: { mcpClient: true }` connects the Console to MCP servers.
+  "console mcp-client": ["@modelcontextprotocol/sdk"],
+  "console sign-in": consoleFeaturePackages.signIn,
+  // The Agent Invocation components of `vite-hub/console/ui`.
+  "console ui": ["@vite-hub/ui", "@json-render/core", "@json-render/vue", "@vueuse/core"],
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
-  "database": ["@vite-hub/database", "drizzle-orm"],
+  "database": features.database.packages,
+  "decisions": ["@vite-hub/decisions"],
+  "email": features.email.packages,
+  // `server/forms/` turns Forms on, and its submissions go to the Database.
+  "forms": ["@vite-hub/forms"],
+  "gateways": ["@vite-hub/gateways"],
+  "i18n": features.i18n.packages,
+  "kv": features.kv.packages,
+  // `.template.md` imports and `vite-hub/markdown-template`.
+  "markdown-template": ["@vite-hub/markdown-template"],
+  "mcp": features.mcp.packages,
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
-  "realtime": ["@vite-hub/realtime"],
-  "schedule": ["@vite-hub/schedule"],
+  "queue": features.queue.packages,
+  "rateLimit": features.rateLimit.packages,
+  "realtime": features.realtime.packages,
+  "sandboxTask": features.sandboxTask.packages,
+  "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
   "ui": ["@vite-hub/ui"],
-  "workspace": ["@vite-hub/workspace"],
+  // An Agent turns Workflow on unless the app sets `workflow: false`.
+  "workflow": features.workflow.packages,
+  "workspace": features.workspace.packages,
 } as const satisfies Record<string, readonly string[]>
 
 export type OptionalFeature = keyof typeof optionalFeaturePackages
 
 /** Whether the app installed `packageName`, as `vite-hub` resolves it. */
 export function isPackageInstalled(packageName: string): boolean {
+  try {
+    import.meta.resolve(`${packageName}/package.json`)
+    return true
+  }
+  catch (error) {
+    // A missing package fails the same way for its entry. Each failed lookup walks every node_modules folder up to the
+    // file system root, and most owner packages are missing in a typical app.
+    if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
+  }
   // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
-  return [`${packageName}/package.json`, packageName].some((specifier) => {
-    try {
-      import.meta.resolve(specifier)
-      return true
-    }
-    catch {
-      return false
-    }
-  })
+  try {
+    import.meta.resolve(packageName)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * Whether the app at `root` installed `packageName` in its own `node_modules` or one of its parents. `isPackageInstalled`
+ * resolves from `vite-hub`, which also sees the development dependencies of a source checkout. `require.resolve` also
+ * reads `NODE_PATH`, which pnpm bin scripts point at every hoisted package.
+ */
+export function isPackageInstalledInApp(root: string, packageName: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(join(directory, "node_modules", packageName, "package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
 }
 
 /** Loads a module of an optional owner package, or returns `undefined` when the app did not install the package. */

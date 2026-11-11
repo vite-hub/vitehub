@@ -2,20 +2,26 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { agentInvocationId, runAgent } from "@vite-hub/agent"
-import { defineChannel } from "@vite-hub/agent/channels"
+import { agentInvocationId } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
+import { channelAdapter } from "@vite-hub/agent/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
 import { inputCommands } from "../src/agent/capabilities.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
+
 const channelDeliveryHandlers = Symbol.for("vitehub.agent.channelDeliveryHandlers")
 
 afterEach(() => {
+  installAgentInvocations({})
   vi.restoreAllMocks()
 })
 
@@ -37,9 +43,11 @@ describe("inputCommands({ debug })", () => {
   it("replies with the previous invocation of the same Agent and thread", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-debug-command-"))
     try {
+      // The default Agent journal records the runs. The Console reads it.
+      installAgentInvocations({ journal: { libsql, projectRoot } })
       installConsoleInvocations(projectRoot)
       const replies: unknown[] = []
-      const chat = defineChannel("chat", {
+      const chat = channelAdapter("chat", {
         [channelDeliveryHandlers]: {
           reply(context: { effect: { payload: unknown } }) {
             replies.push(context.effect.payload)
@@ -64,10 +72,10 @@ describe("inputCommands({ debug })", () => {
           runtime: "unknown",
           waitUntil: vi.fn(),
         }
-        return runAgent(agent, context, { prompt })
+        return runAgentWithContext(agent, context, { prompt })
       }
       const link = async (runId: string) =>
-        `https://chat.example/_vitehub/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`
+        `https://console.vitehub.dev/open?project=${encodeURIComponent("https://chat.example")}&path=${encodeURIComponent(`/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`)}`
 
       await run("thread-one", "hello", { threadId: "t1" })
       await run("thread-two", "hello", { threadId: "t2" })

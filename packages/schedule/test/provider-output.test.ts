@@ -12,8 +12,10 @@ import * as esbuild from "@vite-hub/internal/build/esbuild"
 import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
-import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 
 vi.mock("node:fs", async importOriginal => ({ ...await importOriginal<typeof import("node:fs")>() }))
 vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>() }))
@@ -71,7 +73,7 @@ describe("schedule provider output", () => {
       const handler = await import(pathToFileURL(file).href)
       const result = await handler.default(new Request("https://request.example"))
       expect(result.status).toBe(204)
-      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? `${origin}${base}_vitehub/agents/worker/invocations/invocation` : undefined)
+      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? hostedConsoleLink(`${origin}${base.replace(/\/$/, "")}`, "/agents/worker/invocations/invocation") : undefined)
     }
     Reflect.deleteProperty(globalThis, "scheduleUrl")
   })
@@ -451,7 +453,7 @@ describe("schedule provider output", () => {
             workflowTransformWorkingDir = build.initialOptions.absWorkingDir
           },
         }],
-        importBase: "test-workflow",
+        runtimeModules: { state, vercelVite: vercelRuntime },
         native: true,
         registryFile: workflowRegistry,
       },
@@ -483,7 +485,7 @@ describe("schedule provider output", () => {
       rootDir,
       workflow: {
         bundleAlias: {},
-        importBase: "test-workflow",
+        runtimeModules: { state, vercelVite: vercelRuntime },
         native: false,
         registryFile: workflowRegistry,
       },
@@ -530,7 +532,7 @@ describe("schedule provider output", () => {
     expect(cleanup?.source).toContain("export const config = {")
     expect(cleanup?.source).toContain("schedule: \"0 0 * * *\"")
     expect(cleanup?.source).not.toContain("next_run")
-    expect(cleanup?.source).toContain("scheduledAt: new Date()")
+    expect(cleanup?.source).toContain("const scheduledAt = scheduledWakeTime(\"0 0 * * *\")")
     expect(cleanup?.source).toContain("executeStaticSchedule")
   })
 
@@ -559,7 +561,7 @@ describe("schedule provider output", () => {
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = await readFile(denoCron, "utf8")
 
-    expect(source).toContain("Deno.cron(cronName, cron")
+    expect(source).toContain("Deno.cron(cronName, denoCron")
     const cronNames = [...source.matchAll(/"?cronName"?:\s*"([^"]+)"/g)].map(match => match[1])
     expect(cronNames).toHaveLength(4)
     expect(new Set(cronNames).size).toBe(cronNames.length)
@@ -568,6 +570,43 @@ describe("schedule provider output", () => {
     expect(source).toContain("unwrapScheduleDefinition")
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")
+  })
+
+  it("registers shifted and declared weekdays with Deno weekday names", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-weekdays-")
+    for (const [name, cron, timeZone] of [
+      ["sydney", "0 9 * * 1-5", "Australia/Sydney"],
+      ["sunday", "0 9 * * 0,7", "UTC"],
+      ["weekdays", "0 9 * * 1-5", "UTC"],
+      ["steps", "0 9 * * 0-6/2", "UTC"],
+    ]) {
+      await writeFile(join(rootDir, "src", `${name}.schedule.ts`), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        `export default defineSchedule({ cron: '${cron}', timeZone: '${timeZone}', handler: () => 'ok' })`,
+      ].join("\n"))
+    }
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+    const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+    const source = (await readFile(denoCron, "utf8")).replace(
+      JSON.stringify("@vite-hub/schedule/runtime/static"),
+      JSON.stringify(pathToFileURL(fileURLToPath(new URL("../dist/runtime/static.js", import.meta.url))).href),
+    )
+    const registrations: Record<string, string> = {}
+    vi.stubGlobal("Deno", { cron: (name: string, cron: string) => { registrations[name] = cron } })
+    try {
+      const nodeEntry = join(rootDir, "deno-node.mjs")
+      await writeFile(nodeEntry, source)
+      await import(pathToFileURL(nodeEntry).href)
+      const registered = (name: string) => Object.entries(registrations).find(([id]) => id.endsWith(`-${name}`))?.[1]
+      expect(registered("sydney")).toBe("0 22,23 * * SUN,MON,TUE,WED,THU")
+      expect(registered("sunday")).toBe("0 9 * * SUN")
+      expect(registered("weekdays")).toBe("0 9 * * MON,TUE,WED,THU,FRI")
+      expect(registered("steps")).toBe("0 9 * * SUN,TUE,THU,SAT")
+      expect(registered("cleanup")).toBe("0 0 * * *")
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("preserves published Deno cron output when closure bundling fails", async () => {
@@ -990,13 +1029,6 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
-  it("resolves the static schedule runtime from its declared package export", () => {
-    expect(resolveScheduleRuntimeEntry((specifier) => {
-      expect(specifier).toBe("@vite-hub/schedule/runtime/static")
-      return "file:///repo/node_modules/@vite-hub/schedule/dist/runtime/static.js"
-    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/runtime/static.js")
-  })
-
   it("resolves the private schedule definition from the declared package root", () => {
     expect(resolveScheduleDefinitionEntry((specifier) => {
       expect(specifier).toBe("@vite-hub/schedule/package.json")
@@ -1036,26 +1068,64 @@ describe("schedule provider output", () => {
     })).rejects.toThrow(/must declare a static cron string/)
   })
 
-  it("rejects a non-UTC timeZone before provider output generation", async () => {
+  it("runs a time-zoned Schedule from a UTC host cron and checks the local time on each wake", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-time-zone-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 8 * * *', timeZone: 'Europe/Madrid', handler: ({ idempotencyKey }) => {",
+      "  globalThis.scheduleRuns = [...(globalThis.scheduleRuns ?? []), idempotencyKey]",
+      "} })",
+      "",
+    ].join("\n"), "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 6,7 * * *"])
+    expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 6,7 * * *",
+    }])
+    const runs = () => (globalThis as { scheduleRuns?: string[] }).scheduleRuns ?? []
+    const { default: cloudflareHandler } = await import(pathToFileURL(join(cloudflareRoot, "index.js")).href)
+    for (const scheduledTime of ["2026-07-15T06:00:00Z", "2026-07-15T07:00:00Z"]) {
+      await cloudflareHandler.scheduled({ cron: "0 6,7 * * *", scheduledTime: Date.parse(scheduledTime) }, {}, { waitUntil: vi.fn() })
+    }
+    expect(runs()).toEqual(["schedule:cleanup:2026-07-15T06:00:00.000Z"])
+
+    const netlifyModule = await import(pathToFileURL(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-cleanup.mjs")).href)
+    expect(netlifyModule.config.schedule).toBe("0 6,7 * * *")
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      // Winter: 07:00Z is 08:00 in Madrid. A late call still runs the 07:00Z occurrence.
+      for (const now of ["2026-01-15T06:00:04Z", "2026-01-15T07:02:31Z"]) {
+        vi.setSystemTime(new Date(now))
+        expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)
+      }
+    }
+    finally {
+      vi.useRealTimers()
+    }
+    expect(runs()).toEqual(["schedule:cleanup:2026-07-15T06:00:00.000Z", "schedule:cleanup:2026-01-15T07:00:00.000Z"])
+  })
+
+  it("reads timeZone from the source and lets a cron override run in UTC", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-time-zone-source-")
     const write = async (definition: string) => await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), `export default ${definition}\n`, "utf8")
-    const generate = async () => await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const generate = async (cron?: Record<string, string>) => await generateProviderOutputs({ clientOutDir: "dist/client", cron, rootDir })
+    const vercelCrons = async () => JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons
 
-    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'Europe/Madrid', handler: () => 'ok' })")
-    await expect(generate()).rejects.toThrow(/Schedule "cleanup" declares timeZone "Europe\/Madrid", but provider cron output supports only UTC\. Remove timeZone .* or run Schedules with the process driver/)
-
-    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'Europe/Madrid' })")
-    await expect(generate()).rejects.toThrow(/declares timeZone "Europe\/Madrid"/)
+    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'America/New_York' })")
+    await generate()
+    expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 12,13 * * *" }])
 
     await write("defineSchedule({ cron: '0 8 * * *', timeZone, handler: () => 'ok' })")
-    await expect(generate()).rejects.toThrow(/declares timeZone with a value that is not a static string/)
+    await expect(generate()).rejects.toThrow(/declares timeZone with a value that is not a static string\. Host cron output reads timeZone at build time/)
+    await generate({ cleanup: "0 7 * * *" })
+    expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 7 * * *" }])
 
     await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'UTC', handler: () => 'ok' })")
     await generate()
-    expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toEqual([{
-      path: "/api/vitehub/schedules/vercel/cleanup",
-      schedule: "0 8 * * *",
-    }])
+    expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 8 * * *" }])
   })
 
   it("reads cron from the top-level schedule object", async () => {

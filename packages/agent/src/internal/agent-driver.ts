@@ -1,6 +1,6 @@
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
-import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { askJev, askState } from "./ask-runtime.ts"
 import { activeAgentInvocationScope } from "./invocation-scope.ts"
@@ -8,10 +8,8 @@ import { recordDriverUsage } from "./auxiliary-usage.ts"
 import { isChatGPTGateway, aiGatewayAsks } from "@vite-hub/gateways/internal"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
-import { normalizeRetention } from "./retention-policy.ts"
 import { providerAgentRuntime } from "./provider-driver-runtime.ts"
 import type { ProviderAgentRuntimeLoader } from "./provider-driver-runtime.ts"
-import type { NormalizedRetention } from "./retention-policy.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -71,8 +69,6 @@ export type NormalizedAgentDriver<
     reasoningEffort?: CodexReasoningEffort
     reasoningSummary?: CodexReasoningSummary
     requirements?: readonly string[]
-    /** Codex home retention. Undefined when the Driver sets no retention. */
-    retention?: NormalizedRetention
     /** Loads the provider Agent runtime. Only `codexDriver()` and `claudeCodeDriver()` provide it. */
     runtime: ProviderAgentRuntimeLoader
     sessionStorePath?: string
@@ -176,7 +172,7 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "gateway", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "retention", "sessionStorePath", "toolchain"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath", "toolchain"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity", "gateway"])
 
@@ -295,7 +291,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) requires a launch resolver when driver.launch is set." })
   }
   validateProviderToolchain(value.toolchain)
-  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary", "retention"].filter(key => value[key] !== undefined)
+  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
   if (provider !== "codex" && codexOptions.length) {
     throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
   }
@@ -329,18 +325,6 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   if (credentials !== undefined && credentialProfile === undefined && value.sessionStorePath !== undefined) {
     throw agentDiagnostics.AGENT_R0483({ message: "[vitehub] defineAgent({ driver.sessionStorePath }) requires driver.credentialProfile when driver.credentials is configured." })
-  }
-  const retention = value.retention === undefined
-    ? undefined
-    : normalizeRetention(value.retention, {
-        defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
-        error: message => agentDiagnostics.AGENT_R1008({ message: `[vitehub] ${message}` }),
-        label: "defineAgent({ driver.retention })",
-        size: "any",
-      })
-  // Plain credentials without a profile use a temporary home that ViteHub removes after each run.
-  if (retention && credentials !== undefined && credentialProfile === undefined) {
-    throw agentDiagnostics.AGENT_R1006({ message: "[vitehub] driver.retention requires a persistent Codex home. Set driver.credentialProfile, or use a gateway or CODEX_HOME." })
   }
   if (value.reasoningEffort !== undefined
     && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
@@ -402,7 +386,6 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
     // SAFETY: requirements is either absent or validated as a list of command names above.
     requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
-    retention,
     // SAFETY: Only the provider Driver factories set this symbol, and they set it to the provider runtime loader.
     runtime: runtime as ProviderAgentRuntimeLoader,
     sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
@@ -460,10 +443,10 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
       run: async (context) => {
         // The Driver runs inside its own Invocation scope, so each question is recorded in that Invocation.
         const scope = activeAgentInvocationScope()
-        return await runWithActiveCloudflareEnv(getCloudflareEnv({ context }), async () => await askJev(
+        return await runWithActiveCloudflareEnv(context.cloudflare?.env ?? getActiveCloudflareEnv(), async () => await askJev(
           {
             abortSignal: context.input.abortSignal,
-            event: { context },
+            ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
             ...(gateway ? { gateway } : {}),
             ...(scope ? { observe: event => scope.trace(event) } : {}),
             // Each Jev request is one call of the Invocation usage record, so the usage and cost index counts ask runs.

@@ -120,37 +120,6 @@ describe("env CLI", () => {
     expect(await feature("inspect", async () => broken).run([], context)).toBe(0)
   })
 
-  it("lets missing host secrets pass check with --allow-missing-secrets", async () => {
-    // A Cloudflare build: the Worker holds the secrets, so the build env lacks them.
-    const deployBuild: ServerEnvInspection = {
-      entries: [
-        { masked: true, path: "env.server.apiToken", required: true, source: "env", status: "missing" },
-        { masked: false, path: "env.server.account", required: true, source: "env", status: "available" },
-      ],
-    }
-    const strict = captureContext("/app")
-    expect(await feature("check", async () => deployBuild).run([], strict.context)).toBe(1)
-
-    const { context, output } = captureContext("/app")
-    expect(await feature("check", async () => deployBuild).run(["--allow-missing-secrets"], context)).toBe(0)
-    expect(output.stdout).toMatch(/apiToken\s+missing\s+host env/)
-    expect(output.stdout).not.toContain("missing !")
-    expect(output.stdout).toContain("Server Env check passed.")
-  })
-
-  it("still fails --allow-missing-secrets for missing values that are not secret, invalid secrets, and provider secrets", async () => {
-    const cases: ServerEnvInspection["entries"][number][] = [
-      { masked: false, path: "env.server.account", required: true, source: "env", status: "missing" },
-      { masked: true, path: "env.server.apiToken", required: true, source: "env", status: "invalid" },
-      { masked: true, path: "env.server.remote", provider: "vault", required: true, source: "provider", status: "missing" },
-    ]
-    for (const entry of cases) {
-      const { context, output } = captureContext("/app")
-      expect(await feature("check", async () => ({ entries: [entry] })).run(["--allow-missing-secrets"], context)).toBe(1)
-      expect(output.stdout).toContain(`${entry.status} !`)
-    }
-  })
-
   it("prints JSON with the check result", async () => {
     const { context, output } = captureContext("/app")
     expect(await feature("check", async () => broken).run(["--json", "--stage", "preview"], context)).toBe(1)
@@ -161,7 +130,7 @@ describe("env CLI", () => {
     for (const args of [["--stage"], ["--stage", "--json"], ["--unknown"]]) {
       const { context, output } = captureContext("/app")
       expect(await feature("check", async () => healthy).run(args, context)).toBe(1)
-      expect(output.stderr).toContain("Usage: vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]")
+      expect(output.stderr).toContain("Usage: vitehub env check [--stage <name>] [--json]")
       expect(output.stdout).toBe("")
     }
   })
@@ -184,7 +153,7 @@ async function createStageFixture(): Promise<string> {
   await mkdir(join(root, "server"), { recursive: true })
   // The provider reveals which region value won without printing it.
   await writeFile(join(root, "server", "region-provider.mjs"), [
-    "import { defineEnvProvider } from \"@vite-hub/env/provider\"",
+    "import { defineEnvProvider } from \"@vite-hub/env\"",
     "export default defineEnvProvider({",
     "  read: ({ env }) => ({ regionToken: env.region === \"process-region\" ? \"process-won\" : undefined }),",
     "})",
@@ -193,15 +162,16 @@ async function createStageFixture(): Promise<string> {
   await writeFile(join(root, "vite.config.mjs"), [
     "import { env, hubEnv } from \"@vite-hub/env/vite\"",
     "export default {",
-    "  plugins: [hubEnv({ diagnostics: \"off\", providers: { region: \"./server/region-provider.mjs\" } })],",
-    "  env: {",
+    "  plugins: [hubEnv({",
+    "    diagnostics: \"off\",",
+    "    providers: { region: \"./server/region-provider.mjs\" },",
     "    server: {",
     "      apiToken: env({ secret: true, source: env.source(\"ENV_CLI_API_TOKEN\") }),",
     "      label: env({ optional: true, source: env.source(\"ENV_CLI_LABEL\") }),",
     "      region: env({ source: env.source(\"ENV_CLI_REGION\") }),",
     "      regionToken: env({ secret: true, source: env.provider(\"region\", \"regionToken\") }),",
     "    },",
-    "  },",
+    "  })],",
     "}",
     "",
   ].join("\n"), "utf8")
@@ -227,7 +197,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       'export async function loadNuxt(options) {',
       `  if (options.cwd !== ${JSON.stringify(root)}) throw new Error("Incorrect application root")`,
       '  if (process.env.ENV_CLI_REGION !== "stage-region") throw new Error("Application env file not loaded")',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ projectRoot: "packages/config", diagnostics: "off" })], env: { server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ projectRoot: "packages/config", diagnostics: "off", server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     const { context, output } = captureContext(root, {})
@@ -247,7 +217,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await writeFile(join(kitRoot, "kit.mjs"), [
       'import { hubEnv, env } from "@vite-hub/env/vite"',
       'export async function loadNuxt() {',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off" })], env: { server: { [process.env.ENV_CLI_REGION]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off", server: { [process.env.ENV_CLI_REGION]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     const previous = process.env.ENV_CLI_REGION
@@ -274,7 +244,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       'import { hubEnv, env } from "@vite-hub/env/vite"',
       'export async function loadNuxt(options) {',
       '  if (!options.overrides.vitehubCliDiscovery || options.overrides.vite.mode !== options.envName) throw new Error("Incorrect Nuxt stage")',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off" })], env: { server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off", server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     for (const stage of ["development", "production"]) {
@@ -284,6 +254,47 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       expect(output.stdout).not.toContain(secretValue)
     }
   }, 60_000)
+  it.each(["check", "inspect"] as const)("runs %s with provider aliases and plugins when Nuxt gives the ssr environment to Nitro", async (command) => {
+    const root = await createStageFixture()
+    await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+    await mkdir(join(root, "server", "utils"), { recursive: true })
+    await writeFile(join(root, "server", "utils", "token.mjs"), 'export const token = "untransformed"\n')
+    await writeFile(join(root, "server", "token-provider.mjs"), [
+      'import { defineEnvProvider } from "@vite-hub/env"',
+      'import { token } from "#server/utils/token.mjs"',
+      'import { stage } from "virtual:env-stage"',
+      `export default defineEnvProvider({ read: () => ({ token: stage === "production" && token === ${JSON.stringify(secretValue)} ? token : undefined }) })`,
+    ].join("\n"))
+    await writeFile(join(root, "nuxt.config.mjs"), "export default {}\n")
+    const kitRoot = join(root, "node_modules", "nuxt")
+    await mkdir(kitRoot, { recursive: true })
+    await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
+    // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
+    await writeFile(join(kitRoot, "kit.mjs"), [
+      'import { DevEnvironment } from "vite"',
+      'import { hubEnv, env } from "@vite-hub/env/vite"',
+      'export async function loadNuxt() {',
+      '  return { close: async () => {}, options: { vite: {',
+      '    environments: { ssr: { dev: { moduleRunnerTransform: false, createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } } },',
+      `    resolve: { alias: { "#server": ${JSON.stringify(join(root, "server"))} } },`,
+      '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" }, server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } }), {',
+      '      name: "env-provider-transforms",',
+      '      applyToEnvironment: environment => environment.name === "ssr",',
+      '      resolveId: id => id === "virtual:env-stage" ? "\\0virtual:env-stage" : undefined,',
+      '      load: id => id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined,',
+      `      transform: (code, id) => id.endsWith("/utils/token.mjs") ? code.replace('"untransformed"', ${JSON.stringify(JSON.stringify(secretValue))}) : undefined,`,
+      '    }],',
+      '  } } }',
+      '}',
+    ].join("\n"))
+    const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+    expect(await realFeature(command).run(["--stage", "production", "--json"], context)).toBe(command === "check" ? 1 : 0)
+    expect(JSON.parse(output.stdout)).toMatchObject({
+      entries: [{ path: "env.server.apiToken", status: "available" }, { path: "env.server.label", status: "missing" }, { path: "env.server.remote", source: "provider", status: "available" }],
+      ok: false,
+    })
+    expect(output.stdout).not.toContain(secretValue)
+  }, 60_000)
 })
 
 describe("env CLI with Vite stage files", () => {
@@ -291,7 +302,7 @@ describe("env CLI with Vite stage files", () => {
     const root = await createStageFixture()
     await writeFile(join(root, "vite.config.mjs"), [
       'import { env, hubEnv } from "@vite-hub/env/vite"',
-      'export default ({ mode }) => ({ plugins: [hubEnv({ projectRoot: mode === "production" ? "prod" : "dev", diagnostics: "off" })], env: { server: { [mode]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } })',
+      'export default ({ mode }) => ({ plugins: [hubEnv({ projectRoot: mode === "production" ? "prod" : "dev", diagnostics: "off", server: { [mode]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] })',
     ].join("\n"))
     const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
     expect(await realFeature("inspect").run(["--stage", "production", "--json"], context)).toBe(0)
@@ -339,24 +350,6 @@ describe("env CLI with Vite stage files", () => {
     expect(await realFeature("check").run(["--stage", "production"], context)).toBe(1)
     expect(output.stdout).toMatch(/apiToken\s+missing !/)
     expect(output.stdout).toContain("Server Env check failed.")
-  }, 60_000)
-
-  it("checks a build without host secrets, but still fails on a missing value that is not secret", async () => {
-    const root = await createStageFixture()
-    // A Worker build: the build env has the plain values, and the Worker holds the API token.
-    const build = captureContext(root, { ...process.env, ENV_CLI_REGION: "process-region" })
-    expect(await realFeature("check").run(["--stage", "production", "--allow-missing-secrets"], build.context)).toBe(0)
-    expect(build.output.stdout).toMatch(/apiToken\s+missing\s+host env\s+yes\s+yes/)
-    expect(build.output.stdout).toContain("Server Env check passed.")
-
-    const strict = captureContext(root, { ...process.env, ENV_CLI_REGION: "process-region" })
-    expect(await realFeature("check").run(["--stage", "production"], strict.context)).toBe(1)
-
-    // The region is also missing: this is the build that must not deploy.
-    const broken = captureContext(root, { ...process.env })
-    expect(await realFeature("check").run(["--stage", "production", "--allow-missing-secrets"], broken.context)).toBe(1)
-    expect(broken.output.stdout).toMatch(/region\s+missing !/)
-    expect(broken.output.stdout).toContain("Server Env check failed.")
   }, 60_000)
 
   it("restores process env after the stage server closes", async () => {

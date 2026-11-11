@@ -23,19 +23,19 @@ vi.mock("@vite-hub/blob/runtime/state", () => ({
 
 beforeEach(() => {
   vi.resetAllMocks()
-  storage.kv.store.mockReturnValue({ ...storage.kv, list: vi.fn().mockResolvedValue([null, { keys: ["cached"] }]) })
+  storage.kv.store.mockReturnValue({ ...storage.kv, list: vi.fn().mockResolvedValue([undefined, { keys: ["cached"] }]) })
   storage.kv.list.mockImplementation(async ({ cursor, limit, prefix }: { cursor?: string, limit: number, prefix: string }) => {
     const keys = ["a", "b", "c"].filter(key => key.startsWith(prefix))
     const start = Number(cursor ?? 0)
     const end = start + limit
-    return [null, { keys: keys.slice(start, end), ...(end < keys.length ? { cursor: String(end) } : {}) }]
+    return [undefined, { keys: keys.slice(start, end), ...(end < keys.length ? { cursor: String(end) } : {}) }]
   })
   storage.blob.store.mockReturnValue(storage.blob)
   storage.blob.list.mockImplementation(async ({ cursor, limit, prefix }: { cursor?: string, limit: number, prefix: string }) => {
     const paths = ["_vitehub/private.json", "a.txt", "b.txt"].filter(path => path.startsWith(prefix))
     const start = Number(cursor ?? 0)
     const end = start + limit
-    return [null, {
+    return [undefined, {
       blobs: paths.slice(start, end).map(pathname => ({
         pathname, size: 3, contentType: "text/plain", uploadedAt: new Date("2026-10-01T00:00:00Z"),
         customMetadata: { token: "secret" }, httpMetadata: { custom: "secret" }, httpEtag: "secret", url: "https://secret.test/token",
@@ -56,8 +56,7 @@ afterEach(() => {
 describe("storage MCP tools", () => {
   async function rpc(method: string, params?: Record<string, unknown>) {
     const req = new Request("http://app.test/_vitehub/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })
-    const response: unknown = await Reflect.apply(handler, undefined, [{ req, context: {} }])
-    if (!(response instanceof Response)) throw new TypeError("Expected a Response")
+    const response = await handler.fetch(req)
     return Object(await response.json())
   }
 
@@ -94,8 +93,8 @@ describe("storage MCP tools", () => {
     const listed = await rpc("tools/call", { name: "blob_list", arguments: { store: "archive" } })
     expect(listed.result.structuredContent).toMatchObject({ store: "archive", stores: ["archive"] })
     expect(storage.blob.store).toHaveBeenCalledWith("archive")
-    storage.blob.head.mockResolvedValue([null, null])
-    storage.blob.put.mockResolvedValue([null, { pathname: "photo.txt", size: 2, uploadedAt: new Date("2026-10-01T00:00:00Z"), customMetadata: {}, httpMetadata: {} }])
+    storage.blob.head.mockResolvedValue([undefined, null])
+    storage.blob.put.mockResolvedValue([undefined, { pathname: "photo.txt", size: 2, uploadedAt: new Date("2026-10-01T00:00:00Z"), customMetadata: {}, httpMetadata: {} }])
     const put = await rpc("tools/call", { name: "blob_put", arguments: { store: "archive", pathname: "photo.txt", data: btoa("hi") } })
     expect(put.result.structuredContent).toMatchObject({ created: true, store: "archive" })
     storage.blob.put.mockClear()

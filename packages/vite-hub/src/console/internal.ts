@@ -1,5 +1,6 @@
 import { createConsoleProjectRegistry, type ConsoleProjectRegistry } from "./project-registry.ts"
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
+import type { EnvBridgeRequestOptions } from "@vite-hub/env/bridge"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
@@ -16,7 +17,6 @@ export const consoleDatabaseKey: unique symbol = Symbol.for("vitehub.console.dat
 export const consoleDatabaseRegistryKey: unique symbol = Symbol.for("vitehub.console.database.registry")
 export const consoleDatabaseRootKey: unique symbol = Symbol.for("vitehub.console.database.root")
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
-export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
 export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
 export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
@@ -42,9 +42,6 @@ export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleIn
 export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
 export const consoleAuthKey: unique symbol = Symbol.for("vitehub.console.auth")
 export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
-export const consoleBuildKey: unique symbol = Symbol.for("vitehub.console.build")
-export const consoleBuildRegistryKey: unique symbol = Symbol.for("vitehub.console.build.registry")
-export const consoleBuildRootKey: unique symbol = Symbol.for("vitehub.console.build.root")
 export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
 const consoleSectionsAmbiguousRootKey: unique symbol = Symbol.for("vitehub.console.sections.ambiguous-root")
 export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
@@ -60,7 +57,7 @@ type ConsoleDefinitionsByRoot = ConsoleProjectRegistry<ConsoleSectionCatalog>
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
-  manage?: (request: Request) => Promise<Response>
+  manage?: (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response>
 }
 
 export interface ConsoleDatabaseInspection {
@@ -68,9 +65,16 @@ export interface ConsoleDatabaseInspection {
   names: readonly string[]
 }
 
+export interface ConsoleMediaLibrary {
+  runConsoleMediaAction: typeof import("./runtime/server/media.ts").runConsoleMediaAction
+  uploadConsoleMedia: typeof import("./runtime/server/media.ts").uploadConsoleMedia
+}
+
 export interface ConsoleBlobInspection {
   storage: BlobStorage
   stores: readonly string[]
+  /** Loads the media library. Only builds with Blob install it, so other builds ship without it. */
+  media?: () => Promise<ConsoleMediaLibrary>
 }
 
 type ConsoleBlobByRoot = ConsoleProjectRegistry<ConsoleBlobInspection>
@@ -83,7 +87,6 @@ type ConsoleDatabaseByRoot = ConsoleProjectRegistry<ConsoleDatabaseInspection>
 
 type ConsoleDocumentsByRoot = ConsoleProjectRegistry<ConsoleDocumentEditors>
 
-type ConsoleBuildByRoot = ConsoleProjectRegistry<string>
 
 type ConsoleInvocationRegistry = Record<
   symbol,
@@ -144,9 +147,6 @@ export type ConsoleInvocationScope = {
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
   [consoleAuthKey]?: ConsoleAuthMode | false
   [consoleProjectNameKey]?: string
-  [consoleBuildKey]?: string
-  [consoleBuildRegistryKey]?: ConsoleBuildByRoot
-  [consoleBuildRootKey]?: string
   [consoleSectionsRootKey]?: string
   [consoleSectionsAmbiguousRootKey]?: boolean
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
@@ -181,11 +181,6 @@ const databaseRegistry = createConsoleProjectRegistry<ConsoleDatabaseInspection>
   root: consoleDatabaseRootKey,
   value: consoleDatabaseKey,
   registry: consoleDatabaseRegistryKey,
-})
-const buildRegistry = createConsoleProjectRegistry<string>({
-  root: consoleBuildRootKey,
-  value: consoleBuildKey,
-  registry: consoleBuildRegistryKey,
 })
 
 function defaultConsoleInvocationScope(): ConsoleInvocationScope {
@@ -378,6 +373,26 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaul
     ?? scope[consoleInvocationsKey]
 }
 
+const consoleFixtureInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations.fixture")
+
+/**
+ * Marks a journal that the Console supplies to discovered Agents, such as the in-memory journal of fixture mode.
+ * It replaces the app-wide Agent journal in development.
+ */
+export function markConsoleFixtureInvocations(invocations: AgentInvocations): void {
+  Object.defineProperty(invocations, consoleFixtureInvocationsKey, { configurable: true, enumerable: false, value: true })
+}
+
+/** The Console journal when the Console supplies it, as in fixture mode. The Console reads every other journal from its owner. */
+export function resolveConsoleFixtureInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
+  const invocations = resolveConsoleInvocations(scope)
+  if (!invocations) return undefined
+  if (Reflect.get(invocations, consoleFixtureInvocationsKey) === true) return invocations
+  // A fixture install also records its fixture revision.
+  const identity = scope[consoleInvocationsIdentityKey]
+  return identity && resolveConsoleInvocationsRevision(identity) ? invocations : undefined
+}
+
 export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
@@ -555,18 +570,6 @@ export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaul
   if (root) return registered?.get(root)?.projectName ?? scope[consoleProjectNameKey]
   if (registered && registered.size > 1) return scope[consoleProjectNameKey]
   return registered?.values().next().value?.projectName ?? scope[consoleProjectNameKey]
-}
-
-export function installConsoleBuildScope(
-  projectRoot: string,
-  build: string,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): string {
-  return buildRegistry.install(projectRoot, build, scope)
-}
-
-export function resolveConsoleBuild(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
-  return buildRegistry.resolve(scope)
 }
 
 export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {

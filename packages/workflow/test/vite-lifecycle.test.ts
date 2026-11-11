@@ -16,14 +16,15 @@ const lifecycle = vi.hoisted(() => ({
   retainSources: vi.fn(async () => ({ resolve: (path: string) => path })),
   useCatalog: vi.fn((_config: object) => ({})),
   writeProviderEntries: vi.fn(async () => ({})),
+  writeWorkflowTypes: vi.fn(async () => undefined),
 }))
 
-vi.mock("@vite-hub/internal/build/mode", () => ({
-  getViteMode: () => undefined,
+vi.mock("../src/internal/registry-types.ts", () => ({
+  writeWorkflowTypes: lifecycle.writeWorkflowTypes,
 }))
 
-vi.mock("@vite-hub/internal/build/esbuild", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@vite-hub/internal/build/esbuild")>(),
+vi.mock("@vite-hub/internal/build/bundle-options", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/internal/build/bundle-options")>(),
   encodeProviderOutputAliases: () => ({}),
 }))
 
@@ -135,8 +136,9 @@ afterEach(async () => {
 })
 
 describe("Workflow Provider Output lifecycle", () => {
-  it("keeps same-root config clones with their owning Workflow options and catalogs", async () => {
-    const plugin = hubWorkflow()
+  it("keeps same-root config clones with their own server directories and catalogs", async () => {
+    const workflow = { provider: "vercel" as const }
+    const plugin = hubWorkflow(workflow)
     const configs = ["first", "second"].map(name => ({
       build: { outDir: "dist" },
       command: "build",
@@ -144,7 +146,6 @@ describe("Workflow Provider Output lifecycle", () => {
       plugins: [],
       resolve: { alias: [] },
       root: projectRoot,
-      workflow: { provider: "vercel", name },
       __vitehubServerDirs: [join(projectRoot, name)],
     }))
     for (const config of configs) await functionHook(plugin.configResolved, "configResolved")(config)
@@ -158,7 +159,7 @@ describe("Workflow Provider Output lifecycle", () => {
     for (const [index, context] of contexts.entries()) {
       await functionHook(plugin.buildEnd, "buildEnd").call(context)
       expect(lifecycle.writeProviderEntries).toHaveBeenLastCalledWith(
-        projectRoot, configs[index]!.workflow, expect.anything(), configs[index]!.__vitehubServerDirs,
+        projectRoot, workflow, expect.anything(), configs[index]!.__vitehubServerDirs,
         undefined, undefined, projectRoot, expect.any(String), expect.any(Map),
       )
       expect(lifecycle.contribute).toHaveBeenLastCalledWith(catalogs[index], expect.anything(), undefined)

@@ -1,6 +1,6 @@
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { createError, defineEventHandler, readValidatedBody } from "h3";
-import { createMessage, streamAgent, type StreamEvent } from "vite-hub/agent";
+import { createMessage, streamAgent } from "vite-hub/agent";
 import { getRuntimeContext } from "vite-hub/runtime/h3";
 import { z } from "zod";
 import { textMessage } from "../../shared/chat";
@@ -45,18 +45,15 @@ export default defineEventHandler(async (event) => {
   const stream = createUIMessageStream({
     async execute({ writer }) {
       try {
-        const output = await streamAgent(mode === "model" ? assistant : offline, runtime, {
+        const [error, output] = await streamAgent(mode === "model" ? assistant : offline, {
           messages: [...thread.messages, user].map(message => createMessage(message)),
           abortSignal: signal,
-        }, { output: "events" });
-        if (!output || typeof output !== "object" || !(Symbol.asyncIterator in output)) {
-          throw new Error("Expected an Agent event stream.");
-        }
+        }, { runtimeContext: runtime });
+        if (error) throw error;
         writer.write({ type: "start", messageId: reply.id });
         writer.write({ type: "text-start", id: reply.id });
         let answer = "";
-        // The events output of streamAgent is a StreamEvent iterable.
-        for await (const part of output as AsyncIterable<StreamEvent>) {
+        for await (const part of output) {
           signal.throwIfAborted();
           if (part.type === "error") throw new Error("Agent failed.");
           if (part.type !== "text-delta") continue;

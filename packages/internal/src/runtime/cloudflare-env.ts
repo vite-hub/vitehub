@@ -117,6 +117,16 @@ export function getCloudflareEnv(event: unknown, options: { fallback?: boolean }
   return options.fallback === false ? undefined : getActiveCloudflareEnv()
 }
 
+/**
+ * Installs the Cloudflare env of a request event, so code without the event, such as a KV or Blob store, finds its
+ * bindings. Nitro middleware of Cloudflare primitives call this. A Node dev runner gives the event no env, so without a
+ * `fallback` the active env stays as it is.
+ */
+export function installCloudflareRequestEnv(event: unknown, fallback?: CloudflareWorkerEnv): void {
+  const env = getCloudflareEnv(event, { fallback: false }) ?? fallback
+  if (env) setActiveCloudflareEnv(env)
+}
+
 /** Return the Cloudflare Worker execution context of a request event, if the host provides one. */
 export function getCloudflareExecutionContext(event: unknown): CloudflareWorkerExecutionContext | undefined {
   for (const owner of cloudflareOwners(ownObject(event))) {

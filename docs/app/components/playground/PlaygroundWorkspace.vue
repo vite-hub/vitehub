@@ -8,13 +8,12 @@ import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
 import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
 import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
-import { useClipboard } from "@vueuse/core";
-import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
+import { useCopy } from "@vite-hub/ui/copy-button";
+import { downloadZip, encodePlaygroundLink, playgroundLinkLimit, playgroundUrl } from "@vite-hub/ui/playground";
 import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
 import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
 import WorkspaceTabs from "~/components/workspace/WorkspaceTabs.vue";
 import { splitterHitArea, splitterUi, useRunState } from "~/utils/workspace-layout";
-import { downloadZip } from "~/utils/zip";
 
 import type { ConnectProviderName } from "@vite-hub/web-container/connect";
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
@@ -139,7 +138,7 @@ const runState = useRunState(workspace);
 const dragging = ref(false);
 const columns = [
   { id: "files", defaultSize: 18, minSize: 12, maxSize: 30, slot: "files" as const },
-  { id: "code", defaultSize: 45, minSize: 25, slot: "code" as const },
+  { id: "code", defaultSize: 44, minSize: 25, slot: "code" as const },
   { id: "preview", defaultSize: 38, minSize: 20, slot: "preview" as const },
 ];
 const rows = [
@@ -153,20 +152,23 @@ function reset() {
 }
 
 const toast = useToast();
-const { copy } = useClipboard({ legacy: true });
+const { copy } = useCopy();
 async function share() {
-  const code = await encodePlayground({ template: current.value.id, files: workspace.files.value }, current.value.files);
-  const url = `${location.origin}${location.pathname}#${shareHashKey}=${code}`;
-  if (url.length > shareLimit) {
+  const code = await encodePlaygroundLink({ template: current.value.id, files: workspace.files.value }, current.value.files);
+  const url = `${location.origin}${playgroundUrl(location.pathname, code)}`;
+  if (url.length > playgroundLinkLimit) {
     toast.add({
       title: "Too big for a link",
-      description: `This link would have ${(url.length / 1000).toFixed(1)} KB, and a share link can have ${shareLimit / 1000} KB. Download the files instead.`,
+      description: `This link would have ${(url.length / 1000).toFixed(1)} KB, and a share link can have ${playgroundLinkLimit / 1000} KB. Download the files instead.`,
       color: "warning",
       icon: "i-lucide-triangle-alert",
     });
     return;
   }
-  await copy(url);
+  if (!await copy(url)) {
+    toast.add({ title: "Could not copy the link", description: "Your browser blocked the clipboard.", color: "warning", icon: "i-lucide-triangle-alert" });
+    return;
+  }
   toast.add({ title: "Link copied", description: "The link holds your files. Nothing is stored on a server.", icon: "i-lucide-link" });
 }
 
@@ -179,17 +181,17 @@ function download() {
   <div class="vh-playground-workspace" :class="{ 'is-dragging': dragging }">
     <header class="vh-pg-toolbar">
       <UDropdownMenu :items="templateItems" :content="{ align: 'start' }" :ui="{ content: 'w-64' }">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-layout-template" trailing-icon="i-lucide-chevron-down" :aria-label="`Template: ${current.label}`">
+        <UButton variant="ghost" icon="i-lucide-layout-template" trailing-icon="i-lucide-chevron-down" :aria-label="`Template: ${current.label}`">
           <span class="text-muted">Template</span>
           <span class="font-medium text-highlighted">{{ current.label }}</span>
         </UButton>
       </UDropdownMenu>
       <WorkspaceRunState class="ml-2" :tone="runState.tone" :label="runState.label" />
       <span class="flex-1" />
-      <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-download" label="Download" @click="download" />
-      <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-link" label="Copy link" @click="share" />
+      <UButton variant="ghost" icon="i-lucide-download" label="Download" @click="download" />
+      <UButton variant="outline" icon="i-lucide-link" label="Copy link" @click="share" />
       <UDropdownMenu :items="moreItems" :content="{ align: 'end' }">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="More actions" />
+        <UButton variant="ghost" icon="i-lucide-ellipsis" aria-label="More actions" />
       </UDropdownMenu>
     </header>
 
@@ -261,8 +263,8 @@ function download() {
     <UModal :open="!!confirm" :title="confirm?.title" description="Your edits to the current files are lost. Copy a link or download them first to keep them." @update:open="value => { if (!value) confirm = undefined }">
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Cancel" @click="confirm = undefined" />
-          <UButton color="neutral" :label="confirm?.label" @click="confirmAction" />
+          <UButton variant="ghost" label="Cancel" @click="confirm = undefined" />
+          <UButton :label="confirm?.label" @click="confirmAction" />
         </div>
       </template>
     </UModal>

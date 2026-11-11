@@ -9,6 +9,7 @@ You are working with Maxi. Keep the work direct, practical, and easy to review.
 - Write short, plain English. Use ASD-STE100 language.
 - Keep the scope focused. Prefer the smallest change that makes the public contract better.
 - Use the existing Vite, Nuxt, Vue, TypeScript, and pnpm stack.
+- Build for Nuxt 5 and Nitro 3 only. Add no code, tests, or docs for Nuxt 4 or Nitro 2 (`nitropack`).
 - Prefer inferred types. Do not use `any`.
 - Put shared behavior in the package that owns it. Keep product workflows in consumers.
 - Preserve other people's changes. Inspect collisions before editing.
@@ -61,3 +62,14 @@ Report what changed, why, what you verified, and any remaining uncertainty. Keep
 ## Pull requests
 
 Keep one concern per pull request. Use a clear conventional title and start the body with the user visible problem and result. Include focused validation. Do not merge, force push, or deploy without explicit authorization. Use an isolated worktree for pull request work and never remove pre existing work.
+
+## Review guidelines
+
+Automated reviewers read this section. The Babysitter fixes P0 and P1 findings and declines most P2 findings, so a finding below that bar only adds a review round.
+
+- Report defects only: P0 (security hole, data loss, broken main path) and P1 (real bug on a supported path, broken documented contract). Do not post style, naming, wording or cleanup comments.
+- Post a P2 (edge case, missing test, docs gap) only when the fix is small and inside the PR's scope. A case that needs forged or hostile runtime objects is P2 at most. Code that the PR did not change is "Pre-existing" and P2 at most.
+- Name the bug class and list every instance in the diff in one comment, so the author fixes the class once.
+- On a re-review, review only the commits since your last review. Do not repeat a finding that is already on the PR, and do not report a new case of a class that is already reported.
+- When the new commits only merge the base branch, report nothing unless the merge changed lines that the PR adds or changes.
+- From the third review of a PR on, when the new findings are more cases of an earlier class, post one comment that the approach does not converge and propose a simpler contract instead of more cases.

@@ -24,9 +24,7 @@ export type {
   AuthFor,
   AuthGuardedHandler,
   AuthMiddleware,
-  AuthModuleOptions,
-  AuthNodeRequest,
-  AuthNodeRequestEvent,
+  AuthOptions,
   AuthRequest,
   AuthReservedOption,
   AuthResolvedDefinitionOptions,
@@ -53,7 +51,7 @@ export type {
   ViteHubAuth,
 } from "./types.ts"
 
-export { authEventTypes, createDatabaseAuthEventStore, defaultAuthEventRetention } from "./events.ts"
+export { createDatabaseAuthEventStore, defaultAuthEventRetention } from "./events.ts"
 export type { AuthDevice, AuthEvent, AuthEventActor, AuthEventAggregates, AuthEventCounts, AuthEventListInput, AuthEventMetadata, AuthEventPage, AuthEventRetention, AuthEventsConfiguration, AuthEventStore, AuthEventType, AuthEventWindow } from "./events.ts"
 export type {
   AuthConsoleOptions,

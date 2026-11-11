@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
-import { agentInvocationId, defineAgent, runAgent, runAgentInline } from "../src/index.ts"
+import { runAgentInline, runAgentWithContext } from "../src/internal/agent-run.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
+import { agentInvocationId, defineAgent } from "../src/index.ts"
 import { bindAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations, replayChannel } from "../src/server.ts"
@@ -54,7 +55,7 @@ describe("Agent Invocation enforcement", () => {
     const recovery: Promise<unknown>[] = []
     const runId = `best-effort-running-${failure}`
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime(runId, promise => recovery.push(promise)), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime(runId, promise => recovery.push(promise)), {})).resolves.toBe("done")
     expect(run).toHaveBeenCalledOnce()
     await Promise.all(recovery)
     await vi.waitFor(async () => {
@@ -71,7 +72,7 @@ describe("Agent Invocation enforcement", () => {
     const run = vi.fn(() => "done")
     const recovery: Promise<unknown>[] = []
 
-    await expect(runAgent(defineAgent({ driver: { capacity: { concurrency: 1 }, run }, invocations, runtime: false }), runtime("best-effort-capacity", promise => recovery.push(promise)), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(defineAgent({ driver: { capacity: { concurrency: 1 }, run }, invocations, runtime: false }), runtime("best-effort-capacity", promise => recovery.push(promise)), {})).resolves.toBe("done")
     expect(run).toHaveBeenCalledOnce()
     await Promise.all(recovery)
     await expect(invocations.getByRunId("best-effort-capacity")).resolves.toMatchObject({ startedAt: expect.any(String), status: "completed" })
@@ -82,7 +83,7 @@ describe("Agent Invocation enforcement", () => {
     const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const run = vi.fn(() => "done")
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("strict-running"), {}))
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("strict-running"), {}))
       .rejects.toThrow("Could not persist the Invocation running state.")
     expect(run).not.toHaveBeenCalled()
   })
@@ -102,7 +103,7 @@ describe("Agent Invocation enforcement", () => {
     }
     const run = vi.fn(() => "done")
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations: defineAgentInvocations({ store }), runtime: false }), runtime("unavailable-store"), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations: defineAgentInvocations({ store }), runtime: false }), runtime("unavailable-store"), {})).resolves.toBe("done")
     expect(run).toHaveBeenCalledOnce()
     expect(journalWarnings(warn.mock.calls)).toHaveLength(1)
     expect(String(journalWarnings(warn.mock.calls)[0]?.[0])).toContain("cancellation check")
@@ -115,7 +116,7 @@ describe("Agent Invocation enforcement", () => {
     expect(owner?.claimStatus).toBe("owned")
     const run = vi.fn(() => "done")
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("claimed-elsewhere"), {}))
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("claimed-elsewhere"), {}))
       .rejects.toThrow("Could not persist the Invocation running state.")
     expect(run).not.toHaveBeenCalled()
     await owner?.finish("completed")
@@ -144,7 +145,7 @@ describe("Agent Invocation enforcement", () => {
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(() => "Must not start")
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("cancel-after-unconfirmed"), {})).rejects.toThrow()
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("cancel-after-unconfirmed"), {})).rejects.toThrow()
     expect(run).not.toHaveBeenCalled()
     expect(await backing.getSummary(await agentInvocationId("cancel-after-unconfirmed"))).toMatchObject({ status: "cancelled" })
   })
@@ -181,7 +182,7 @@ describe("Agent Invocation enforcement", () => {
       })
     })
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("claim-lost-after-dispatch"), {})).rejects.toThrow()
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("claim-lost-after-dispatch"), {})).rejects.toThrow()
     expect(run).toHaveBeenCalledOnce()
   }, 10_000)
 
@@ -189,7 +190,7 @@ describe("Agent Invocation enforcement", () => {
     const { store } = failingRunningStore("missing")
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(() => "Must not start")
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: {
         collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
         key: item => item.id,

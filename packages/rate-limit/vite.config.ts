@@ -20,6 +20,8 @@ export default defineConfig({
       "src/vite.ts",
     ],
     exports: {
+      // Generated code imports these modules by path. They are not public API.
+      exclude: ["cli", "operations"],
       customExports: normalizePackageExports,
       inlinedDependencies: false,
     },
@@ -27,6 +29,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 })

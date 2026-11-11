@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
 import { createProgram, flattenDiagnosticMessageText, getPreEmitDiagnostics, ModuleKind, ModuleResolutionKind, ScriptTarget } from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -116,8 +116,8 @@ describe("Database Definitions in Nuxt layers", () => {
       },
       options: { ...app.options, dev: true },
     })
-    // The Vite integration owns generated types and `vitehub db` commands, so it must scan the same layers.
-    expect(Reflect.get(app.options.vite, "database")).toMatchObject({ nuxtServerDirs: app.serverDirs, projectRoot: app.appDir })
+    // The Vite integration owns generated types and `vitehub database` commands, so it must scan the same layers.
+    expect(getResolvedFeatureOptions(app.options.vite, "database")).toMatchObject({ nuxtServerDirs: app.serverDirs, projectRoot: app.appDir })
 
     const nitroConfig: Record<string, unknown> = {}
     for (const hook of hooks) await hook(nitroConfig)
@@ -127,7 +127,10 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(runtime).toContain(`import schemaSource_0_1 from ${JSON.stringify(pathToFileURL(app.layerDefinition("accounts")).href)}`)
     expect(runtime).toContain("const schema_0 = { ...schemaSource_0_0.schema, ...schemaSource_0_1.schema }")
     expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0 }, definitionDefaults),")
-    expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs") })
+    expect(nitroConfig.alias).toEqual({
+      "#vitehub/database/definition-defaults": join(app.appDir, ".nuxt/vitehub/database/definition-defaults.mjs"),
+      "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"),
+    })
   })
 
   it.each([

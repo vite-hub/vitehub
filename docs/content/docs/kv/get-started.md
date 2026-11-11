@@ -8,15 +8,48 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Save a theme setting under `settings`, then read it in a second request. Both routes return `{ "settings": { "theme": "system" } }`.
+KV is a key-value store. You save a value under a name, called a key, and you read it back later by that key. Use it for small data such as settings, flags, or a cache.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node preset uses a local `fs-lite` store under `.vitehub/data/kv`. No provider account is required.
+In this tutorial, you save a theme setting under the key `settings` with one API route, and you read it with a second route.
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. On your computer, KV saves values in the `.vitehub/data/kv` folder.
 
 ::tutorial-step{title="Enable KV"}
 ## Enable KV
 
+Install the KV package in the app:
+
+```bash pm [commands/install-kv]
+pnpm add @vite-hub/kv
+```
+
 Add `kv: true` to the existing `vitehub()` options in `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', kv: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'node', kv: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -26,15 +59,17 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', kv: true })],
 })
 ```
+::::
+:::
 
-If you chose Nuxt in Installation, add `kv: true` to the options of the existing `vite-hub/nuxt` module. Use the same server files below. They import H3 helpers explicitly.
+Did you choose Nuxt in Installation? Then add `kv: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 
 ::
 
 ::tutorial-step{title="Write one key"}
 ## Write one key
 
-Create `server/api/settings.put.ts`. Nitro maps this file to `PUT /api/settings`. Each write replaces the value at the same key.
+Create `server/api/settings.put.ts`. This file is the route `PUT /api/settings`. It saves the theme that you send.
 
 ```ts [server/api/settings.put.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
@@ -54,14 +89,15 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`kv.set()` returns `[error, value]`. A successful write has no return value. Check the error before reporting success.
+- `kv.set('settings', settings)` saves the object under the key `settings`. A new write replaces the old value.
+- `kv.set()` returns `[error, value]`. Check `error` for operation failures. Configuration errors can throw.
 
 ::
 
 ::tutorial-step{title="Read the stored value"}
 ## Read the stored value
 
-Create a separate `GET /api/settings` route. It only reads, so it can also check the value after a server restart.
+Create `server/api/settings.get.ts`. This route only reads the value.
 
 ```ts [server/api/settings.get.ts]
 import { createError, defineEventHandler } from 'h3'
@@ -77,7 +113,10 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`kv.get()` returns `[error, value]`. A missing key is a successful read with a `null` value. This route turns it into a `404` response. Configuration errors, such as an unknown store, throw. See [Limits and errors](/docs/kv/limits-and-errors).
+- `kv.get()` returns `[error, value]`. The type in `<...>` is the type of the saved value.
+- When the key does not exist, `value` is `null`. That is not an error. Here, the route returns `404`.
+
+A configuration error, such as an unknown store, throws. See [Limits and errors](/docs/kv/limits-and-errors).
 
 ::
 
@@ -90,7 +129,7 @@ Start or restart the app after the config change:
 pnpm dev
 ```
 
-Keep it running. In another terminal, write a theme:
+Keep it running. Open a second terminal and save a theme:
 
 ```bash [commands/request]
 curl -X PUT http://localhost:3000/api/settings \
@@ -98,7 +137,7 @@ curl -X PUT http://localhost:3000/api/settings \
   -d '{"theme":"system"}'
 ```
 
-Then read it without another write:
+Then read it back:
 
 ```bash [commands/read]
 curl http://localhost:3000/api/settings
@@ -110,7 +149,27 @@ Both requests return:
 { "settings": { "theme": "system" } }
 ```
 
-Stop the app, run `pnpm dev` again, and repeat only the GET request. The same response confirms that the local store kept the value on disk. A later PUT with `{"theme":"dark"}` replaces it.
+The value stays after a restart. To check it, stop the app, run `pnpm dev` again, and run only the read request. Send `{"theme":"dark"}` to replace the value.
 
-Use [Configuration](/docs/kv/configure) for named stores and [Hosts](/docs/kv/hosts) for shared hosted storage. A local file store needs persistent disk when you deploy it.
+::
+
+
+## What happens when you deploy
+
+On your computer, KV saves values in a local folder. A host with no persistent disk loses that folder. Use [Hosts](/docs/kv/hosts) to pick a shared store for your host.
+
+## Next steps
+
+::card-group
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/kv/configure"}
+Add named stores and choose a provider.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/kv/hosts"}
+Move to a hosted store without a change to your KV code.
+:::
+
+:::card{title="Server API" icon="i-lucide-code-2" to="/docs/kv/server-api"}
+Read every KV method and its result.
+:::
 ::

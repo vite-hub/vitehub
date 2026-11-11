@@ -26,7 +26,6 @@ import ConsoleState from "./console-state.vue";
  * The comments state it provides gives the reply box its `@` mentions.
  */
 const props = defineProps<{
-  definitionsBase: string;
   /** The id of the open thread. Without it the panel is closed. */
   id?: string;
   /** The thread as the list has it, so the panel opens without a request. */
@@ -37,7 +36,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; changed: [thread: CommentThreadModel]; removed: [id: string] }>();
 
 const toast = useConsoleToast();
-const client = createCommentsClient({ refreshOnFocus: false, transport: consoleCommentsTransport(props.definitionsBase, () => props.id) });
+const client = createCommentsClient({ refreshOnFocus: false, transport: consoleCommentsTransport(() => props.id) });
 const thread = shallowRef<CommentThreadModel>();
 const error = shallowRef<unknown>();
 const sessionError = shallowRef<unknown>();
@@ -137,7 +136,7 @@ async function load(): Promise<void> {
     if (current.signal.aborted) return;
     if (!found) throw new Error("This thread was deleted, or you may not read it.");
     thread.value = found;
-    const currentSession = await readConsoleCommentSession(props.definitionsBase, found.subject, current.signal, found.id);
+    const currentSession = await readConsoleCommentSession(found.subject, current.signal, found.id);
     if (current.signal.aborted) return;
     session.value = currentSession;
   } catch (cause) {
@@ -174,7 +173,7 @@ async function loadAttachments(): Promise<void> {
   attachmentLinks.value = retained;
   await Promise.all([...keys].filter(key => !retained.has(key)).map(async key => {
     try {
-      const file = await readConsoleCommentAttachment(props.definitionsBase, key, current.signal);
+      const file = await readConsoleCommentAttachment(key, current.signal);
       if (current.signal.aborted) return;
       const bytes = Uint8Array.from(atob(file.data), character => character.charCodeAt(0));
       // The operation marks safe preview types; other files download as binary, including HTML and SVG.
@@ -212,7 +211,7 @@ async function update(next: CommentThreadModel): Promise<void> {
   sessionError.value = undefined;
   const current = controller;
   try {
-    const currentSession = await readConsoleCommentSession(props.definitionsBase, next.subject, current?.signal, next.id);
+    const currentSession = await readConsoleCommentSession(next.subject, current?.signal, next.id);
     if (props.id === next.id && !current?.signal.aborted) session.value = currentSession;
   } catch (cause) {
     // The mutation succeeded. A failed capability refresh must not leave a reply looking unsent.
@@ -255,7 +254,7 @@ async function reopen(): Promise<void> {
       <div ref="root" class="console-comment-thread flex h-full min-h-0 flex-col">
         <div v-if="error || !thread" class="flex items-center justify-between gap-2 border-b border-default py-1.5 ps-3 pe-2">
           <span class="font-semibold text-highlighted">{{ title }}</span>
-          <UButton aria-label="Close" color="neutral" icon="i-lucide-x" size="xs" variant="ghost" @click="emit('close')" />
+          <UButton aria-label="Close" icon="i-lucide-x" size="xs" variant="ghost" @click="emit('close')" />
         </div>
         <ConsoleState v-if="error" :error="error" title="Couldn't load the thread" :retry="load" />
         <p v-else-if="!thread" role="status" class="p-4 text-sm text-muted">Loading the thread…</p>
@@ -277,7 +276,7 @@ async function reopen(): Promise<void> {
         >
           <template #actions>
             <UTooltip v-if="link" text="Open page">
-              <UButton aria-label="Open page" color="neutral" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
+              <UButton aria-label="Open page" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
             </UTooltip>
           </template>
           <template #anchor="{ thread: current }">
@@ -289,7 +288,7 @@ async function reopen(): Promise<void> {
         </CommentThread>
         <p v-if="attachmentError" role="alert" class="border-t border-default px-3 py-2 text-xs text-muted">
           Some attachments could not be loaded.
-          <UButton label="Retry" size="xs" variant="link" @click="loadAttachments" />
+          <UButton label="Retry" size="xs" variant="ghost" @click="loadAttachments" />
         </p>
         <p v-if="thread && !loading && !canWrite && !sessionError" class="border-t border-default px-3 py-2 text-xs text-muted">
           You can read this thread. The app's <code>authorize</code> policy does not let you reply to it.

@@ -10,11 +10,14 @@ import {
   type ConsoleAccess,
   type ConsoleAccessRoute,
 } from "./access.ts";
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts";
 import {
   assertConsoleRequest,
   consoleRequestError,
   consoleRequestJSON,
+  consoleRoute,
   type ConsoleRequestEvent,
+  type ConsoleRoute,
 } from "./request.ts";
 import { getConsoleSections } from "./sections.ts";
 
@@ -104,10 +107,11 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   const site = request.headers.get("sec-fetch-site");
   // Browser-controlled Fetch Metadata survives trusted TLS termination, as in Console RPC.
   if (
-    origin === "null" ||
-    site === "cross-site" ||
-    site === "same-site" ||
-    (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)
+    (origin === "null" ||
+      site === "cross-site" ||
+      site === "same-site" ||
+      (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)) &&
+    !isConsoleCrossOriginCall(request, access)
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
@@ -149,6 +153,12 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
         { message: "Impersonation is off. Set console.impersonation to true to enable it." },
         { status: 404, headers: { "cache-control": "no-store" } },
       );
+    // A Console token names no administrator, so impersonation could not record who started it.
+    if ((output.action === "impersonate" || output.action === "stopImpersonating") && access.mode === "token")
+      return Response.json(
+        { message: "Impersonation needs a signed-in administrator. A Console token cannot start or stop it." },
+        { status: 403, headers: { "cache-control": "no-store" } },
+      );
     const [error, response] =
       output.action === "stopImpersonating"
         ? await api.stopImpersonating(request)
@@ -166,4 +176,7 @@ const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, {
   section: "auth",
   user: true,
 });
-export default guarded;
+
+/** `POST <base>/_vitehub/auth/manage` */
+const consoleAuthManageRoute: ConsoleRoute = consoleRoute(withConsoleCors(guarded));
+export default consoleAuthManageRoute;

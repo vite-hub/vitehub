@@ -8,7 +8,6 @@
     "cron-jobs",
     "netlify",
     "nuxt",
-    "nuxt-module",
     "schedule",
     "typescript",
     "vercel",
@@ -37,25 +36,10 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./nuxt": {
-      "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js",
-      "default": "./dist/nuxt.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
-    },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
     },
     "./runtime/kv": {
       "types": "./dist/runtime/kv.d.ts",
@@ -66,11 +50,6 @@
       "types": "./dist/runtime/process.d.ts",
       "import": "./dist/runtime/process.js",
       "default": "./dist/runtime/process.js"
-    },
-    "./runtime/state": {
-      "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js",
-      "default": "./dist/runtime/state.js"
     },
     "./runtime/static": {
       "types": "./dist/runtime/static.d.ts",
@@ -88,12 +67,12 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/schedule#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/schedule#build && vp test"
+    "test": "vp run --cache -t @vite-hub/schedule#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
-    "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"

@@ -40,11 +40,10 @@ import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  kv: {
+  plugins: [hubKv({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
-  },
-  plugins: [hubKv()],
+  })],
 })
 ```
 
@@ -54,11 +53,23 @@ Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to
 
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
+`fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. The migration lock stays in that folder, so only `base` needs write access. Stop all processes that use the store before moving it. Copies and backups must preserve hidden files and hard links. Use GNU `cp -a` and verify the copied layout record before opening the copy; see [Move an fs-lite store](https://vitehub.dev/docs/kv/configure#move-an-fs-lite-store). Ordinary `cp -R` breaks the layout identity and can make existing keys inaccessible.
+
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
+
+## Development stays local
+
+In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. When ViteHub infers the driver, Upstash env vars and the Vercel preset do not select Upstash in development: the store is `fs-lite` in `.vitehub/data/kv`. On the Cloudflare preset, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner. Without one, for example on Nitro's default Node runner, it uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>` with the Workers KV limits.
+
+`kv: { remote: true }` lets development infer the hosted store as a build does. On Cloudflare, ViteHub then writes `remote: true` on the generated Wrangler KV binding. The first operation prints `KV store "<name>" is remote`, and `vitehub inspect definitions --kind kv` shows `Development: Remote`. Writes change real data.
+
+Development reads Upstash credentials from Vite's `.env` files for the current mode and `envDir`, with process environment values taking precedence. The credentials stay in the development server runtime.
+
+An explicit `driver` is honored as before; an `upstash` store prints the same notice. Builds ignore `remote`. A `remote` value that is not a boolean fails with `KV_INVALID_REMOTE`. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with `KV_REMOTE_CONFLICT`.
 
 ## Nitro cache
 
-`@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+`kvNitroCacheDriver` from `@vite-hub/kv/vite` is the file path of an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
 
 ## Listing keys
 
@@ -68,11 +79,24 @@ List prefixes use the same key normalization as reads and writes. For example, `
 
 Cursors are opaque and provider-specific. Pass a returned cursor back to the same store with the same prefix. Cloudflare KV, Upstash, Deno KV, and `fs-lite` stop enumeration when the requested page is full. An `fs-lite` cursor retains a directory iterator in the current process for up to 15 minutes. Upstash uses the same retention window when the provider returns more keys than requested. These process-local cursors can expire sooner when more than 32 listings are left unfinished. Calling `disposeKVStores()` from the application shutdown hook releases these process-local cursors, closes retained directory iterators, and clears their expiry timers. A pending listing cannot retain a new cursor after disposal. Callers must restart listing without a cursor when continuation fails.
 
-KV operations return `[error, value]`. `error.code` is one of the codes of the method, for example `KV_INVALID_CURSOR` for `list()`, and `error.why`, `error.fix`, and `error.docs` explain it. Provider failures use the code `KV_OPERATION_FAILED` and keep the provider failure in `cause`. See [KV limits and errors](https://vitehub.dev/docs/kv/limits-and-errors). Configuration errors, for example an unknown named store, throw.
+KV operations return `[error, value]`. `error.code` is one of the codes of the method, for example `KV_INVALID_CURSOR` for `list()`, and `error.why`, `error.fix`, and `error.docs` explain it. Provider failures use the code `KV_OPERATION_FAILED` and keep the provider failure in `cause`. A Cloudflare KV store checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, in production and in `vite dev`: a key above 512 bytes returns `KV_KEY_TOO_LONG`, a value above 25 MiB returns `KV_VALUE_TOO_LARGE`, `metadata` above 1024 bytes returns `KV_METADATA_TOO_LARGE`, and an `expirationTtl` below 60 seconds or an `expiration` less than 60 seconds in the future returns `KV_TTL_TOO_SHORT`. See [KV limits and errors](https://vitehub.dev/docs/kv/limits-and-errors). Configuration errors, for example an unknown named store, throw.
 
 `kv.setIfAbsent(key, value, { ttl })` writes the value only when the key has no value, in one atomic step. Its value is `true` for the one call that wrote it and `false` for the others. Use it for upload tickets, invite codes, and nonces instead of `get()` then `set()`, which two requests can race. Upstash runs `SET NX`. Deno KV commits an atomic check that the key is missing; it deletes expired keys some time after the TTL. `fs-lite` creates the file exclusively, which is atomic on one disk, and never expires keys. Cloudflare KV returns `KV_UNSUPPORTED_OPERATION`, because Workers KV is eventually consistent; use D1 or a Durable Object there.
 
 Upstash also supports `kv.getAndDelete(key)` and `kv.increment(key, ttl)`. These operations are atomic in the provider. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` because they cannot provide the same contract without extra storage or non-atomic calls.
+
+## Read-only handles
+
+`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
+
+```ts
+import { kv } from "@vite-hub/kv"
+
+const flags = kv.store("default", { mode: "read" })
+const [error, value] = await flags.get("flags")
+```
+
+The mode limits this API, not the host. The KV binding or provider token keeps full access, and code can still import the full `kv` export, so it is not a security boundary against code that reads the binding directly.
 
 ## Application teardown
 
@@ -93,6 +117,6 @@ export default defineNitroPlugin((nitroApp) => {
 
 `hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
-Each command runs a `kv.*` operation of the app through the Console RPC (`@vite-hub/kv/operations`). On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
+Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

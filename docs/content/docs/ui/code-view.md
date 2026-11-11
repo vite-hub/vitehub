@@ -3,23 +3,23 @@ title: Code View
 description: "Render syntax-highlighted files, and virtualized lists that mix files and diffs."
 navigation.order: 38
 navigation.group: Agent work
-icon: i-ph-code-light
+icon: i-lucide-code
 ---
 
-`CodeView` renders a virtualized list of files and diffs in one scroll container. `FileView` renders one syntax-highlighted file without a diff. Both use Pierre's `@pierre/diffs` views with the Nuxt UI theme. Use them to show the files an Agent read or produced next to the changes it made.
+`CodeView` renders files and diffs in order in one virtualized scroll container (only visible rows render). `FileView` renders one highlighted file without a diff. Both use Pierre's `@pierre/diffs` views with the Nuxt UI theme. Use them to show the files an Agent read or wrote next to its changes.
 
-::component-preview{name="CodeViewExample"}
+::example{name="CodeViewExample" height=24}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entries `@vite-hub/ui/code-view` and `@vite-hub/ui/file-view`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`, `@vite-hub/ui/code-view`, or `@vite-hub/ui/file-view`:
 
 ```ts
 import { CodeView, FileView } from "@vite-hub/ui";
 ```
 
-The helpers and types, such as `getSingularPatch` and `FileContents`, come from `@vite-hub/ui`.
+Helpers and types, such as `getSingularPatch` and `FileContents`, come from `@vite-hub/ui`.
 
 ## Usage
 
@@ -33,29 +33,62 @@ import { CodeView, getSingularPatch, type CodeViewItem } from "@vite-hub/ui";
 </template>
 ```
 
-Give `CodeView` a height. It owns the scrolling inside that height.
+Give `CodeView` a height. It scrolls inside it.
 
-Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A `diff` item has a `fileDiff: FileDiffMetadata`, for example from `getSingularPatch(patch)`.
+Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A `diff` item has a `fileDiff: FileDiffMetadata`, such as from `getSingularPatch(patch)`.
 
 ## Features
 
-- `CodeView` renders files and diffs in order in one virtualized scroll container.
-- `FileView` renders one file without a diff.
-- Pierre's `@pierre/diffs` owns parsing, syntax highlighting, and rendering. ViteHub applies the Nuxt UI theme.
+- Pierre parses, highlights, and renders. ViteHub applies the Nuxt UI theme.
 - Syntax highlighting loads only when a code view first renders.
-- `selectedLines` highlights lines from application state.
 
 ## One File
 
-`FileView` renders one file. Set `selectedLines` to highlight a range from application state.
+`FileView` renders one file. Set `selectedLines` to highlight a range from app state.
 
-::component-preview{name="FileExample"}
+::example{name="FileExample" height=20}
 ::
+
+## Open a File at Its Lines
+
+A link such as `?file=server/api/orders.get.ts&line=3-5` must select the file in the tree, highlight the lines, and scroll to them. Keep the file and the lines in your app state. [`FileTree`](/docs/ui/file-tree#selected-file) takes the file with `v-model:selected-path`. With `scroll-to-selected-lines`, the view scrolls to `selectedLines` one time for each new file or range. It scrolls only the nearest container that scrolls, so the page around the view stays in place. The [diff](/docs/ui/diff) components and `CodeView` have the same prop.
+
+```vue
+<script setup lang="ts">
+import type { SelectedLineRange } from "@vite-hub/ui";
+
+const props = defineProps<{ files: Record<string, string> }>();
+const route = useRoute();
+const router = useRouter();
+
+const path = computed({
+  get: () => (typeof route.query.file === "string" ? route.query.file : undefined),
+  // A file that the reader selects has no lines.
+  set: (file) => router.replace({ query: { file } }),
+});
+const lines = computed<SelectedLineRange | null>(() => {
+  const [start, end = start] = String(route.query.line ?? "").split("-").map(Number);
+  return start && end ? { start, end } : null;
+});
+</script>
+
+<template>
+  <FileTree v-model:selected-path="path" :paths="Object.keys(files)" />
+  <FileView
+    v-if="path && path in files"
+    :file="{ name: path, contents: files[path]! }"
+    :selected-lines="lines"
+    scroll-to-selected-lines
+  />
+</template>
+```
+
+The components do not read the URL. The same props work with a route query, a hash, or a store.
 
 ## Accessibility
 
-- ViteHub turns off pointer line selection. Set `selectedLines` to highlight lines from application state.
-- Keep the file header visible, or add a heading, so readers know which file they read.
+- ViteHub turns off pointer line selection. Set `selectedLines` to highlight lines from app state.
+- Keep the file header, or add a heading, so readers know which file they read.
 
 ## API Reference
 
@@ -67,9 +100,10 @@ Renders a virtualized list of files and diffs.
 
 | Prop            | Type                                  | Default  | Description                                    |
 | --------------- | ------------------------------------- | -------- | ---------------------------------------------- |
-| `items`         | `readonly CodeViewItem[]`             | Required | Files and diffs to render, in order.           |
+| `items`         | `readonly CodeViewItem[]`             | Required | Files and diffs, in order. |
 | `options`       | `CodeViewOptions`                     |          | Pierre options for the list.                   |
-| `selectedLines` | `CodeViewLineSelection \| null`       |          | The selected lines. Controlled when set.       |
+| `selectedLines` | `CodeViewLineSelection \| null`       |          | Selected lines. Controlled when set. |
+| `scrollToSelectedLines` | `boolean`                     | `false`  | Scrolls to each new `selectedLines`. |
 
 ### FileView
 
@@ -81,8 +115,9 @@ Renders one syntax-highlighted file.
 | ----------------- | ----------------------------------- | -------- | -------------------------------------------- |
 | `file`            | `FileContents`                      | Required | The file name and contents.                  |
 | `options`         | `FileOptions`                       |          | Pierre options for the file view.            |
-| `lineAnnotations` | `LineAnnotation[]`                  |          | Application content on lines.                |
-| `selectedLines`   | `SelectedLineRange \| null`         |          | The selected line range. Controlled when set. |
+| `lineAnnotations` | `LineAnnotation[]`                  |          | Your line content. |
+| `selectedLines`   | `SelectedLineRange \| null`         |          | Selected line range. Controlled when set. |
+| `scrollToSelectedLines` | `boolean`                     | `false`  | Scrolls to `selectedLines` for each new file or range. |
 
 Other attributes go to the Pierre view.
 

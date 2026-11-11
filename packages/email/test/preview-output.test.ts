@@ -23,7 +23,8 @@ it.each([["serve", false], ["serve", undefined], ["build", false], ["build", und
   for (const dir of serverDirs) await mkdir(join(dir, "emails"), { recursive: true })
   await writeFile(join(serverDirs[0]!, "emails", "welcome.md"), "# Hello {{ data.name }}\n")
   await writeFile(join(serverDirs[1]!, "emails", "receipt.md"), "Receipt {{ data.id }}\n")
-  const plugin = hubEmail({ driver: "resend", outbox })
+  // `outbox: false` needs `remote: true` in `vite dev`.
+  const plugin = hubEmail({ driver: "resend", outbox, remote: outbox === false })
   if (!(plugin.config instanceof Function) || !(plugin.configResolved instanceof Function)) throw new Error("Expected Email config hooks")
   const config = { root, [VITEHUB_SERVER_DIRS]: serverDirs }
   await Reflect.apply(plugin.config, undefined, [config, { command, mode: command === "serve" ? "development" : "production" }])
@@ -31,9 +32,11 @@ it.each([["serve", false], ["serve", undefined], ["build", false], ["build", und
   let alias: Record<string, string>
   if (command === "serve") {
     // Nitro's runtime resolver replays these Vite hooks in development.
-    if (!(plugin.resolveId instanceof Function) || !(plugin.load instanceof Function)) throw new Error("Expected Email runtime hooks")
-    const id: unknown = await Reflect.apply(plugin.resolveId, undefined, [EMAIL_DEFINITION_ID])
-    const source: unknown = await Reflect.apply(plugin.load, undefined, [id])
+    const resolveId: unknown = Reflect.get(Object(plugin.resolveId), "handler")
+    const load: unknown = Reflect.get(Object(plugin.load), "handler")
+    if (!(resolveId instanceof Function) || !(load instanceof Function)) throw new Error("Expected Email runtime hooks")
+    const id: unknown = await Reflect.apply(resolveId, undefined, [EMAIL_DEFINITION_ID])
+    const source: unknown = await Reflect.apply(load, undefined, [id])
     if (typeof source !== "string") throw new Error("Expected generated runtime source")
     const virtual = join(root, "virtual-definition.mjs")
     await writeFile(virtual, source)

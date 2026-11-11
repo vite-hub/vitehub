@@ -52,7 +52,7 @@ const tab = ref<"preview" | "console" | "connect">("preview");
 const tabs = [
   { label: "Preview", value: "preview" as const, icon: "i-lucide-app-window" },
   { label: "Console", value: "console" as const, icon: "i-lucide-square-terminal" },
-  { label: "Connect", value: "connect" as const, icon: "i-lucide-plug" },
+  ...connect.providers.length ? [{ label: "Connect", value: "connect" as const, icon: "i-lucide-plug" }] : [],
 ];
 const runState = useRunState(workspace);
 const moreItems = computed(() => [[
@@ -170,17 +170,17 @@ onBeforeUnmount(() => { props.actions.available = false; });
     <header class="vh-tutorial-toolbar">
       <WorkspaceRunState :tone="runState.tone" :label="runState.label" />
       <span class="flex-1" />
-      <UButton size="sm" color="neutral" variant="ghost" label="Reset step" icon="i-lucide-rotate-ccw" @click="reset" />
-      <UButton size="sm" color="neutral" variant="outline" label="Solve" icon="i-lucide-wand-sparkles" @click="solve" />
+      <UButton variant="ghost" label="Reset step" icon="i-lucide-rotate-ccw" @click="reset" />
+      <UButton variant="outline" label="Solve" icon="i-lucide-wand-sparkles" @click="solve" />
       <UDropdownMenu :items="moreItems" :content="{ align: 'end' }">
-        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-ellipsis" aria-label="More actions" />
+        <UButton variant="ghost" icon="i-lucide-ellipsis" aria-label="More actions" />
       </UDropdownMenu>
     </header>
 
     <div v-if="pendingStep !== undefined" class="vh-tutorial-bar" role="status">
       <span class="min-w-0 flex-1">You changed {{ edited.length === 1 ? "1 file" : `${edited.length} files` }}. Step {{ pendingStep + 1 }} has its own version.</span>
-      <UButton size="xs" color="neutral" variant="outline" :label="`Load step ${pendingStep + 1}`" @click="loadPending" />
-      <UButton size="xs" color="neutral" variant="ghost" label="Keep mine" @click="keepMine" />
+      <UButton size="xs" variant="outline" :label="`Load step ${pendingStep + 1}`" @click="loadPending" />
+      <UButton size="xs" variant="ghost" label="Keep mine" @click="keepMine" />
     </div>
 
     <USplitter id="vh-tutorial-rows" auto-save-id="vitehub:tutorial:rows" orientation="vertical" :items="rows" :hit-area-margins="splitterHitArea" :ui="splitterUi" class="min-h-0 flex-1" :aria-label="`${tutorial.title} workspace`" @dragging="(_, value) => dragging = value">
@@ -230,7 +230,7 @@ onBeforeUnmount(() => { props.actions.available = false; });
           </template>
           <template #connect>
             <div class="h-full overflow-auto">
-              <ConnectPanel :connect="connect" empty="No accounts needed for this step." />
+              <ConnectPanel :connect="connect" />
             </div>
           </template>
         </WorkspaceTabs>
@@ -240,8 +240,8 @@ onBeforeUnmount(() => { props.actions.available = false; });
     <UModal :open="!!confirm" :title="confirm?.title" description="Your edits in this step are lost." @update:open="open => { if (!open) confirm = undefined }">
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Cancel" @click="confirm = undefined" />
-          <UButton color="neutral" label="Replace files" @click="confirmAction" />
+          <UButton variant="ghost" label="Cancel" @click="confirm = undefined" />
+          <UButton label="Replace files" @click="confirmAction" />
         </div>
       </template>
     </UModal>

@@ -1,7 +1,7 @@
-import { Readable } from "node:stream"
 
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { H3 } from "h3"
+import { loadOptions } from "nitro/builder"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { commentsOperations } from "../../comments/src/operations-core/operations.ts"
@@ -15,7 +15,9 @@ import handler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
+import { requestEvent } from "./console-event.ts"
+import type { NitroEventHandler } from "nitro/types"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const calls: Array<{ input: Record<string, unknown>, user: unknown }> = []
@@ -40,8 +42,7 @@ async function rpc(message: unknown, init: { headers?: Record<string, string>, m
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...init.headers },
     ...(init.method === "GET" ? {} : { body: JSON.stringify(message) }),
   })
-  // SAFETY: the route reads the request and the method of the H3 event.
-  const response = await handler({ method: request.method, req: request } as H3Event)
+  const response = await handler.fetch(request)
   const body: Record<string, any> = response.status === 202 ? {} : Object(await response.json())
   return { status: response.status, body }
 }
@@ -79,6 +80,17 @@ describe("MCP owner contributions", () => {
     expect((await rpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "comments_reply", arguments: { id: thread!.id, body: "Denied" } } })).body.error.code).toBe(-32602)
   })
 
+  it("keeps the delegating discovery middleware a virtual module through Nitro 3's options", async () => {
+    const config: { handlers: NitroEventHandler[], virtual?: Record<string, string> } = {
+      handlers: [{ route: "/.well-known/oauth-protected-resource", handler: "/app/metadata.js", method: "GET" }],
+    }
+    addConsoleRpcHandler(config, "/runtime", "/", [], true)
+    const options = await loadOptions({ rootDir: "/app", handlers: config.handlers, virtual: config.virtual }, { dotenv: false })
+    const middleware = options.handlers.find(handler => handler.middleware && !handler.route)
+    expect(middleware?.handler).toBeDefined()
+    expect(options.virtual).toHaveProperty([middleware!.handler])
+  })
+
   it("retains application OAuth wildcard discovery handlers", () => {
     const handlers = ["oauth-protected-resource", "oauth-authorization-server"].map(name => ({ route: `/.well-known/${name}/**`, handler: `/app/${name}.js` }))
     const config = { handlers: [...handlers] }
@@ -92,7 +104,7 @@ describe("MCP owner contributions", () => {
     const route = `/.well-known/${name}`
     const application = { route, handler: "/app/metadata.js", method: "get" }
     const config: { handlers: typeof application[]; plugins?: string[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
-    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
+    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", verify: verifyConsoleJwt, auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
     for (const base of ["/", "/portal/"]) {
       addConsoleRpcHandler(config, "/runtime", base, [], true)
       expect(config.handlers).toContainEqual(application)
@@ -106,7 +118,7 @@ describe("MCP owner contributions", () => {
       const entry = new URL("../src/console/runtime/server/mcp-discovery.ts", import.meta.url).href
       const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
       const request = new Request(`http://app.test${route}`)
-      await expect(module.default({ req: request })).resolves.toBeUndefined()
+      await expect(module.default(requestEvent(request))).resolves.toBeUndefined()
       const pluginId = "/runtime/server/mcp-discovery-nitro2.js"
       expect(config.plugins?.filter(plugin => plugin === pluginId)).toHaveLength(1)
       const pluginSource = config.virtual?.[pluginId]
@@ -114,7 +126,7 @@ describe("MCP owner contributions", () => {
       const plugin = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(pluginSource.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
       const hook = vi.fn()
       plugin.default({ h3App: {}, hooks: { hook } })
-      await expect(hook.mock.calls[0]![1]({ req: request })).resolves.toBeUndefined()
+      await expect(hook.mock.calls[0]![1](requestEvent(request))).resolves.toBeUndefined()
       hook.mockClear()
       plugin.default({ hooks: { hook } })
       expect(hook).not.toHaveBeenCalled()
@@ -196,6 +208,7 @@ describe("MCP owner contributions", () => {
     const list = await rpc({ jsonrpc: "2.0", id: 3, method: "tools/list" })
     expect(list.body.result.tools).toEqual([
       expect.objectContaining({ name: "definitions_list" }),
+      expect.objectContaining({ name: "project_get" }),
       expect.objectContaining({ name: "sections_list" }),
       { name: "comments_list_threads", description: "The comments_list_threads tool.", inputSchema: { type: "object", properties: { id: { type: "string" } } }, annotations: { readOnlyHint: true } },
     ])
@@ -234,21 +247,6 @@ describe("MCP owner contributions", () => {
       else expect.soft(called.body.error).toMatchObject({ code: -32602 })
     }
     expect(calls).toHaveLength(permitted.length)
-  })
-
-  it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
-    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
-    installConsoleSections("/mcp-test", ["comments"])
-    registerViteHubMcpTools("comments", [tool("comments_list_threads", "comments")])
-    const req = Object.assign(Readable.from([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })]), {
-      method: "POST",
-      url: "/_vitehub/mcp",
-      headers: { host: "app.test", origin: "http://app.test", "content-type": "application/json" },
-    })
-    const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {}, method: "POST" }])
-    if (!(response instanceof Response)) throw new TypeError("Expected a Response")
-    expect(response.status).toBe(200)
-    expect(Object(await response.json()).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["definitions_list", "sections_list", "comments_list_threads"])
   })
 
   it("needs Console access", async () => {
