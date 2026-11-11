@@ -17,9 +17,9 @@ export type { VueAuthClient } from "better-auth/vue"
 const LOAD = Symbol.for("vitehub.auth.client.load")
 
 type Callable = (...args: unknown[]) => unknown
-type NuxtApp = { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: VueAuthClient<any> }
+type NuxtApp = { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: AuthClientLike }
 
-const authClientKey: InjectionKey<VueAuthClient<any>> = Symbol("vitehub.auth.client")
+const authClientKey: InjectionKey<AuthClientLike> = Symbol("vitehub.auth.client")
 
 /**
  * The members of a client that the composables read. Every Better Auth Vue client has them. `VueAuthClient<any>`
@@ -179,7 +179,7 @@ type ServerFieldsClient<TOptions> = TOptions extends BetterAuthClientOptions ? V
 export const authClient = createAuthClient({ basePath: resolveAuthMountPath("/api/auth") }) as RegisteredAuthClient
 
 /** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
-export function provideAuthClient(client: VueAuthClient<any>): void {
+export function provideAuthClient(client: AuthClientLike): void {
   provide(authClientKey, client)
 }
 
@@ -187,7 +187,8 @@ export function useAuthClient(): typeof authClient {
   const instance = getCurrentInstance()
   const client = instance ? inject(authClientKey, undefined) : undefined
   const nuxtApp = nuxtAppResolver?.() || instance?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
-  return client ?? nuxtApp?.$vitehubAuthClient ?? authClient
+  // SAFETY: the configured client uses the app's Auth Definition, which supplies `RegisteredAuthClient`'s types.
+  return (client ?? nuxtApp?.$vitehubAuthClient ?? authClient) as typeof authClient
 }
 
 export interface AuthSessionState<Client extends AuthClientLike = typeof authClient> {
@@ -275,7 +276,7 @@ function abilityRefusal(state: { isPending: boolean, data: { user: object } | nu
  * const { can } = useAbility()
  * const editable = computed(() => post.value && can("posts.edit", post.value))
  */
-export function useAbility(client: VueAuthClient<any> = useAuthClient()): Ability {
+export function useAbility(client: AuthClientLike = useAuthClient()): Ability {
   const state = useSession(client)
   return {
     can: (name, ...args) => {

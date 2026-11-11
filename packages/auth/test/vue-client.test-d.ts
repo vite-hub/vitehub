@@ -3,7 +3,7 @@ import { admin, bearer, customSession, organization } from "better-auth/plugins"
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { authClient, createAuthClient, loadAuthClient, useAuthClient, useUserSession, type RegisteredAuthClient } from "../src/vue.ts"
+import { authClient, createAuthClient, loadAuthClient, provideAuthClient, setNuxtAppResolver, useAbility, useAuthClient, useSession, useUserSession, type RegisteredAuthClient } from "../src/vue.ts"
 
 describe("Vue Auth client types", () => {
   it("gives the client the user and session fields that the Auth Definition adds", () => {
@@ -79,6 +79,10 @@ describe("Vue Auth client types", () => {
 
   it("accepts a custom client with required additional fields", () => {
     const client = createAuthClient({ plugins: [inferAdditionalFields({ user: { plan: { type: "string", required: true } } })] })
+    provideAuthClient(client)
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: client }))
+    expectTypeOf(useAbility(client).ready.value).toEqualTypeOf<boolean>()
+    expectTypeOf(useSession(client).value.data!.user.plan).toEqualTypeOf<string>()
     expectTypeOf(useUserSession(client).user.value!.plan).toEqualTypeOf<string>()
     expectTypeOf(loadAuthClient(client)).resolves.toEqualTypeOf(client)
   })
