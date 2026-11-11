@@ -223,8 +223,8 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
   const parser = { ...options, cache: undefined, logger: undefined, onError: undefined }
   /** The views of `at()`, by `<source>:<sha>`. The map order is the use order, the least recently used first. */
   const views = new Map<string, OpenView>()
-  /** Includes evicted views while a read or disposal still runs. */
-  const allViews = new Set<OpenView>()
+  /** One namespace owner per Source/SHA, including evicted views while a read or cleanup still runs. */
+  const allViews = new Map<string, OpenView>()
   let disposed = false
   /** The commits that refs resolved to, by `<source>:<ref>`, with when the lookup started. */
   const refs = new CommitMemory<{ at: number, target: Promise<ContentSourceRef> }>(MAX_HELD_REFS)
@@ -533,7 +533,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
         await Promise.all([open.hub.dispose(), ...open.instances.map(instance => instance.dispose())])
       }
       finally {
-        allViews.delete(open)
+        allViews.delete(open.key)
       }
     })()
   }
@@ -543,27 +543,35 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
   }
 
   /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
-  function openView(state: HeadState, sha: string): OpenView {
+  async function openView(state: HeadState, sha: string, acquire = false): Promise<OpenView> {
     assertActive()
     const key = `${state.name}:${sha}`
-    const existing = views.get(key)
-    if (existing) {
-      views.delete(key)
-      views.set(key, existing)
-      return existing
+    let open = allViews.get(key)
+    // Cleanup owns this namespace until it finishes. Concurrent waiters check the owner again after each wait.
+    while (open?.closing) {
+      await open.closing
+      assertActive()
+      open = allViews.get(key)
     }
-    const revision: SourceRevision = { id: sha, immutable: true }
-    const commits: ContentSourceCommits = {
-      revision: async () => revision,
-      files: async commit => (await load(state, commit)).files,
-      documents: origin => withCommitDocuments(origin, async () => (await load(state, revision)).commit),
+    if (!open) {
+      const revision: SourceRevision = { id: sha, immutable: true }
+      const commits: ContentSourceCommits = {
+        revision: async () => revision,
+        files: async commit => (await load(state, commit)).files,
+        documents: origin => withCommitDocuments(origin, async () => (await load(state, revision)).commit),
+      }
+      const base = createContentInstance(state.name, state.input, options, undefined, commits)
+      // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
+      const instance = base.withRef(sha)
+      open = { key, state, sha, instances: [base], view: instance, hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+      allViews.set(key, open)
     }
-    const base = createContentInstance(state.name, state.input, options, undefined, commits)
-    // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
-    const instance = base.withRef(sha)
-    const open: OpenView = { key, state, sha, instances: [base], view: instance, hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+    // An evicted view with active readers can rejoin the pool without creating another owner of its namespace.
+    open.evicted = false
+    views.delete(key)
     views.set(key, open)
-    allViews.add(open)
+    // Reserve the reader before yielding, so eviction cannot close the view between acquisition and use.
+    if (acquire) open.readers++
     while (views.size > MAX_SOURCE_VIEWS) {
       const [oldest] = views.values()
       views.delete(oldest!.key)
@@ -576,8 +584,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
 
   /** Run one read on the view of a commit. A view that left the pool opens again, from the commit cache. */
   async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>) => Promise<T>): Promise<T> {
-    const open = openView(state, sha)
-    open.readers++
+    const open = await openView(state, sha, true)
     try {
       return await read(open.hub)
     }
@@ -659,7 +666,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       const target = await resolveRef(state, parsed)
       const loaded = await load(state, { id: target.sha, immutable: true })
       if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
-      openView(state, target.sha)
+      await openView(state, target.sha)
       const read = <T>(run: (hub: ContentHub<ComarkContent[]>) => Promise<T>) => readAt(state, target.sha, run)
       return {
         ...target,
@@ -677,7 +684,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     async dispose() {
       disposed = true
       views.clear()
-      await Promise.all([...allViews].map(close))
+      await Promise.all([...allViews.values()].map(close))
     },
     async sync() {
       await Promise.all([...states.values()].map(state => sync(state)))
