@@ -37,7 +37,7 @@ const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", impor
 // The sign-in page and OAuth discovery carry no protected project data.
 // The Schedule run route checks Console access only for a bearer call. Signed dispatches and other requests read no
 // Console data. The preflight plugin answers only CORS preflights.
-const shellRoutes = new Set(["mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "schedule-run.ts", "sign-in.ts"])
+const shellRoutes = new Set(["mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "sign-in.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
@@ -88,13 +88,6 @@ describe("Console data route contract", () => {
       expect(result, `${file} must call withConsoleAccess() before it reads data`).toBeInstanceOf(Response)
       await expect(rejection(result), file).resolves.toMatchObject({ code: "CONSOLE_ACCESS_NOT_CONFIGURED", message: expect.stringContaining("Console access is not configured"), status: 500 })
     }
-  })
-
-  it("takes only signed dispatches on the Schedule run route", async () => {
-    const route = (await import("../src/console/runtime/server/schedule-run.ts")).default
-    const response = await route.fetch(routeRequest(event()))
-    expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toMatchObject({ message: expect.stringMatching(/signed dispatches only.*VITEHUB_DISPATCH_KEY.*Console credentials/) })
   })
 })
 

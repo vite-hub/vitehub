@@ -84,7 +84,6 @@ const everyMode = {
     "route POST /_vitehub/auth/manage console/server/auth-manage.js",
     "route POST /_vitehub/connections app/.vitehub/nitro/connections/handler.ts",
     "route POST /_vitehub/env/manage console/server/env-manage.js",
-    "route POST /_vitehub/schedules/run console/server/schedule-run.js",
   ],
   plugins: [
     "app/.vitehub/nitro/agent/invocations.mjs",
