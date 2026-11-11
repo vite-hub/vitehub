@@ -1,6 +1,7 @@
 import { canManageProjects, consoleProblem, consoleTeamRoute, projectIdOf } from "../../../utils/console.ts"
 
-// Unlink a project. Its token stops working only when the project removes the hash from `VITEHUB_CONSOLE_TOKEN_SHA256`.
+// Unlink a project. The Console deletes the private key of the link. The project can remove its
+// `VITEHUB_CONSOLE_KEY_CONSOLE_<id>` variable too.
 export default consoleTeamRoute(async (request, caller) => {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team unlink projects.")
   const { projects } = caller

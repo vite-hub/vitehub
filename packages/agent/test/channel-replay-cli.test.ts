@@ -1,10 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { channelReplayQuery, channelReplayQueryHelp, parseChannelReplayArgs, runAgentChannelReplayCli } from "../src/internal/channel-replay-cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const querySchema = {
   properties: {
@@ -139,22 +141,21 @@ describe("vitehub channels replay", () => {
     expect(stderr.chunks.join("")).toContain("Channel replay returned a repeated pagination cursor.")
   })
 
-  it("calls the channels.replay operation of the deployed app with credentials from the environment and fails on item failures", async () => {
+  it("calls the channels.replay operation of the deployed app with a signed call and fails on item failures", async () => {
     const stdout = output()
     const requests: Array<{ body: Record<string, unknown>, headers: Headers, url: string }> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { input: Record<string, unknown>, operation: string }
+      const body = operationRpcRequest(init?.body) as { input: Record<string, unknown>, operation: string }
       requests.push({ body, headers: new Headers(init?.headers), url: String(url) })
-      if (body.input.describe) return Response.json({ ok: true, value: { channel: "mailbox", query: querySchema, trigger: "received" } })
-      return Response.json({ ok: true, value: { failed: 1, items: [{ error: "Invalid input", key: "m1", status: "failed" }], nextCursor: null, processed: 0, skipped: 0 } })
+      if (body.input.describe) return operationRpcResponse(init?.body, { ok: true, value: { channel: "mailbox", query: querySchema, trigger: "received" } })
+      return operationRpcResponse(init?.body, { ok: true, value: { failed: 1, items: [{ error: "Invalid input", key: "m1", status: "failed" }], nextCursor: null, processed: 0, skipped: 0 } })
     })
     const code = await runAgentChannelReplayCli(
       ["--agent", "labeller", "--channel", "mailbox", "--url", "https://mail.example.com/app", "--dry-run", "--folder", "inbox"],
       {
         env: {
-          CF_ACCESS_CLIENT_ID: "client-id",
-          CF_ACCESS_CLIENT_SECRET: "client-secret",
           VITEHUB_CONSOLE_AUTHORIZATION: "Basic abc",
+          VITEHUB_CONSOLE_PRIVATE_KEY_CI: (await createConsoleKeyPair()).privateKey,
         },
         rootDir,
         stderr: output(),
@@ -168,10 +169,10 @@ describe("vitehub channels replay", () => {
       { input: { agent: "labeller", channel: "mailbox", describe: true }, operation: "channels.replay" },
       { input: { agent: "labeller", channel: "mailbox", dryRun: true, limit: 10, query: { folder: "inbox" } }, operation: "channels.replay" },
     ])
-    expect(requests[1]?.url).toBe("https://mail.example.com/app/_vitehub/rpc/__call")
-    expect(requests[1]?.headers.get("authorization")).toBe("Basic abc")
-    expect(requests[1]?.headers.get("cf-access-client-id")).toBe("client-id")
-    expect(requests[1]?.headers.get("cf-access-client-secret")).toBe("client-secret")
+    expect(requests[1]?.url).toBe("https://mail.example.com/app/_vitehub/rpc")
+    // A bearer token is not a Console credential: the call carries only the signature.
+    expect(requests[1]?.headers.has("authorization")).toBe(false)
+    expect(requests[1]?.headers.get("x-vitehub-signature")).toContain("key=CI")
     expect(stdout.chunks.join("")).toContain("failed    m1: Invalid input")
     expect(stdout.chunks.join("")).toContain("Dry run: Channel message writes were recorded, not sent.")
   })

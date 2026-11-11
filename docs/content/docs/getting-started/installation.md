@@ -19,7 +19,7 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 ::details{summary="Why Node.js 22.22?"}
 ViteHub uses Nitro, which needs Node.js 22.22. A package installed alone, without `vite-hub`, can need less: Queue needs 22.19, and most others 22.18.
 
-On Node.js 22, features that open a local SQLite file (a `file:` Database, Console sign-in, and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
+On Node.js 22, features that open a local SQLite file (a `file:` Database and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
 ::
 
 ## Set up the app
@@ -244,8 +244,6 @@ When an installed package has a version that your `vite-hub` release does not su
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
-| Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
-| OAuth sign-in for a Console on another origin, with `consoleMcpOAuth()` | `@vite-hub/auth better-auth @better-auth/oauth-provider @better-auth/cimd` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/decisions` | `@vite-hub/decisions` |
 | `vite-hub/forge` | `@vite-hub/forge` |

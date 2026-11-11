@@ -1,11 +1,16 @@
 /**
- * The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server sends that call to the
- * project with the project's token, so the browser never holds the token and the project needs no CORS.
+ * The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server signs that call with the
+ * private key of the project link and sends it to the project, so the browser never holds the key and the project
+ * needs no CORS.
  */
 
-/** The data routes of a project: the operation RPC, the Console API routes, and the page tools session. */
-const forwardedPath = /^\/_vitehub\/(?:rpc\/.|api\/.|page\/session$)/
-const forwardedMethods = new Set(["GET", "HEAD", "POST", "PUT", "DELETE"])
+import { signConsoleRequest } from "@vite-hub/internal/console-signature"
+
+import type { ConsoleCaller, ConsoleSigningKey } from "@vite-hub/internal/console-signature"
+
+/** The one Console route of a project: `POST /_vitehub/rpc`. */
+const forwardedPath = /^\/_vitehub\/rpc$/
+const forwardedMethods = new Set(["POST"])
 /** Cookies, `Origin`, and `Authorization` of the Console page never reach the project. */
 const requestHeaders = ["accept", "content-type", "if-none-match", "x-vitehub-console"]
 /** Set-Cookie never reaches the Console page. Fetch decodes the body, so the encoding and length headers stay out. */
@@ -20,8 +25,10 @@ const tooLarge = () => problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request bo
 export interface ForwardTarget {
   /** The project URL: its origin and its application mount, such as `https://app.example.com/portal`. */
   url: string
-  /** The project token. The Console sends it as `Authorization: Bearer`. */
-  token: string
+  /** The signing key of the project link. The project keeps its public key in `VITEHUB_CONSOLE_KEY_<name>`. */
+  key: ConsoleSigningKey
+  /** The person who calls, and their team. The signature covers it, so the app's `console.authorize` can trust it. */
+  caller: ConsoleCaller
 }
 
 function problem(status: number, code: string, message: string): Response {
@@ -30,7 +37,7 @@ function problem(status: number, code: string, message: string): Response {
 
 /**
  * Send one Console call to a project. `path` is the app path after the project prefix, with its query, such as
- * `/_vitehub/rpc/__call`. Only the data routes go through. The project's answer comes back with its status and body,
+ * `/_vitehub/rpc`. Only that route goes through. The project's answer comes back with its status and body,
  * and without cookies. The Console contains project content so it cannot execute on the Console origin.
  */
 export async function forwardProjectRequest(request: Request, target: ForwardTarget, path: string, send: typeof fetch = fetch): Promise<Response> {
@@ -51,7 +58,8 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
     if (body.byteLength > maxForwardBodyBytes) return tooLarge()
   }
 
-  const headers = new Headers({ authorization: `Bearer ${target.token}` })
+  // The signature covers the exact bytes that the project receives, so it holds for the body of the page as it is.
+  const headers = new Headers(await signConsoleRequest({ body: body ?? "", caller: target.caller, key: target.key, method: request.method, url: upstream }))
   for (const name of requestHeaders) {
     const value = request.headers.get(name)
     if (value !== null) headers.set(name, value)
@@ -64,7 +72,7 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
   catch {
     return problem(502, "CONSOLE_FORWARD_UNREACHABLE", `The Console could not reach ${base.host}.`)
   }
-  // A redirect could send the token's request to another address, so the Console stops there.
+  // A redirect could send the signed request to another address, so the Console stops there.
   if (response.status >= 300 && response.status < 400) {
     return problem(502, "CONSOLE_FORWARD_REDIRECT", `${base.host} answered with a redirect. Link the project with the URL that serves it.`)
   }

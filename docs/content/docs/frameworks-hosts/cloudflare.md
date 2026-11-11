@@ -447,9 +447,9 @@ Agent Definitions run on Cloudflare through generated output when the Agent inte
 
 ### Console on Workers
 
-Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call`, so it needs no session affinity or memory state. With session-based `auth`, the access policy checks the session cookie on each call. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
+Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc`, so it needs no session affinity or memory state. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
 
-To open the Worker in the hosted Console, use `console: { auth: 'token' }`. To protect the endpoint for the CLI and MCP clients, you can also use `console: { auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker checks the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite`, so it does not work on Workers. See [Protect the Console route](/docs/development/console#protect-the-console-route).
+To open the Worker in the Console, set `console: true`, link the Worker URL in the Console, and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows with `wrangler secret put`. See [Protect the Console route](/docs/development/console#protect-the-console-route).
 
 ## Next steps
 

@@ -1,3 +1,5 @@
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
+
 import { ConsoleRequestError, requestConsole } from "./request"
 import { projectRequest, resolveProjectUrl } from "./project"
 import { consoleRpcHeader } from "../rpc"
@@ -146,7 +148,6 @@ interface ConsoleUploadRequest {
   responseType: string
   send(body: string): void
   setRequestHeader(name: string, value: string): void
-  getResponseHeader(name: string): string | null
   readonly status: number
   abort(): void
   addEventListener(type: "abort" | "error" | "load", listener: () => void): void
@@ -166,32 +167,20 @@ async function fileBase64(file: Blob): Promise<string> {
  * as base64 in the JSON body of the Console RPC.
  */
 async function uploadRequest(input: Record<string, string>, options: ConsoleMediaUploadOptions): Promise<unknown> {
-  // The operation comes first so the server can find large calls within the first bytes.
-  const body = JSON.stringify({ operation: "media.upload", input })
-  // The headers wait first, so an OAuth access token that is about to expire is refreshed before the upload starts.
-  const { url, headers, renew } = await projectRequest("/_vitehub/rpc/__call", { "content-type": "application/json", [consoleRpcHeader]: "1" })
-  const first = await sendUpload(url, headers, body, options)
-  if (first.status !== 401) return settleUpload(first)
-  // A project can refuse an OAuth access token before it expires. One refresh of the same project may fix it.
-  const renewed = await renew(first.challenge)
-  return settleUpload(renewed ? await sendUpload(url, renewed, body, options) : first)
+  const { url, headers } = projectRequest(operationRpcPath, { "content-type": "application/json", [consoleRpcHeader]: "1" })
+  const outcome = await callOperationRpc("media.upload", input, body => sendUpload(url, headers, body, options))
+  if (outcome.ok) return outcome.value
+  // Host middleware answers with the diagnostic body and no birpc reply.
+  const failure = outcome.error ?? (outcome.answer.body instanceof Object && !Array.isArray(outcome.answer.body) ? outcome.answer.body : undefined)
+  const message: unknown = failure ? Reflect.get(failure, "message") : undefined
+  const code: unknown = failure ? Reflect.get(failure, "code") : undefined
+  const status = outcome.answer.status >= 200 && outcome.answer.status < 300 ? 502 : outcome.answer.status
+  throw new ConsoleRequestError(status || 502, String(message) === message ? message : status === 413 ? "The file is too large for this server." : undefined, String(code) === code ? { code } : {})
 }
 
 interface ConsoleUploadAnswer {
   status: number
   body: unknown
-  challenge: string | null
-}
-
-function settleUpload(answer: ConsoleUploadAnswer): unknown {
-  const result = answer.body instanceof Object && !Array.isArray(answer.body) ? answer.body : undefined
-  const ok: unknown = result ? Reflect.get(result, "ok") : undefined
-  if (answer.status >= 200 && answer.status < 300 && ok === true) return Reflect.get(result!, "value")
-  const message: unknown = result ? Reflect.get(result, "message") : undefined
-  const code: unknown = result ? Reflect.get(result, "code") : undefined
-  const failure: { code?: string } = {}
-  if (String(code) === code) failure.code = code
-  throw new ConsoleRequestError(answer.status || 502, String(message) === message ? message : answer.status === 413 ? "The file is too large for this server." : undefined, failure)
 }
 
 function sendUpload(url: string, headers: Record<string, string>, body: string, options: ConsoleMediaUploadOptions): Promise<ConsoleUploadAnswer> {
@@ -210,7 +199,7 @@ function sendUpload(url: string, headers: Record<string, string>, body: string, 
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total)
     })
     request.addEventListener("load", () => {
-      resolve({ body: request.response, challenge: request.getResponseHeader("www-authenticate"), status: request.status })
+      resolve({ body: request.response, status: request.status })
     })
     request.addEventListener("error", () => reject(new ConsoleRequestError(0, "The upload could not reach the server.")))
     request.addEventListener("abort", () => reject(new DOMException("The upload was cancelled.", "AbortError")))

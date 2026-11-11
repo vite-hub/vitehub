@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
-import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
+import * as ownerAgentProcessRuntime from "@vite-hub/agent/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
@@ -28,10 +28,10 @@ import * as framework from "vite-hub";
 import * as frameworkAgent from "vite-hub/agent";
 import * as frameworkCapabilities from "vite-hub/agent/capabilities";
 import * as frameworkAgentMcp from "vite-hub/agent/mcp";
-import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
+import * as frameworkAgentProcessRuntime from "vite-hub/agent/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
-import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
+import * as consoleAuth from "vite-hub/console/auth";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -78,10 +78,8 @@ const manifest = parseDistributionManifest(
 );
 
 describe("Console Auth package exports", () => {
-  it("resolves the public imports used by generated and user code", () => {
-    expect(typeof defineConsoleAuth).toBe("function");
-    expect(typeof createConsoleAppAuthAccess).toBe("function");
-    expect(typeof createConsoleAppAuthPages).toBe("function");
+  it("exports only defineConsoleAuthorize, without Better Auth", () => {
+    expect(Object.keys(consoleAuth)).toEqual(["defineConsoleAuthorize"]);
   });
 });
 
@@ -90,6 +88,8 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 const consolidatedOwnerExports = new Set(["@vite-hub/docs/navigation"]);
 
 const lowLevelOwnerExports = new Set([
+  // Message utilities stay available on the standalone Agent package.
+  "@vite-hub/agent/messages",
   // The Console reads the hashed entry names of the prebuilt Console app.
   "@vite-hub/console-client/manifest.json",
   "@vite-hub/comments/testing",
@@ -137,9 +137,9 @@ const generatedRuntimeOwnerExports = new Set([
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
   // It loads the libSQL driver only when the build can select SQLite or libSQL.
   "@vite-hub/agent/invocations/app",
-  "@vite-hub/agent/invocations/default",
-  "@vite-hub/agent/invocations/default-core",
-  "@vite-hub/agent/invocations/default-libsql",
+  "@vite-hub/agent/internal/default-invocations",
+  "@vite-hub/agent/internal/default-invocations-core",
+  "@vite-hub/agent/internal/default-invocations-libsql",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/blob/runtime/state",
@@ -283,7 +283,7 @@ describe("framework package contract", () => {
       .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
     // Generated journal code imports the optional libSQL loader by path.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/internal/agent-invocations-libsql.ts`, "utf8")))
-      .toEqual(["@vite-hub/agent/invocations/default-libsql"]);
+      .toEqual(["@vite-hub/agent/internal/default-invocations-libsql"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
@@ -780,12 +780,9 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve the Console endpoints only: no Console page, client script, or page tools session.
+      // Apps serve one Console route only: no Console page, client script, MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

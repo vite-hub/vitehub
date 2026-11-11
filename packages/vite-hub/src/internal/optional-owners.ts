@@ -65,7 +65,6 @@ export const optionalFeaturePackages = {
   "console agents": consoleFeaturePackages.agents,
   // `console: { mcpClient: true }` connects the Console to MCP servers.
   "console mcp-client": ["@modelcontextprotocol/sdk"],
-  "console sign-in": consoleFeaturePackages.signIn,
   // The Agent Invocation components of `vite-hub/console/ui`.
   "console ui": ["@vite-hub/ui", "@json-render/core", "@json-render/vue", "@vueuse/core"],
   "content": ["@vite-hub/content"],

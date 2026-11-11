@@ -1,8 +1,8 @@
 import { parseProjectUrl } from "../../../src/project-url.ts"
 import { allowPrivateProjects, canManageProjects, consoleJson, consoleProblem, consoleTeamRoute } from "../../utils/console.ts"
 
-// Link a project to the active team. The answer has the SHA-256 of the new token: set it in the project's
-// `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>`. The token itself stays on the Console server.
+// Link a project to the active team. The answer has the public key of the new key pair: set it in the project's
+// `VITEHUB_CONSOLE_KEY_<NAME>`, named by `keyVariable`. The private key stays on the Console server.
 export default consoleTeamRoute(async (request, caller) => {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team link projects.")
   const body: unknown = await request.json().catch(() => undefined)

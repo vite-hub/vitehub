@@ -1,19 +1,21 @@
 # @vite-hub/console
 
-The ViteHub Console as its own app. You deploy it once, people sign in, and each team links its apps. The Console server calls each app's Operations endpoint with that app's token. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console. console.vitehub.dev runs this app.
+The ViteHub Console as its own app. You deploy it once, people sign in, and each team links its apps. The Console server signs each call to an app's Operations endpoint with the key of that app's link. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console. console.vitehub.dev runs this app.
 
 This package is private and in progress. `vitehub console deploy` comes next.
 
 ## How it works
 
 1. A person signs in with GitHub or a passkey. A new account gets a personal team. People can make more teams and invite others.
-2. An owner or admin of a team links an app with its URL. The Console makes a token for the link. It keeps the token encrypted and shows its SHA-256 and the variable that holds it, such as `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_3F9A12BC`.
-3. You set that variable on the app and deploy. The app needs `console: { auth: "token" }`.
-4. The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then sends the call to the app with `Authorization: Bearer <token>`.
+2. An owner or admin of a team links an app with its URL. The Console makes an Ed25519 key pair for the link. It keeps the private key encrypted and shows the public key and the variable that holds it, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`.
+3. You set that variable on the app and deploy. The app needs `console: true`.
+4. The Console page calls `/p/<project>/_vitehub/rpc` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then signs the call and sends it to the app. The signature covers the exact body bytes and the person who calls: their user id, name, email, team id, and role. The app's `console.authorize` receives them with `via: "console"`. See [Sign Console requests](https://vitehub.dev/docs/development/console#sign-console-requests).
 
 Each link has its own variable, so two teams can link the same app, and unlinking one leaves the other.
 
-The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the token or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc/**`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
+The migration `0002_sign_project_calls` removes the links that an older Console made with bearer tokens, because they cannot sign. Link those apps again and set the new line.
+
+The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the one Console route of a project, `POST /_vitehub/rpc`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
 
 Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
 
@@ -32,7 +34,7 @@ The server keeps at least one passkey or linked GitHub account when a sign-in me
 | Variable | Use |
 | --- | --- |
 | `BETTER_AUTH_SECRET` | The key that signs sessions, at least 32 characters. |
-| `VITEHUB_CONSOLE_SECRET` | The key that encrypts project tokens, at least 32 characters. Create it with `openssl rand -hex 32`. If it changes, the Console cannot open the tokens, and teams must link their projects again. |
+| `VITEHUB_CONSOLE_SECRET` | The key that encrypts the private keys of the project links, at least 32 characters. Create it with `openssl rand -hex 32`. If it changes, the Console cannot open the keys, and teams must link their projects again. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional. GitHub sign-in. |
 | `VITEHUB_CONSOLE_ALLOW_PRIVATE` | `true` lets the Console link private addresses, such as `localhost`, `10.0.0.8`, or `*.internal`. Off by default, so a person who links a project cannot make the Console fetch an address in its own network. The check reads the host name: a public name that resolves to a private address passes it. |
 
@@ -42,9 +44,9 @@ Every route needs a session. Routes act on the session's active team, and a pers
 
 | Route | Use |
 | --- | --- |
-| `GET /api/projects` | The projects of the team, with the SHA-256 of each token and its variable. |
+| `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
 | `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
-| `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the hash. |
+| `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
 | `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 | `GET /api/sign-in-methods` | `{ "github": true }` when GitHub sign-in is configured. |
@@ -72,7 +74,7 @@ export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl 
 docker compose up -d --build
 ```
 
-Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the project tokens. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
+Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the private keys of the project links. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
 
 ### Cloudflare
 
