@@ -45,7 +45,7 @@ async function createTestDatabase() {
   tempDir = await mkdtemp(join(tmpdir(), "vitehub-drizzle-collection-"))
   const client = createClient({ url: `file:${join(tempDir, "collection.sqlite")}` })
   closeDatabase = () => client.close()
-  const db = drizzle({ client, schema: collectionSchema })
+  const db = drizzle({ client })
   runtimeDatabase = { db, schema: collectionSchema }
   return { db, schema: collectionSchema }
 }

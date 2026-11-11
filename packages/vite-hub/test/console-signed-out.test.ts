@@ -3,14 +3,8 @@ import { Window } from "happy-dom"
 import { createApp, defineComponent, h, ref, type Component } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ authClient: vi.fn(), getSession: vi.fn(), signOut: vi.fn(), requestConsole: vi.fn() }))
+const mocks = vi.hoisted(() => ({ requestConsole: vi.fn() }))
 vi.mock("@nuxt/ui/composables", () => ({ defineShortcuts: vi.fn() }))
-vi.mock("@vite-hub/auth/vue", () => ({
-  createAuthClient: (options: unknown) => {
-    mocks.authClient(options)
-    return { getSession: mocks.getSession, signOut: mocks.signOut }
-  },
-}))
 vi.mock("vite-hub/source/client", () => ({
   useCollection: () => ({ error: ref(), items: ref([]), pending: ref(false), refresh: vi.fn() }),
 }))
@@ -31,7 +25,6 @@ vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project"
 import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections"
-import { consoleSignInURL } from "../src/console/runtime/client/sign-in"
 import ConsoleHome from "../src/console/runtime/components/console-home.vue"
 import ConsoleRail from "../src/console/runtime/components/console-rail.vue"
 
@@ -77,12 +70,10 @@ function mount(component: Component, props: Record<string, unknown>) {
 
 const signedOut = () => Promise.reject(new ConsoleRequestError(401))
 
-/** A document whose visibility the test sets, with the sign-in page meta tag of a Console page. The Overview reads only these members. */
-function stubDocument(signInPage?: string) {
+/** A document whose visibility the test sets. The Overview reads only these members. */
+function stubDocument() {
   const target = new EventTarget()
-  const meta = { getAttribute: (name: string) => (name === "content" ? signInPage : null) }
-  const querySelector = (selector: string) => (signInPage && selector === 'meta[name="vitehub-console-sign-in"]' ? meta : null)
-  const document = Object.assign(target, { querySelector, visibilityState: "hidden" })
+  const document = Object.assign(target, { querySelector: () => null, visibilityState: "hidden" })
   vi.stubGlobal("document", document)
   return {
     document,
@@ -101,70 +92,31 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("signed-out Console", () => {
-  it.each(["/portal/sign-in?from=console", "/portal/_vitehub/sign-in"])("returns to configured page %s after account sign-out", async (signInPage) => {
-    const { document } = stubDocument(signInPage)
-    const assign = vi.fn()
-    const location = Object.assign(new URL("https://app.example.com/portal/_vitehub/kv?store=cache"), { assign })
-    vi.stubGlobal("window", Object.assign(new EventTarget(), { document, location }))
-    mocks.requestConsole.mockResolvedValue({ auth: true, sections: ["kv"] })
-    mocks.getSession.mockResolvedValue({ data: { session: { id: "session" }, user: { name: "Ada" } } })
-    mocks.signOut.mockResolvedValue({})
-    const { app, buttons, click } = mount(ConsoleRail, { sectionsBase: `/sign-out-${encodeURIComponent(signInPage)}/_vitehub/api/sections` })
-    try {
-      await vi.waitFor(() => expect(buttons()).toContain("Sign out"))
-      const cacheKey = "vitehub.console.documents:/documents:content"
-      sessionStorage.setItem(cacheKey, JSON.stringify({ definitions: "private" }))
-      click("Sign out")
-      expect(sessionStorage.getItem(cacheKey)).toBeNull()
-      await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1))
-      expect(assign).toHaveBeenCalledExactlyOnceWith(`${signInPage}${signInPage.includes("?") ? "&" : "?"}redirect=%2Fportal%2F_vitehub%2Fkv%3Fstore%3Dcache`)
-    }
-    finally { app.unmount() }
-  })
-
-  it("gives the Overview one state with one action, and opens the Console when the person returns signed in", async () => {
+describe("Console that the app refuses", () => {
+  it("gives the Overview one state with one action, and opens the Console when the person returns after a fix", async () => {
     mocks.requestConsole.mockImplementation(signedOut)
     const tab = stubDocument()
     const { app, buttons, click, root } = mount(ConsoleHome, {
       agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/home/sections",
     })
     try {
-      await vi.waitFor(() => expect(root.querySelector("h2")?.textContent).toBe("Sign in to use the Console"))
-      expect(root.textContent).toContain("You are not signed in, or your session ended. Sign in, then come back to this tab.")
-      // No project header and no Reload: they repeated the title and could not sign anyone in.
+      await vi.waitFor(() => expect(root.querySelector("h2")?.textContent).toBe("The app refused this Console"))
+      expect(root.textContent).toContain("The app does not accept the signature of this Console. Set the key of the link on the app, then check again.")
+      // No project header and no Reload: they repeated the title and could not fix access.
       expect(root.textContent).not.toContain("ViteHub Console")
       expect(buttons()).toEqual(["Check again"])
       expect(root.querySelector("[role=status]")?.textContent).toBe("")
 
       click("Check again")
-      await vi.waitFor(() => expect(root.querySelector("[role=status]")?.textContent).toBe("You are still not signed in."))
+      await vi.waitFor(() => expect(root.querySelector("[role=status]")?.textContent).toBe("The app still refuses this Console."))
       expect(mocks.requestConsole).toHaveBeenCalledTimes(2)
 
-      // The person signs in in another tab. Coming back to this one is enough.
-      mocks.requestConsole.mockResolvedValue({ auth: false, projectName: "demo", sections: ["kv"] })
+      // The person sets the key in another tab. Coming back to this one is enough.
+      mocks.requestConsole.mockResolvedValue({ projectName: "demo", sections: ["kv"] })
       tab.show()
       await vi.waitFor(() => expect(root.textContent).toContain("demo"))
-      expect(root.textContent).not.toContain("Sign in to use the Console")
+      expect(root.textContent).not.toContain("The app refused this Console")
       expect(root.querySelector('button[aria-label="Open KV"]')).not.toBeNull()
-    }
-    finally { app.unmount() }
-  })
-
-  it("links the signed-out Overview to the sign-in page that the Console page names, with the way back", async () => {
-    mocks.requestConsole.mockImplementation(signedOut)
-    stubDocument("/sign-in")
-    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: new URL("http://vitehub.local/portal/_vitehub/?from=mail") }))
-    const { app, root } = mount(ConsoleHome, {
-      agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/sign-in-page/sections",
-    })
-    try {
-      await vi.waitFor(() => expect(root.querySelector("h2")?.textContent).toBe("Sign in to use the Console"))
-      expect(root.textContent).toContain("You are not signed in, or your session ended.")
-      expect(root.textContent).not.toContain("come back to this tab")
-      const links = [...root.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])
-      expect(links).toEqual([["Sign in", "/sign-in?redirect=%2Fportal%2F_vitehub%2F%3Ffrom%3Dmail"]])
-      expect(root.querySelector('[data-button="Check again"]')).toBeNull()
     }
     finally { app.unmount() }
   })
@@ -172,14 +124,14 @@ describe("signed-out Console", () => {
   it("checks again when the person came back while the first request was still waiting for its answer", async () => {
     let answerFirst: (error: unknown) => void = () => {}
     mocks.requestConsole.mockImplementationOnce(() => new Promise((_resolve, reject) => { answerFirst = reject }))
-    mocks.requestConsole.mockResolvedValue({ auth: false, projectName: "demo", sections: ["kv"] })
+    mocks.requestConsole.mockResolvedValue({ projectName: "demo", sections: ["kv"] })
     const tab = stubDocument()
     const { app, root } = mount(ConsoleHome, {
       agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/in-flight/sections",
     })
     try {
       await vi.waitFor(() => expect(mocks.requestConsole).toHaveBeenCalledTimes(1))
-      // The person signed in elsewhere and comes back before the request that left earlier answers 401.
+      // The person fixed access elsewhere and comes back before the request that left earlier answers 401.
       tab.show()
       answerFirst(new ConsoleRequestError(401))
       await vi.waitFor(() => expect(root.textContent).toContain("demo"))
@@ -188,7 +140,7 @@ describe("signed-out Console", () => {
     finally { app.unmount() }
   })
 
-  it("keeps the Overview error and its retry for failures other than sign-in", async () => {
+  it("keeps the Overview error and its retry for failures other than a refusal", async () => {
     mocks.requestConsole.mockRejectedValue(new ConsoleRequestError(503))
     const { app, buttons, root } = mount(ConsoleHome, {
       agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/unavailable/sections",
@@ -196,52 +148,28 @@ describe("signed-out Console", () => {
     try {
       await vi.waitFor(() => expect(root.textContent).toContain("Could not load sections"))
       expect(buttons()).toContain("Try again")
-      expect(root.textContent).not.toContain("Sign in to use the Console")
+      expect(root.textContent).not.toContain("The app refused this Console")
     }
     finally { app.unmount() }
   })
 
-  it("offers no retry in the rail without a session, then shows the sections and the account once the Console answers", async () => {
+  it("offers no retry in the rail while the app refuses the Console, then shows the sections once it answers", async () => {
     mocks.requestConsole.mockImplementation(signedOut)
-    mocks.getSession.mockResolvedValue({ data: { session: { id: "session" }, user: { email: "ada@example.com", name: "Ada Lovelace" } } })
     const base = "/rail/sections"
     const { app, buttons, root } = mount(ConsoleRail, { sectionsBase: base })
     try {
       await vi.waitFor(() => expect(root.querySelector("[data-skeleton]")).toBeNull())
       expect(buttons()).not.toContain("Retry loading primitives")
 
-      // The Overview loads the sections after the person signs in. The rail shows what that request returned.
-      mocks.requestConsole.mockResolvedValue({ auth: true, sections: ["kv"] })
+      // The Overview loads the sections again. The rail shows what that request returned.
+      mocks.requestConsole.mockResolvedValue({ sections: ["kv"] })
       await loadConsoleNavigation(base)
       await vi.waitFor(() => expect(buttons()).toContain("KV"))
-      await vi.waitFor(() => expect(buttons()).toContain("Ada Lovelace"))
-      expect(mocks.getSession).toHaveBeenCalledTimes(1)
     }
     finally { app.unmount() }
   })
 
-  it.each([
-    ["the mounted Auth base of the page", "/portal/api/auth", "/portal/api/auth"],
-    ["the Console Auth route of the project", undefined, "/portal/auth-base-fallback/auth"],
-  ])("creates the fallback Auth client with %s", async (_name, authBase, basePath) => {
-    setConsoleProject({ origin: "", base: "/portal" })
-    const meta = { getAttribute: (name: string) => (name === "content" ? authBase ?? null : null) }
-    vi.stubGlobal("document", Object.assign(new EventTarget(), {
-      querySelector: (selector: string) => (authBase && selector === 'meta[name="vitehub-console-auth-base"]' ? meta : null),
-      visibilityState: "visible",
-    }))
-    mocks.requestConsole.mockResolvedValue({ auth: true, sections: ["kv"] })
-    mocks.getSession.mockResolvedValue({ data: { session: { id: "session" }, user: { name: "Ada" } } })
-    // The generated client script does not load in the test, so the rail creates its own client.
-    const { app } = mount(ConsoleRail, { sectionsBase: `/auth-base-${authBase ? "meta" : "fallback"}/sections` })
-    try {
-      await vi.waitFor(() => expect(mocks.authClient).toHaveBeenCalledOnce())
-      expect(mocks.authClient).toHaveBeenCalledWith({ basePath })
-    }
-    finally { app.unmount() }
-  })
-
-  it("keeps the rail retry for failures other than sign-in", async () => {
+  it("keeps the rail retry for failures other than a refusal", async () => {
     mocks.requestConsole.mockRejectedValue(new ConsoleRequestError(503))
     const { app, buttons, root } = mount(ConsoleRail, { sectionsBase: "/rail-unavailable/sections" })
     try {
@@ -249,16 +177,5 @@ describe("signed-out Console", () => {
       expect(buttons()).toContain("Retry loading primitives")
     }
     finally { app.unmount() }
-  })
-
-  it("links only to a sign-in page on the Console's origin, and keeps that page's own query", () => {
-    const page = (content: string | null) => ({
-      document: { querySelector: () => (content === null ? null : { getAttribute: () => content }) },
-      location: { origin: "http://vitehub.local", pathname: "/_vitehub/kv", search: "?store=cache" },
-    })
-    expect(consoleSignInURL(page("/?signin=1"))).toBe("/?signin=1&redirect=%2F_vitehub%2Fkv%3Fstore%3Dcache")
-    for (const content of [null, "", "sign-in", "//evil.example/sign-in", "https://evil.example/sign-in"]) {
-      expect(consoleSignInURL(page(content))).toBeUndefined()
-    }
   })
 })
