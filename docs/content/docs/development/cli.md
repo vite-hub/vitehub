@@ -349,13 +349,13 @@ An enabled feature's options require the feature, such as `cache: { driver: "kv"
 
 The package manager exited with an error after ViteHub deleted the starter files. The terminal command changes the config before uninstalling. The development Setup page keeps the config unchanged until cleanup succeeds, so a config-triggered restart cannot interrupt cleanup. Run the uninstall command by hand to see the error, then plan the removal again.
 
-## Use Setup in the development Console
+## Use Setup during development
 
-Run `vite dev`, open its printed hosted Console link, and select **Setup** to plan and apply the same feature changes as `vitehub add` and `vitehub remove`. Setup is available only during development.
+`vite dev` adds the Setup endpoints below `/__vitehub/setup`. They plan and apply the same feature changes as `vitehub add` and `vitehub remove`, with the same JSON documents. They exist only on the development server, never in a build.
 
-No `console` option or local Console client package is needed. Setup connects to the selected project's development server. Only exact origins in `console.origins` may connect from another origin; the default is `https://console.vitehub.dev`. Set `console.origins: []` to turn cross-origin access off. Apply also requires writable Setup access under the project's Console policy.
+Only a page of the development server itself, such as a DevTools panel, can call them. A page on another origin gets `403`, and the hosted Console too. The endpoints send no CORS headers. Apply also needs writable Setup access under the project's Console policy.
 
-The page obtains its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then link `http://localhost:5173` in the hosted Console. A host name listed explicitly in `server.allowedHosts` also works over the local connection, including HTTP. Listing a host does not grant network clients access to the session token.
+A page gets its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then open `http://localhost:5173`. A host name that `server.allowedHosts` lists one by one also works over the local connection, HTTP included. Listing a host does not give network clients the session token.
 
 ## Link a project to its host
 
