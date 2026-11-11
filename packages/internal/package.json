@@ -23,6 +23,11 @@
       "import": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
+    "./console-signature": {
+      "types": "./dist/console-signature.d.ts",
+      "import": "./dist/console-signature.js",
+      "default": "./dist/console-signature.js"
+    },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
@@ -368,11 +373,6 @@
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js",
       "default": "./dist/presets.js"
-    },
-    "./dispatch": {
-      "types": "./dist/dispatch.d.ts",
-      "import": "./dist/dispatch.js",
-      "default": "./dist/dispatch.js"
     },
     "./operations-vite": {
       "types": "./dist/operations-vite.d.ts",
