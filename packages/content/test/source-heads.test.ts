@@ -7,6 +7,7 @@ import sqlQuery from "comark-content/plugins/sql-query"
 import markdown from "comark-content/plugins/markdown"
 import schemaValidation from "comark-content/plugins/schema-validation"
 import headings from "comark/plugins/headings"
+import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
@@ -171,6 +172,110 @@ describe("content.sources", () => {
     await writer.sources.unpin("docs")
     vi.setSystemTime(Date.now() + 5_001)
     expect((await manifest()).items["/guide"]?.data.title).toBe("Guide v2")
+  })
+
+  it.each([
+    "list", "list names", "get", "navigation", "search",
+    "HTTP manifest", "HTTP manifest.json", "HTTP snapshot", "HTTP get", "HTTP bound get",
+    "HTTP list", "HTTP list names", "HTTP search", "HTTP query",
+  ])("keeps %s scoped when another Source cannot refresh", async (method) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    fake.commit("blog", { "guide.md": page("Blog") })
+    const sources = {
+      docs: github({ repo: "acme/docs", ref: "main" }),
+      blog: github({ repo: "acme/docs", ref: "blog" }),
+    }
+    const writer = server({ sources })
+    await writer.sources.head("docs")
+    await writer.sources.head("blog")
+    const database = sqlite()
+    const reader = server({ sources, plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database })] })
+    await reader.list()
+    async function read(name: string) {
+      if (method === "list") return await reader.list(name)
+      if (method === "list names") return await reader.list([name])
+      if (method === "get") return await reader.get(`/${name}/guide.md`)
+      if (method === "navigation") return await reader.navigation([name])
+      if (method === "search") return await reader.search([name], "Body")
+      const endpoints: Record<string, string> = {
+        "HTTP manifest": `manifest/${name}`,
+        "HTTP manifest.json": `manifest.json/${name}.json`,
+        "HTTP snapshot": `snapshot/${name}.json`,
+        "HTTP get": `get/${name}/guide.md`,
+        "HTTP bound get": `get/guide?instance=${name}`,
+        "HTTP list": `list/${encodeURIComponent(JSON.stringify(name))}`,
+        "HTTP list names": `list/${encodeURIComponent(JSON.stringify([name]))}`,
+        "HTTP search": `search/${encodeURIComponent(JSON.stringify({ sources: [name], query: "Body" }))}`,
+        "HTTP query": `query/${encodeURIComponent(JSON.stringify({ source: name }))}`,
+      }
+      const response = await reader.handler(new Request(`http://localhost/api/content/${endpoints[method]}`))
+      expect(response.status).toBe(200)
+      return await response.json()
+    }
+    // Warm artifacts and indexes too; a cache hit must still sync only the selected Source.
+    const before = await read("docs")
+    expect(before).toBeTruthy()
+    if (Array.isArray(before)) expect(before).not.toHaveLength(0)
+    const second = fake.commit("blog", { "guide.md": page("Blog v2") })
+    await writer.sources.advance("blog")
+    const failedFetch = vi.fn()
+    vi.stubGlobal("fetch", vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(input).includes(`/tarball/${second}`)) {
+        failedFetch()
+        throw new Error("blog archive unavailable")
+      }
+      return fake.fetch(input, init)
+    }))
+    vi.advanceTimersByTime(5_500)
+
+    expect(await read("docs")).toEqual(before)
+    expect(failedFetch).not.toHaveBeenCalled()
+    await expect(read("blog")).rejects.toThrow("blog archive unavailable")
+    await expect(reader.list()).rejects.toThrow("blog archive unavailable")
+  })
+
+  it.each(["search", "HTTP search"])("keeps cached shared-index %s scoped without hiding requested Source failures", async (method) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    fake.commit("news", { "news.md": page("News") })
+    fake.commit("blog", { "blog.md": page("Blog") })
+    const sources = {
+      docs: github({ repo: "acme/docs", ref: "main" }),
+      news: github({ repo: "acme/docs", ref: "news" }),
+      blog: github({ repo: "acme/docs", ref: "blog" }),
+    }
+    const writer = server({ sources })
+    for (const name of Object.keys(sources)) await writer.sources.head(name)
+    const reader = server({ sources, plugins: [sqliteFullTextSearch({ database: sqlite() })] })
+    await reader.list()
+    async function search(names = ["docs", "news"]) {
+      if (method === "search") return await reader.search(names, "Body")
+      const payload = encodeURIComponent(JSON.stringify({ sources: names, query: "Body" }))
+      const response = await reader.handler(new Request(`http://localhost/api/content/search/${payload}`))
+      expect(response.status).toBe(200)
+      return await response.json() as unknown
+    }
+    const before = await search()
+    expect(before).toHaveLength(2)
+    const second = fake.commit("blog", { "blog.md": page("Blog v2") })
+    await writer.sources.advance("blog")
+    vi.stubGlobal("fetch", vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(input).includes(`/tarball/${second}`)) throw new Error("blog archive unavailable")
+      return fake.fetch(input, init)
+    }))
+    vi.advanceTimersByTime(5_500)
+
+    expect(await search()).toEqual(before)
+    await expect(search(["blog", "news"])).rejects.toThrow("blog archive unavailable")
+    // Empty filters and public paths still select all Sources, as does the merged HTTP manifest.
+    for (const read of [
+      () => reader.list([]),
+      () => reader.navigation([]),
+      () => reader.search([], "Body"),
+      () => reader.get("/guide"),
+      () => reader.handler(new Request("http://localhost/api/content/manifest")),
+    ]) await expect(read()).rejects.toThrow("blog archive unavailable")
   })
 
   it("pins a commit until unpin()", async () => {

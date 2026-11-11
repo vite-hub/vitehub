@@ -1112,13 +1112,14 @@ function normalizePublicUrl(value: string): string {
 
 const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 
-function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin & ViteHubCliContributingPlugin {
+function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: boolean): Plugin & ViteHubCliContributingPlugin {
   return {
     name: "vite-hub/public-url",
     // `channels sync` and `channels history` use one public origin as their default `--url`.
     ...(typeof publicUrl === "string" ? { vitehub: { cli: () => ({ namespaces: [], publicUrl: normalizePublicUrl(publicUrl) }) } } : {}),
     config(config, { command }) {
-      if (publicUrl === undefined || command !== "build") return
+      // Signed Node requests need a configured deployment origin in development too.
+      if (publicUrl === undefined || (command !== "build" && !signedConsole)) return
       let resolved: PublicUrlConfig
       if (typeof publicUrl === "function") {
         const root = resolveViteHubProjectRoot(config.root ?? process.cwd())
@@ -1128,6 +1129,15 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin & ViteH
       }
       else resolved = { url: normalizePublicUrl(publicUrl) }
       const define = JSON.stringify(resolved)
+      // Nuxt can build Nitro outside Vite (`experimental.nitroViteEnvironment: false`). That build reads Nitro
+      // `replace`, not Vite `define`. Change the replayed Nitro config in place, as Vite concatenates returned arrays.
+      if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+        const host = config as { nitro?: Record<string, unknown> }
+        const nitro = host.nitro ?? {}
+        const replace = nitro.replace && typeof nitro.replace === "object" ? nitro.replace : {}
+        nitro.replace = { ...replace, __VITEHUB_PUBLIC_URL__: define }
+        host.nitro = nitro
+      }
       return { define: { __VITEHUB_PUBLIC_URL__: define } }
     },
     configEnvironment(name, config, env) {
@@ -1275,7 +1285,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(agentChannelEnvPlugin())
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
-  plugins.push(publicUrlPlugin(options.publicUrl))
+  plugins.push(publicUrlPlugin(options.publicUrl, configuredConsole?.auth === "token"))
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}

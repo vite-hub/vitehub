@@ -1,5 +1,4 @@
 import { createServer, request as httpRequest } from "node:http"
-import { createHash } from "node:crypto"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { networkInterfaces, tmpdir } from "node:os"
 import { join } from "node:path"
@@ -66,7 +65,7 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
   // SAFETY: The plugin reads only `config.root`, `config.server`, `middlewares`, `resolvedUrls`, and `close`.
   await hook.call(undefined as never, fake as unknown as ViteDevServer)
   const http: Server = createServer((req, res) => {
-    if (req.url === `${base}/_vitehub/rpc/__call`) {
+    if (req.url === `${base}/_vitehub/rpc`) {
       void (async () => {
         const chunks: Buffer[] = []
         for await (const chunk of req) chunks.push(Buffer.from(chunk))
@@ -145,7 +144,6 @@ describe("dev Setup endpoints", () => {
     const running = await start([], "127.0.0.1", "/portal")
     const origin = "https://console.vitehub.dev"
     const project = `http://127.0.0.1:${running.port}`
-    const credential = "test-setup-token-0123456789abcdef0123"
     const fetch = globalThis.fetch
     const requests: string[] = []
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -155,9 +153,9 @@ describe("dev Setup endpoints", () => {
       headers.set("sec-fetch-site", "cross-site")
       return await fetch(input, { ...init, headers })
     })
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", createHash("sha256").update(credential).digest("hex"))
-    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
-    setConsoleProject({ origin: project, base: "/portal", authorization: () => `Bearer ${credential}` })
+    // A browser cannot sign Console calls, so the grant comes from an open development Console.
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["setup"] }) })
+    setConsoleProject({ origin: project, base: "/portal" })
     try {
       const client = await connectSetup(setupDevRoute)
       expect(await client.catalog()).toHaveProperty("features")
@@ -201,6 +199,17 @@ describe("dev Setup endpoints", () => {
     expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 200 })
     expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toContain("kv: true")
     expect(credentials).toEqual(["session=reader", "session=reader", "session=reader"])
+  })
+
+  it("refuses browser Setup writes when the Console takes only signed calls", async () => {
+    const running = await start()
+    const before = await readFile(join(running.root, "vite.config.ts"), "utf8")
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
+    const headers = auth(running)
+    const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
+    const { planId } = JSON.parse(planned.body) as { planId: string }
+    expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
+    expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toBe(before)
   })
 
   it("passes the Console client's bearer credential to the write access check", async () => {

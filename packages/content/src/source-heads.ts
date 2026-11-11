@@ -153,8 +153,8 @@ export function registerContentKV(store: ContentKV | undefined, build?: string):
 interface ContentSourceHeadsRuntime {
   /** `content.sources`. */
   api: ContentSourceHeads
-  /** Resolve heads before hub reads, including Comark's internal cache and index paths. */
-  sync(): Promise<void>
+  /** Resolve selected heads before hub reads, including Comark's internal cache and index paths. */
+  sync(names?: readonly string[]): Promise<void>
   /** How the instance of a `github()` Source reads its head commit, for `createContentInstance()`. Undefined for other Sources. */
   commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined
   /** Give a `github()` Source its Comark instance, so a moved head reloads it. */
@@ -505,8 +505,8 @@ export function createContentSourceHeads(options: ContentOptions, reuseParsed: b
 
   return {
     api,
-    async sync() {
-      await Promise.all([...states.values()].map(state => sync(state)))
+    async sync(names) {
+      await Promise.all([...states.values()].filter(state => names === undefined || names.includes(state.name)).map(state => sync(state)))
     },
     commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)
