@@ -35,6 +35,76 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
+| `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
+| `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
+| `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
+| `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `define-forms`
+
+ViteHub keeps one define form for each primitive. `define-forms` rewrites the former forms:
+
+| Former form | New form |
+| --- | --- |
+| `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
+| `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
+| `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
+| `server/databases/config.ts` and the files beside it | `server/databases/default/index.ts` and the same files in `server/databases/default/` |
+| `server/databases/migrations/` | `server/databases/default/migrations/` |
+| `server/databases/<name>/config.ts` | `server/databases/<name>/index.ts` |
+
+The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
+
+The report lists what it cannot change: Schedule options that are not an object literal, which it spreads into the object, Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+
+```sh
+npx @vite-hub/codemods define-forms [dir] [--dry-run]
+```
+
+## `vitehub-options`
+
+`vitehub()` is the only config place, and `logs` is part of `observability`. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+
+| Old | New |
+| --- | --- |
+| `vitehub({ logs: true })` | `vitehub({ observability: { logs: true } })` |
+| `logs: { evlog, source }` | `observability: { evlog, logs: { source } }` |
+| `defineConfig({ env: { server }, plugins: [vitehub()] })` | `vitehub({ env: { server } })` |
+| `defineConfig({ env, plugins: [hubEnv()] })` | `hubEnv({ ...declarations })` |
+| `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
+| A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKv()` |
+| `contentImportBase` | removed |
+
+The report lists what the codemod cannot move: a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+
+Sandbox Task option objects belong in `hubSandboxTask()`. The codemod passes them to an existing standalone plugin call without arguments. When the config uses `vitehub()` or `vite-hub/nuxt`, it keeps the options in place and reports a manual follow-up because the framework accepts only boolean Sandbox Task enablement.
+
+```sh
+npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
+```
+
+## `queue-workflow-verbs`
+
+ViteHub renamed the Queue and Workflow verbs so that each one says what it does. `queue-workflow-verbs` rewrites the app:
+
+| Old | New |
+| --- | --- |
+| `runQueue()` | `sendQueue()` |
+| `getQueue()` | `useQueue()` |
+| `dynamicQueue.run()`, `dynamicQueue.get()` | `dynamicQueue.send()`, `dynamicQueue.use()` |
+| `runWorkflow()` | `startWorkflow()` |
+| `resumeWorkflowSignal()` | `resumeWorkflow()` |
+| `.run()` of a handle from `createWorkflow()` | `.start()` |
+| `WorkflowDeferOptions` | `WorkflowStartOptions` |
+
+`deferWorkflow()` and the `defer()` method of a Workflow handle now return nothing, like `deferQueue()`. Where the code reads the result, for example to store the run id, the codemod calls `startWorkflow()` or `.start()` instead, which return the run as `deferWorkflow()` did. Where the code only awaits the call as a statement, it removes the `await`.
+
+The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their `@vite-hub/*` forms, also namespace imports, re-exports, and `<script>` blocks of `.vue` files. Named re-exports keep their local public names as aliases so consumers of an application's barrel keep working. Star and namespace re-exports need manual changes in their consumers, which the report lists. The report also lists object keys and strings with an old name, for example in a `vi.mock()` factory, and Workflow handles that a file exports, because other files call their methods. Detection includes migrations that only need manual follow-up.
+
+```sh
+npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]
+```
 
 ## `nuxt-safe-runtime-config`
 
@@ -72,6 +142,32 @@ The migration copies the schema's value shape. Parser behavior needs manual revi
 The codemod rewrites `emails.send()` on `useResend()` clients of `nuxt-resend` and on `new Resend()` clients in server code to `email.send()` from `vite-hub/email/server`. It renames `reply_to` to `replyTo` and turns `const { data, error } = await ...send()` into `const [error, data] = await email.send()`. It replaces `nuxt-resend` with `vite-hub/nuxt` and sets `vitehub.email` to the Resend driver. The API key is Secret Env read from `NUXT_RESEND_API_KEY`, or from the variables that `runtimeConfig.resend.apiKey` and `new Resend()` read.
 
 Code that checks `runtimeConfig.resend.apiKey` keeps working: the codemod preserves existing runtime config and declares the module's key when it removes `nuxt-resend`, even when it cannot detect readers. Dynamic runtime config needs a manual declaration. Credential inference follows global Env reads and proven runtime-config bindings; unknown sources need manual migration. `nuxt-resend` stays while a `useResend()` call is left that the codemod does not rewrite, such as a class field, and the `resend` package stays while code uses `batch`, contacts, audiences, or CommonJS imports. The report lists literal or dynamic API keys to move to Env, clients with different credential sources, `react` payloads, fields outside the portable Email message, and results that code reads in another shape. All migrated sends share one Email credential. Check that the sources refer to the same account; keep clients with different credentials on the SDK or configure them separately by hand. In `vite dev`, Email keeps messages in the development outbox unless `vitehub.email.remote` is `true`.
+
+## `nuxt-cron`
+
+The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `server/schedules/<name>.ts` as a `defineSchedule()` Definition, and drops a `.cron` suffix from the name. Presets such as `daily` become five-field cron strings, and functions that return a literal cron keep it. On Node, it sets `vitehub.schedule.runtime.driver` to `process`, so the Process Runtime runs the jobs in the server process as `nuxt-cron` did, and `timeZone` stays. On other hosts, it sets `vitehub.schedule: true`: the host runs each Schedule from its own cron in UTC, and the codemod drops `timeZone` and reports it.
+
+Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
+
+Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective preset or jobs directory is computed, or the preset is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+
+## `one-entry-imports`
+
+The codemod moves each import of a subpath that ViteHub folded into one entry. It rewrites `import`, `export ... from`, `import()`, `import("...").Type`, `declare module`, and `vi.mock()` paths, and joins a moved import with an import of the new path in the same file.
+
+| Old path | New path |
+| --- | --- |
+| `vite-hub/source/{file,files,github,glob,markdown}` | `vite-hub/source` |
+| `vite-hub/env/{presets,provider,schema,secret,server}` | `vite-hub/env` |
+| `vite-hub/env/{auth,http}` | `vite-hub/env/bridge` |
+| `vite-hub/blob/{content-type,ensure,reference}` | `vite-hub/blob`, or `vite-hub/blob/client` for `content-type` in browser code |
+| `vite-hub/browser/actions` | `vite-hub/browser` |
+| `vite-hub/connections/http` | `vite-hub/connections` |
+| `vite-hub/task` | `nitro/task`, and `nitro/types` for the task types |
+
+The same moves apply to the `@vite-hub/*` paths. The report lists strings that name an old path, such as aliases and test stubs, and `env/server` names that the Env root does not export, such as `runWithCloudflareEnv`. When an app moves to `nitro/task` and lists neither `nitro` nor `nuxt` in `package.json`, the report asks to add `nitro`.
+
+For `blob/content-type`, only explicit server files use the Blob root. Browser, shared, and unclassified files use `blob/client`, which also works on the server. Env server barrel and namespace migrations report every omitted name for manual review of downstream uses.
 
 ## Check real apps
 

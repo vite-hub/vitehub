@@ -1,22 +1,26 @@
-import { getViteMode } from "@vite-hub/internal/build/mode"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
+import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { resolve } from "pathe"
 
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
-import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, generatedQueueTestSetup, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
 import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
-import type { DiscoveredQueueDefinition, QueueModuleOptions } from "./types.ts"
+import type { DiscoveredQueueDefinition, QueueOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
+
+// Generated code imports the operations by path, so they need no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
 
 export { discoverQueueDefinitions } from "./discovery.ts"
 export { inspectQueueDefinitions, type QueueInspectionOptions, queueConsoleSection } from "./inspect.ts"
@@ -71,30 +75,16 @@ function resolveStableQueueDefinitions(resolveDefinitions: () => DiscoveredQueue
   return definitions
 }
 
-function cloneNitroConfig(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
-}
-
-function normalizeQueueForHosting(queue: QueueModuleOptions | undefined, hosting: string | undefined) {
+function normalizeQueueForHosting(queue: QueueOptions | undefined, hosting: string | undefined) {
   if (queue && typeof queue === "object" && Object.hasOwn(queue, "provider")) {
     const provider = (queue as Record<string, unknown>).provider
-    const providerOnly = normalizeQueueOptions({ provider } as QueueModuleOptions, { hosting })
+    const providerOnly = normalizeQueueOptions({ provider } as QueueOptions, { hosting })
     if (providerOnly?.provider && hosting && providerOnly.provider !== hosting) return undefined
   }
   return normalizeQueueOptions(queue, { hosting })
 }
 
-function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
+function resolveQueueHosting(queue: QueueOptions | undefined, nitro: Record<string, unknown>): string {
   const host = resolveHost({ nitro })
   const hosting = getHostingProvider(host)
   if (hosting) return hosting
@@ -135,7 +125,7 @@ function addVercelQueueConsumers(kit: ReturnType<typeof createNitroServerKit>, d
   kit.config.vercel = { ...vercel, functionRules }
 }
 
-function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOptions | undefined, root: string, definitions = discoverQueueDefinitions({ rootDir: root })): Record<string, unknown> {
+function mergeNitroConfig(config: object, value: unknown, queue: QueueOptions | undefined, root: string, definitions = discoverQueueDefinitions({ rootDir: root })): Record<string, unknown> {
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const nitroHosting = getHostingProvider(resolveHost({ nitro }))
@@ -201,21 +191,21 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
 }
 
-export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVitePluginInternalOptions = {}): QueueVitePlugin {
+export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePluginInternalOptions = {}): QueueVitePlugin {
   let resolved: ResolvedConfig | undefined
-  let queue: QueueModuleOptions | undefined = options
+  let queue: QueueOptions | undefined = options
   let hosting = "vercel"
   let cloudflareQueues = true
   let configuredDefinitions: DiscoveredQueueDefinition[] = []
   let localDevelopment = false
   let preview = false
-  let nitroQueue: QueueModuleOptions | undefined = queue
+  let nitroQueue: QueueOptions | undefined = queue
   let nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
   let nuxtProjectRoot: string | undefined
   let resolveNuxtDefinitions: (() => DiscoveredQueueDefinition[]) | undefined
   let nuxtServerQueueDirs: string[] = []
   const resolvedConfigs = new Map<string, ResolvedConfig>()
-  const queueOptions = new Map<string, QueueModuleOptions | undefined>()
+  const queueOptions = new Map<string, QueueOptions | undefined>()
   const nuxtStates = new Map<string, {
     nuxtConfiguredDefinitions: DiscoveredQueueDefinition[]
     nuxtProjectRoot: string
@@ -225,7 +215,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   const buildStates = new WeakMap<ResolvedConfig, {
     configuredDefinitions: DiscoveredQueueDefinition[]
     nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
-    queue: QueueModuleOptions | undefined
+    queue: QueueOptions | undefined
     resolveNuxtDefinitions: (() => DiscoveredQueueDefinition[]) | undefined
     resolved: ResolvedConfig
     validatesNitroDefinitions: boolean
@@ -236,8 +226,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   return {
     name: "@vite-hub/queue/vite",
     vitehub: {
-      // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
+      // The Console, `vitehub queue`, and agents run these.
+      operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: operationsModule }],
       inspect: () => {
         const resolvedQueue = normalizeQueueOptions(queue, { hosting })
         if (!resolvedQueue?.provider) return
@@ -271,7 +261,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
           const resolvedConfig = resolvedConfigs.get(root)
           const state = resolvedConfig ? buildStates.get(resolvedConfig) : undefined
           const projectQueue = viteConfig
-            ? viteConfig.queue ?? options
+            ? getResolvedFeatureOptions<QueueOptions>(viteConfig, "queue") ?? options
             : state ? state.queue : queueOptions.has(root) ? queueOptions.get(root) : options
           nuxtProjectRoot = projectRoot
           nuxtServerQueueDirs = [...new Set(serverDirs || [resolve(projectRoot, "server"), resolve(root, "server")])]
@@ -297,12 +287,19 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
     },
     config(config, env) {
       preview = env?.isPreview === true
-      queue = config.queue ?? options
+      queue = getResolvedFeatureOptions<QueueOptions>(config, "queue") ?? options
       queueOptions.set(resolve(config.root || process.cwd()), queue)
       // SAFETY: Vite preserves this ViteHub server directory field on config, while UserConfig omits framework extensions.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const nitro = (config as { nitro?: unknown }).nitro
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, config.root || process.cwd())
+      // Vitest does not boot Nitro. Install only config and Definitions, without starting providers.
+      if (process.env.VITEST) {
+        const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
+          test: { setupFiles: [resolve(config.root || process.cwd(), generatedQueueTestSetup)] },
+        }
+        return testConfig
+      }
     },
     async configResolved(config) {
       resolved = config
@@ -311,7 +308,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       nuxtConfiguredDefinitions = nuxtState?.nuxtConfiguredDefinitions
       nuxtProjectRoot = nuxtState?.nuxtProjectRoot
       resolveNuxtDefinitions = nuxtState?.resolveNuxtDefinitions
-      queue = config.queue ?? options
+      queue = getResolvedFeatureOptions<QueueOptions>(config, "queue") ?? options
       queueOptions.set(config.root, queue)
       const configuredNitro = (config as { nitro?: unknown }).nitro
       configuredDefinitions = discoverQueueDefinitions({ rootDir: config.root })
@@ -354,7 +351,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       // SAFETY: Vite's environment config has the resolved config used to record this build state.
       const config = (this.environment?.config as ResolvedConfig | undefined) ?? resolved
       const state = config ? buildStates.get(config) : undefined
-      if (error || !state || shouldSkipViteProviderBuild(state.resolved.command, getViteMode())) return
+      if (error || !state || shouldSkipViteProviderBuild(state.resolved.command)) return
       if (state.resolveNuxtDefinitions && state.nuxtConfiguredDefinitions) {
         resolveStableQueueDefinitions(state.resolveNuxtDefinitions, state.nuxtConfiguredDefinitions, "Nuxt")
       }
@@ -365,8 +362,3 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    queue?: QueueModuleOptions
-  }
-}

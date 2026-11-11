@@ -1,0 +1,54 @@
+{
+  "deployments": [
+    {
+      "uid": "dpl_3pReview",
+      "name": "my-app",
+      "url": "my-app-3preview-acme.vercel.app",
+      "created": 1793952000000,
+      "createdAt": 1793952000000,
+      "source": "cli",
+      "state": "READY",
+      "readyState": "READY",
+      "target": null,
+      "type": "LAMBDAS",
+      "projectId": "prj_12HKQaOmR5t5Uy6vdcQsNIiZgHGB",
+      "creator": { "uid": "eLrCnEgbKhsHyfbiNR7E8496", "username": "johndoe" },
+      "inspectorUrl": "https://vercel.com/acme/my-app/3pReview",
+      "meta": { "vitehubCommit": "cccccccccccccccccccccccccccccccccccccccc", "vitehubDirty": "true" }
+    },
+    {
+      "uid": "dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa",
+      "name": "my-app",
+      "url": "my-app-9jaeg38me-acme.vercel.app",
+      "created": 1793865600000,
+      "createdAt": 1793865600000,
+      "source": "git",
+      "state": "READY",
+      "readyState": "READY",
+      "readySubstate": "PROMOTED",
+      "target": "production",
+      "type": "LAMBDAS",
+      "projectId": "prj_12HKQaOmR5t5Uy6vdcQsNIiZgHGB",
+      "creator": { "uid": "eLrCnEgbKhsHyfbiNR7E8496", "username": "johndoe" },
+      "inspectorUrl": "https://vercel.com/acme/my-app/2euZBFqx",
+      "meta": { "githubCommitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "githubCommitRef": "main", "githubRepo": "my-app" }
+    },
+    {
+      "uid": "dpl_1failed",
+      "name": "my-app",
+      "url": "my-app-1failed-acme.vercel.app",
+      "created": 1793779200000,
+      "createdAt": 1793779200000,
+      "source": "cli",
+      "state": "ERROR",
+      "readyState": "ERROR",
+      "target": "production",
+      "type": "LAMBDAS",
+      "projectId": "prj_12HKQaOmR5t5Uy6vdcQsNIiZgHGB",
+      "creator": { "uid": "eLrCnEgbKhsHyfbiNR7E8496", "username": "johndoe" },
+      "inspectorUrl": "https://vercel.com/acme/my-app/1failed",
+      "meta": {}
+    }
+  ],
+  "pagination": { "count": 3, "next": null, "prev": null }
+}

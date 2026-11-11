@@ -128,7 +128,8 @@ afterEach(() => {
 
 describe("Agent Invocation Interface lifecycle", () => {
   it.each(driverKinds)("closes %s capabilities before successful finish exactly once", async (kind) => {
-    const { runAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const probe = await createLifecycleProbe(kind, "run", {
       execute(events) {
         events.push("driver")
@@ -136,12 +137,13 @@ describe("Agent Invocation Interface lifecycle", () => {
       },
     })
 
-    await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    await expect(runAgentWithContext(probe.agent, createInvocationRuntime(), { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
     probe.expectFinished(["driver", "close", "finish"])
   })
 
   it.each(driverKinds)("closes %s capabilities before Agent Error Hooks exactly once", async (kind) => {
-    const { runAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const failure = new Error(`${kind} failed`)
     const probe = await createLifecycleProbe(kind, "run", {
       execute(events) {
@@ -150,13 +152,14 @@ describe("Agent Invocation Interface lifecycle", () => {
       },
     })
 
-    await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(failure)
+    await expect(runAgentWithContext(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(failure)
     probe.expectFinished(["driver", "close", "error"])
     expect(probe.hookError).toBe(failure)
   })
 
   it.each(driverKinds)("preserves the %s finish failure identity after successful execution", async (kind) => {
-    const { runAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finishFailure = new Error(`${kind} finish failed`)
     const probe = await createLifecycleProbe(kind, "run", {
       execute(events) {
@@ -168,12 +171,13 @@ describe("Agent Invocation Interface lifecycle", () => {
       },
     })
 
-    await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(finishFailure)
+    await expect(runAgentWithContext(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(finishFailure)
     probe.expectFinished(["driver", "close", "finish"])
   })
 
   it.each(driverKinds)("orders the %s execution and finish failures without losing identity", async (kind) => {
-    const { runAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const executionFailure = new Error(`${kind} execution failed`)
     const finishFailure = new Error(`${kind} finish failed`)
     const probe = await createLifecycleProbe(kind, "run", {
@@ -187,7 +191,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: This scenario makes execution and lifecycle finish fail, producing AggregateError.
-    const error = await runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" }).catch(error => error) as AggregateError
+    const error = await runAgentWithContext(probe.agent, createInvocationRuntime(), { prompt: "hello" }).catch(error => error) as AggregateError
     expect(error).toBeInstanceOf(AggregateError)
     expect(error.message).toBe("[vitehub] Agent run failed and finish lifecycle also failed.")
     expect(error.errors).toEqual([executionFailure, finishFailure])
@@ -196,7 +200,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves a close failure instead of aggregating it with itself", async () => {
-    const { runAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const closeFailure = new Error("close failed")
     const probe = await createLifecycleProbe("run", "run", {
       close() {
@@ -208,12 +213,13 @@ describe("Agent Invocation Interface lifecycle", () => {
       },
     })
 
-    await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(closeFailure)
+    await expect(runAgentWithContext(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(closeFailure)
     probe.expectCloseFailed(["driver", "close"])
   })
 
   it.each(driverKinds)("defers %s stream cleanup and finish until early termination", async (kind) => {
-    const { streamAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const probe = await createLifecycleProbe(kind, "stream", {
       execute(events) {
         events.push("driver")
@@ -231,7 +237,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The fixture returns fullStream, so streamAgent exposes an async iterable.
-    const stream = await streamAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(probe.agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     probe.expectPending(["driver"])
 
     const iterator = stream[Symbol.asyncIterator]()
@@ -246,7 +252,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("does not await pending raw-stream usage after cancellation", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = new Promise<never>(() => {})
     const raw = Object.assign((async function* () {
@@ -258,7 +265,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     const iterator = stream[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await iterator.return?.()
@@ -271,7 +278,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("does not await pending raw-stream usage after full consumption", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = new Promise<never>(() => {})
     const raw = Object.assign((async function* () {
@@ -283,7 +291,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     const events = []
     for await (const event of stream) events.push(event)
 
@@ -296,7 +304,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("does not await pending raw-stream usage before streamAgent final rendering", async () => {
-    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = new Promise<never>(() => {})
     const raw = Object.assign((async function* () {
@@ -314,7 +323,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: streamAgent returns an async iterable when the capability provides final streamed output.
-    const stream = await streamAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -322,7 +331,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("finishes immutable raw streams with their consumed text and usage", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = (async function* () {
       yield { text: "Final ", type: "text-delta" }
@@ -336,7 +346,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -353,7 +363,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("defers finish hooks for direct stream results until consumption", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = {
       stream: (async function* () {
@@ -363,7 +374,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The fixture's driver returns this concrete traceable stream result unchanged.
-    const result = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof raw
+    const result = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof raw
     expect(finish).not.toHaveBeenCalled()
 
     for await (const _event of result.stream) {}
@@ -373,7 +384,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("finishes eager direct stream cleanup when aborted before consumption", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const controller = new AbortController()
     const close = vi.fn()
     const finish = vi.fn()
@@ -392,7 +404,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, createInvocationRuntime(), { abortSignal: controller.signal, prompt: "hello" })
+    await runAgentWithContext(agent, createInvocationRuntime(), { abortSignal: controller.signal, prompt: "hello" })
     controller.abort(new DOMException("stop", "AbortError"))
 
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
@@ -401,7 +413,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("wraps raw streams when their text property cannot be replaced", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = (async function* () {
       yield { text: "Final answer.", type: "text-delta" }
@@ -417,7 +430,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -428,7 +441,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("finishes usage-only immutable raw streams without mutating them", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = (async function* () {
       yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
@@ -440,7 +454,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -458,7 +472,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves existing usage on immutable raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
     const usageRecord = { cost: { total: 0.01 }, usage }
@@ -472,7 +487,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -485,7 +500,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("records top-level usage when finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const providerUsage = { completionTokens: 3, promptTokens: 2, providerMetadata: "private" }
     const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
@@ -498,7 +514,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -510,7 +526,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("records promise-backed totalUsage when finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
     const raw = Object.assign((async function* () {
@@ -522,7 +539,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
@@ -532,13 +549,14 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves details-only top-level usage when finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {})(), { usage: { details: { provider: 7 } } })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -548,7 +566,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves completed provider text when raw streams also emit text", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {
       yield { text: "partial", type: "text-delta" }
@@ -556,14 +575,15 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "provider answer" } })
   })
 
   it("recomputes promise-backed total usage after streamed counters advance", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = Promise.resolve({ inputTokens: 2, totalTokens: 2 })
     const raw = Object.assign((async function* () {
@@ -576,7 +596,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -590,7 +610,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("clears promise-backed total usage when a newer streamed counter remains incomplete", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {
       yield { type: "usage", usageRecord: { usage: { inputTokens: 3 } } }
@@ -598,7 +619,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -612,7 +633,8 @@ describe("Agent Invocation Interface lifecycle", () => {
     { providerUsage: () => Promise.reject(new Error("usage unavailable")), scenario: "rejects" },
     { providerUsage: () => Promise.resolve("unusable"), scenario: "resolves to a non-object" },
   ])("falls back to streamed usage when provider usage $scenario", async ({ providerUsage }) => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {
       yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
@@ -620,7 +642,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -629,7 +651,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("skips throwing metadata getters on streamed usage events", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usageRecord = Object.defineProperties({ usage: { totalTokens: 2 } }, {
       response: {
@@ -644,7 +667,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -653,7 +676,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("merges nested usage on immutable raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {
       yield {
@@ -688,7 +712,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     const usage = {
@@ -713,7 +737,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves accessor-backed nested usage on raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class InputTokenDetails {
       get cachedTokens() {
@@ -738,7 +763,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -753,7 +778,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("normalizes accessor-backed provider usage aliases on raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class Usage {
       get promptTokens() {
@@ -768,7 +794,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -777,7 +803,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves provider metadata with top-level raw usage", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {})(), {
       modelId: "provider/model",
@@ -788,7 +815,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -804,7 +831,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves accessor-backed token details from top-level raw usage", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class InputTokenDetails {
       get cachedTokens() {
@@ -817,7 +845,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -826,7 +854,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("filters invalid token details from top-level raw usage", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {})(), {
       usage: {
@@ -839,7 +868,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0].result.usage).toEqual({
@@ -852,7 +881,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("merges raw stream run annotations", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class ExistingAnnotations {
       get existing() {
@@ -866,7 +896,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -875,7 +905,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("skips unreadable run metadata while finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { usageRecordFromStreamChunk } = await import("../src/agent-output.ts")
     const finish = vi.fn()
     const annotations = Object.defineProperties({ readable: "kept", source: "provider" }, {
@@ -913,7 +944,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -927,7 +958,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("normalizes inherited usage and ignores undefined existing counters", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class Usage {
       get inputTokens() {
@@ -947,7 +979,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -959,7 +991,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("skips throwing usage getters while finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const usage = Object.defineProperties({ totalTokens: 2 }, {
       // eslint-disable-next-line unicorn/no-thenable -- verifies unreadable promise metadata does not block finalization
@@ -979,7 +1012,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     // SAFETY: The finish hook receives the normalized result after successful stream consumption.
@@ -989,7 +1022,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("observes fresh rejecting usage promises while finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const unhandled = vi.fn()
     const raw = Object.defineProperty((async function* () {})(), "usage", {
@@ -1003,7 +1037,7 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     try {
       // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-      const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+      const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
       for await (const _event of stream) {}
       await new Promise(resolve => setImmediate(resolve))
 
@@ -1016,7 +1050,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("skips throwing metadata existence checks while finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const error = vi.fn()
     const generator = (async function* () {
@@ -1053,7 +1088,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(error).not.toHaveBeenCalled()
@@ -1065,7 +1100,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("skips throwing usage detail enumeration while finalizing raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const details = new Proxy({}, {
       ownKeys() {
@@ -1083,7 +1119,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -1091,7 +1127,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves readable usage details around hostile accessors and prototypes", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const details = new Proxy(Object.defineProperties({}, {
       cachedTokens: { enumerable: true, value: 2 },
@@ -1112,7 +1149,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -1122,7 +1159,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves inherited usage-record metadata on raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class ResponseMetadata {
       get id() {
@@ -1167,7 +1205,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -1189,7 +1227,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves immutable plain raw streams in the finish result", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.freeze({
       artifacts: [{ path: "artifacts/answer.txt", url: "https://example.com/answer.txt" }],
@@ -1206,7 +1245,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -1222,7 +1261,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves inherited metadata on immutable raw streams", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class RawStream {
       get finishReason() {
@@ -1248,7 +1288,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: RawStream implements the async iterable returned unchanged by the driver.
-    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -1263,7 +1303,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("keeps collected finish data local when a raw stream is reused", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     let invocation = 0
     const raw = {
@@ -1280,7 +1321,7 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     for (let run = 0; run < 2; run++) {
       // SAFETY: The reusable driver returns the same raw async iterable for each invocation.
-      const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+      const stream = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
       for await (const _event of stream) {}
     }
 
@@ -1294,7 +1335,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("adds streamed usage to preserved plain stream results", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { usage } = await import("../src/capabilities/usage.ts")
     const result = {
       fullStream: (async function* () {
@@ -1308,7 +1350,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: runAgent preserves this plain stream result and enriches it after consumption.
-    const preserved = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result & {
+    const preserved = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result & {
       usage?: unknown
       usageRecord?: unknown
     }
@@ -1322,7 +1364,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("prefers observed usage when a preserved stream exits early", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { usage } = await import("../src/capabilities/usage.ts")
     const finish = vi.fn()
     const result = {
@@ -1339,7 +1382,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: runAgent preserves this plain stream result and enriches it after consumption.
-    const preserved = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result
+    const preserved = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result
     for await (const _event of preserved.fullStream) break
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
@@ -1350,7 +1393,8 @@ describe("Agent Invocation Interface lifecycle", () => {
   })
 
   it("preserves snapshotted usage when a rendered UI stream exits early", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const raw = Object.assign((async function* () {
       yield { text: "unused", type: "text-delta" }
@@ -1373,7 +1417,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     // SAFETY: The output renderer exposes the UI message stream method inspected here.
-    const result = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as {
+    const result = await runAgentWithContext(agent, createInvocationRuntime(), { prompt: "hello" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
     expect(finish).not.toHaveBeenCalled()
@@ -1394,7 +1438,8 @@ describe("Agent Invocation Interface lifecycle", () => {
     { form: "stream", kind: "run" },
     { form: "run", kind: "model" },
   ] as const)("preserves a handled Response through $kind $form and defers finish", async ({ form, kind }) => {
-    const { runAgent, streamAgent } = await import("../src/index.ts")
+    await import("../src/index.ts")
+    const { runAgentWithContext, streamAgentInline } = await import("../src/internal/agent-run.ts")
     const source = new Response("handled", {
       headers: { "x-lifecycle": "preserved" },
       status: 202,
@@ -1407,8 +1452,8 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     const result = form === "run"
-      ? await runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })
-      : await streamAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })
+      ? await runAgentWithContext(probe.agent, createInvocationRuntime(), { prompt: "hello" })
+      : await streamAgentInline(probe.agent, createInvocationRuntime(), { prompt: "hello" })
     expect(result).toBeInstanceOf(Response)
     // SAFETY: The preceding assertion verifies the handled result is a Response.
     const response = result as Response

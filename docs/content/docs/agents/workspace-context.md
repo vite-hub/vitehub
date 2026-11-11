@@ -1,22 +1,46 @@
 ---
 title: Workspace context
-description: Give an Agent scoped files and Sources with explicit read and write authority.
+description: Give an Agent the files it needs, and choose if it can read or also write them.
 navigation.order: 31
 navigation.group: History and context
 icon: i-lucide-folder-search
 navigation.kind: Guides
 ---
 
-Workspace context gives an Agent a named file tree and optional Sources. The Workspace decides what exists; Capabilities and the selected Driver decide how the Agent can access it.
+A Workspace gives an Agent a named file tree and optional Sources, such as a folder or a GitHub repository. The Workspace decides which files exist. Capabilities (tools) and the Driver decide how the Agent reaches them.
 
-Use the [Workspace preset](/docs/agents/workspace-preset) for a read-only Codex Agent with Source citation instructions.
-
-Use a Workspace for project files, documentation, generated state, Source-backed paths, and controlled writeback. Do not use it as hidden prompt storage; model-facing policy belongs in [Instructions](/docs/agents/instructions).
+Use it for project files, docs, generated state, and controlled writeback. Do not hide prompts in it: put model rules in [Instructions](/docs/agents/instructions). The [Workspace preset](/docs/agents/workspace-preset) is a ready read-only Codex Agent that cites Sources.
 
 ## Add a read-only Workspace
 
-Enable both integrations in the ViteHub preset.
+Turn on `agent` and `workspace`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true, workspace: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', agent: true, workspace: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -27,8 +51,10 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
-Declare a Source and grant a model-backed Driver read-only shell access:
+Declare a Source and give a model-backed Driver a read-only shell:
 
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -53,11 +79,11 @@ export default defineAgent({
 })
 ```
 
-The Source makes files available under the Workspace. `workspaceShell({ mode: 'read' })` exposes read operations to the model. Without that Capability, declaring a Source alone does not grant model-facing file access.
+The Source puts files in the Workspace. `workspaceShell({ mode: 'read' })` lets the model read them. A Source alone gives the model no file access.
 
 ## Reuse a Workspace
 
-Use `defineWorkspace()` when several Agents share the same file tree or Source configuration.
+Use `defineWorkspace()` when several Agents share the same files or Sources.
 
 ```ts [server/workspaces/product-docs.ts]
 import { defineWorkspace, glob } from 'vite-hub/workspace'
@@ -83,7 +109,7 @@ export default defineAgent({
 
 ## Scope access by Actor
 
-Use `access()` when trusted caller identity narrows the files visible to one invocation. Place it before `workspaceShell()` so the shell receives the scoped Workspace.
+Use `access()` to limit the files one invocation sees, based on the trusted caller. Put it before `workspaceShell()`, so the shell gets the scoped Workspace.
 
 ```ts [server/agents/editor.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -106,11 +132,11 @@ export default defineAgent({
 })
 ```
 
-Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy enforces authorization, so base it only on trusted identity and application-owned facts. Actor-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; provider Drivers receive a writable session limited to the selected paths. Without Actor-scoped Access, write authority depends on the Workspace mode, its rules, and the tools exposed to the Driver.
+Authenticate the request and pass an [Agent Actor](/docs/agents/actors) first. Workspace policy enforces authorization, so base it only on trusted identity and facts your app owns. Scoped access from `access()` is read-only for model-backed and custom Drivers. Provider Drivers get a writable session limited to the selected paths. Without it, write rights depend on the Workspace mode, its rules, and the Driver's tools.
 
 ## Use Workspace context with a provider
 
-Provider Drivers receive the rendered instruction document and selected Workspace files in a temporary local working directory. Successful write-mode invocations commit through Workspace rules.
+Provider Drivers get the rendered instructions and the selected Workspace files in a temporary local directory. A successful write-mode invocation commits through Workspace rules.
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -123,24 +149,26 @@ export default defineAgent({
 
 ## Preserve GitHub PR history
 
-A Node process host can use `createGitHubHost()` from `@vite-hub/agent/server/github` to prepare an exact PR head with Git. Supply `repository`, `number`, `headSha`, `headRepository`, and `headRef` to `withPullRequestCheckout()`. The host fetches the source branch directly and rejects a changed head. Each pass uses a fresh temporary checkout. The host removes its contents when the callback finishes, including after failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory to preserve concurrent pathname replacements.
+A Node process host can check out an exact PR head with Git, using `createGitHubHost()` from `vite-hub/presets/babysitter/server`. Pass `repository`, `number`, `headSha`, `headRepository`, and `headRef` to `withPullRequestCheckout()`. The host fetches the source branch directly and rejects a changed head.
 
-When a provider materializes a separate directory, call the checkout callback's `prepareWorkspace(cwd)` in the provider launch hook. It restores independent Git history and removes saved authentication configuration. Set Workspace `commit: false` if the host will push the provider's commits instead of copying files back through Workspace writeback. When `commit: false` leaves no Workspace or Capability rule with `commit`, the invocation also skips the whole-tree Workspace diff after the run.
+Each pass uses a fresh temporary checkout. The host deletes its contents when the callback ends, also after failure, cancellation, or timeout. Cleanup is best effort: if it fails, the callback result or error is kept. It leaves an empty temporary directory, so concurrent pathname replacements stay safe.
 
-After the provider finishes, the host can call `checkout.push(cwd)`. This refreshes source credentials, verifies ancestry, and rejects a source branch that changed after preparation. Do not give the provider the host's GitHub credentials when pushes require host approval. Checkout preparation applies only to GitHub PR workspaces and requires Git, not the GitHub CLI.
+If a provider creates its own directory, call the callback's `prepareWorkspace(cwd)` in the provider launch hook. It restores separate Git history and removes saved auth configuration. Set Workspace `commit: false` if the host pushes the provider's commits instead of Workspace writeback. If then no Workspace or Capability rule has `commit`, the run also skips the whole-tree Workspace diff.
+
+After the provider ends, the host can call `checkout.push(cwd)`. It refreshes source credentials, checks ancestry, and rejects a source branch that changed since preparation. If pushes need host approval, do not give the provider the host's GitHub credentials. This works only for GitHub PR workspaces and needs Git, not the GitHub CLI.
 
 ## Keep context explicit
 
 | Need | Use |
 | --- | --- |
 | Files or generated state | Workspace files and Sources |
-| Model-facing rules | Colocated or Driver Instructions |
+| Rules for the model | Colocated or Driver Instructions |
 | Read or write tools | Capabilities such as `workspaceShell` |
 | Caller-specific file scope | Access plus a trusted Agent Actor |
 | Provider working directory | A write-mode Workspace |
 
-Inspect the resolved Workspace, Sources, and access policy through the [CLI](/docs/development/cli) before relying on them in production.
+Check the resolved Workspace, Sources, and access policy with the [CLI](/docs/development/cli) before production.
 
 ## Next steps
 
-Use [Chat History](/docs/agents/chat-history-sessions) for prior messages. Connect [Channels](/docs/agents/channels) when the Agent should receive messages from a web chat or an external service.
+Use [Chat History](/docs/agents/chat-history-sessions) for earlier messages. Connect [Channels](/docs/agents/channels) for messages from a web chat or another service.

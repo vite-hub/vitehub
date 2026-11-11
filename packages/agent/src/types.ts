@@ -4,9 +4,9 @@ import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
+import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
-import type { AgentRetentionPolicy } from "./retention.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -59,7 +59,6 @@ export interface AgentWorkflowRuntimeBinding {
   name?: string
 }
 export type AgentWaitUntil = RuntimeWaitUntil
-export type AgentIntegrationOption = "auto" | boolean
 export interface AgentHealthDescriptor {
   handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
 }
@@ -91,7 +90,7 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 /**
- * Runtime Context that a caller passes to `runAgent()`, `streamAgent()`, and `startAgentInvocation()`.
+ * Runtime Context that a caller passes as `runtimeContext` to `runAgent()` and `streamAgent()`, and to `startAgentInvocation()`.
  * ViteHub creates a fresh memo cache for the Invocation when `memo` is absent.
  */
 export type AgentRuntimeContextInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
@@ -979,9 +978,10 @@ export interface AgentTriggerTask<
 > {
   /**
    * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * A resolver can return an Agent or its default-export module, such as `() => import('./agent')`, to avoid an import cycle.
    * An unset `run.origin` of the Invocation defaults to the task key.
    */
-  agent?: AgentInput
+  agent?: AgentInput | (() => MaybePromise<AgentInput | { default: AgentInput }>)
   /**
    * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
    * The trigger's `failed` stays the fallback for tasks without one.
@@ -1112,9 +1112,14 @@ export type AgentInterceptHandler<
   TIntercept = unknown,
 > = (context: AgentInterceptContext<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData>) => MaybePromise<TIntercept | undefined>
 
-export interface AgentRunResult {
+export interface AgentRunResult<TOutput = unknown> {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   finishReason?: unknown
+  /**
+   * Output of the Invocation after `runAgent()` consumes its streams: the `driver.output` schema value, the
+   * `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns.
+   */
+  output?: TOutput
   raw?: unknown
   text?: string
   usage?: unknown
@@ -1585,7 +1590,6 @@ export type AgentCapabilityInput<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name>
 
-type AgentExtensionMount = object
 declare const agentStaticCapabilitiesListBrand: unique symbol
 
 export type AgentCapabilitiesList<
@@ -1596,7 +1600,7 @@ export type AgentCapabilitiesList<
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[] & {
+> = readonly AgentCapabilityInput<TRuntimeConfig, Name>[] & {
   readonly [agentStaticCapabilitiesListBrand]?: true
 }
 
@@ -1940,13 +1944,6 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /**
-   * Limits for the Codex home: rollouts, logs, thread history, and temporary files that Codex keeps.
-   * The oldest data goes first until every limit holds. `maxAge` and `maxSize` count all of it; `maxRecords` counts sessions.
-   * Retention needs a persistent home: a credential profile, `providerSettings.homePath`, or `CODEX_HOME`.
-   * It runs in the background on the first invocation, then at most every 10 minutes.
-   */
-  retention?: AgentRetentionPolicy
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -2006,7 +2003,6 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2037,7 +2033,6 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -2101,7 +2096,6 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2164,16 +2158,6 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
-/**
- * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
- * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
- * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
- */
-export interface AgentInvocationsHostSettings {}
-
-/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
-export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
-
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2191,7 +2175,11 @@ type AgentSharedSettings<
   budget?: AgentBudgetOptions
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
-  channels?: AgentChannelInputs<TRuntimeConfig>
+  /**
+   * The Channels whose messages this Agent answers: names of Channels in `server/channels`, such as `['slack']`, or
+   * Channels defined inline by name, such as `{ slack: defineChannel({ adapter: slack() }) }`.
+   */
+  channels?: AgentChannelInputs<TRuntimeConfig> | readonly string[]
   cli?: AgentDefinitionCliOptions
   /** Standard Schema for Invocation `data`. ViteHub validates `data` before Capabilities, hooks, and the Driver run. */
   data?: StandardSchemaV1<TDataInput, TData>
@@ -2200,7 +2188,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocationsInput
+  invocations?: AgentInvocationsSetting
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -2316,22 +2304,7 @@ export interface AgentStateProviderOptions {
 export type ResolvedAgentStateProviderOptions =
   Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
 
-export interface AgentSchedulerProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
-}
-
-export interface AgentSandboxProviderOptions {
-  provider?: "auto" | "cloudflare" | "vercel" | (string & {})
-}
-
-export interface AgentIntegrationsOptions {
-  sandbox?: AgentIntegrationOption
-  workflow?: AgentIntegrationOption
-}
-
 export interface AgentProvidersOptions {
-  sandbox?: AgentSandboxProviderOptions
-  scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
 }
 
@@ -2398,7 +2371,7 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
-export interface AgentModuleOptions {
+export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
@@ -2406,7 +2379,6 @@ export interface AgentModuleOptions {
   execution?: AgentExecution
   eval?: AgentEvalOptions
   imports?: boolean
-  integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
@@ -2422,10 +2394,7 @@ export interface ResolvedAgentModuleOptions {
   execution: AgentExecution
   shutdown: false | AgentShutdownOptions
   imports: boolean
-  integrations: Required<AgentIntegrationsOptions>
   providers: {
-    sandbox: Required<AgentSandboxProviderOptions>
-    scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
   routes: ResolvedAgentRoutesOptions
@@ -3078,8 +3047,6 @@ export interface AgentInspectionProviderMetadata {
   requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /** Codex home retention. maxAge is milliseconds; maxSize is bytes or a percent such as "45%". Only set limits appear. */
-  retention?: { maxAge?: number, maxRecords?: number, maxSize?: number | string }
   sessionStore?: "sqlite"
   toolchain?: SandboxToolchain
 }

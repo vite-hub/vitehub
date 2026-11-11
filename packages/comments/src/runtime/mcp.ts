@@ -1,16 +1,23 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { describeCommentContext } from "../context.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
-import { resolveCommentsIdentity } from "./session.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
-import type { CommentAction, CommentListCursor, CommentsUser, CommentThread, CommentUser } from "../types.ts"
-import type { CommentsIdentity, CommentsSessionOptions } from "./session.ts"
+import type { CommentAction, CommentListCursor, CommentsRequestEvent, CommentsUser, CommentThread, CommentUser } from "../types.ts"
+import type { CommentsIdentity } from "./session.ts"
+
+export interface CommentsMcpToolsOptions {
+  /**
+   * The caller passed the Console access check of the `comments` section, as the ViteHub MCP server does. Without
+   * `identify`, the default policy then trusts `context.user`, as it does for the comment operations. Default `false`.
+   */
+  console?: boolean
+}
 
 /** A user supplied by an app's own MCP server. Missing identities remain anonymous. */
 function commentsUser(user: Record<string, unknown> | null): CommentsUser | null {
@@ -75,16 +82,21 @@ function summary(thread: CommentThread): Record<string, unknown> {
 
 /**
  * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
- * as the overlay does. Pass the overlay's session reader; an app's own MCP server can instead supply `context.user`.
- * With a request event, the user comes from `resolveCommentsIdentity()`, as in the overlay API. Without an event, the
- * tools use the checked `context.user` directly. Replies and resolves show that user as the author.
+ * as the overlay does. An app's own MCP server can register them too and supply the checked `context.user`.
+ * With `identify` and a request event, `identify` names the user, as in the overlay API. Otherwise the tools use the
+ * checked `context.user`. Replies and resolves show that user as the author.
  */
-export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
-  async function identityFor(context: ViteHubMcpToolContext, action: CommentAction): Promise<CommentsIdentity | false> {
-    // The ViteHub MCP server lists these tools only for people with Console access to Comments.
-    if (context.event === undefined || context.event === null) return { user: commentsUser(context.user), gate: { console: Boolean(options.consoleSession) } }
-    // SAFETY: The MCP transport passes its request event to owner identity readers.
-    return resolveCommentsIdentity(comments, context.event as H3Event, { ...options, session: options.session ?? (async () => commentsUser(context.user)) }, action)
+export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOptions = {}): ViteHubMcpTool[] {
+  async function identityFor(context: ViteHubMcpToolContext): Promise<CommentsIdentity> {
+    const { identify } = comments.options
+    if (identify && context.event) {
+      // SAFETY: The MCP transport passes its request event, or its Request, to owner identity readers.
+      const event = context.event as CommentsRequestEvent
+      // `identify` reads `event["~standard"]`. Set it when the transport did not.
+      getStandardContext(event)
+      return { user: await identify({ event }) ?? null, gate: {} }
+    }
+    return { user: commentsUser(context.user), gate: options.console && !identify ? { console: true } : {} }
   }
 
   async function threadFor(input: Record<string, unknown>, { user, gate }: CommentsIdentity, action: CommentAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
@@ -115,8 +127,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const identity = await identityFor(context, "read")
-        if (identity === false) return forbidden("read")
+        const identity = await identityFor(context)
         const { user, gate } = identity
         const page = text(input.page)
         const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
@@ -158,8 +169,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       annotations: { readOnlyHint: true },
       inputSchema: { type: "object", properties: { id: { type: "string", description: "The thread id." } }, required: ["id"], additionalProperties: false },
       async call(input, context) {
-        const identity = await identityFor(context, "read")
-        if (identity === false) return forbidden("read")
+        const identity = await identityFor(context)
         const found = await threadFor(input, identity, "read")
         if (!("thread" in found)) return found
         const { thread } = found
@@ -178,8 +188,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const identity = await identityFor(context, "write")
-        if (identity === false) return forbidden("write")
+        const identity = await identityFor(context)
         const found = await threadFor(input, identity, "write")
         if (!("thread" in found)) return found
         const { thread, grant } = found
@@ -204,8 +213,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const identity = await identityFor(context, "resolve")
-        if (identity === false) return forbidden("resolve")
+        const identity = await identityFor(context)
         const found = await threadFor(input, identity, "resolve")
         if (!("thread" in found)) return found
         const { thread, grant } = found

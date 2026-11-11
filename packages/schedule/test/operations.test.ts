@@ -7,6 +7,7 @@ import { scheduleOperations } from "../src/operations.ts"
 import { executeStaticSchedule } from "../src/runtime/execute.ts"
 import { summarizeScheduleRun } from "../src/runtime/operations.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
+import { createMemoryStartedScheduleStore, installStartedSchedules } from "../src/runtime/started.ts"
 import { createMemoryScheduleRunStore, ScheduleHistoryIncompleteError } from "../src/runtime/store.ts"
 
 import type { OperationAccess } from "@vite-hub/internal/operations"
@@ -40,12 +41,15 @@ describe("schedule operations", () => {
       ["schedule.runs", "read", "schedules", { command: "runs", namespace: "schedule" }],
       ["schedule.attempts", "read", "schedules", { command: "attempts", namespace: "schedule" }],
       ["schedule.run", "write", "schedules", { command: "run", namespace: "schedule" }],
+      ["schedule.list", "read", "schedules", { command: "list", namespace: "schedule" }],
+      ["schedule.start", "write", "schedules", { command: "start", namespace: "schedule" }],
+      ["schedule.cancel", "destructive", "schedules", { command: "cancel", namespace: "schedule" }],
     ])
   })
 
-  it("lets `schedule run --url` sign a dispatch, and only that operation runs app code", () => {
+  it("lets `schedule run --url` sign a dispatch, and only run and start reach app code", () => {
     expect(scheduleOperations.find(operation => operation.name === "schedule.run")?.cli?.dispatch).toBe("/_vitehub/schedules/run")
-    expect(scheduleOperations.filter(operation => operation.invoke).map(operation => operation.name)).toEqual(["schedule.run"])
+    expect(scheduleOperations.filter(operation => operation.invoke).map(operation => operation.name)).toEqual(["schedule.run", "schedule.start"])
   })
 
   it("list runs newest first with a limit and redact error messages", async () => {
@@ -142,9 +146,9 @@ describe("schedule operations", () => {
   it("run a manual Static Schedule Definition from the installed registry and record the run", async () => {
     const effect = vi.fn()
     installRegistry({
-      fail: async () => defineSchedule("0 9 * * *", () => { throw new Error("Bearer abc.def.ghi rejected") }, { manual: true }),
-      locked: async () => defineSchedule("0 9 * * *", effect),
-      sync: async () => ({ default: defineSchedule("0 9 * * *", effect, { manual: true }) }),
+      fail: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => { throw new Error("Bearer abc.def.ghi rejected") } }),
+      locked: async () => defineSchedule({ cron: "0 9 * * *", handler: effect }),
+      sync: async () => ({ default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: effect }) }),
     })
 
     const succeeded = await call("run", { name: "sync" })
@@ -163,7 +167,7 @@ describe("schedule operations", () => {
 
   it("run a manual Schedule as if it fired at a given time and record that time", async () => {
     const seen: Date[] = []
-    installRegistry({ close: async () => defineSchedule("59 23 * * *", ({ scheduledAt }) => { seen.push(scheduledAt) }, { manual: true }) })
+    installRegistry({ close: async () => defineSchedule({ cron: "59 23 * * *", manual: true, handler: ({ scheduledAt }) => { seen.push(scheduledAt) } }) })
 
     const result = await call("run", { at: "2026-01-31T23:59:00+01:00", name: "close" })
     expect(result).toMatchObject({ ok: true, value: { run: { scheduledAt: "2026-01-31T22:59:00.000Z", status: "succeeded" } } })
@@ -173,7 +177,7 @@ describe("schedule operations", () => {
 
   it.each(["2026-02-30T00:00:00Z", "2026-01-31T23:59:00", "2026-01-31", "tomorrow", "2026-01-31T24:00:00Z", ""])("reject the run time %j with a named error and run nothing", async (at) => {
     const effect = vi.fn()
-    installRegistry({ close: async () => defineSchedule("59 23 * * *", effect, { manual: true }) })
+    installRegistry({ close: async () => defineSchedule({ cron: "59 23 * * *", manual: true, handler: effect }) })
 
     expect(await call("run", { at, name: "close" })).toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", fix: expect.stringContaining("2026-01-31T23:59:00Z"), ok: false, status: 400 })
     expect(effect).not.toHaveBeenCalled()
@@ -191,7 +195,7 @@ describe("schedule operations", () => {
 
   it("let a read-only grant read runs but not run a Schedule", async () => {
     const effect = vi.fn()
-    installRegistry({ sync: async () => defineSchedule("0 9 * * *", effect, { manual: true }) })
+    installRegistry({ sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: effect }) })
     const readOnly: OperationAccess = { mode: "cloudflare-access", sections: ["schedules:read"] }
 
     expect(await call("runs", { id: "sync" }, readOnly)).toMatchObject({ ok: true })
@@ -201,5 +205,22 @@ describe("schedule operations", () => {
     expect(effect).not.toHaveBeenCalled()
     expect(await call("run", { name: "sync" }, { mode: "cloudflare-access", sections: ["schedules"] })).toMatchObject({ ok: true })
     expect(effect).toHaveBeenCalledTimes(1)
+  })
+
+  it("start, list, and cancel the Schedules that code starts", async () => {
+    installStartedSchedules({ registry: { reminder: async () => defineSchedule({ handler: () => {} }) }, store: createMemoryStartedScheduleStore() })
+
+    const started = await call("start", { at: "2026-11-08T09:00:00Z", name: "reminder", payload: { text: "hi" } })
+    expect(started).toMatchObject({ ok: true, value: { schedule: { at: "2026-11-08T09:00:00.000Z", name: "reminder", payload: { text: "hi" } } } })
+    const id = (started as { value: { schedule: { id: string } } }).value.schedule.id
+    const listed = await call("list", {})
+    // SAFETY: The operation formats its own output, which the call above returned.
+    const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
+    expect(listed.ok && format(listed.value)).toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
+
+    expect(await call("cancel", { id })).toMatchObject({ ok: true, value: { schedule: { id } } })
+    expect(await call("list", { name: "reminder" })).toMatchObject({ ok: true, value: { schedules: [] } })
+    expect(await call("cancel", { id })).toMatchObject({ code: "SCHEDULE_NOT_FOUND", ok: false, status: 404 })
+    expect(await call("start", { cron: "0 9 * * *", name: "daily" })).toMatchObject({ code: "SCHEDULE_NOT_STARTABLE", ok: false, status: 404 })
   })
 })

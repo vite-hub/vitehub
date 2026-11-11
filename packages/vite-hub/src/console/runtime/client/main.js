@@ -3,6 +3,7 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
+import { vitehubTheme } from "@vite-hub/ui/theme";
 import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
@@ -32,9 +33,11 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleOAuthCallback } from "./oauth";
+import { continueConsoleOpen, startConsoleOpen } from "./open-link";
+import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
-import { browserProjectStorage } from "./projects";
+import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -44,8 +47,18 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
+// A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
+// The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
+const session = openConsoleStorage(() => window.sessionStorage);
+
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+// The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
+const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
+// A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
+// a linked project opens at the path.
+const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -53,11 +66,17 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
-  storage: browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile),
+  storage,
+  storagePersistent: storage.persistent !== false,
+  sessionStorage: session.durable ? session.storage : undefined,
+  durableStorage: storage.persistent !== false,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+// The /new page opens no project, so it works before the first link.
+else if (hosted && isConsoleNewProjectPath(window.location.pathname, consoleBase)) startConsoleNewProject();
+else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
+else if (openRequest) continueConsoleOpen(openRequest);
 const sectionsBase = "/_vitehub/api/sections";
 const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 
@@ -372,7 +391,6 @@ const appearance = startConsoleAppearance({
 });
 
 router.beforeEach(async (to) => {
-  if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
   // The first page waits until the project opens, so its requests carry the token and go to the linked project.
   await consoleProjectReady();
   if (to.matched.length === 0) {
@@ -405,7 +423,7 @@ createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
-  .use(createViteHubUI())
+  .use(createViteHubUI({ icons: vitehubTheme.icons }))
   .mount("#app");
 
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
