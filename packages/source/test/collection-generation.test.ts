@@ -165,6 +165,29 @@ it.each([
   expect(generated.routes).toEqual(routes)
 })
 
+it.each([
+  ["previews: true", true],
+  ["previews: { source: \"docs\" }", true],
+  ["previews: false", false],
+  ["route: true", false],
+])("generates the preview routes plugin for %s", async (option, generated) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { github } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, ${option} })\n`)
+    const handlers = await prepareSourceGeneration({ projectRoot, contentImportBase: "vite-hub/content" })
+    const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
+    expect(handlers.some(handler => handler.plugin && handler.handler === plugin)).toBe(generated)
+    // A plugin, so no route of the app can conflict with the preview URLs.
+    expect(handlers.flatMap(handler => handler.route ?? [])).toEqual(["/_vitehub/content/github", "/api/content/**"])
+    if (generated) expect(await readFile(plugin, "utf8")).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+    else await expect(access(plugin)).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it("adds no GitHub push webhook route without a github() Source", async () => {
   const generated = await generatedRoutes({
     "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,

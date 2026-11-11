@@ -46,7 +46,8 @@ const SNAPSHOT_ID_PATTERN = /^\0vitehub-content-snapshot:/
 type BuiltSnapshots = { file: string, snapshots: Record<string, BuiltContentSnapshot> }
 
 /**
- * Load `server/content.ts` in Node and parse its read-only `glob()` and `files()` Sources once. Returns each snapshot by
+ * Load `server/content.ts` in Node and parse its read-only `glob()` and `files()` Sources once, and the branch commit of
+ * each `github()` Source when the build has a GitHub token. Returns each snapshot by
  * instance name, and a warning for each Source, or the whole file, that the build could not parse.
  */
 export async function buildContentSnapshotModules(options: {
@@ -245,6 +246,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
               fields: [
                 { label: "Route", value: features.route ? "/api/content/**" : "Disabled" },
                 ...(features.github ? [{ label: "GitHub webhook", value: "POST /_vitehub/content/github" }] : []),
+                ...(features.previews ? [{ label: "Previews", value: "/tree/<branch>/-/<path>, /blob/<sha>/<path>, /pr/<number>/<path>" }] : []),
                 { label: "Collections", value: "vitehub content collections" },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),

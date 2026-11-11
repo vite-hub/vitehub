@@ -139,5 +139,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env, or pass `github({ auth })`. Content then reads the commits of each page from GitHub and caches them per head commit.",
       why: ({ source }: { source: string }) => `[vitehub] content.history() returned no entries for Content source ${JSON.stringify(source)} because it reads GitHub without a token.`,
     },
+    /** `defineContent({ previews })` is not valid, or does not find the `github()` Source that preview URLs read. */
+    CONTENT_R0045: {
+      fix: "Set `previews: true` with one `github()` Source in `sources`, or name the Source with `previews: { source: \"docs\" }`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
   },
 })

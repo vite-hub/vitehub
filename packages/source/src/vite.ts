@@ -37,6 +37,7 @@ const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
 const contentRssEntry = ".vitehub/content/rss.mjs"
 const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentGitHubWebhookEntry = ".vitehub/content/github-webhook.mjs"
+const contentPreviewRoutesEntry = ".vitehub/content/preview-routes.mjs"
 const contentTypesPluginEntry = ".vitehub/content/types.mjs"
 // The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
 const contentTypesEntry = ".vitehub/types/content.d.ts"
@@ -401,6 +402,8 @@ export interface ContentEntryFeatures {
   rss: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
+  /** `previews` that is set and not literally false: Content serves refs of its `github()` Source at `/tree`, `/blob`, and `/pr` URLs. */
+  previews: boolean
   /** The module imports `sqlite` from `vite-hub/content/sqlite`, so SQLite WASM must load when a Worker starts. */
   sqlite: boolean
   /** The module imports `github` from `vite-hub/source`, so a push webhook route can move the head of its Sources. */
@@ -459,7 +462,7 @@ function importsContentSqlite(program: unknown, contentImportBase?: string): boo
 }
 
 function inspectContentOptions(program: unknown, contentImportBase?: string): Omit<ContentEntryFeatures, "github" | "sqlite"> {
-  const maybe: Omit<ContentEntryFeatures, "github" | "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, live: true }
+  const maybe: Omit<ContentEntryFeatures, "github" | "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, live: true, previews: false }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -534,15 +537,25 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
     && astName(calleeNode.property) === "defineContent"
   if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
-  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, rss: false, live: true }
+  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, rss: false, live: true, previews: false }
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, live: true }
+  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, live: true, previews: true }
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: Omit<ContentEntryFeatures, "github" | "sqlite"> = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, rss: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const previews = resolveNode(options.get("previews"))
+  const features: Omit<ContentEntryFeatures, "github" | "sqlite"> = {
+    route: !(isAstNode(route) && route.type === "Literal" && route.value === false),
+    collections: false,
+    sitemap: false,
+    robots: false,
+    markdown: false,
+    rss: false,
+    live: !(isAstNode(live) && live.type === "Literal" && live.value === false),
+    previews: options.has("previews") && !(isAstNode(previews) && previews.type === "Literal" && previews.value === false),
+  }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
@@ -568,7 +581,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, live: true, sqlite: false, github: false }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, live: true, previews: false, sqlite: false, github: false }
   }
 }
 
@@ -584,10 +597,11 @@ async function writeContentArtifact(
   const rss = resolve(options.projectRoot, contentRssEntry)
   const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   const githubWebhook = resolve(options.projectRoot, contentGitHubWebhookEntry)
+  const previewRoutes = resolve(options.projectRoot, contentPreviewRoutesEntry)
   const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
   const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown, rss, sqlite, githubWebhook, typesPlugin, types].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, rss, sqlite, githubWebhook, previewRoutes, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -657,6 +671,19 @@ async function writeContentArtifact(
     handlers.push({ handler: githubWebhook, method: "post", route: "/_vitehub/content/github" })
   }
   else await rm(githubWebhook, { force: true })
+  // `previews: true` serves refs of a `github()` Source at `/tree`, `/blob`, and `/pr` URLs. A Nitro plugin, not a route:
+  // the page runs with its production path through every route of the app. It loads server/content.ts on the first
+  // preview URL only.
+  if (features.previews) {
+    await writeFileIfChanged(previewRoutes, [
+      `import { defineContentPreviewRoutesPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
+      "",
+      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default))`,
+      "",
+    ].join("\n"))
+    handlers.push({ handler: previewRoutes, plugin: true })
+  }
+  else await rm(previewRoutes, { force: true })
   // `defineContent({ seo: { sitemap, robots, markdown, rss } })` adds the site-wide SEO routes. Markdown copies sit at
   // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.
   for (const [enabled, path, helper, route] of [
