@@ -10,7 +10,7 @@ import { z } from "zod"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 import { documents } from "../src/collections.ts"
-import { contentHead, contentSource, seo, defineContent, defineContentRssHandler, registerContentKV, renderContentRss } from "../src/index.ts"
+import { contentHead, contentSource, seo, defineContent, defineContentGitHubWebhookHandler, defineContentRssHandler, defineContentSitemapHandler, registerContentKV, renderContentRss } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
 import type { MockInstance } from "vitest"
@@ -157,6 +157,42 @@ describe("seo.rss for github() Sources", () => {
     expect(warm.map(request => request.operation ?? request.path.replace(/\/compare\/.*/, "/compare"))).toEqual(["/repos/acme/docs/compare", "FileHistory"])
   }, 60_000)
 
+  it("dates a page that a later commit reverted by the revert, not by the net change", async () => {
+    fake.commit("main", { "content/guide.md": page("Guide"), "content/other.md": page("Other") }, { author: { date: at(1), name: "Ada" } })
+    const content = sourceSite()
+    await content.sitemap()
+    fake.commit("main", { "content/guide.md": page("Guide draft") }, { author: { date: at(2), name: "Ada" } })
+    fake.commit("main", { "content/guide.md": page("Guide"), "content/other.md": page("Other v2") }, { author: { date: at(3), name: "Ada" } })
+    await content.sources.advance("docs")
+    await content.list("docs")
+    const start = fake.requests.length
+
+    expect(await content.sitemap()).toEqual([
+      { collection: "docs", id: "guide", loc: "https://example.com/docs/guide", lastmod: at(3) },
+      { collection: "docs", id: "other", loc: "https://example.com/docs/other", lastmod: at(3) },
+    ])
+    // One compare, the files of its 2 commits, and one GraphQL request for both pages.
+    const requests = fake.requests.slice(start, start + 4).map(request => request.operation ?? request.path.replace(/\/(compare|commits)\/.*/, "/$1"))
+    expect(requests).toEqual(["/repos/acme/docs/compare", "/repos/acme/docs/commits", "/repos/acme/docs/commits", "FileHistory"])
+  })
+
+  it("keeps serving the sitemap when GitHub fails to give the page dates", async () => {
+    fake.commit("main", { "content/a.md": page("A") }, { author: { date: at(1), name: "Ada" } })
+    let failing = true
+    fake.respond(request => failing && request.operation === "FileHistory" ? new Response(JSON.stringify({ message: "Forbidden" }), { status: 403 }) : undefined)
+    const content = sourceSite({ rss: false })
+    await content.list("docs")
+
+    const response = await defineContentSitemapHandler(content).fetch(new Request("https://example.com/sitemap.xml"))
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("<loc>https://example.com/docs/a</loc>")
+    expect(warn.mock.calls.some(([message]) => String(message).includes("could not read the page dates"))).toBe(true)
+
+    // The failed dates are not kept, so the next request asks again.
+    failing = false
+    expect(await content.sitemap()).toEqual([{ collection: "docs", id: "a", loc: "https://example.com/docs/a", lastmod: at(1) }])
+  })
+
   it("asks again with half the pages when GitHub stops a GraphQL request", async () => {
     const files: Record<string, string> = {}
     for (let index = 0; index < 150; index++) files[`content/p${index}.md`] = page(`P${index}`)
@@ -183,6 +219,138 @@ describe("seo.rss for github() Sources", () => {
     expect(xml.match(/<pubDate>/g)).toHaveLength(1)
     expect(fileHistories()).toHaveLength(0)
     expect((await content.sitemap()).map(entry => entry.lastmod)).toEqual([undefined, undefined])
+  })
+})
+
+describe("page dates after a head move", () => {
+  /** Hold GitHub GraphQL requests until `open()`, and count the ones that wait. */
+  function gateGraphQL() {
+    let open!: () => void
+    const gate = new Promise<void>((resolve) => { open = resolve })
+    const waiting = { count: 0 }
+    vi.stubGlobal("fetch", vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
+      if (new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith("/graphql")) {
+        waiting.count++
+        await gate
+      }
+      return await fake.fetch(input, init)
+    }))
+    return { open, waiting }
+  }
+
+  /** A request with `waitUntil`, as a Worker or Vercel gives it, and the work it collects. */
+  function hostRequest(url: string) {
+    const tasks: Promise<unknown>[] = []
+    const request = new Request(url)
+    Object.defineProperty(request, "waitUntil", { value: (task: Promise<unknown>) => tasks.push(task) })
+    return { request, tasks }
+  }
+
+  it("answers a cold request at once and computes the dates after the response", async () => {
+    fake.commit("main", { "content/a.md": page("A"), "content/b.md": page("B", "date: 2026-09-01\n") }, { author: { date: at(1), name: "Ada" } })
+    fake.commit("main", { "content/a.md": page("A v2") }, { author: { date: at(3), name: "Ada" } })
+    const content = sourceSite()
+    await content.list("docs")
+    const gate = gateGraphQL()
+    const rss = defineContentRssHandler(content)
+
+    const cold = hostRequest("https://example.com/rss.xml")
+    const response = await rss.fetch(cold.request)
+    // GitHub has not answered, so the request did not wait for it.
+    expect(fileHistories()).toHaveLength(0)
+    expect(cold.tasks).toHaveLength(1)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    const xml = await response.text()
+    wellFormed(xml)
+    // No dates yet: b has its date field, a has none.
+    expect(itemLinks(xml)).toEqual(["https://example.com/docs/b", "https://example.com/docs/a"])
+    expect(xml.match(/<pubDate>/g)).toHaveLength(1)
+
+    gate.open()
+    await Promise.all(cold.tasks)
+    expect(fileHistories()).toHaveLength(1)
+    const warm = hostRequest("https://example.com/rss.xml")
+    const next = await rss.fetch(warm.request)
+    expect(warm.tasks).toHaveLength(0)
+    expect(next.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate")
+    expect(await next.text()).toContain(`<pubDate>${new Date(at(3)).toUTCString()}</pubDate>`)
+    expect(fileHistories()).toHaveLength(1)
+  })
+
+  it("answers with the dates of the previous head until the new ones are ready", async () => {
+    fake.commit("main", { "content/a.md": page("A"), "content/b.md": page("B") }, { author: { date: at(1), name: "Ada" } })
+    fake.commit("main", { "content/b.md": page("B v2") }, { author: { date: at(2), name: "Ada" } })
+    const content = sourceSite()
+    await content.sitemap()
+    fake.commit("main", { "content/a.md": page("A v2"), "content/c.md": page("C", "date: 2026-09-01\n") }, { author: { date: at(4), name: "Ada" } })
+    await content.sources.advance("docs")
+    await content.list("docs")
+    const gate = gateGraphQL()
+    const sitemap = defineContentSitemapHandler(content)
+
+    const stale = hostRequest("https://example.com/sitemap.xml")
+    const response = await sitemap.fetch(stale.request)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    const xml = await response.text()
+    expect(xml).toContain(`<loc>https://example.com/docs/a</loc>\n    <lastmod>${at(1)}</lastmod>`)
+    expect(xml).toContain(`<loc>https://example.com/docs/b</loc>\n    <lastmod>${at(2)}</lastmod>`)
+    // A new page has no lastmod until the dates of the new head are ready.
+    expect(xml).toMatch(/<loc>https:\/\/example\.com\/docs\/c<\/loc>\n {2}<\/url>/)
+
+    gate.open()
+    await Promise.all(stale.tasks)
+    expect(await content.sitemap()).toEqual([
+      { collection: "docs", id: "a", loc: "https://example.com/docs/a", lastmod: at(4) },
+      { collection: "docs", id: "b", loc: "https://example.com/docs/b", lastmod: at(2) },
+      { collection: "docs", id: "c", loc: "https://example.com/docs/c", lastmod: at(4) },
+    ])
+  })
+
+  it("lets one server instance compute a date set while its KV lease holds", async () => {
+    fake.commit("main", { "content/a.md": page("A"), "content/b.md": page("B") }, { author: { date: at(1), name: "Ada" } })
+    const first = sourceSite()
+    const second = sourceSite()
+    await Promise.all([first.list("docs"), second.list("docs")])
+    const gate = gateGraphQL()
+
+    const one = hostRequest("https://example.com/rss.xml")
+    await defineContentRssHandler(first).fetch(one.request)
+    await vi.waitFor(() => expect(gate.waiting.count).toBe(1))
+    const two = hostRequest("https://example.com/rss.xml")
+    await defineContentRssHandler(second).fetch(two.request)
+    expect(two.tasks).toHaveLength(1)
+
+    gate.open()
+    await Promise.all([...one.tasks, ...two.tasks])
+    expect(gate.waiting.count).toBe(1)
+    expect(fileHistories()).toHaveLength(1)
+    // The second instance reads the set that the first one stored.
+    expect(await second.rss()).toContain(`<pubDate>${new Date(at(1)).toUTCString()}</pubDate>`)
+    expect(fileHistories()).toHaveLength(1)
+  })
+
+  it("computes the dates after a push webhook moves the head", async () => {
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "secret")
+    vi.stubEnv("FORGES_GITHUB_WEBHOOK_SECRET", "")
+    fake.commit("main", { "content/a.md": page("A"), "content/b.md": page("B") }, { author: { date: at(1), name: "Ada" } })
+    const content = sourceSite()
+    await content.sitemap()
+    fake.commit("main", { "content/b.md": page("B v2") }, { author: { date: at(5), name: "Ada" } })
+    const tasks: Promise<unknown>[] = []
+    const push = fake.webhook("https://example.com/_vitehub/content/github", "secret")
+    Object.defineProperty(push, "waitUntil", { value: (task: Promise<unknown>) => tasks.push(task) })
+
+    expect((await defineContentGitHubWebhookHandler(content).fetch(push)).status).toBe(202)
+    await Promise.all(tasks)
+    const histories = fileHistories().length
+    expect(histories).toBe(2)
+
+    const read = hostRequest("https://example.com/rss.xml")
+    const response = await defineContentRssHandler(content).fetch(read.request)
+    expect(read.tasks).toHaveLength(0)
+    expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate")
+    expect(itemLinks(await response.text())[0]).toBe("https://example.com/docs/b")
+    expect(fileHistories()).toHaveLength(histories)
   })
 })
 
