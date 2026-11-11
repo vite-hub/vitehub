@@ -2,7 +2,6 @@ import { expectTypeOf, it } from "vitest"
 
 import type { AgentInvocationSummary } from "@vite-hub/agent"
 import type { Client, ResultSet } from "@libsql/client"
-import type { SqliteRemoteResult } from "drizzle-orm/sqlite-proxy"
 import type { AgentInvocationsDatabase } from "../src/invocations/drizzle.ts"
 
 it("requires D1 derived insert columns and preserves nullable libSQL reads", () => {
@@ -51,6 +50,6 @@ it("preserves driver-specific query results after narrowing", () => {
   }
   else {
     const result = database.db.select().from(database.schema.invocations).run()
-    expectTypeOf(result).resolves.toEqualTypeOf<SqliteRemoteResult>()
+    expectTypeOf(result).resolves.toEqualTypeOf<{ rows: unknown[] }>()
   }
 })
