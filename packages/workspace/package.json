@@ -144,6 +144,7 @@
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",

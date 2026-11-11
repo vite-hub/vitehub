@@ -13,6 +13,7 @@ describe("Database error types", () => {
     expectTypeOf<DatabaseCatalogCode>().toEqualTypeOf<
       | "DATABASE_BINDING_CONFLICT"
       | "DATABASE_D1_INVALID_RESPONSE"
+      | "DATABASE_D1_MIGRATION_INVALID"
       | "DATABASE_D1_REQUEST_FAILED"
       | "DATABASE_D1_STATEMENT_TOO_LONG"
       | "DATABASE_D1_TOO_MANY_PARAMETERS"
@@ -28,6 +29,7 @@ describe("Database error types", () => {
       | "DATABASE_INVALID_DIALECT"
       | "DATABASE_INVALID_NAME"
       | "DATABASE_INVALID_OPTIONS"
+      | "DATABASE_INVALID_RELATIONS"
       | "DATABASE_INVALID_REMOTE"
       | "DATABASE_INVALID_SCHEMA_EXPORT"
       | "DATABASE_LAYER_OPTIONS_CONFLICT"

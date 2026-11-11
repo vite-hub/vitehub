@@ -25,6 +25,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "  db: new Proxy({}, {",
     "    get() { throw defaultDatabaseNotConfiguredError() },",
     "  }),",
+    "  relations: {},",
     "  schema: {},",
     "}",
     "export const databases = { ...configuredDatabases, default: defaultDatabase }",

@@ -19,7 +19,7 @@ import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
-import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
@@ -513,7 +513,7 @@ async function installNitroLocalDatabaseRuntime(
   const contributedSchemas = runtime.definitions.map((definition, index) =>
     (runtime.tableContributionsByDatabase[definition.name] ?? []).flatMap((contribution, contributionIndex) =>
       loadedContributionsByDatabase.get(definition.name)?.has(contribution)
-        ? [{ contribution, variable: `contributedSchema_${index}_${contributionIndex}` }]
+        ? [{ contribution, relationsVariable: `contributedRelations_${index}_${contributionIndex}`, variable: `contributedSchema_${index}_${contributionIndex}` }]
         : []))
   const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
@@ -524,7 +524,10 @@ async function installNitroLocalDatabaseRuntime(
       ? definition.schemaSources.map((source, sourceIndex) =>
           `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
       : [],
-    ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
+    ...contributedSchemas[index]!.flatMap(({ contribution, relationsVariable, variable }) => [
+      renderContributionImport(file, contribution, variable),
+      ...contribution.relations ? [renderContributionRelationsImport(file, contribution, relationsVariable)] : [],
+    ]),
   ])
   const schemas = runtime.definitions.flatMap((definition, index) => {
     if (!merged(index)) return []
@@ -533,13 +536,19 @@ async function installNitroLocalDatabaseRuntime(
       : [`...definition_${index}.schema`]
     return [`const schema_${index} = { ${[...definitionSchemas, ...contributedSchemas[index]!.map(({ variable }) => `...${variable}`)].join(", ")} }`]
   })
+  // Each database gets the relations of its contributed tables and of each layer, so `db.query` follows them.
+  const relations = runtime.definitions.map((definition, index) => `const relations_${index} = ${renderMergedRelations(
+    definition.name,
+    merged(index) ? `schema_${index}` : `definition_${index}.schema`,
+    contributedSchemas[index]!.flatMap(({ contribution, relationsVariable }) => contribution.relations ? [relationsVariable] : []),
+    layered(definition) ? definition.schemaSources.map((_, sourceIndex) => `schemaSource_${index}_${sourceIndex}`) : [`definition_${index}`],
+  )}`)
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     runtime.databases[definition.name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`)},`
-      : merged(index)
-        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`, `relations_${index}`)},`
+      : `    db: createDefinitionRuntime({ ...definition_${index}, ${merged(index) ? `schema: schema_${index}, ` : ""}relations: relations_${index} }, definitionDefaults),`,
+    `    relations: relations_${index},`,
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
@@ -553,11 +562,13 @@ async function installNitroLocalDatabaseRuntime(
     migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
+      `import { mergeDatabaseRelations } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "relations.js")).href)}`,
       ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
       `const definitionDefaults = ${definitionDefaults}`,
       ...schemas,
+      ...relations,
     ],
     useDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "use-database.js")).href,
   }))

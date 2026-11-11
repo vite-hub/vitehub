@@ -12,6 +12,7 @@ import { ensureDatabaseMigrations } from "../src/runtime/migrate-on-start.ts"
 
 const fixture = vi.hoisted(() => ({ enabled: true }))
 vi.mock("#vitehub/database/databases", async () => {
+  const { defineRelations } = await import("drizzle-orm")
   const { integer, sqliteTable, text } = await import("drizzle-orm/sqlite-core")
   const notes = sqliteTable("notes", {
     id: integer().primaryKey({ autoIncrement: true }),
@@ -30,9 +31,10 @@ vi.mock("#vitehub/database/databases", async () => {
             name: "default",
             orm: "drizzle",
           },
+          relations: defineRelations({ notes }),
           schema: { notes },
         },
-      } : { missing: { schema: {} } }
+      } : { missing: { relations: {}, schema: {} } }
     },
   }
 })

@@ -143,10 +143,11 @@ async function requiredPeerSpecs() {
   const vercelCatalog = await catalogDependencySpecs("vercel", ["@vercel/functions"])
   const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
-    ...await catalogDependencySpecs("auth", ["better-auth", "@better-auth/cimd", "@better-auth/oauth-provider"]),
+    ...await catalogDependencySpecs("auth", ["better-auth", "@better-auth/oauth-provider"]),
     ...agentCatalog,
     ...browserCatalog,
     ...chatCatalog,
+    ...await catalogDependencySpecs("nuxt", ["nuxt"]),
     ...vercelCatalog,
     ...workflowCatalog,
     "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
@@ -161,7 +162,6 @@ async function requiredPeerSpecs() {
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
     nitro: await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/nitro/package.json")),
-    nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),

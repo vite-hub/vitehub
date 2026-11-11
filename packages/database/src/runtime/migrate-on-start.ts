@@ -1,7 +1,7 @@
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
@@ -45,7 +45,7 @@ interface StartMigrationPlan {
   databases: StartMigrationDatabase[]
   /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
   upgrade: LibsqlStatement[]
-  pending: Map<string, { migration: StartMigration, name: string }>
+  pending: Array<{ migration: StartMigration, name: string }>
 }
 
 // Drizzle's ledger, created and upgraded with the same statements as `drizzle-orm/libsql/migrator` 1.0, so
@@ -73,6 +73,8 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   const result = await client.execute(`SELECT * FROM "${migrationsTable}"`)
   const rows = Array.from(result.rows).map(row => toLedgerRow({ ...row }))
   const match = matchLedger(rows, migrations)
+  const problem = ledgerUpgradeProblem(match)
+  if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
   const hashes = ledgerHashes(rows, match.backfill)
   if (named) return { ...match, hashes, upgrade: [] }
   return {
@@ -81,7 +83,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
     upgrade: [
       `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
       `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
-      ...match.backfill.map(({ id, name }) => ({ args: [name, id], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "id" = ?` })),
+      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
     ],
   }
 }
@@ -139,9 +141,9 @@ function planByName(
 /** The hashes that the ledger stores for each applied folder name, including the names that an upgrade writes. */
 function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfill"]): Map<string, Set<string>> {
   const hashes = new Map<string, Set<string>>()
-  const backfilled = new Map(backfill.map(({ id, name }) => [id, name]))
+  const backfilled = new Map(backfill.map(({ row, name }) => [row, name]))
   for (const row of rows) {
-    const name = row.name ?? backfilled.get(row.id)
+    const name = row.name ?? backfilled.get(row)
     if (name) hashes.set(name, (hashes.get(name) ?? new Set()).add(row.hash))
   }
   return hashes
@@ -236,7 +238,7 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: new Map<string, { migration: StartMigration, name: string }>(), upgrade: [] }
+    const plan = plans.get(target) ?? { client, databases: [], pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
@@ -249,15 +251,14 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
       })
     }
     plan.upgrade = upgrade
-    plan.pending = new Map(planByName(plan.databases, { applied, hashes }, { allowDataLoss: options.allowDataLoss, dialect: "sqlite", place: "SQLite file" }).map(entry => [entry.migration.name, entry]))
+    plan.pending = planByName(plan.databases, { applied, hashes }, { allowDataLoss: options.allowDataLoss, dialect: "sqlite", place: "SQLite file" })
   }
   return [...plans.values()]
 }
 
 async function applySqlite(plans: StartMigrationPlan[], log: (message: string) => void) {
-  for (const { client, pending: migrations, upgrade } of plans) {
-    if (!migrations.size) continue
-    const pending = [...migrations.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
+  for (const { client, pending, upgrade } of plans) {
+    if (!pending.length && !upgrade.length) continue
     await client.migrate([
       createMigrationsTable,
       ...upgrade,
@@ -357,7 +358,10 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
     const columns = Array.from(await sql.unsafe("select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'")).map(row => row.column_name)
     if (!columns.includes("name")) {
       const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${postgresLedger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
-      const { backfill, unmatched } = matchLedger(rows, migrations)
+      const match = matchLedger(rows, migrations)
+      const { backfill, unmatched } = match
+      const problem = ledgerUpgradeProblem(match)
+      if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
       if (unmatched.length) {
         throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
           database: databases[0]!.name,
@@ -366,7 +370,7 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
       }
       await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "name" text`)
       await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`)
-      for (const { id, name } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "id" = $2`, [name, id])
+      for (const { column, name, value } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "${column}" = $2`, [name, value])
     }
   }
   const rows = Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
