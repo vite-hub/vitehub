@@ -72,15 +72,22 @@ async function cli(cwd: string, args: string[], fetch?: typeof globalThis.fetch)
 }
 
 describe("content.sources.advance() with the check", { timeout: 30_000 }, () => {
-  it("keeps a failed linked Source from weakening selected checks, advances, and pins", async () => {
+  const targetMappings = [
+    { mapping: "prefix", url: "/blog/:id", key: "post.md" },
+    { mapping: "no URL", url: undefined, key: "blog/post.md" },
+    { mapping: "root pattern", url: "/:id", key: "blog/post.md" },
+    { mapping: "function", url: ({ id }: { id: string }) => `/${id}`, key: "blog/post.md" },
+  ]
+
+  it.each(targetMappings)("keeps a failed linked Source from weakening selected checks, advances, and pins ($mapping)", async ({ url, key }) => {
     let unavailable = false
     const first = fake.commit("main", { "docs/guide.md": page("Getting started") })
     const content = server({ sources: {
       docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
       blog: contentSource({ items: async () => {
         if (unavailable) throw new Error("Reader unavailable")
-        return [{ key: "post.md", content: page("Blog introduction") }]
-      } }, { url: "/blog/:id" }),
+        return [{ key, content: page("Blog introduction") }]
+      } }, { url }),
     } })
     expect((await content.sources.head("docs")).sha).toBe(first)
     const bad = fake.commit("main", { "docs/guide.md": page("Updated guide", "See [missing](/blog/missing).\n") })
@@ -101,26 +108,33 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
     await expect(content.sources.pin(bad, "docs")).rejects.toMatchObject({ code: "CONTENT_R0019" })
   })
 
-  it.each(["reader", "github"])("does not initialize a head with links into an unavailable %s Source", async (kind) => {
+  it.each([
+    ...targetMappings.map(target => ({ ...target, kind: "reader" })),
+    { mapping: "GitHub", kind: "github", url: "/blog/:id" },
+  ])("does not initialize a head with links into an unavailable Source ($mapping)", async ({ kind, url }) => {
     fake.commit("main", { "docs/guide.md": page("Getting started", "See [missing](/blog/missing).\n") })
     fake.commit("blog", { "post.md": page("Blog introduction") })
     fake.respond(request => request.path.endsWith("/commits/blog") ? new Response("rate limited", { status: 429 }) : undefined)
     const content = server({ sources: {
       docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
-      blog: contentSource(kind === "github" ? github({ repo: "acme/docs", ref: "blog", auth: false }) : { items: async () => { throw new Error("Reader unavailable") } }, { url: "/blog/:id" }),
+      blog: contentSource(kind === "github" ? github({ repo: "acme/docs", ref: "blog", auth: false }) : { items: async () => { throw new Error("Reader unavailable") } }, { url }),
     } })
     expect(await content.sources.head("docs")).toMatchObject({ sha: null, rejected: { reason: expect.stringContaining('Source "blog"') } })
     await expect(content.check({ source: "docs" })).rejects.toMatchObject({ code: "CONTENT_R0069" })
   })
 
-  it.each(["Body\n", "See [setup](/docs/setup#installation).\n"])("isolates an unavailable target Source when checking %j", async (body) => {
+  it.each(targetMappings.flatMap(({ mapping, url }) => [
+    "Body\n",
+    "See [setup](/docs/setup#installation).\n",
+    "See [ignored](/blog/missing) and [external](https://example.com/missing).\n",
+  ].map(body => ({ mapping, url, body }))))("isolates an unavailable target Source when checking $body ($mapping)", async ({ url, body }) => {
     const first = fake.commit("main", { "docs/guide.md": page("Getting started", body) })
     const generated = [{ key: "docs/setup.md", content: page("Project setup", "## Installation\n") }]
     const content = server({ sources: {
       docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
       generated: contentSource({ items: async () => generated }, { url: "/:id" }),
-      unavailable: contentSource({ items: async () => { throw new Error("Reader unavailable") } }, { url: "/blog/:id" }),
-    } })
+      unavailable: contentSource({ items: async () => { throw new Error("Reader unavailable") } }, { url }),
+    }, check: { ignoreLinks: ["/blog/missing"] } })
 
     expect((await content.sources.head("docs")).sha).toBe(first)
     expect(await content.list("docs")).toHaveLength(1)
@@ -131,9 +145,10 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
     // A Source explicitly selected for checking must still report its retrieval failure.
     await expect(content.check({ source: "unavailable" })).rejects.toThrow("Reader unavailable")
     await expect(content.check()).rejects.toThrow("Reader unavailable")
-
-    generated.splice(0)
-    if (body.includes("[setup]")) expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1 })
+    if (url === "/blog/:id" && body.includes("[setup]")) {
+      generated.splice(0)
+      expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1 })
+    }
   })
 
   it("keeps head changes and selected checks usable when an unrelated GitHub Source is rate limited", async () => {
