@@ -7,6 +7,8 @@ import { passkeyClient } from "@better-auth/passkey/client"
 import { createAuthClient } from "better-auth/client"
 import { organizationClient } from "better-auth/client/plugins"
 
+import { consoleDiagnostic, consoleStatusDiagnosticCode } from "../diagnostics.ts"
+
 /** A project of the active team, as `GET /api/projects` returns it. The page never sees the token. */
 export interface ConsoleAccountProject {
   id: string
@@ -40,9 +42,6 @@ export interface ConsoleSignInMethods {
   github: boolean
 }
 
-/** A failure that the page shows: what happened and what to do. */
-export class ConsoleAccountError extends Error {}
-
 const passkeyEmailDomain = "@passkey.invalid"
 
 /** The origin of the Console page. Read without DOM types, like `isRemoteProject()`, for the package's server build. */
@@ -63,8 +62,8 @@ function auth() {
   return client
 }
 
-function failure(error: { message?: string, status?: number } | null | undefined, fallback: string): ConsoleAccountError {
-  return new ConsoleAccountError(error?.message || fallback)
+function failure(error: { message?: string, status?: number } | null | undefined, fallback: string) {
+  return consoleDiagnostic(consoleStatusDiagnosticCode(error?.status ?? 500), error?.message || fallback)
 }
 
 async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -72,7 +71,7 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
     const message: unknown = body instanceof Object ? Reflect.get(body, "message") : undefined
-    throw new ConsoleAccountError(String(message) === message && message ? message : `The Console answered ${response.status}.`)
+    throw failure({ status: response.status }, String(message) === message && message ? message : `The Console answered ${response.status}.`)
   }
   // SAFETY: The Console server owns these routes and their answers.
   return body as T
@@ -144,7 +143,7 @@ export async function switchConsoleTeam(teamId: string): Promise<void> {
 /** Make a team, with the person as its owner, and open it. */
 export async function createConsoleTeam(name: string): Promise<void> {
   const trimmed = name.replace(/\s+/g, " ").trim()
-  if (!trimmed) throw new ConsoleAccountError("Enter a team name.")
+  if (!trimmed) throw consoleDiagnostic("CONSOLE_REQUEST_INVALID", "Enter a team name.")
   const slug = `${trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "team"}-${crypto.randomUUID().slice(0, 6)}`
   const { data, error } = await auth().organization.create({ name: trimmed, slug })
   if (error || !data) throw failure(error, "The team was not created.")
@@ -219,7 +218,7 @@ export async function cancelConsoleInvitation(invitationId: string): Promise<voi
 
 export async function renameConsoleTeam(name: string): Promise<void> {
   const trimmed = name.replace(/\s+/g, " ").trim()
-  if (!trimmed) throw new ConsoleAccountError("Enter a team name.")
+  if (!trimmed) throw consoleDiagnostic("CONSOLE_REQUEST_INVALID", "Enter a team name.")
   const { error } = await auth().organization.update({ data: { name: trimmed } })
   if (error) throw failure(error, "The team was not renamed.")
 }
@@ -251,7 +250,7 @@ export async function listConsoleSignInProviders(): Promise<string[]> {
 
 export async function renameConsoleAccount(name: string): Promise<void> {
   const trimmed = name.replace(/\s+/g, " ").trim()
-  if (!trimmed) throw new ConsoleAccountError("Enter a name.")
+  if (!trimmed) throw consoleDiagnostic("CONSOLE_REQUEST_INVALID", "Enter a name.")
   const { error } = await auth().updateUser({ name: trimmed })
   if (error) throw failure(error, "The name was not saved.")
 }
@@ -301,7 +300,7 @@ export async function linkConsoleAccountProject(url: string, label?: string): Pr
 
 export async function unlinkConsoleAccountProject(id: string): Promise<void> {
   const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, { credentials: "same-origin", method: "DELETE" })
-  if (!response.ok && response.status !== 404) throw new ConsoleAccountError(`The Console answered ${response.status}.`)
+  if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
 }
 
 /** Whether the person may link and unlink projects of the active team. */
