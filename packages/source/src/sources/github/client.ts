@@ -3,9 +3,17 @@ import { forgeArchive, forgeEnv, forgeErrorStatus, forgeProvider, readForgeEnv }
 import { sourceError } from "../../core/errors.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
+import type { GitHubPullRequest } from "./types.ts"
+
 type GitHubProvider = Awaited<ReturnType<typeof forgeProvider>>
 
 export interface GitHubClient {
+  /** The head commit of a branch, or undefined when the repository has no branch with this full name. */
+  branch: (name: string, token: string | undefined, signal?: AbortSignal) => Promise<string | undefined>
+  /** The full SHA of a commit, or undefined when the repository has no such commit. */
+  commit: (sha: string, token: string | undefined, signal?: AbortSignal) => Promise<string | undefined>
+  /** A pull request and its head commit, or undefined when the repository has no such pull request. */
+  pull: (number: number, token: string | undefined, signal?: AbortSignal) => Promise<{ sha: string, pull: GitHubPullRequest } | undefined>
   archive: (ref: string, token: string | undefined, signal?: AbortSignal) => Promise<Uint8Array>
   defaultBranch: (token: string | undefined, signal?: AbortSignal) => Promise<string>
   file: (path: string, ref: string, token: string | undefined, signal?: AbortSignal) => Promise<{ content: Uint8Array, sha: string | undefined }>
@@ -26,6 +34,18 @@ export function githubErrorStatus(error: unknown): number | undefined {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0
+}
+
+/** Undefined when GitHub answers that the ref does not exist: 404, or 422 for an unknown commit SHA. */
+async function missingAsUndefined<T>(load: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await load()
+  }
+  catch (error) {
+    const status = githubErrorStatus(error)
+    if (status === 404 || status === 422) return
+    throw error
+  }
 }
 
 function malformed(repo: string, description: string): Error {
@@ -62,7 +82,63 @@ export function createGitHubClient(repo: string): GitHubClient {
     }
   }
 
+  async function resolveCommit(ref: string, token: string | undefined, signal?: AbortSignal): Promise<string> {
+    const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))
+    if (typeof sha !== "string" || !sha) throw malformed(repo, "commit")
+    return sha
+  }
+
+  function repoPath(repoRef: { owner: string, name: string }): string {
+    return `/repos/${encodeURIComponent(repoRef.owner)}/${encodeURIComponent(repoRef.name)}`
+  }
+
+  function repoName(value: unknown): string | null {
+    return isRecord(value) && isNonEmptyString(value.full_name) ? value.full_name : null
+  }
+
   return {
+    async branch(branch, token, signal) {
+      const data = await missingAsUndefined(() => request(branch, "branch", token, signal, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/git/ref/heads/${branch.split("/").map(encodeURIComponent).join("/")}`,
+        { signal },
+      )).data))
+      if (data === undefined) return
+      // An older API answered a partial name with the list of branches that start with it. Only an exact match counts.
+      if (Array.isArray(data)) return
+      if (!isRecord(data) || !isRecord(data.object) || !isNonEmptyString(data.object.sha)) throw malformed(repo, "branch")
+      return data.object.sha
+    },
+    async commit(sha, token, signal) {
+      return await missingAsUndefined(() => resolveCommit(sha, token, signal))
+    },
+    async pull(number, token, signal) {
+      const data = await missingAsUndefined(() => request(`pull/${number}`, "pull request", token, signal, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/pulls/${number}`,
+        { signal },
+      )).data))
+      if (data === undefined) return
+      if (!isRecord(data) || !isRecord(data.head) || !isRecord(data.base) || !isNonEmptyString(data.head.sha) || !isNonEmptyString(data.head.ref) || !isNonEmptyString(data.base.ref)) {
+        throw malformed(repo, "pull request")
+      }
+      const headRepo = repoName(data.head.repo)
+      const baseRepo = repoName(data.base.repo) ?? repo
+      const labels = Array.isArray(data.labels) ? data.labels.flatMap(label => isRecord(label) && isNonEmptyString(label.name) ? [label.name] : []) : []
+      return {
+        sha: data.head.sha,
+        pull: {
+          number,
+          state: data.state === "open" ? "open" : "closed",
+          merged: data.merged === true,
+          head: data.head.ref,
+          headRepo,
+          base: data.base.ref,
+          fork: headRepo?.toLowerCase() !== baseRepo.toLowerCase(),
+          labels,
+        },
+      }
+    },
     async archive(ref, token, signal) {
       const download = (archiveToken: string | undefined) => request(ref, "archive", archiveToken, signal, async (client, repoRef) => {
         const stream = await forgeArchive(client, repoRef, { ref, signal })
@@ -106,10 +182,6 @@ export function createGitHubClient(repo: string): GitHubClient {
       if (!isRecord(entry) || !isNonEmptyString(entry.type) || !isNonEmptyString(entry.sha)) throw malformed(repo, "content")
       return entry.type === "file" ? { sha: entry.sha } : undefined
     },
-    async resolveCommit(ref, token, signal) {
-      const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))
-      if (typeof sha !== "string" || !sha) throw malformed(repo, "commit")
-      return sha
-    },
+    resolveCommit,
   }
 }

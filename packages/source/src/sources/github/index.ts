@@ -319,6 +319,16 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     async authenticated() {
       return Boolean(await resolveAuth())
     },
+    async resolveRef(ref, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      if ("pull" in ref) {
+        const pull = await client.pull(ref.pull, token, signal)
+        return pull && { sha: pull.sha, pull: pull.pull }
+      }
+      const sha = "branch" in ref ? await client.branch(ref.branch, token, signal) : await client.commit(ref.sha, token, signal)
+      return sha === undefined ? undefined : { sha }
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)

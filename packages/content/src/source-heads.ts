@@ -1,14 +1,17 @@
 import { createSource } from "@vite-hub/source"
-import type { Source, SourceItem, SourceRevision } from "@vite-hub/source"
-import type { CacheArtifact, ComarkContent, ContentOptions } from "comark-content"
+import type { GitHubRef, GitHubRefTarget, Source, SourceItem, SourceRevision } from "@vite-hub/source"
+import { contentHub } from "comark-content"
+import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
 import { formatDiagnostic } from "nostics"
 
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
 import { contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
+import type { ContentSourceRef, ParsedContentRef } from "./source-refs.ts"
 
 /**
  * The commit that Content serves for a `github()` Source. Content keeps it in ViteHub KV and moves it only to a commit
@@ -31,6 +34,19 @@ export interface ContentSourceHead {
   rejected: { sha: string, at: string, reason: string } | null
   /** How this server instance read commits of the Source: from memory, from ViteHub KV, or from a GitHub archive. */
   cache: ContentCommitCacheStats
+  /** The commits of the Source that this server instance holds open for `at()`, the most recently used last. */
+  views: string[]
+}
+
+/**
+ * A read view of one commit of a `github()` Source, from `content.sources.at()`. It has the read methods of Content for
+ * that Source only. The commit does not change for the life of the view.
+ */
+export interface ContentSourceView extends ContentSourceRef {
+  get: ContentHub["get"]
+  list: ContentHub["list"]
+  navigation: ContentHub["navigation"]
+  search: ContentHub["search"]
 }
 
 /** The head commits of `github()` Sources. */
@@ -47,10 +63,23 @@ export interface ContentSourceHeads {
   pin(sha: string, source?: string): Promise<ContentSourceHead>
   /** Remove the pin and advance to the latest valid commit. */
   unpin(source?: string): Promise<ContentSourceHead>
+  /**
+   * A read view of a `github()` Source at a ref: a full commit SHA, a branch such as `feat/x`, or `pr/<number>` for the
+   * head commit of a pull request. Content resolves the ref to a commit SHA on GitHub and holds that lookup for 30
+   * seconds. The commit must pass the same validation as a head.
+   *
+   * `at()` does not check access, and Content serves no route for it. Before you return content from a view, decide with
+   * `kind`, `ref`, and `pull` whether the caller may read it. Draft branches and fork pull requests can hold content
+   * that is not public.
+   */
+  at(ref: string, source?: string): Promise<ContentSourceView>
 }
 
 /** A `github()` Source definition. */
-type GitHubDefinition = Source<string, unknown, object> & { authenticated(): Promise<boolean> }
+type GitHubDefinition = Source<string, unknown, object> & {
+  authenticated(): Promise<boolean>
+  resolveRef?(ref: GitHubRef, options?: { signal?: AbortSignal }): Promise<GitHubRefTarget | undefined>
+}
 
 /** The KV value of a head. */
 interface StoredHead {
@@ -91,8 +120,26 @@ interface HeadState {
   reported: Set<string>
 }
 
+/** One commit that `at()` holds open, with its own Comark instance. */
+interface OpenView {
+  key: string
+  state: HeadState
+  sha: string
+  instances: ComarkContent[]
+  hub: ContentHub<ComarkContent[]>
+  /** Reads that run now. An evicted view closes after the last one. */
+  readers: number
+  evicted: boolean
+}
+
 /** How long a server instance serves a head before it reads KV again. */
 const HOLD_MS = 5_000
+/** How long a server instance holds the commit that a branch or pull request ref resolved to. */
+const REF_HOLD_MS = 30_000
+/** The ref lookups that one server instance holds. */
+const MAX_HELD_REFS = 64
+/** The views of `at()` that one server instance holds open. Each one holds the parsed documents of a whole commit. */
+export const MAX_SOURCE_VIEWS = 8
 const fullSha = /^[0-9a-f]{40}$/i
 
 /** The KV key of a head, such as `content:head:docs`. `vitehub kv get content:head:docs` shows it. */
@@ -139,6 +186,10 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
   const memory = new CommitMemory<Promise<LoadedCommit>>()
   // The cache, logger, and error mode do not change what a document parses to.
   const parser = { ...options, cache: undefined, logger: undefined, onError: undefined }
+  /** The views of `at()`, by `<source>:<sha>`. The map order is the use order, the least recently used first. */
+  const views = new Map<string, OpenView>()
+  /** The commits that refs resolved to, by `<source>:<ref>`, with when the lookup started. */
+  const refs = new CommitMemory<{ at: number, target: Promise<ContentSourceRef> }>(MAX_HELD_REFS)
 
   function stateOf(name = "default"): HeadState {
     const state = states.get(name)
@@ -345,6 +396,80 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       pinned: head?.pinned ?? false,
       rejected: head?.rejected ?? null,
       cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, kv: kvHits }, misses },
+      views: [...views.values()].filter(open => open.state === state).map(open => open.sha),
+    }
+  }
+
+  /** The commit that a ref points to. A SHA lookup holds until it leaves memory, a branch or pull request for 30 seconds. */
+  async function resolveRef(state: HeadState, parsed: ParsedContentRef): Promise<ContentSourceRef> {
+    const key = `${state.name}:${parsed.ref}`
+    const held = refs.get(key)
+    if (held && (parsed.kind === "commit" || Date.now() - held.at < REF_HOLD_MS)) return await held.target
+    const target = (async (): Promise<ContentSourceRef> => {
+      const resolve = state.definition.resolveRef
+      if (!resolve) throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} cannot open refs. Update @vite-hub/source.` })
+      let resolved: GitHubRefTarget | undefined
+      try {
+        resolved = await resolve.call(state.definition, parsed.lookup)
+      }
+      catch (error) {
+        throw contentErrorDiagnostics.CONTENT_R0026({ source: state.name, ref: parsed.ref, reason: error instanceof Error ? error.message : String(error), cause: error })
+      }
+      if (!resolved) throw contentErrorDiagnostics.CONTENT_R0025({ source: state.name, ref: parsed.ref })
+      return { source: state.name, ref: parsed.ref, kind: parsed.kind, sha: resolved.sha.toLowerCase(), pull: resolved.pull ?? null }
+    })()
+    refs.set(key, { at: Date.now(), target })
+    // A failed lookup is not held, so the next call asks GitHub again.
+    target.catch(() => {
+      if (refs.get(key)?.target === target) refs.delete(key)
+    })
+    return await target
+  }
+
+  function close(open: OpenView): void {
+    // Dispose errors have no caller to report to. The instances hold no data that outlives them.
+    void Promise.all([open.hub.dispose(), ...open.instances.map(instance => instance.dispose())]).catch(() => {})
+  }
+
+  /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
+  function openView(state: HeadState, sha: string): OpenView {
+    const key = `${state.name}:${sha}`
+    const existing = views.get(key)
+    if (existing) {
+      views.delete(key)
+      views.set(key, existing)
+      return existing
+    }
+    const revision: SourceRevision = { id: sha, immutable: true }
+    const commits: ContentSourceCommits = {
+      revision: () => revision,
+      files: async commit => (await load(state, commit)).files,
+      documents: origin => withCommitDocuments(origin, async () => (await load(state, revision)).commit),
+    }
+    const base = createContentInstance(state.name, state.input, options, undefined, commits)
+    // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
+    const instance = base.withRef(sha)
+    const open: OpenView = { key, state, sha, instances: [base], hub: contentHub([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+    views.set(key, open)
+    while (views.size > MAX_SOURCE_VIEWS) {
+      const [oldest] = views.values()
+      views.delete(oldest!.key)
+      oldest!.evicted = true
+      if (!oldest!.readers) close(oldest!)
+    }
+    return open
+  }
+
+  /** Run one read on the view of a commit. A view that left the pool opens again, from the commit cache. */
+  async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>) => Promise<T>): Promise<T> {
+    const open = openView(state, sha)
+    open.readers++
+    try {
+      return await read(open.hub)
+    }
+    finally {
+      open.readers--
+      if (open.evicted && !open.readers) close(open)
     }
   }
 
@@ -385,6 +510,23 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       const before = await read(state)
       if (before?.pinned) await write(state, { ...before, pinned: false })
       return await api.advance(source)
+    },
+    async at(ref, source) {
+      const parsed = parseContentRef(ref)
+      const state = stateOf(source)
+      const target = await resolveRef(state, parsed)
+      const loaded = await load(state, { id: target.sha, immutable: true })
+      if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0027({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
+      openView(state, target.sha)
+      const read = <T>(run: (hub: ContentHub<ComarkContent[]>) => Promise<T>) => readAt(state, target.sha, run)
+      return {
+        ...target,
+        // SAFETY: Each wrapper forwards its arguments unchanged, so the generic result types of the hub hold.
+        get: ((key: string, opts?: Parameters<ContentHub["get"]>[1]) => read(hub => hub.get(key, opts))) as ContentHub["get"],
+        list: ((names?: string[]) => read(hub => hub.list(names))) as ContentHub["list"],
+        navigation: (names?: Parameters<ContentHub["navigation"]>[0]) => read(hub => hub.navigation(names)),
+        search: (query: string, opts?: Parameters<ContentHub["search"]>[1]) => read(hub => hub.search(query, opts)),
+      }
     },
   }
 

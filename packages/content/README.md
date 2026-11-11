@@ -105,6 +105,26 @@ The files of a commit never change. Content downloads and parses each commit onc
 - Each server instance holds the last 4 commits in memory.
 - `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0022` and other server instances download the commit again.
 
+### Read a branch, a pull request, or a commit
+
+`content.sources.at(ref, source?)` returns a read view of a `github()` Source at one commit. The view has `get()`, `list()`, `navigation()`, and `search()` for that Source only.
+
+```ts fragment
+const view = await content.sources.at("pr/12", "docs")
+view // { source: "docs", ref: "pr/12", kind: "pull", sha, pull: { number: 12, fork: false, labels: ["preview:enabled"], head: "feat/x", base: "main", ... } }
+await view.get("/guide")
+
+await content.sources.at("feat/new-guide", "docs") // kind: "branch"
+await content.sources.at("9c1e4f…", "docs") // kind: "commit", a full 40-character SHA
+```
+
+- A ref is a full 40-character commit SHA, `pr/<number>` for the head commit of a pull request, or a branch name. A branch name has up to 200 characters: letters, digits, and `. _ - /`. It follows `git check-ref-format`, and it cannot have a part that is only `-`. A branch named `pr/<number>` cannot open. An invalid ref fails with `CONTENT_R0024` before Content asks GitHub.
+- Content resolves the ref to a commit SHA on GitHub. A branch must match its full name. It holds a branch or pull request lookup for 30 seconds, so a push shows after 30 seconds at most. A ref that the repository does not have fails with `CONTENT_R0025`, and a failed GitHub lookup, such as a rate limit, with `CONTENT_R0026`.
+- The view reads the commit through the commit cache, so it validates like a head. When a document does not parse, `at()` fails with `CONTENT_R0027`. Refs at the same commit share one view and one download.
+- Each server instance holds 8 views open, and closes the least recently used one. A closed view opens again on its next read, from the commit cache. `head().views` lists the open commits.
+- A view works without a token or KV for a public repository. GitHub then allows 60 lookups per hour.
+- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Decide with `kind`, `ref`, and `pull` (`fork`, `labels`) whether a caller may read the view before you return anything from it.
+
 ## Types
 
 In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
