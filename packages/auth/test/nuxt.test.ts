@@ -171,12 +171,18 @@ describe("Auth Nuxt integration", () => {
     expect((await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, {}, [own])).components).toEqual([own])
   })
 
+  // Each pair of names is what Nuxt gives `Can.vue` in a components directory with the same prefix,
+  // `components: [{ path, prefix }]`.
   it.each([
     ["Auth", "AuthCan", "auth-can"],
     ["auth", "AuthCan", "auth-can"],
     ["my-auth", "MyAuthCan", "my-auth-can"],
     ["UI", "UICan", "ui-can"],
     ["MonÉquipe", "MonÉquipeCan", "mon-équipe-can"],
+    // Letters without case.
+    ["日本", "日本Can", "日本-can"],
+    // A combining mark: `e` followed by U+0301.
+    ["équipe", "ÉquipeCan", "équipe-can"],
   ])("registers <Can> under the prefix %j as %s", async (prefix, pascalName, kebabName) => {
     const own = { pascalName: "Can", filePath: "/app/components/Can.vue" }
     const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, { auth: { components: { prefix } } }, [own])

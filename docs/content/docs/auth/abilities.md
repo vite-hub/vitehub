@@ -96,7 +96,7 @@ For a rule with one argument, required or optional, pass it in `with`. For every
 
 In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, `<Can>` shows nothing until Better Auth answers.
 
-Nuxt registers `<Can>` only when the app or a layer has `shared/abilities.ts`. Without the file, the name stays free for your own components. In development, adding or removing the file restarts Nuxt. When the app already has a `Can` component, its component wins. To register `<Can>` under another name, set a prefix in `nuxt.config.ts`: `vitehub: { auth: { components: { prefix: 'Auth' } } }` gives `<AuthCan>`, with the same types.
+Nuxt registers `<Can>` only when the app or a layer has `shared/abilities.ts`. Without the file, the name stays free for your own components. In development, adding or removing the file restarts Nuxt. When the app already has a `Can` component, its component wins. To register `<Can>` under another name, set a prefix in `nuxt.config.ts`: `vitehub: { auth: { components: { prefix: 'Auth' } } }` gives `<AuthCan>`, with the same types. The prefix follows Nuxt's component prefix rules: Nuxt splits it into words as it splits the prefix of `components: [{ path, prefix }]`, so `'my-auth'` gives `<MyAuthCan>`.
 
 Nuxt uses the Auth Definition's configured base path for browser session refreshes too. In other Vue apps with a custom client, call `provideAuthClient(client)` from a parent component's setup. Descendant `<Can>` components and Auth composables then share that client. For a single check, pass the client directly to `useAbility(client)`.
 

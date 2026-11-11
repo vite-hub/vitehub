@@ -137,6 +137,7 @@
     "better-auth": "catalog:auth",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
+    "scule": "^1.3.0",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {

@@ -255,6 +255,7 @@ export interface AuthObjectOptions {
   redirects?: AuthRedirects
   /**
    * The names that the Nuxt module gives `<Can>`. A prefix keeps it apart from an app component of the same name.
+   * The prefix follows Nuxt's component prefix rules, as the prefix of `components: [{ path, prefix }]` does.
    * The module registers `<Can>` only when the app has `shared/abilities.ts`. Vite apps without Nuxt ignore it.
    *
    * @example { prefix: "Auth" } // <AuthCan>

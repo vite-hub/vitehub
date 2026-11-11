@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { kebabCase, pascalCase, splitByCase } from "scule"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
@@ -240,16 +241,13 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 }
 
 /**
- * The Nuxt names of a component export under a prefix, split into words as `@nuxt/kit` splits them.
+ * The Nuxt names of a component export under a prefix. Nuxt splits the prefix of `components: [{ path, prefix }]`
+ * with the same `scule` functions, so `<name>.vue` in that directory gets the same names, unless the prefix ends with `name`.
  *
  * @example
  * componentNames("my-auth", "Can") // { kebabName: "my-auth-can", pascalName: "MyAuthCan" }
  */
 function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
-  // Unicode letter classes, so a prefix such as `MonÉquipe` keeps its `É`, as Nuxt keeps it.
-  const words = `${prefix} ${name}`.match(/\p{Lu}+(?!\p{Ll})|\p{Lu}?[\p{Ll}\d]+|\d+/gu) ?? []
-  return {
-    kebabName: words.map(word => word.toLowerCase()).join("-"),
-    pascalName: words.map(word => word[0]!.toUpperCase() + word.slice(1)).join(""),
-  }
+  const words = [...splitByCase(prefix), name]
+  return { kebabName: kebabCase(words), pascalName: pascalCase(words) }
 }
