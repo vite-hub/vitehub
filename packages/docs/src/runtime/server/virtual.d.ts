@@ -21,11 +21,3 @@ declare module "#docs/example-sources" {
   const examples: Record<string, string>
   export default examples
 }
-
-declare module "#imports" {
-  import type { H3Event } from "h3"
-
-  export { createError, defineEventHandler, getRequestURL, getRouterParam, setHeader } from "h3"
-  export function useStorage(base: string): { getItem<T>(key: string): Promise<T | null> }
-  export function useRuntimeConfig(event?: H3Event): { public: Record<string, unknown> }
-}
