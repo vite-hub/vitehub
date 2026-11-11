@@ -46,6 +46,9 @@ type NuxtLike = {
       plugins?: string[]
     }
     rootDir?: string
+    router?: {
+      options?: { sensitive?: boolean }
+    }
     serverDir?: string
     ssr?: boolean
     vite?: {
@@ -212,7 +215,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the check
     // reads the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there.
     ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
-      nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules))
+      nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules, { sensitive: nuxt.options.router?.options?.sensitive }))
     })
   }
 

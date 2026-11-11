@@ -421,7 +421,7 @@ export default defineNuxtConfig({
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`.
 
-The Nitro build fails with `AUTH_B0004` when a route rule caches or prerenders a page that `definePageMeta({ auth })` guards: `swr`, `cache`, `isr`, `prerender`, or `static`. The page guard runs when the server renders the page, so a cached page serves the render of one visitor to all visitors. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. A guest page, such as the login page, may be prerendered, and a page with `ssr: false` is not checked. The check reads `auth` when `definePageMeta()` sets it to a literal value. The module adds `auth` to Nuxt's `experimental.extraPageMetaExtractionKeys` for this.
+The Nitro build fails with `AUTH_B0004` when a route rule caches or prerenders a page that `definePageMeta({ auth })` guards: `swr`, `cache`, `isr`, `prerender`, or `static`. The page guard runs when the server renders the page, so a cached page serves the render of one visitor to all visitors. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. The check reads `<page>/_payload.json` as a separate path, so use a pattern such as `'/dashboard/**'` that matches the page and its payload. A guest page, such as the login page, may be prerendered, and a path with `ssr: false` is not checked. The check reads `auth` when `definePageMeta()` sets it to a literal value. The module adds `auth` to Nuxt's `experimental.extraPageMetaExtractionKeys` for this.
 
 ## GitHub organization membership
 
