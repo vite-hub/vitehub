@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+    <meta name="theme-color" data-vitehub-console-theme="light" content="#fdfdfd" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" data-vitehub-console-theme="dark" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+    <meta name="robots" content="noindex, nofollow">
+    <!-- People sign in to the Console, and its server opens the projects of their team. -->
+    <meta name="vitehub-console-mode" content="account">
+    <!--vitehub-console-metadata-->
+    <title>ViteHub Console</title>
+  </head>
+  <body>
+    <!--
+      The first paint, before the app mounts. The Console server sets data-vitehub-boot to the view that the visit opens
+      (`@vite-hub/console`, server/routes), so the page keeps its shape when the app takes over:
+      sign-in and invite: the sign-in page; shell: the team sidebar; app: the rail of an open app.
+    -->
+    <div id="app"><div class="vitehub-account-boot" data-vitehub-boot="app" data-vitehub-page="">
+      <div class="vitehub-console-boot vitehub-account-boot__app"><div class="vh-primitive-rail"><div class="vh-primitive-rail__surface"><div class="vh-primitive-rail__header"><span class="vh-primitive-rail__item"><span class="vh-primitive-rail__icon"><svg class="vitehub-console-boot__mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg></span></span></div></div></div><div class="vitehub-console-boot__panel"><div class="vitehub-console-boot__header"></div><p role="status" class="vitehub-console-opening">Opening Console…</p><noscript class="vitehub-console-opening">Enable JavaScript to use the Console.</noscript></div></div>
+
+      <div class="vitehub-account-boot__shell">
+        <div class="vitehub-account-boot__sidebar">
+          <div class="vitehub-account-boot__sidebar-header">
+            <svg class="vitehub-account-boot__mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>
+            <span class="vitehub-account-boot__slash">/</span>
+            <span class="vitehub-account-boot__row"><span class="vitehub-account-boot__team-mark"></span><span class="vitehub-account-boot__bar"></span><svg class="vitehub-account-boot__end" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m7 15l5 5l5-5M7 9l5-5l5 5"/></svg></span>
+          </div>
+          <div class="vitehub-account-boot__nav">
+            <span class="vitehub-console__section-link" data-vitehub-page="home"><svg class="vitehub-console__section-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></g></svg>Home</span>
+            <span class="vitehub-console__section-link" data-vitehub-page="team"><svg class="vitehub-console__section-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3.128a4 4 0 0 1 0 7.744M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></g></svg>Members</span>
+            <span class="vitehub-console__section-heading vitehub-account-boot__heading">Apps</span>
+          </div>
+          <div class="vitehub-account-boot__footer">
+            <span class="vitehub-console__section-link" data-vitehub-page="settings"><svg class="vitehub-console__section-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0a2.34 2.34 0 0 0 3.319 1.915a2.34 2.34 0 0 1 2.33 4.033a2.34 2.34 0 0 0 0 3.831a2.34 2.34 0 0 1-2.33 4.033a2.34 2.34 0 0 0-3.319 1.915a2.34 2.34 0 0 1-4.659 0a2.34 2.34 0 0 0-3.32-1.915a2.34 2.34 0 0 1-2.33-4.033a2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></g></svg>Account settings</span>
+            <span class="vitehub-console__section-link"><svg class="vitehub-console__section-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v16m8.001-2A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2a5 5 0 0 1 4-2z"/></svg><span class="vitehub-account-boot__fill">Docs</span><svg class="vitehub-account-boot__end" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h10v10M7 17L17 7"/></svg></span>
+            <span class="vitehub-account-boot__row vitehub-account-boot__user"><span class="vitehub-account-boot__avatar"></span><span class="vitehub-account-boot__bar"></span><svg class="vitehub-account-boot__end" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m7 15l5 5l5-5M7 9l5-5l5 5"/></svg></span>
+          </div>
+        </div>
+        <div class="vitehub-account-boot__panel">
+          <div class="vitehub-account-boot__navbar">
+            <svg class="vitehub-account-boot__toggle" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16M4 12h16M4 19h16"/></svg>
+          </div>
+          <p role="status" class="vitehub-account-boot__status">Opening Console…</p>
+          <noscript class="vitehub-account-boot__status">Enable JavaScript to use the Console.</noscript>
+        </div>
+      </div>
+
+      <main class="vitehub-project-gate vitehub-account-boot__sign-in">
+        <div class="vitehub-project-gate__body">
+          <svg class="vitehub-account-boot__gate-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>
+          <div class="vitehub-account-boot__intro">
+            <h1 class="vitehub-account-boot__title">Sign in to ViteHub Console</h1>
+            <p class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
+          </div>
+          <p role="status" class="vitehub-account-boot__status">Opening Console…</p>
+          <noscript class="vitehub-project-gate__text">Enable JavaScript to use the Console.</noscript>
+        </div>
+      </main>
+    </div></div>
+    <script type="module" src="../runtime/client/main.js"></script>
+  </body>
+</html>

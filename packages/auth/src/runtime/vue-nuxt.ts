@@ -119,6 +119,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const app = tryUseNuxtApp() as NuxtApp | undefined
       return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
     }, { global: true })
+    return { provide: { vitehubAuthClient: client } }
   },
 })
 

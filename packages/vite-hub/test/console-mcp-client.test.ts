@@ -21,6 +21,7 @@ import { consoleMcpClientOperations } from "../src/console/runtime/server/mcp-cl
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -264,15 +265,15 @@ afterEach(() => {
 /** Console RPC calls, as the person in `user` when the access checks sessions. Every body is kept to check for tokens. */
 const responses: string[] = []
 async function rpc<T>(operation: string, input: unknown = {}, user?: string, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<{ status: number, value: T, failure?: { code: string, message: string } }> {
-  const response = await handleConsoleRpcRequest(new Request(`${origin}/_vitehub/rpc/__call`, {
-    body: JSON.stringify({ input, operation }),
+  const response = await handleConsoleRpcRequest(new Request(`${origin}/_vitehub/rpc`, {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...(user ? { "x-test-user": user } : {}), ...headers },
     method: "POST",
     signal,
   }))
   const text = await response.text()
   responses.push(text)
-  const parsed = JSON.parse(text) as { code: string, message: string, ok: boolean, value: T }
+  const parsed = operationRpcResult(JSON.parse(text)) as { code: string, message: string, ok: boolean, value: T }
   return { status: response.status, value: parsed.value, ...(parsed.ok ? {} : { failure: { code: parsed.code, message: parsed.message } }) }
 }
 
