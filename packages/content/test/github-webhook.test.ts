@@ -1,0 +1,213 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { kv } from "@vite-hub/kv"
+import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
+import { github } from "@vite-hub/source"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
+import { defineContent, defineContentGitHubWebhookHandler, registerContentKV } from "../src/index.ts"
+
+import type { MockInstance } from "vitest"
+import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
+
+const url = "https://docs.test/_vitehub/content/github"
+const secret = "webhook-secret"
+const cleanup: Array<() => Promise<void> | void> = []
+let fake: FakeGitHub
+let warn: MockInstance<typeof console.warn>
+
+const page = (title: string) => `---\ntitle: ${title}\n---\nBody\n`
+
+beforeEach(async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-content-webhook-"))
+  enableViteHubTestMode({ root })
+  cleanup.push(async () => {
+    await enableViteHubTestMode({ root }).reset()
+    Reflect.deleteProperty(globalThis, Symbol.for("vitehub.test"))
+    await rm(root, { recursive: true, force: true })
+  })
+  fake = createFakeGitHub({ owner: "acme", repo: "docs" })
+  vi.stubGlobal("fetch", vi.fn(fake.fetch))
+  vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token")
+  vi.stubEnv("FORGES_GITHUB_TOKEN", "")
+  vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", secret)
+  vi.stubEnv("FORGES_GITHUB_WEBHOOK_SECRET", "")
+  warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  registerContentKV(kv)
+  cleanup.push(() => registerContentKV(undefined))
+})
+
+afterEach(async () => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  warn.mockRestore()
+  for (const dispose of cleanup.splice(0).reverse()) await dispose()
+})
+
+/** One Content runtime and its webhook route, as one server instance would create them. */
+async function server() {
+  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+  cleanup.push(() => content.dispose())
+  const route = defineContentGitHubWebhookHandler(content)
+  // The first read stores the head, as the first page request would.
+  await content.sources.head("docs")
+  return { content, route }
+}
+
+async function title(content: Awaited<ReturnType<typeof server>>["content"], path: string) {
+  return (await content.get(path))?.data.title
+}
+
+function warned(code: string) {
+  return warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes(code))
+}
+
+describe("GitHub push webhook", () => {
+  it("moves the head to a signed push and records the delivery", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content, route } = await server()
+    expect(await title(content, "/guide")).toBe("Guide")
+
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    const response = await route.fetch(fake.webhook(url, secret))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ sources: ["docs"], deliveries: [{ id: "delivery-1", sha: second, result: "moved" }] })
+    expect(await title(content, "/guide")).toBe("Guide v2")
+    const head = await content.sources.head("docs")
+    expect(head).toMatchObject({ sha: second, webhook: { id: "delivery-1", sha: second, result: "moved" } })
+    expect(Date.parse(head.webhook!.at)).not.toBeNaN()
+    expect(first).not.toBe(second)
+  })
+
+  it("records a push whose commit does not parse as rejected", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content, route } = await server()
+
+    const bad = fake.commit("main", { "broken.md": "---\ntitle: [unclosed\n---\n" })
+    const response = await route.fetch(fake.webhook(url, secret))
+
+    expect(await response.json()).toMatchObject({ deliveries: [{ sha: bad, result: "rejected" }] })
+    expect(await content.sources.head("docs")).toMatchObject({ sha: first, rejected: { sha: bad }, webhook: { result: "rejected" } })
+  })
+
+  it("answers 401 to a bad or missing signature and keeps the head", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content, route } = await server()
+    fake.commit("main", { "guide.md": page("Guide v2") })
+
+    const wrong = await route.fetch(fake.webhook(url, "another-secret"))
+    expect(wrong.status).toBe(401)
+    expect(await wrong.json()).toMatchObject({ code: "CONTENT_R0022" })
+    const request = fake.webhook(url, secret)
+    request.headers.delete("x-hub-signature-256")
+    expect((await route.fetch(request)).status).toBe(401)
+
+    expect(warned("CONTENT_R0022")).toHaveLength(2)
+    expect(await content.sources.head("docs")).toMatchObject({ sha: first, webhook: null })
+    expect(await title(content, "/guide")).toBe("Guide")
+  })
+
+  it("ignores pushes to another branch", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content, route } = await server()
+    fake.commit("feature", { "guide.md": page("Feature") })
+
+    const response = await route.fetch(fake.webhook(url, secret, { branch: "feature" }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ignored: "No github() Source follows refs/heads/feature." })
+    expect(await content.sources.head("docs")).toMatchObject({ sha: first, webhook: null })
+  })
+
+  it("ignores pushes to another repository with CONTENT_R0023", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const { route } = await server()
+
+    const response = await route.fetch(fake.webhook(url, secret, { repo: "acme/other" }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ code: "CONTENT_R0023" })
+    expect(warned("CONTENT_R0023")).toEqual([expect.stringContaining("acme/other")])
+  })
+
+  it("answers GitHub's ping", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const { route } = await server()
+
+    const response = await route.fetch(fake.webhook(url, secret, { event: "ping" }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+  })
+
+  it("advances after the response when the host has waitUntil", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const { content, route } = await server()
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    const tasks: Promise<unknown>[] = []
+    const request = fake.webhook(url, secret)
+    Object.defineProperty(request, "waitUntil", { value: (task: Promise<unknown>) => tasks.push(task) })
+
+    const response = await route.fetch(request)
+
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ sources: ["docs"] })
+    expect(tasks).toHaveLength(1)
+    await Promise.all(tasks)
+    expect(await content.sources.head("docs")).toMatchObject({ sha: second, webhook: { result: "moved" } })
+  })
+
+  it("is disabled with CONTENT_R0024 when the Server Env has no webhook secret", async () => {
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "")
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content, route } = await server()
+    fake.commit("main", { "guide.md": page("Guide v2") })
+
+    expect((await route.fetch(fake.webhook(url, secret))).status).toBe(404)
+    expect((await route.fetch(fake.webhook(url, secret))).status).toBe(404)
+
+    expect(warned("CONTENT_R0024")).toEqual([expect.stringContaining("VITEHUB_GITHUB_WEBHOOK_SECRET")])
+    expect((await content.sources.head("docs")).sha).toBe(first)
+  })
+})
+
+describe("hourly check without a webhook", () => {
+  it("resolves the branch again one hour after the last check", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content } = await server()
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+
+    vi.advanceTimersByTime(30 * 60 * 1000)
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect((await content.sources.head("docs")).sha).toBe(first)
+
+    vi.advanceTimersByTime(31 * 60 * 1000)
+    expect(await title(content, "/guide")).toBe("Guide v2")
+    const head = await content.sources.head("docs")
+    expect(head.sha).toBe(second)
+    expect(Date.parse(head.checkedAt!)).toBe(Date.now())
+  })
+
+  it("checks once per hour across server instances", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    fake.commit("main", { "guide.md": page("Guide") })
+    const one = await server()
+    const two = await server()
+    await title(one.content, "/guide")
+    await title(two.content, "/guide")
+    vi.advanceTimersByTime(61 * 60 * 1000)
+
+    const before = fake.requests.length
+    await title(one.content, "/guide")
+    const checked = fake.requests.length
+    await title(two.content, "/guide")
+
+    expect(checked).toBeGreaterThan(before)
+    expect(fake.requests.length).toBe(checked)
+  })
+})

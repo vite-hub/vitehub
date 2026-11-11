@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { createHash } from "node:crypto"
+import { createHash, createHmac } from "node:crypto"
 
 import { createTarGz } from "../../source/test/sources/fixtures/github.ts"
 
@@ -96,6 +96,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, merged: boolean, number: number, state: "closed" | "open", title: string }> = []
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
   let commitIndex = 0
+  let deliveryIndex = 0
   let treeIndex = 0
 
   const state = {
@@ -531,6 +532,25 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     /** Answer the requests that `respond` matches before the fake does. */
     respond(respond: (request: FakeRequest) => Response | undefined) {
       overrides.push(respond)
+    },
+    /**
+     * The webhook request that GitHub sends for the last push to `branch`, signed with `secret` in
+     * `X-Hub-Signature-256`. `event: "ping"` sends the ping of a new webhook instead.
+     */
+    webhook(url: string, secret: string, input: { branch?: string, event?: "ping" | "push" | (string & {}), repo?: string, signature?: string } = {}) {
+      const branch = input.branch ?? "main"
+      const after = branches.get(branch) ?? null
+      const repository = { full_name: input.repo ?? `${owner}/${repo}`, default_branch: state.defaultBranch }
+      const event = input.event ?? "push"
+      const body = JSON.stringify(event === "ping"
+        ? { zen: "Keep it logically awesome.", hook_id: 1, repository }
+        : { ref: `refs/heads/${branch}`, before: commits.get(after ?? "")?.parents[0] ?? "0".repeat(40), after, created: false, deleted: false, repository, commits: [] })
+      const signature = input.signature ?? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+      return new Request(url, {
+        method: "POST",
+        body,
+        headers: { "content-type": "application/json", "x-github-delivery": `delivery-${++deliveryIndex}`, "x-github-event": event, "x-hub-signature-256": signature },
+      })
     },
     /** The pull requests that were opened. */
     pulls,
