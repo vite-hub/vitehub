@@ -8,7 +8,8 @@ import { defineComponent, h, nextTick } from "vue";
 import { BrowserSupportNotice, detectUnsupportedBrowser } from "../src/workspace/browser-support-notice.ts";
 import { ConnectPanel } from "../src/workspace/connect-panel.ts";
 import { useConnectStore } from "../src/workspace/connect-store.ts";
-import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace/workspace-boot-status.ts";
+import { formatElapsed } from "../src/workspace-boot-status.ts";
+import { bootChecklist, WorkspaceBootStatus } from "../src/workspace/workspace-boot-status.ts";
 import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
 import { WorkspaceTerminal } from "../src/workspace/workspace-terminal.ts";
@@ -629,6 +630,8 @@ describe("ConnectPanel", () => {
   it("asks for a token in a labeled password input", async () => {
     const wrapper = mount(ConnectPanel, { attachTo: document.body, props: { connect } });
     await wrapper.get("[aria-label='Connect Anthropic']").trigger("click");
+    // The field is Nuxt UI's UInput, which loads on first render and takes focus.
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.find("input").element), { timeout: 5_000 });
     const input = wrapper.get("input");
     expect(input.attributes()).toMatchObject({ autocomplete: "off", type: "password" });
     expect(wrapper.get(`label[for='${input.attributes("id")}']`).text()).toBe("Anthropic token");
@@ -713,12 +716,14 @@ describe("WorkspaceShell", () => {
         terminal: () => h("p", "terminal"),
       },
     });
+    // The strip is Nuxt UI's UTabs, which loads on first render. It selects a tab on mouse down, as reka-ui does.
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']")).toHaveLength(3), { timeout: 5_000 });
     const tabs = wrapper.findAll("[role='tab']");
     expect(tabs.map(tab => tab.text())).toEqual(["Preview", "Terminal", "Connect"]);
     expect(wrapper.get("[data-tab='terminal']").attributes()).toHaveProperty("inert");
     expect(wrapper.get("[data-tab='preview']").attributes()).not.toHaveProperty("inert");
 
-    await tabs[1]?.trigger("click");
+    await tabs[1]?.trigger("mousedown", { button: 0 });
     expect(wrapper.emitted("update:tab")).toEqual([["terminal"]]);
     expect(wrapper.get("[data-tab='preview']").attributes()).toHaveProperty("inert");
 
@@ -733,12 +738,12 @@ describe("WorkspaceShell", () => {
     expect(again.get("[data-split='main']").attributes("aria-valuenow")).toBe("60");
   });
 
-  it("puts the terminal under the editor in a playground", () => {
+  it("puts the terminal under the editor in a playground", async () => {
     const wrapper = mount(WorkspaceShell, {
       props: { layout: "playground", storageKey: false },
       slots: { editor: () => h("p", "editor"), preview: () => h("p", "preview"), terminal: () => h("p", "terminal") },
     });
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview"]);
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview"]), { timeout: 5_000 });
     expect(wrapper.get(".vh-ws-pane--terminal").text()).toBe("terminal");
   });
 });
@@ -754,6 +759,8 @@ describe("WorkspacePreview", () => {
     expect(frame.attributes("src")).toBe("https://abc.webcontainer.io/api/hello");
     expect(wrapper.get("a[aria-label='Open preview in a new tab']").attributes()).toMatchObject({ href: "https://abc.webcontainer.io/api/hello", target: "_blank" });
 
+    // The path field is Nuxt UI's UInput, which loads on first render.
+    await vi.waitFor(() => expect(wrapper.find("input").exists()).toBe(true), { timeout: 5_000 });
     await wrapper.get("input").setValue("todos");
     await wrapper.get("form").trigger("submit");
     expect(wrapper.emitted("update:path")).toEqual([["/todos"]]);

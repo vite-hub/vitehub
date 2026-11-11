@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import type { ForgeProvider } from "forges"
 import { forgeDiagnostics } from "./error-diagnostics.ts"
 import { abortError, forgeErrorStatus, ForgeResponseError, withSignal } from "./provider.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 export interface GitHubAppCredentials {
   installationToken(
@@ -65,10 +66,6 @@ function appProvider(input: GitHubAppInput, installationId = "", refresh = false
   appProviders.set(key, pending)
   if (appProviders.size > appProviderLimit) appProviders.delete(appProviders.keys().next().value!)
   return pending
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function positiveId(value: unknown): number | undefined {
