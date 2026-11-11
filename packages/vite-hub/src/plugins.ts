@@ -27,8 +27,8 @@ import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
+import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
-import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
@@ -299,17 +299,21 @@ function isGeneratedImporter(importer: string | undefined) {
   return Boolean(normalized && (/(?:^|\/)\.vitehub(?:\/|$)/.test(normalized) || frameworkVirtualImporters.has(normalized)))
 }
 
+/** Stubs the provider drivers that no KV store can use, so a build does not bundle their SDKs. */
 function configureProviderOptionalImportAliases(
   aliases: Record<string, string>,
   options: ViteHubOptions,
-  configuredKV?: KVOptions,
+  configuredKV: KVOptions | undefined,
+  hosting: string | undefined,
 ) {
   const effectiveKV = configuredKV ?? options.kv
   const kv = effectiveKV
-    ? requireOptionalOwner(ownerModules.kvVite, "kv").resolveKVViteConfig(effectiveKV === true ? undefined : effectiveKV).kv
+    ? requireOptionalOwner(ownerModules.kvVite, "kv").resolveKVViteConfig(effectiveKV === true ? undefined : effectiveKV, { hosting }).kv
     : false
   if (hasUpstashStore(kv)) delete aliases[upstashDriverSpecifier]
   else aliases[upstashDriverSpecifier] = disabledUpstashDriver
+  if (hasRedisStore(kv)) delete aliases[redisDriverSpecifier]
+  else aliases[redisDriverSpecifier] = disabledRedisDriver
 }
 
 function frameworkDependencyResolver(
@@ -317,7 +321,8 @@ function frameworkDependencyResolver(
   envPlugin: EnvVitePlugin | undefined,
   providerImportAliases: Record<string, string>,
   blobEnabled: boolean,
-  presetKVOptions?: KVOptions,
+  configuredKV: KVOptions | undefined,
+  kvHosting: string | undefined,
 ): Plugin & ViteHubProviderImportContributor {
   return {
     name: "vite-hub/dependencies",
@@ -361,7 +366,12 @@ function frameworkDependencyResolver(
         providerImportAliases["#vitehub/env/server"] = resolve(envProjectRoot, ".vitehub/env/server.mjs")
         providerImportAliases["#vitehub/env/description"] = resolve(envProjectRoot, ".vitehub/env/description.mjs")
       }
-      configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions)
+      configureProviderOptionalImportAliases(
+        providerImportAliases,
+        options,
+        configuredKV,
+        kvHosting,
+      )
     },
     resolveId: {
       filter: { id: frameworkDependencyIds },
@@ -1269,9 +1279,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
-  const presetKV = options.kv ? requireOptionalOwner(kvVite, "kv").resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
-  const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
-  configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
+  // hubKv() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
+  const kvHosting = options.kv ? plan.nitroPreset : undefined
+  configureProviderOptionalImportAliases(providerImportAliases, options, configuredKV, kvHosting)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(
     sandboxTaskEnabled ? requireOptionalOwner(sandboxTaskVite, "sandboxTask").sandboxTaskRuntimeStateModule : undefined,
   )
@@ -1291,7 +1301,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
   if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin())
-  plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
+  plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
   const evlogRegistered = Boolean(observability) && (telemetry || !(observabilityLogs && "source" in observabilityLogs))
@@ -1449,7 +1459,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // A KV cache also needs the owner plugin when no KV options were set.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
     // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, { ...(kvHosting ? { hosting: kvHosting } : {}), databaseImport: "vite-hub/database/drizzle" }))
   }
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
