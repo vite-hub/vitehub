@@ -35,10 +35,17 @@ export interface GitHubClient {
    * descendant of it, or when GitHub lists 300 files, its limit, so the list may be cut.
    */
   changedPaths: (base: string, head: string, token: string | undefined) => Promise<string[] | undefined>
+  /**
+   * The paths that a pull request adds or changes, without removed files. Undefined when the repository has no such
+   * pull request. GitHub lists at most 3,000 files.
+   */
+  pullPaths: (number: number, token: string | undefined) => Promise<string[] | undefined>
 }
 
 /** GitHub lists at most this many files in a compare response. */
 const compareFileLimit = 300
+/** GitHub lists at most 3,000 files of a pull request, 100 on each page. */
+const pullFilePages = 30
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
 export function githubEnvToken(): string | undefined {
@@ -322,6 +329,24 @@ export function createGitHubClient(repo: string): GitHubClient {
         if (!isRecord(file) || !isNonEmptyString(file.filename)) throw malformed(repo, "compare")
         return isNonEmptyString(file.previous_filename) ? [file.filename, file.previous_filename] : [file.filename]
       })
+    },
+    async pullPaths(number, token) {
+      const paths: string[] = []
+      for (let page = 1; page <= pullFilePages; page++) {
+        const data = await missingAsUndefined(() => request(`pull/${number}`, "pull request files", token, undefined, async (client, repoRef) => (await client.request<unknown>(
+          "GET",
+          `${repoPath(repoRef)}/pulls/${number}/files`,
+          { query: { per_page: 100, page } },
+        )).data))
+        if (data === undefined) return
+        if (!Array.isArray(data)) throw malformed(repo, "pull request files")
+        for (const file of data) {
+          if (!isRecord(file) || !isNonEmptyString(file.filename) || !isNonEmptyString(file.status)) throw malformed(repo, "pull request files")
+          if (file.status !== "removed") paths.push(file.filename)
+        }
+        if (data.length < 100) break
+      }
+      return paths
     },
     async resolveCommit(ref, token, signal) {
       const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))

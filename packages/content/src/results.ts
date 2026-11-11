@@ -8,6 +8,7 @@ import type { ContentFieldIssue, ContentFormat } from "./documents.ts"
 import type { ContentSchedule } from "./schedules.ts"
 import type { ContentSitemapEntry } from "./sitemap.ts"
 import type { ContentSourceHead } from "./source-heads.ts"
+import type { ContentPreviewLinks } from "./ref-routes.ts"
 
 /** The results of the Content operations. */
 export interface ContentDevCollection {
@@ -138,6 +139,8 @@ export interface ContentDevPublishResult {
   documents: ContentDevPublishDocument[]
   /** With `publish: 'pr'`: the pull request that publishes the documents when it merges. */
   pullRequest?: { number: number, url: string }
+  /** With `pullRequest` and `previews: true`: the signed `/pr/<number>/<path>` link of each document with a `url`. */
+  previews?: Array<{ collection: string, id: string, locale?: string, url: string, expiresAt: string }>
 }
 
 export interface ContentDevSchedulesResult {
@@ -151,6 +154,9 @@ export interface ContentDevUnscheduleResult {
 export interface ContentDevSitemapResult {
   entries: ContentSitemapEntry[]
 }
+
+/** `content.previews`: the preview links of the pages that a pull request adds or changes. Dates are ISO strings. */
+export type ContentDevPreviewsResult = Omit<ContentPreviewLinks, "expiresAt"> & { expiresAt: string | null }
 
 /** `content.head`: the head of one `github()` Source, or of each one when the input names none. */
 export interface ContentDevHeadResult {

@@ -99,7 +99,10 @@ at a time, so 2,600 files cost 18 requests. When GitHub stops a request after 10
 seconds (502), it asks again with half the files. `changes(base, head)` returns
 the keys that changed from one commit to a later one, from one compare request,
 or undefined when GitHub cannot list them all. The Content sitemap and RSS feed
-use both to date Source pages.
+use both to date Source pages. `pullChanges(number)` returns the keys that a pull
+request adds or changes, from its file list, with the new key of a renamed file
+and without removed files. GitHub lists at most 3,000 files of a pull request.
+`vitehub content previews comment` uses it.
 
 `resolveRef()` returns the commit that a ref of the repository points to now:
 `{ sha }` for `{ sha }` or `{ branch }`, and `{ sha, pull }` for `{ pull: 12 }`.
