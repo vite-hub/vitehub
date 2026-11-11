@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import type { FileEdit, FollowUp } from "../types.ts"
-import type { HubFeatures } from "./config.ts"
+import type { FeatureBindings, HubFeatures } from "./config.ts"
 
 const wranglerFiles = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]
 
@@ -112,15 +112,17 @@ export type CloudflareResourceOptions = Partial<Record<"kv" | "cache" | "blob", 
 const placeholderId = /^[0-]+$/
 
 /** Reads the KV namespace IDs and the R2 bucket name that the ViteHub options need to keep the existing resources. */
-export async function readCloudflareResourceOptions(cwd: string, file: string | undefined): Promise<CloudflareResourceOptions> {
+export async function readCloudflareResourceOptions(cwd: string, file: string | undefined, bindings: FeatureBindings): Promise<CloudflareResourceOptions> {
   if (!file) return {}
   const code = await readFile(join(cwd, file), "utf8")
   const options: CloudflareResourceOptions = {}
   for (const { kind, fields } of (file.endsWith(".toml") ? readTomlResources(code) : readJsonResources(code)) ?? []) {
-    const { binding, id, bucket_name: bucketName } = fields
+    const { binding, id, bucket_name: bucketName, jurisdiction } = fields
     if (!binding) continue
-    if (kind === "kv_namespaces" && id && !placeholderId.test(id)) options[binding === "CACHE" ? "cache" : "kv"] ??= { driver: "cloudflare-kv-binding", binding, namespaceId: id }
-    if (kind === "r2_buckets" && bucketName) options.blob ??= { driver: "cloudflare-r2", binding, bucketName }
+    for (const feature of ["kv", "cache"] as const) {
+      if (kind === "kv_namespaces" && binding === bindings[feature] && id && !placeholderId.test(id)) options[feature] = { driver: "cloudflare-kv-binding", binding, namespaceId: id }
+    }
+    if (kind === "r2_buckets" && binding === bindings.blob && bucketName) options.blob = { driver: "cloudflare-r2", binding, bucketName, ...(jurisdiction ? { jurisdiction } : {}) }
   }
   return options
 }
@@ -160,7 +162,7 @@ export interface WranglerResult {
 }
 
 /** Plans the Wrangler config changes: the NuxtHub migrations table goes, and each binding that ViteHub now writes becomes a follow-up. */
-export async function planWrangler(cwd: string, file: string | undefined, features: HubFeatures, cloudflare: boolean, written: CloudflareResourceOptions = {}): Promise<WranglerResult> {
+export async function planWrangler(cwd: string, file: string | undefined, features: HubFeatures, cloudflare: boolean, bindings: FeatureBindings, written: CloudflareResourceOptions = {}): Promise<WranglerResult> {
   if (!file) return { followUps: [], d1: false }
   const code = await readFile(join(cwd, file), "utf8")
   const toml = file.endsWith(".toml")
@@ -176,27 +178,25 @@ export async function planWrangler(cwd: string, file: string | undefined, featur
   }
   let d1 = false
   for (const resource of cloudflare ? resources ?? [] : []) {
-    const { binding, database_id: databaseId, database_name: databaseName, id, bucket_name: bucketName } = resource.fields
+    const { binding, database_id: databaseId, database_name: databaseName, id, bucket_name: bucketName, jurisdiction } = resource.fields
     const keep = `ViteHub writes the ${binding} binding itself, and a binding name alone can point at a new empty resource.`
     const remove = `Then remove this entry from ${file}.`
-    if (resource.kind === "d1_databases" && features.database && binding) {
+    if (resource.kind === "d1_databases" && features.database && binding && binding === bindings.database) {
       d1 = true
       const fields = [`binding: "${binding}"`, ...(databaseId ? [`databaseId: "${databaseId}"`] : []), `databaseName: "${databaseName ?? "<D1 database name>"}"`]
       followUps.push({ file, line: resource.line, message: `${keep} To keep this D1 database, set cloudflare: { ${fields.join(", ")} } in defineDatabase() in server/databases/default/index.ts. ViteHub writes migrations_dir for server/databases/default/migrations. ${remove}` })
     }
-    const key = resource.kind === "r2_buckets" ? "blob" : resource.kind === "kv_namespaces" ? binding === "CACHE" ? "cache" : "kv" : undefined
-    const kept = key !== undefined && written[key]?.binding === binding
-    if (kept) {
-      followUps.push({ file, line: resource.line, message: `The codemod set vitehub.${key} to keep this ${key === "blob" ? "bucket" : "namespace"}, and ViteHub writes the ${binding} binding itself. Remove this entry from ${file}.` })
-    }
-    else if (resource.kind === "kv_namespaces" && binding === "CACHE" && features.cache) {
-      followUps.push({ file, line: resource.line, message: `${keep} On Cloudflare, cache: true needs a namespace ID. To keep this namespace, set vitehub.cache to { driver: "cloudflare-kv-binding", binding: "CACHE"${id ? `, namespaceId: "${id}"` : ""} } in nuxt.config. ${remove}` })
-    }
-    else if (resource.kind === "kv_namespaces" && features.kv && binding) {
-      followUps.push({ file, line: resource.line, message: `${keep} To keep this namespace, set vitehub.kv to { driver: "cloudflare-kv-binding", binding: "${binding}"${id ? `, namespaceId: "${id}"` : ""} } in nuxt.config. ${remove}` })
-    }
-    if (!kept && resource.kind === "r2_buckets" && features.blob && binding) {
-      followUps.push({ file, line: resource.line, message: `${keep} To keep this bucket, set vitehub.blob to { driver: "cloudflare-r2", binding: "${binding}"${bucketName ? `, bucketName: "${bucketName}"` : ""} } in nuxt.config. ${remove}` })
+    for (const key of ["kv", "cache", "blob"] as const) {
+      if (!features[key] || !binding || binding !== bindings[key] || resource.kind !== (key === "blob" ? "r2_buckets" : "kv_namespaces")) continue
+      if (written[key]?.binding === binding) {
+        followUps.push({ file, line: resource.line, message: `The codemod set vitehub.${key} to keep this ${key === "blob" ? "bucket" : "namespace"}, and ViteHub writes the ${binding} binding itself. Remove this entry from ${file}.` })
+      }
+      else if (key === "blob") {
+        followUps.push({ file, line: resource.line, message: `${keep} To keep this bucket, set vitehub.blob to { driver: "cloudflare-r2", binding: "${binding}"${bucketName ? `, bucketName: "${bucketName}"` : ""}${jurisdiction ? `, jurisdiction: "${jurisdiction}"` : ""} } in nuxt.config. ${remove}` })
+      }
+      else {
+        followUps.push({ file, line: resource.line, message: `${keep} ${key === "cache" ? "On Cloudflare, cache: true needs a namespace ID. " : ""}To keep this namespace, set vitehub.${key} to { driver: "cloudflare-kv-binding", binding: "${binding}"${id ? `, namespaceId: "${id}"` : ""} } in nuxt.config. ${remove}` })
+      }
     }
   }
   return { edit: after === code ? undefined : { path: file, before: code, after }, followUps, d1 }

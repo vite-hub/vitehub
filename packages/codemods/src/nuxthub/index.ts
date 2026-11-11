@@ -22,7 +22,7 @@ function runner(installCommand: string): string {
   return "npx"
 }
 
-function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv: boolean, blob: boolean }): FollowUp[] {
+function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv: boolean, blob: boolean, cloudflare: boolean, kvBinding: string }): FollowUp[] {
   const followUps: FollowUp[] = []
   if (input.database) {
     followUps.push(
@@ -35,7 +35,10 @@ function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv:
     )
   }
   if (input.kv) {
-    followUps.push({ message: "Copy the local KV data. Both use the fs-lite driver: `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`." })
+    const base = input.cloudflare ? `.vitehub/data/kv-cloudflare/${input.kvBinding}` : ".vitehub/data/kv"
+    // Quote the path because a configured binding may contain shell metacharacters.
+    const path = `'${base.replaceAll("'", "'\\''")}'`
+    followUps.push({ message: `Copy the local KV data for ${input.cloudflare ? "Node development without a Cloudflare binding" : "the Node fs-lite driver"}: \`mkdir -p ${path} && cp -R .data/kv/. ${path}/\`.${input.cloudflare ? " Binding-backed development (for example workerd) reads the binding instead; import the keys into that development namespace with Wrangler. Repeat the copy if you change vitehub.kv.binding." : ""}` })
   }
   if (input.blob) {
     followUps.push({ message: `ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run \`${run} vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>\` for each file. Custom metadata is not copied.` })
@@ -48,9 +51,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const plan = readHub(config)
   const { features } = plan
   const wranglerFile = findWranglerFile(cwd)
-  const configResult = editConfig(config, plan, wranglerFile, await readCloudflareResourceOptions(cwd, wranglerFile))
+  const configResult = editConfig(config, plan, wranglerFile, await readCloudflareResourceOptions(cwd, wranglerFile, plan.bindings))
   const cloudflare = configResult.preset === "cloudflare"
-  const wrangler = await planWrangler(cwd, wranglerFile, features, cloudflare, configResult.written)
+  const wrangler = await planWrangler(cwd, wranglerFile, features, cloudflare, plan.bindings, configResult.written)
 
   let schema: SchemaMove | undefined
   if (features.database) schema = await moveSchema(cwd, features.database)
@@ -80,7 +83,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.preset ? ` with preset "${configResult.preset}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
-    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob })],
+    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,

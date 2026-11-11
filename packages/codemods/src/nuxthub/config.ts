@@ -1,7 +1,7 @@
 import { end, findProperty, indentAt, keyName, line, quoteString, start } from "@vite-hub/internal/ast"
 
 import { addViteHubOptions, ConfigEditor, createLineResolver, planPreset, useViteHubModule } from "../shared/config-editor.ts"
-import { findModuleEntry, literalValue, unwrapExpression } from "../shared/nuxt-config.ts"
+import { findModuleEntry, literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { CodemodError } from "../types.ts"
 
 import type { ObjectExpression } from "@babel/types"
@@ -33,7 +33,11 @@ interface ConfigNote {
 interface HubPlan {
   features: HubFeatures
   notes: ConfigNote[]
+  bindings: FeatureBindings
 }
+
+/** Only bindings proven by the original options may select an existing resource. */
+export type FeatureBindings = Partial<Record<"database" | "kv" | "cache" | "blob", string>>
 
 const featureKeys = ["kv", "blob", "cache"] as const
 
@@ -75,6 +79,7 @@ export function readHub(config: NuxtConfigFile): HubPlan {
   }
   const hub: ObjectExpression | undefined = value
   const features: HubFeatures = { kv: false, blob: false, cache: false }
+  const bindings: FeatureBindings = { database: "DB" }
   const notes: ConfigNote[] = []
   for (const property of hub?.properties ?? []) {
     if (property.type !== "ObjectProperty") {
@@ -91,6 +96,17 @@ export function readHub(config: NuxtConfigFile): HubPlan {
       const literal = literalValue(property.value)
       if (literal === false) continue
       features[feature] = true
+      const options = staticOptionsObject(property.value)
+      if (literal === true) bindings[feature] = feature.toUpperCase()
+      else if (options) {
+        const binding = findProperty(options, "binding")
+        const driver = findProperty(options, "driver")
+        const expectedDriver = feature === "blob" ? "cloudflare-r2" : "cloudflare-kv-binding"
+        if (!driver || literalValue(driver.value) === expectedDriver) {
+          const value = binding ? literalValue(binding.value) : feature.toUpperCase()
+          if (typeof value === "string" && value) bindings[feature] = value
+        }
+      }
       if (literal !== true) {
         notes.push({ path: [feature], message: `hub.${feature} was ${optionText(config, property.value)}. The codemod set ${feature}: true, which uses the default driver of the preset. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "getting-started/migrate-from-nuxthub#keep-the-cache" : feature}.` })
       }
@@ -98,7 +114,7 @@ export function readHub(config: NuxtConfigFile): HubPlan {
     }
     notes.push({ path: [], message: key && droppedKeys[key] ? `${droppedKeys[key]} The codemod dropped it.` : `hub.${key ?? optionText(config, property.key)} has no ViteHub option. The codemod dropped it.` })
   }
-  return { features, notes }
+  return { features, notes, bindings }
 }
 
 /** Chooses the deployment preset: nitro.preset, then a Wrangler config, then Node. */

@@ -31,7 +31,7 @@ Manual follow-ups (12):
   8. Create the migration baseline with `pnpm vitehub database generate --name baseline`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
   9. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline folder's migration.sql, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep the folder name and snapshot.json.
   10. Run `pnpm nuxt build`, then record the baseline on D1 with `pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json`. Check first with `migrations list` that only the baseline is pending. For the local SQLite copy, run `pnpm vitehub database migrate`.
-  11. Copy the local KV data. Both use the fs-lite driver: `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`.
+  11. Copy the local KV data for Node development without a Cloudflare binding: `mkdir -p '.vitehub/data/kv-cloudflare/KV' && cp -R .data/kv/. '.vitehub/data/kv-cloudflare/KV'/`. Binding-backed development (for example workerd) reads the binding instead; import the keys into that development namespace with Wrangler. Repeat the copy if you change vitehub.kv.binding.
   12. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
 
 Notes:

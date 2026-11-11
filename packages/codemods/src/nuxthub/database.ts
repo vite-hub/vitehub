@@ -6,6 +6,8 @@ import { detectStyle, end, keyName, line, parseProgram, quoteString, start, walk
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
+import { moduleSource } from "../shared/module-source.ts"
+
 import type { File } from "@babel/types"
 import type { CodeStyle } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
@@ -29,7 +31,7 @@ export interface SchemaMove {
 function relativeSources(program: File): Array<{ value: string, from: number, to: number, line: number }> {
   const sources: Array<{ value: string, from: number, to: number, line: number }> = []
   walk(program, (node) => {
-    const source = (node.type === "ImportDeclaration" || node.type === "ExportAllDeclaration" || node.type === "ExportNamedDeclaration") ? node.source : undefined
+    const source = moduleSource(node)
     if (source?.value.startsWith(".")) sources.push({ value: source.value, from: start(source) + 1, to: end(source) - 1, line: line(source) })
   })
   return sources
@@ -127,10 +129,15 @@ export async function moveSchema(cwd: string, dialect: Dialect): Promise<SchemaM
   if (schema.folder) {
     result.schemaModule = "server/databases/default/schema"
     result.oldModule = "server/db/schema"
-    if (!targets.some(target => /^server\/databases\/default\/schema\/index\.\w+$/.test(target))) {
-      const exports = targets.map(target => `export * from ${quoteString(relativeSpecifier("server/databases/default/schema/index.ts", target.replace(scriptExtension, "")), style)}${style.semicolons ? ";" : ""}`)
-      result.edits.push({ path: `server/databases/default/schema/index.${extension}`, before: undefined, after: `${exports.join("\n")}\n` })
+    const existingIndex = targets.find(target => /^server\/databases\/default\/schema\/index\.\w+$/.test(target))
+    const aggregate = existingIndex ? `server/databases/default/schema.${extension}` : `server/databases/default/schema/index.${extension}`
+    if (existsSync(join(cwd, aggregate))) {
+      // No files have been written: abort the plan rather than overwrite a user's module.
+      return { moved: new Map(), edits: [], followUps: [{ file: aggregate, message: "The aggregate schema module already exists. Combine every server/db/schema/ module there by hand before moving the schema." }] }
     }
+    const exports = targets.map(target => `export * from ${quoteString(relativeSpecifier(aggregate, target.replace(scriptExtension, "")), style)}${style.semicolons ? ";" : ""}`)
+    result.edits.push({ path: aggregate, before: undefined, after: `${exports.join("\n")}\n` })
+    if (existingIndex) result.followUps.push({ file: aggregate, message: "The aggregate exports every discovered schema file, including the existing index. Check for conflicting export names and resolve any ambiguity before generating the baseline." })
   }
   else {
     result.schemaModule = "server/databases/default/schema"

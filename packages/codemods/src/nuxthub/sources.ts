@@ -7,9 +7,10 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { blockBindings } from "../shared/bindings.ts"
+import { moduleSource } from "../shared/module-source.ts"
 import { relativeSpecifier } from "./database.ts"
 
-import type { CallExpression, File, MemberExpression, StringLiteral } from "@babel/types"
+import type { CallExpression, File, MemberExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { HubFeatures } from "./config.ts"
@@ -38,11 +39,11 @@ const knownExports: Record<string, ReadonlySet<string>> = {
 /** Methods that return an `[error, value]` tuple in ViteHub. */
 const tupleMethods: Record<Feature, ReadonlySet<string>> = {
   kv: new Set(["clear", "del", "get", "getAndDelete", "has", "increment", "keys", "list", "set", "setIfAbsent"]),
-  blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "serve", "sign"]),
+  blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "sign"]),
 }
 
 const legacyHelpers: Record<string, (features: HubFeatures) => string> = {
-  hubBlob: features => `hubBlob() was removed in NuxtHub 0.10. Import blob from "vite-hub/blob" and call its methods; each returns an [error, value] tuple.${features.blob ? "" : " Set blob: true under vitehub too."}`,
+  hubBlob: features => `hubBlob() was removed in NuxtHub 0.10. Import blob from "vite-hub/blob" and call its methods; serve() returns a Response, and the other methods return [error, value] tuples.${features.blob ? "" : " Set blob: true under vitehub too."}`,
   hubKV: features => `hubKV() was removed in NuxtHub 0.10. Import kv from "vite-hub/kv" and call its methods; each returns an [error, value] tuple.${features.kv ? "" : " Set kv: true under vitehub too."}`,
   hubDatabase: features => `hubDatabase() was removed in NuxtHub 0.10. Query the Database Definition with db from "vite-hub/database/drizzle".${features.database ? "" : " Set database: true under vitehub and write server/databases/default/index.ts too."}`,
   hubAI: () => "hubAI() was removed in NuxtHub 0.10, and ViteHub has no AI feature. Call the AI provider SDK directly.",
@@ -84,15 +85,6 @@ function scriptBlocks(file: string, source: string): Block[] {
     const lang = block.lang ?? "js"
     return [{ code: block.content, offset: block.loc.start.offset, lineOffset: block.loc.start.line - 1, jsx: lang === "tsx" || lang === "jsx", typescript: lang === "ts" || lang === "tsx" }]
   })
-}
-
-/** The module source string of an import, export, dynamic import, or `import()` type. */
-function moduleSource(node: Node): StringLiteral | undefined {
-  if (node.type === "ImportDeclaration" || node.type === "ExportAllDeclaration") return node.source
-  if (node.type === "ExportNamedDeclaration") return node.source ?? undefined
-  if (node.type === "CallExpression" && node.callee.type === "Import" && node.arguments[0]?.type === "StringLiteral") return node.arguments[0]
-  if (node.type === "TSImportType") return node.argument
-  return undefined
 }
 
 function pickName(base: string, prefixed: string, taken: ReadonlySet<string>): string {
@@ -160,7 +152,7 @@ function rewriteCalls(file: string, code: string, program: File, output: MagicSt
         return
       }
     }
-    followUps.push({ file, line: line(node), message: `${node.name} is used here other than in a direct method call. In ViteHub each ${feature === "kv" ? "KV" : "Blob"} method resolves to an [error, value] tuple. Check the code that calls it.` })
+    followUps.push({ file, line: line(node), message: `${node.name} is used here other than in a direct method call. ${feature === "kv" ? "KV methods resolve to [error, value] tuples." : "Blob serve() takes a Request and returns a Response; tuple-returning methods need an error check."} Check the code that calls it.` })
   })
   // In source order, inner calls first, so an outer rewrite copies their edits.
   sites.sort((left, right) => end(left.call) - end(right.call))
@@ -170,17 +162,34 @@ function rewriteCalls(file: string, code: string, program: File, output: MagicSt
     const { call, member, feature, receiver, ancestors } = site
     const method = keyName(member.property, member.computed)
     const renamed = feature === "blob" && method === "delete"
+    const propertyText = member.computed ? `${code[start(member.property)]}del${code[start(member.property)]}` : "del"
     const name = renamed ? "del" : method
     const label = `${receiver}.${name ?? "[method]"}()`
+    if (feature === "blob" && name === "serve") {
+      const argument = call.arguments[0]
+      const handlerIndex = ancestors.findLastIndex(node => node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression" || node.type === "FunctionDeclaration")
+      const handler = ancestors[handlerIndex]
+      const wrapper = ancestors[handlerIndex - 1]
+      if (argument?.type === "Identifier" && (handler?.type === "ArrowFunctionExpression" || handler?.type === "FunctionExpression")
+        && handler.params[0]?.type === "Identifier" && handler.params[0].name === argument.name
+        && wrapper?.type === "CallExpression" && wrapper.callee.type === "Identifier" && ["defineEventHandler", "eventHandler"].includes(wrapper.callee.name)) {
+        output.overwrite(start(argument), end(argument), `${argument.name}.req`)
+        rewritten++
+      }
+      else {
+        followUps.push({ file, line: line(call), message: `${label} returns a Response unchanged, not an [error, value] tuple. Pass a Request as its first argument (event.req for an H3 event) instead of the old event, and return the Response.` })
+      }
+      continue
+    }
     if (!name || !tupleMethods[feature].has(name)) {
-      if (renamed) output.overwrite(start(member.property), end(member.property), "del")
+      if (renamed) output.overwrite(start(member.property), end(member.property), propertyText)
       followUps.push({ file, line: line(call), message: name === "store"
         ? `${receiver}.store() returns a named store. Its methods resolve to [error, value] tuples too. Check the calls on it.`
         : `ViteHub ${feature === "kv" ? "KV" : "Blob"} has no ${name ?? "computed"} method. Rewrite this call with the ViteHub API. See https://vitehub.dev/docs/${feature}/server-api.` })
       continue
     }
     const callText = renamed
-      ? `${output.slice(start(call), start(member.property))}del${output.slice(end(member.property), end(call))}`
+      ? `${output.slice(start(call), start(member.property))}${propertyText}${output.slice(end(member.property), end(call))}`
       : output.slice(start(call), end(call))
     const awaited = ancestors.at(-1)?.type === "AwaitExpression"
     const declarator = awaited ? ancestors.at(-2) : undefined
@@ -192,7 +201,7 @@ function rewriteCalls(file: string, code: string, program: File, output: MagicSt
     const statement = declaration?.type === "VariableDeclaration" && declaration.declarations.length === 1 ? declaration : expression ?? returnStatement
     const container = statement ? ancestors.at(statement === declaration ? -4 : statement === returnStatement && !awaited ? -2 : -3) : undefined
     if (!statement || (container?.type !== "BlockStatement" && container?.type !== "Program")) {
-      if (renamed) output.overwrite(start(member.property), end(member.property), "del")
+      if (renamed) output.overwrite(start(member.property), end(member.property), propertyText)
       followUps.push({ file, line: line(call), message: usageMessage(label, call, ancestors) })
       continue
     }
@@ -243,7 +252,7 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
   for (const file of files.sort()) {
     if (input.skip.has(file)) continue
     const source = await readFile(join(cwd, file), "utf8")
-    if (!/hub:|@nuxthub\/|hub[A-Z]\w*\(|\bkv\.|\bblob\.|useUpload|useMultipartUpload|db\/schema/.test(source)) continue
+    if (!/hub:|@nuxthub\/|hub[A-Z]\w*\(|\b(?:kv|blob|db)[.[]|useUpload|useMultipartUpload|db\/schema/.test(source)) continue
     const output = new MagicString(source)
     const followUps: FollowUp[] = []
     const server = file.split("/").includes("server")
@@ -266,6 +275,7 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
       const at = (node: Node) => line(node) + block.lineOffset
       const bindings = blockBindings(program)
       const receivers = new Map<string, Feature>()
+      const databases = new Set<string>()
       walk(program, (node) => {
         const literal = moduleSource(node)
         if (!literal) return
@@ -300,23 +310,28 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
           const imported = keyName(specifier.imported)
           if (exported && imported && !exported.has(imported)) followUps.push({ file, line: at(specifier), message: `Check that ${replacement} exports ${imported}. The codemod changed the path only.` })
           if ((imported === "kv" || imported === "blob") && replacement === `vite-hub/${imported}`) receivers.set(specifier.local.name, imported)
+          if (imported === "db" && replacement === "vite-hub/database/drizzle") databases.add(specifier.local.name)
         }
       })
       const script = !file.endsWith(".vue")
-      for (const [name] of receivers) {
+      for (const [name, feature] of receivers) {
         if ((bindings.get(name)?.length ?? 0) > 1) {
-          followUps.push({ file, message: `${name} is declared more than once in this file, so the codemod did not rewrite its calls. Each method resolves to an [error, value] tuple now. Check them by hand.` })
+          followUps.push({ file, message: `${name} is declared more than once in this file, so the codemod did not rewrite its calls. Check tuple errors by hand.${feature === "blob" ? " serve() takes a Request and returns a Response unchanged." : ""}` })
           receivers.delete(name)
         }
       }
       // NuxtHub auto-imports kv and blob in server code, and ViteHub does too.
       if (server && script) {
         for (const feature of ["kv", "blob"] as const) if (features[feature] && !bindings.has(feature)) receivers.set(feature, feature)
+        if (features.database && !bindings.has("db")) databases.add("db")
       }
       if (receivers.size && script) {
         result.calls += rewriteCalls(file, source, program, output, receivers, followUps)
       }
       walk(program, (node) => {
+        if (node.type === "MemberExpression" && keyName(node.property, node.computed) === "query" && node.object.type === "Identifier" && databases.has(node.object.name)) {
+          followUps.push({ file, line: at(node), message: "Drizzle 1.0 changes relational queries. Replace callback where and orderBy options with Drizzle 1.0 query syntax, migrate declared relations with defineRelations(), and pass them to the Database Definition. Check ownership filters and nested queries before running this call." })
+        }
         if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || bindings.has(node.callee.name)) return
         const name = node.callee.name
         const legacy = legacyHelpers[name]
