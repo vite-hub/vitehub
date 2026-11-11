@@ -236,6 +236,15 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : "Cloudflare returned an invalid D1 database during provisioning.",
       fix: "Run `vitehub provision run --provider cloudflare --dry-run` again, and check the Cloudflare token permissions.",
     },
+    DATABASE_INVALID_RELATIONS: {
+      why: ({ database, field, reason, table }: { database: string, field?: string, reason: "missing" | "replaced", table: string }) => {
+        const subject = field ? `The relation "${field}" of the database "${database}" targets the table "${table}"` : `The relations of the database "${database}" name the table "${table}"`
+        return reason === "missing"
+          ? `${subject}, which is not in the merged schema.`
+          : `${subject}, but the merged schema holds another table object for that key. A later Nuxt layer replaced the table.`
+      },
+      fix: "Pass `defineRelations()` the same table objects that the schema of the database holds. When a layer replaces a table, define the relations of that table in the same layer.",
+    },
     DATABASE_RESERVED_SCHEMA_KEY: {
       why: ({ key, owner }: { key: string, owner: string }) => `${owner} uses the reserved schema key "${key}".`,
       fix: "Rename the table key in the schema object.",

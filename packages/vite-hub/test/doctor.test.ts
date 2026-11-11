@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 import { runProjectFixture, runRuleFixture } from "vite-doctor/testkit"
+import { createRule } from "vite-doctor/extension"
 import type { PluginOption } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 
 import vitehubDoctorExtension, { destructureResultTuples, noInternalImports, noServerImportsInClient } from "../src/doctor.ts"
 import { vitehub } from "../src/index.ts"
 import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
+import { resolver, type ViteHubReference } from "../src/doctor/ast.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
@@ -173,6 +175,37 @@ describe("vitehub/destructure-result-tuples", () => {
     expect(await codes(destructureResultTuples, {
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
     }, "nuxt")).toEqual(["VHUB0003"])
+  })
+
+  it("follows every ViteHub server auto-import in Nuxt server files", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/welcome.post.ts": "export default async () => {\n  const sent = await sendQueue(\"welcome\", { id: \"1\" })\n  return sent\n}\n",
+    }, "nuxt")).toEqual(["VHUB0003"])
+  })
+
+  it("resolves I18n server auto-imports to their public exports", async () => {
+    const references: ViteHubReference[] = []
+    const rule = createRule({
+      meta: { id: "test/i18n-auto-imports", title: "Resolve I18n helpers", category: "correctness", severity: "warn", requires: { script: true } },
+      create(ctx) {
+        const r = resolver(ctx)
+        return {
+          ScriptNode(node) {
+            const reference = r.callee(node)
+            if (reference) references.push(reference)
+          },
+        }
+      },
+    })
+    await runRuleFixture({
+      rule,
+      framework: "nuxt",
+      files: { "server/api/translations.get.ts": "export default event => ({ i18n: getRequestI18n(event), translations: useTranslations() })" },
+    })
+    expect(references).toEqual([
+      { module: "i18n/server", name: "getRequestI18n", path: [] },
+      { module: "i18n/server", name: "useTranslations", path: [] },
+    ])
   })
 
   it.each([

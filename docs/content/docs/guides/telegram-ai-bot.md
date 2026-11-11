@@ -266,16 +266,16 @@ See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-c
 
 ## Limits
 
-- **Mentions.** The bot answers every direct message, but in a group only mentions. To also answer replies in a thread the bot joined, set `messages: { replyToSubscribedThreads: true }`. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
-- **Other bots.** ViteHub ignores other bots' messages, so two bots do not answer each other forever. Set `messages: { allowBots: true }` to change this.
-- **Allowed users.** `allowedUserIds` is a filter, not sign-in. A Telegram user ID is not a trusted identity. Before the Agent reads private data, resolve a trusted [Actor](/docs/agents/actors).
-- **History.** Telegram keeps only 100 messages for seven days for a bot. With durable Agent State, ViteHub also keeps a transcript of each chat. See [Keep transcripts](/docs/agents/channels#keep-transcripts).
-- **Polling.** The generated routes serve webhook mode. With `mode: 'polling'`, `channels sync` plans to remove the webhook, and your app starts the listener with `createTelegramPollingRouteHandler()` from `vite-hub/agent/server`.
-- **Proof.** We have contract tests for the Telegram Channel and its webhook route. CI runs no deployed Telegram bot.
+- **Mentions.** In a direct chat, the bot answers every message. In a group, it answers only messages that mention it. To also answer replies in a thread that the bot already joined, set `messages: { replyToSubscribedThreads: true }`. Read [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
+- **Other bots.** ViteHub ignores messages from other bots, so two bots do not answer each other without end. Set `messages: { allowBots: true }` to change this.
+- **Allowed users.** `allowedUserIds` is a filter, not sign-in. A Telegram user ID is not a trusted identity for your app. When the Agent reads private data, resolve a trusted [Invoker](/docs/agents/trusted-invokers) first.
+- **History.** Telegram keeps only 100 messages for seven days for a bot. With durable Agent State, ViteHub also keeps a transcript of each chat. Read [Keep transcripts](/docs/agents/channels#keep-transcripts).
+- **Polling.** The generated routes serve webhook mode. With `mode: 'polling'`, `channels sync` plans to remove the webhook, and your app must start the listener itself with `createTelegramPollingRouteHandler()` from `vite-hub/agent/server`.
+- **Proof.** ViteHub has contract tests for the Telegram Channel and its webhook route. It does not run a deployed Telegram bot in CI.
 
 ## Next steps
 
 - [Agent Channels](/docs/agents/channels): admission, delivery, attachments, and Channel instructions.
-- [Agent Actors](/docs/agents/actors): pass a trusted identity to the Agent.
-- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces.
+- [Trusted Invokers](/docs/agents/trusted-invokers): pass a trusted identity to the Agent.
+- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces to the same Agent.
 - [Build an AI Slack bot](/docs/guides/slack-ai-bot) and [Build an AI Discord bot](/docs/guides/discord-ai-bot) with the same Agent file.

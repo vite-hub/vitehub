@@ -15,7 +15,7 @@ async function generateQueuePlugin(options: { host?: string, shutdown?: false | 
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
     const plugin = hubAgent({
       // Ephemeral hosts need a remote state URL.
-      providers: { state: { provider: "libsql", url: options.host ? "libsql://state.example.com" : "file:agent-state.sqlite" } },
+      providers: { state: { driver: "libsql", url: options.host ? "libsql://state.example.com" : "file:agent-state.sqlite" } },
       ...(options.shutdown === undefined ? {} : { shutdown: options.shutdown }),
     })
     if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")

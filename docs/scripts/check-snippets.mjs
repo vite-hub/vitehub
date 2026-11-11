@@ -294,7 +294,7 @@ const registries = [
       `import ${JSON.stringify(module)}`,
       `declare module ${JSON.stringify(module)} {`,
       "  interface DatabaseRegistry {",
-      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema }`),
+      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema; relations: typeof import(${path}).default.relations }`),
       "  }",
       "}",
     ]),
