@@ -6,6 +6,8 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
   modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
+  sourcemap: { server: false },
   docs: {
     site: {
       name: "ViteHub",
@@ -24,7 +26,7 @@ export default defineNuxtConfig({
         { label: "Playground", to: "/playground", icon: "i-lucide-code" },
         { label: "Projects", to: "/projects", icon: "i-lucide-folder" },
         { label: "Templates", to: "/templates", icon: "i-lucide-layout-template" },
-        // The hosted Console opens deployed ViteHub apps from the browser. See /docs/development/console#hosted-console.
+        // The Console opens deployed ViteHub apps. See /docs/development/console#in-production.
         { label: "Console", to: "https://console.vitehub.dev", icon: "i-lucide-monitor" },
       ],
     },
@@ -306,9 +308,12 @@ export default defineNuxtConfig({
       nodeCompat: true,
       wrangler: {
         name: "vitehub-docs",
+        // Minify the final upload, including the icon collections and server-rendered Markdown dependencies.
+        minify: true,
         compatibility_date: "2026-07-19",
         workers_dev: false,
         preview_urls: true,
+        upload_source_maps: false,
         d1_databases: [
           {
             binding: "DB",
