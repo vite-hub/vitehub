@@ -320,8 +320,8 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "  \"workerd\": false",
     "blockExoticSubdeps: false",
     "overrides:",
-    // Keep the WASM runtime and its Emnapi peers on compatible 1.x versions in isolated installs.
-    "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Match the workspace-tested runtime and keep its Emnapi peers on compatible 1.x versions.
+    "  \"@napi-rs/wasm-runtime\": \"1.2.4\"",
     "  \"@emnapi/core\": \"1.9.2\"",
     "  \"@emnapi/runtime\": \"1.9.2\"",
     // Keep Workflow's broad Nest peer pair on the same major in isolated installs.
