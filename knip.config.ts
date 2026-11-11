@@ -148,8 +148,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     // remove when the unused h3 dependency of the Console is fixed
     ignoreDependencies: ["h3"],
   },
-  // remove when the unused @vite-hub/database devDependency of content is fixed
-  content: { ignoreDependencies: ["@vite-hub/database"] },
   // remove when the unused @vite-hub/blob devDependency of cms is fixed
   cms: { ignoreDependencies: ["@vite-hub/blob"] },
   // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
@@ -177,8 +175,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     ignoreDependencies: [
       // Root consumer tests resolve `sharp` from this package with `createRequire`.
       "sharp",
-      // remove when the unused effect dependency of internal is fixed
-      "effect",
     ],
   },
   // The tests mock it with `vi.mock()`. The code under test imports it through `@vite-hub/agent`.
@@ -302,7 +298,6 @@ const config: KnipConfiguration = {
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
         /^@iconify-json\//,
         // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
-        "@better-auth/cimd",
         "@chat-adapter/slack",
         // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
         "@takumi-rs/core",

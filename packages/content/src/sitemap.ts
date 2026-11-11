@@ -186,6 +186,10 @@ export async function contentRoutedPages(collections: readonly AnyContentCollect
       const url = contentDocumentUrl(source.url, { id, data: document.data })
       if (url === null) continue
       const loc = absolute(url, site)
+      const seo: unknown = document.data.seo
+      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true) continue
+      const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
+      if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
       if (seen.has(loc)) continue
       seen.add(loc)
       const entry: ContentRoutedPage = { collection: source.name, id, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }
