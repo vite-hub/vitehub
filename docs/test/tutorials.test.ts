@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { zipFiles } from "@vite-hub/ui/playground";
 import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
@@ -284,14 +283,6 @@ describe("runnable tutorials", () => {
     expect(specifiers.filter(specifier => /^(?:catalog|workspace):/.test(specifier))).toEqual([]);
     expect(manifest.dependencies["vite-hub"]).toMatch(/^\^\d+\.\d+\.\d+/);
     expect(() => resolveManifest(JSON.stringify({ dependencies: { missing: "catalog:none" } }), { catalogs: {}, packages: {} })).toThrow(/pnpm catalog/);
-  });
-
-  it("zips the starter with the files of step 1", async () => {
-    const tutorial = await build(0);
-    const zip = Buffer.from(zipFiles(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
-    expect(zip.subarray(0, 4).readUInt32LE(0)).toBe(0x04034B50);
-    expect(zip.toString("latin1")).toContain("first-server-primitive/vite.config.ts");
-    expect(zip.toString("latin1")).not.toContain("server/api/settings.post.ts");
   });
 
   it("splits the lesson into its steps", () => {

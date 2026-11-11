@@ -88,21 +88,6 @@ export function uint8ArrayByteLength(value: Uint8Array): number {
   return Reflect.apply(typedArrayByteLengthGetter!, value, []) as number
 }
 
-export function blobSize(value: Blob): number {
-  // SAFETY: The intrinsic Blob size getter returns a number for a branded Blob.
-  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")!.get!.call(value) as number
-}
-
-export function blobType(value: Blob): string {
-  // SAFETY: The intrinsic Blob type getter returns a string for a branded Blob.
-  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "type")!.get!.call(value) as string
-}
-
-export function blobArrayBuffer(value: Blob): Promise<ArrayBuffer> {
-  // SAFETY: The intrinsic Blob arrayBuffer method returns a Promise<ArrayBuffer> for a branded Blob.
-  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "arrayBuffer")!.value.call(value) as Promise<ArrayBuffer>
-}
-
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData
@@ -420,81 +405,6 @@ function isDateValue(value: unknown): value is Date {
   }
 }
 
-function hasNativeDateJSONHook(value: object): boolean {
-  const nativeSource = /\[native code\]/
-  const isNative = (hook: unknown): hook is (...args: never[]) => unknown => typeof hook === "function" && nativeSource.test(Function.prototype.toString.call(hook))
-  // Native Date.prototype.toJSON has a stable intrinsic signature across realms.
-  // Other native-looking functions (for example bound user serializers) are
-  // ambiguous and must be rejected rather than trusted by their name.
-  const isIntrinsicDateJSON = (hook: unknown): boolean => {
-    if (!isNative(hook)) return false
-    // Callable proxies stringify as an anonymous native function even when
-    // their target is Date.prototype.toJSON. Require the intrinsic source
-    // shape so a proxy around an arbitrary serializer cannot pass as Date.
-    if (!/^function toJSON\(\) \{ \[native code\] \}$/.test(Function.prototype.toString.call(hook))) return false
-    const name = Reflect.getOwnPropertyDescriptor(hook, "name")
-    const length = Reflect.getOwnPropertyDescriptor(hook, "length")
-    return !!name && "value" in name && name.value === "toJSON" && !!length && "value" in length && length.value === 1
-  }
-  const findDescriptor = (start: object, key: string): PropertyDescriptor | undefined => {
-    let current: object | null = start
-    const visited = new Set<object>()
-    while (current && !visited.has(current)) {
-      visited.add(current)
-      const descriptor = Reflect.getOwnPropertyDescriptor(current, key)
-      if (descriptor) return descriptor
-      current = Reflect.getPrototypeOf(current)
-    }
-    return undefined
-  }
-  try {
-    const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
-    if (own && "value" in own) return false
-    const getTimeDescriptor = findDescriptor(value, "getTime")
-    const toISOStringDescriptor = findDescriptor(value, "toISOString")
-    const toJSONDescriptor = findDescriptor(value, "toJSON")
-    const getTime = getTimeDescriptor?.value
-    const toISOString = toISOStringDescriptor?.value
-    // A proxy can hide its target prototype from descriptor traversal. If no
-    // method descriptors are visible and no custom serializer is present, read
-    // the effective hook as a guarded fallback for that hidden-prototype case.
-    if (!getTimeDescriptor && !toISOStringDescriptor) {
-      if (toJSONDescriptor) return false
-      const hook = Reflect.get(value, "toJSON")
-      // A hidden prototype prevents us from proving which serializer would run.
-      // Reject any callable hook so a throwing proxy cannot cross validation.
-      return typeof hook === "function"
-    }
-    if (!isNative(getTime) || !isNative(toISOString)) return false
-    let prototype: object | null = Reflect.getPrototypeOf(value)
-    const visited = new Set<object>()
-    while (prototype && !visited.has(prototype)) {
-      visited.add(prototype)
-      const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
-      if (descriptor) {
-        if ("value" in descriptor) {
-          if (typeof descriptor.value !== "function") return false
-          if (!isNative(descriptor.value)) return false
-          const name = Reflect.getOwnPropertyDescriptor(descriptor.value, "name")
-          const isBound = !!name && "value" in name && typeof name.value === "string" && name.value.startsWith("bound ")
-          return isIntrinsicDateJSON(descriptor.value) || !isBound
-        }
-        // An accessor may expose the native hook while hiding its value from
-        // descriptor inspection. Treat it as unsafe once native Date methods
-        // identify the surrounding object as a Date proxy.
-        return true
-      }
-      prototype = Reflect.getPrototypeOf(prototype)
-    }
-    // Hidden prototype proxies still expose the native Date methods.
-    const hook = Reflect.get(value, "toJSON")
-    return typeof hook === "function" ? isIntrinsicDateJSON(hook) : false
-  }
-  catch {
-    return false
-  }
-}
-
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
   if (value === undefined) return undefined
   if (isDateValue(value)) return Date.prototype.toISOString.call(value)
@@ -617,7 +527,7 @@ function assertSerializable(value: unknown, field: string): void {
   if (!value || typeof value !== "object") {
     return
   }
-  if (isDateValue(value) || hasNativeDateJSONHook(value)) {
+  if (isDateValue(value)) {
     throw messageDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {

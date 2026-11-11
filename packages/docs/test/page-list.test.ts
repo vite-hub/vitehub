@@ -26,6 +26,7 @@ const icons: DocsIcons = {
   family: "i-ph-",
   page: "i-ph-file-light",
   section: "i-ph-folder-light",
+  stroke: 1.5,
 }
 
 describe("PageList", () => {

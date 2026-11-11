@@ -173,11 +173,3 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
     user: computed(() => state.value.data?.user ?? null),
   }
 }
-
-export function useSignIn(): typeof authClient.signIn {
-  return authClient.signIn
-}
-
-export function useSignUp(): typeof authClient.signUp {
-  return authClient.signUp
-}

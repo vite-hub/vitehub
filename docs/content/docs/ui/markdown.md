@@ -3,7 +3,7 @@ title: Markdown
 description: "Render Content pages and streaming Markdown with Comark UI components, typography, math, and image previews."
 navigation.order: 23
 navigation.group: Chat
-icon: i-ph-markdown-logo-light
+icon: i-lucide-file-text
 ---
 
 `Markdown` renders Markdown strings and parsed Content pages, with Comark UI components and document styles set up. Use it for written pages and assistant text. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays still while streamed text adds nodes.

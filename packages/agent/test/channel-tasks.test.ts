@@ -13,6 +13,8 @@ import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import type { AgentTriggerAcceptedInvocation, AgentTriggerFailedEvent, AgentTriggerPrepareResult, AgentTriggerRunInvokeResult } from "../src/types.ts"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 const cleanups: Array<() => Promise<void> | void> = []
 
 afterEach(async () => {
@@ -218,7 +220,7 @@ describe("Channel trigger tasks", () => {
       expect(triage).toHaveBeenCalledOnce()
     })
     const id = await agentInvocationId("ticket-15", "support")
-    expect(prepare.mock.calls[0]?.[0].invocation).toEqual({ consoleUrl: `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`, id })
+    expect(prepare.mock.calls[0]?.[0].invocation).toEqual({ consoleUrl: hostedConsoleLink("https://agents.example.test", `/agents/support/invocations/${encodeURIComponent(id)}`), id })
     // The task Agent owns the Invocation of its task. It has no public URL here.
     expect(taskPrepare.mock.calls[0]?.[1].invocation).toEqual({ id: await agentInvocationId("ticket-16", "triage") })
   })
@@ -277,7 +279,7 @@ describe("Channel trigger tasks", () => {
       const id = await agentInvocationId("named-run", "support")
       expect(await invocations.getByRunId("named-run", "support")).toMatchObject({ id, status: "completed" })
       expect(prepare).toHaveBeenCalledOnce()
-      expect(prepare.mock.calls[0]?.[0].invocation).toEqual({ consoleUrl: `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`, id })
+      expect(prepare.mock.calls[0]?.[0].invocation).toEqual({ consoleUrl: hostedConsoleLink("https://agents.example.test", `/agents/support/invocations/${encodeURIComponent(id)}`), id })
     })
   })
 

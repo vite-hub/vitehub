@@ -1,5 +1,5 @@
 import type { TraceEventContentPolicy } from "../index.ts"
-import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
+import { isRuntimeObject } from "./runtime-type.ts"
 
 const contentAttributeKeys = new Set([
   "args", "body", "content", "data", "input", "message", "messages", "output",
@@ -20,7 +20,7 @@ export function isTraceContentAttributeKey(key: string): boolean {
 function ownProperties(value: unknown): Array<[string, PropertyDescriptor]> {
   if (!isRuntimeObject(value)) return []
   return Reflect.ownKeys(value).flatMap<[string, PropertyDescriptor]>((key) => {
-    if (!hasRuntimeType(key, "string")) return []
+    if (typeof key !== "string") return []
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     return descriptor?.enumerable ? [[key, descriptor]] : []
   })
@@ -38,7 +38,7 @@ function mapArray(value: unknown[], map: (value: unknown) => unknown): unknown[]
 }
 
 function metadataValue(value: unknown, seen: WeakSet<object>): unknown {
-  if (!value || !hasRuntimeType(value, "object")) return value
+  if (!value || typeof value !== "object") return value
   if (seen.has(value)) return "[Circular]"
   seen.add(value)
   try {
@@ -87,7 +87,7 @@ export function normalizeTraceAttributes(
   try {
     if (Array.isArray(source["content.omitted"])) {
       const omitted = mapArray(source["content.omitted"], value => value)
-        .filter(key => hasRuntimeType(key, "string") && !canonicalAttributeKeys.has(key))
+        .filter(key => typeof key === "string" && !canonicalAttributeKeys.has(key))
       if (omitted.length) source["content.omitted"] = omitted
       else delete source["content.omitted"]
     }
