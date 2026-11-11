@@ -352,7 +352,7 @@ describe("Cloudflare Access Console Auth", () => {
       const config: { root: string, base: string, nitro?: { handlers: Array<{ handler: string, middleware?: boolean }> } } = { root, ...bases }
       await Reflect.apply(handler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
-        expect.objectContaining({ route: `${mount}/_vitehub/rpc/**` }),
+        expect.objectContaining({ route: `${mount}/_vitehub/rpc` }),
       ]))
       const middleware = config.nitro?.handlers.find(entry => entry.middleware)?.handler
       if (!middleware) throw new TypeError("Expected Console auth middleware.")
@@ -360,7 +360,7 @@ describe("Cloudflare Access Console Auth", () => {
       const file = join(root, "guard.mjs")
       await writeFile(file, bundled)
       const { default: guard } = await import(pathToFileURL(file).href) as { default: (event: ReturnType<typeof consoleEvent>) => Promise<Response | undefined> }
-      for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/_vitehub/api/auth/identity"]) {
+      for (const path of ["/_vitehub", "/_vitehub/rpc", "/_vitehub/api/auth/identity"]) {
         for (const method of ["GET", "POST"]) {
           expect((await guard(consoleEvent(`https://app.example.com${mount}${path}`, undefined, method)))?.status).toBe(401)
         }
@@ -392,7 +392,7 @@ describe("Cloudflare Access Console Auth", () => {
       const file = join(root, "guard.mjs")
       await writeFile(file, bundled)
       const { default: guard } = await import(pathToFileURL(file).href) as { default: (event: ReturnType<typeof consoleEvent>) => Promise<Response | undefined> }
-      for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/_vitehub/api/auth/identity"]) {
+      for (const path of ["/_vitehub", "/_vitehub/rpc", "/_vitehub/api/auth/identity"]) {
         for (const method of ["GET", "POST"]) {
           expect((await guard(consoleEvent(`https://app.example.com${mount}${path}`, undefined, method)))?.status).toBe(401)
         }
@@ -419,7 +419,7 @@ describe("Cloudflare Access Console Auth", () => {
       const production = await run("build")
       expect(production).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/**", middleware: true, handler: resolve(root, ".vitehub/nitro/console/auth-middleware.mjs") }),
-        expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+        expect.objectContaining({ route: "/_vitehub/rpc" }),
       ]))
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/client.js")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/sign-in")
@@ -428,7 +428,7 @@ describe("Cloudflare Access Console Auth", () => {
 
       const development = await run("serve")
       expect(development.some(entry => entry.middleware)).toBe(false)
-      expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
+      expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"])`)
     }
     finally {
       await rm(root, { recursive: true, force: true })

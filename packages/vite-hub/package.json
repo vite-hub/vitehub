@@ -132,6 +132,11 @@
       "import": "./dist/auth.js",
       "default": "./dist/auth.js"
     },
+    "./auth/abilities": {
+      "types": "./dist/auth/abilities.d.ts",
+      "import": "./dist/auth/abilities.js",
+      "default": "./dist/auth/abilities.js"
+    },
     "./auth/agent": {
       "types": "./dist/auth/agent.d.ts",
       "import": "./dist/auth/agent.js",
@@ -981,6 +986,7 @@
   },
   "scripts": {
     "build": "vp pack",
+    "build:console-account": "vp build --config console.account.vite.config.ts",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
@@ -997,6 +1003,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "confbox": "^0.2.4",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
@@ -1018,6 +1025,7 @@
     "@azure/storage-blob": "catalog:storage",
     "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
+    "@better-auth/passkey": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
@@ -1157,7 +1165,7 @@
     "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "evlog": "^2.28.1",
     "nitro": "catalog:nitro-compat",
     "openworkflow": "catalog:workflow",

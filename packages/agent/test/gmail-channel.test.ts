@@ -1673,7 +1673,7 @@ describe("gmail() Channel", () => {
     }
     const status = async () => await agentChannelOperations[4].run({ agent: "labeller", channel: "gmail" }, {
       access: { mode: "open", sections: "all" },
-      request: new Request("http://vitehub.local/_vitehub/rpc/__call"),
+      request: new Request("http://vitehub.local/_vitehub/rpc"),
       surface: "console",
       user: null,
     })

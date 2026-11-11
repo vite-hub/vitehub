@@ -282,7 +282,7 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Recent activity shows the last 20 revisions, from at most 1,000 scanned per ref.
 - The dashboard and search publish one collection at a time. If a draft moved after the page loaded, that collection publishes nothing and the Console asks you to refresh.
 - History shows a document's last 20 saves and last 20 publishes, then older saves on request. Content scans at most 1,000 revisions per page.
-- Uploads take files up to 32 MB per request. Hosts can set a lower limit, such as 4.5 MB on Vercel Functions.
+- Uploads take files up to 32 MB per request. The file travels as base64 in the `media.upload` operation, so the request is a third larger than the file. The hosted Console sends files up to 9 MiB. Hosts can set a lower limit, such as 4.5 MB on Vercel Functions.
 - Media search scans at most 5,000 files below the open folder and shows at most 60 matches. Open a folder to narrow it.
 - **Used in** reads every document, on draft and published, of each collection the user may read. It finds bodies through the collection's [search fields](/docs/content/configure#define-collections), which include the body by default. It lists only documents the user may read, so the move or delete warning leaves out other documents that use the file. It does not tell which Blob Store a reference names.
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).
