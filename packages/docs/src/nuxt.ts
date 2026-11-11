@@ -34,7 +34,8 @@ import { toRawMarkdown } from "./raw.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
 import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
-import { docsAppConfigUi, docsUi, type DocsThemeUi } from "./theme.ts"
+import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
+import { docsThemeCss } from "./theme-css.ts"
 
 import type { Nuxt } from "nuxt/schema"
 
@@ -45,6 +46,7 @@ import type { DocsPage } from "./types.ts"
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
 export { DocsCommentsSetupError } from "./comments-nuxt.ts"
 export { DocsRedirectError } from "./redirects.ts"
+export type { DocsThemeScope } from "./theme.ts"
 export { DocsSeoError } from "./seo-audit.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
@@ -387,7 +389,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
-    moduleOptions.appConfig.ui = docsAppConfigUi(docsUi(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    // A docs site gets the design in its app config. An app with its own `app.vue` keeps its app config, and the docs
+    // layouts wrap the docs pages in `<UTheme>` with the design instead.
+    const design = docsUi(config.site.name)
+    moduleOptions.appConfig.ui = docsAppConfigUi(ownsApp ? design : docsThemeAdditions(design), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    nuxt.options.alias["#docs/theme"] = addTemplate({ filename: "docs/theme.mjs", write: true, getContents: () => `export default ${JSON.stringify(ownsApp ? { ui: {}, props: {} } : docsThemeScope(design))}\n` }).dst
+    addTemplate({ filename: "docs/theme.d.mts", write: true, getContents: () => `import type { DocsThemeScope } from "@vite-hub/docs/nuxt"\ndeclare const theme: DocsThemeScope\nexport default theme\n` })
+
     // The design system lists "Geist Variable" first, the font that the Console bundles. @nuxt/fonts, which Nuxt UI
     // installs, serves only the first family of a declaration, so it served no Geist. The docs ask for both families.
     const fonts = moduleOptions.fonts ??= {}
@@ -553,6 +561,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       const getContents = ui?.getContents
       if (ui && getContents) ui.getContents = async (data) => `${await getContents(data)}\n${cssSources}\n`
     })
+    const sharedTheme = dependency("@vite-hub/ui/theme.css")
+    const scopedTheme = ownsApp ? null : addTemplate({
+      filename: "docs/theme.css",
+      write: true,
+      getContents: () => docsThemeCss(sharedTheme),
+    })
     const docsCss = addTemplate({
       filename: "docs/docs.css",
       write: true,
@@ -560,7 +574,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
         `@layer theme, base, comark, components, utilities;`,
         ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
-        `@import "${dependency("@vite-hub/ui/theme.css")}";`,
+        `@import "${scopedTheme?.dst ?? sharedTheme}";`,
         `@import "${join(runtime, "theme/design.css")}";`,
         "",
       ].join("\n"),
@@ -809,7 +823,8 @@ function setDocsHead(head: Nuxt["options"]["app"]["head"], siteName: string): vo
     meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
   }
   meta.push({ name: "color-scheme", content: "light dark" })
-  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
+  // The design applies below `.vh-docs`. A docs site has it on every page, the error page too.
+  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs, class: [head.htmlAttrs?.class, "vh-docs"].filter(Boolean).join(" ") }
   // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
   head.titleTemplate ??= `%s · ${siteName}`
 }

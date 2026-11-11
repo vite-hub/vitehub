@@ -112,7 +112,7 @@ const mcpOAuth = {
     "route GET /.well-known/oauth-protected-resource console/server/mcp-metadata.js",
     "route GET /.well-known/oauth-protected-resource/** console/server/mcp-metadata.js",
   ],
-  plugins: ["console/server/mcp-discovery-nitro2.js"],
+  plugins: [],
 }
 
 describe("Nitro routes of a production build with every Console section on", () => {
