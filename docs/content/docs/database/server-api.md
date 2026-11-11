@@ -23,7 +23,7 @@ icon: i-lucide-code-2
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`, and the relations of `db.query` as `relations`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
 
 | Call | App Databases | Result |
 | --- | --- | --- |
