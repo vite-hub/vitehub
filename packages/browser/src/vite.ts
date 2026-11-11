@@ -1,6 +1,5 @@
 import { normalize, resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import {
   contributeProviderDeploymentOutput,
@@ -11,7 +10,7 @@ import {
 } from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
-import { isPlainObject } from "@vite-hub/internal/object"
+import { cloneRecord } from "@vite-hub/internal/object"
 import {
   createNoExternalAddition,
   isServerEnvironment,
@@ -19,6 +18,7 @@ import {
   shouldSkipViteProviderBuild,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 
 import { discoverBrowserDefinitions } from "./discovery.ts"
 export { discoverBrowserDefinitions } from "./discovery.ts"
@@ -90,20 +90,6 @@ function browserBinding(options: Required<BrowserOptions>) {
     binding: options.binding,
     ...(options.remote ? { remote: true } : {}),
   }
-}
-
-function cloneRecord(value: unknown): Record<string, unknown> {
-  return isPlainObject(value) ? { ...value } : {}
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (value === undefined) return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 function configureNitroBrowser(value: unknown, options: Required<BrowserOptions>, enabled: boolean): Record<string, unknown> {
@@ -289,7 +275,7 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
       const rootDir = resolved.root
       const clientOutDir = resolved.build.outDir
       const cloudflare = enabled
@@ -326,7 +312,7 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },

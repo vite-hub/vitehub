@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { existsSync, statSync } from "node:fs"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -17,6 +18,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
+import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
@@ -28,7 +30,7 @@ import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
-import type { Plugin, ResolvedConfig } from "vite";
+import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
 export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
@@ -295,9 +297,25 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   nitro: {
     name: string;
     /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
+    setup: (nitro: ConnectionsNitro) => void;
   };
 };
+
+/** The parts of a Nitro instance that the management route reads and changes. */
+type ConnectionsNitro = {
+  options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
+  routing?: { sync: () => void };
+};
+
+/** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
+export function colocatedConnectionDocsFile(handler: string): string {
+  return handler.replace(/\.(?:[jt]sx?|[cm][jt]s)$/i, ".md");
+}
+
+function hasColocatedConnectionDocs(definition: DiscoveredConnectionDefinition): boolean {
+  const file = colocatedConnectionDocsFile(definition.handler);
+  return file !== definition.handler && existsSync(file) && statSync(file).isFile();
+}
 
 function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
@@ -307,6 +325,12 @@ function renderRegistry(
 ): string {
   return [
     `export const activityRetention = ${JSON.stringify(activityRetention)}`,
+    // Each `<name>.md` loads like its definition, so an edit reaches the next `inspect()` in `vite dev`.
+    "export const docs = Object.create(null)",
+    ...definitions.filter(hasColocatedConnectionDocs).map(
+      (definition) =>
+        `docs[${JSON.stringify(definition.name)}] = () => import(${JSON.stringify(`${colocatedConnectionDocsFile(definition.handler)}?raw`)}).then(module => module.default)`,
+    ),
     "const registry = Object.create(null)",
     ...definitions.map(
       (definition) =>
@@ -346,7 +370,7 @@ function connectionMountBase(base: unknown): string {
 }
 
 /**
- * The management action route takes only `POST`, so a `GET` of the same path reaches the Console page.
+ * The management action route takes only `POST`, so a `GET` of the same path reaches the app.
  * The connect and callback routes are the only `GET` routes under it.
  */
 function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {
@@ -435,6 +459,14 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
     });
   }
 
+  async function refreshRegistry(server: ViteDevServer): Promise<void> {
+    resolved = server.config;
+    refresh();
+    await refreshGeneratedFiles();
+    const module = server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
+    if (module) server.moduleGraph.invalidateModule(module);
+  }
+
   return {
     name: CONNECTIONS_VITE_PLUGIN_NAME,
     enforce: "pre",
@@ -453,6 +485,9 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       name: "@vite-hub/connections/management",
       setup(nitro) {
         nitroInstance = nitro;
+        // The development policy trusts only this machine. Nitro's dev worker never sees the client address, so the
+        // front process signs loopback requests for it.
+        if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers ??= []);
       },
     },
     vitehub: {
@@ -588,13 +623,23 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };
     },
+    configureServer(server) {
+      // Vite only calls handleHotUpdate for edits. Docs membership also changes on add and unlink.
+      server.watcher.add([...new Set(definitions.map(definition => dirname(definition.handler)))]);
+      const refreshDocs = (file: string) => {
+        if (!definitions.some(definition => colocatedConnectionDocsFile(definition.handler) === resolve(file))) return;
+        return refreshRegistry(server).catch(error => server.config.logger.error(String(error)));
+      };
+      server.watcher.on("add", refreshDocs);
+      server.watcher.on("unlink", refreshDocs);
+      server.httpServer?.once("close", () => {
+        server.watcher.off("add", refreshDocs);
+        server.watcher.off("unlink", refreshDocs);
+      });
+    },
     async handleHotUpdate(context) {
       if (!isConnectionDefinitionFile(context.file, projectRoot, serverDirs)) return;
-      resolved = context.server.config;
-      refresh();
-      await refreshGeneratedFiles();
-      const module = context.server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
-      if (module) context.server.moduleGraph.invalidateModule(module);
+      await refreshRegistry(context.server);
     },
     resolveId: {
       filter: { id: /^#vitehub\/connections\/registry$/ },

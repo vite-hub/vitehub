@@ -45,11 +45,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ai": {
-      "types": "./dist/ai.d.ts",
-      "import": "./dist/ai.js",
-      "default": "./dist/ai.js"
-    },
     "./blob-database": {
       "types": "./dist/blob-database.d.ts",
       "import": "./dist/blob-database.js",
@@ -84,16 +79,6 @@
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
       "default": "./dist/loader.js"
-    },
-    "./mountx": {
-      "types": "./dist/mountx.d.ts",
-      "import": "./dist/mountx.js",
-      "default": "./dist/mountx.js"
-    },
-    "./nitro": {
-      "types": "./dist/nitro.d.ts",
-      "import": "./dist/nitro.js",
-      "default": "./dist/nitro.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
@@ -155,18 +140,17 @@
   },
   "dependencies": {
     "@valibot/to-json-schema": "catalog:runtime",
-    "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
     "minimatch": "catalog:workspace",
-    "mountx": "catalog:workspace",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs",
@@ -199,7 +183,7 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "@vite-hub/shell": {

@@ -43,9 +43,10 @@ icon: i-lucide-message-square-text
 
   // The same threads, from server code
   export default defineEventHandler(async () => {
-    const [error, threads] = await comments.list({ status: 'open' })
+    const [error, threads] = await comments.list({ subjectKind: 'page', status: 'open' })
     if (error) throw error
-    return threads.map(thread => thread.page)
+    // A page thread's subject id is the app path
+    return threads.map(thread => ({ n: thread.n, page: thread.subject.id }))
   })
   ```
   :::

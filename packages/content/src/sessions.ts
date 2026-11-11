@@ -1,5 +1,4 @@
 import { ViteHubError } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -241,7 +240,7 @@ export function createContentSessions(options: {
   /** Read `(collection, id, options)` or a singleton's `(collection, options)`. */
   function target(collectionName: unknown, idOrOptions: unknown, maybeOptions: unknown): { collection: SessionCollection, id: string, options: unknown } {
     const collection = options.collection(collectionName)
-    const hasId = hasRuntimeType(idOrOptions, "string")
+    const hasId = typeof idOrOptions === "string"
     return { collection, id: collection.documentId(hasId ? idOrOptions as string : undefined), options: hasId ? maybeOptions : idOrOptions }
   }
 

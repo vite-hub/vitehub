@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Provider output
 
-KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `@vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
+KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
 
 `vite dev` keeps every store local unless it sets `remote: true`, also when `.env` has Upstash credentials. Read [Development stays local](/docs/kv/configure#development-stays-local).
 
@@ -54,7 +54,7 @@ Read [Preview deployments share data](/docs/development/provisioning#preview-dep
 
 Key prefixes are not tables. Use Database for constraints, joins, migrations, history, or complex queries.
 
-Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads and writes (`setIfAbsent()`) and counters, not general compare-and-swap.
+Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 

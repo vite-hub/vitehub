@@ -21,7 +21,7 @@ export default defineConfig({
     ...ui({
       comark: false,
       nuxtUI: {
-        // Match console.vite.config.ts: the Console appearance module owns the color scheme.
+        // Match console.account.vite.config.ts: the Console appearance module owns the color scheme.
         colorMode: false,
         dts: false,
         ui: consoleAppConfig,

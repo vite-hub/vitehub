@@ -4,7 +4,6 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { setAgentChannelDeliveryWorkflowOwnershipResolver, setAgentChannelDeliveryWorkflowResolver } from "../internal/channel-delivery.ts"
 import { startingChannelTaskQueue } from "../channel-tasks.ts"
-import { isRuntimeObject } from "../internal/runtime-value.ts"
 import { createDeclaredWebhookPathMatcher } from "./route-runtime.ts"
 
 import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
@@ -57,7 +56,7 @@ function lazy<T>(create: (module: AgentRoutesModule) => T): () => Promise<T> {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return isRuntimeObject(value)
+  return typeof value === "object" && value !== null
 }
 
 export function hasChannelChatRoute(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {

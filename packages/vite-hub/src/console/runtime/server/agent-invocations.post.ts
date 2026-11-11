@@ -161,9 +161,9 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
   return {
     agent: name,
     id,
-    url: `/_vitehub/agents/${encodeURIComponent(encodeAgentRouteParam(name))}/invocations/${encodeURIComponent(id)}`,
+    url: `/agents/${encodeURIComponent(encodeAgentRouteParam(name))}/invocations/${encodeURIComponent(id)}`,
   }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", user: true, write: true })
+const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", write: true })
 export default guardedHandler

@@ -248,7 +248,7 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console routes run in the Nitro output of the selected preset.",
+      "The Console endpoint runs in the Nitro output of the selected preset. The Console at console.vitehub.dev calls it with signed requests.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(
@@ -260,6 +260,11 @@ const applicationFeatures: SupportMatrixGroup = {
       "available",
       "Requires Nitro 3 with request async context, or Nuxt 5.",
       "Nitro 3",
+    )),
+    featureRow("mcp", "The app's own MCP server", cell(
+      "package",
+      "The MCP route runs in the Nitro output of the selected preset.",
+      "Nitro route",
     )),
     featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
       "package",

@@ -1,0 +1,80 @@
+import type { AgentChannelTriggerContext, AgentTriggerInvokeResult } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+import { githubApi, githubInstallationId } from './github-app.ts'
+
+const repository = 'example/portal'
+const owner = { id: 1, login: 'example' }
+const reviewBotId = 2
+const botUserId = Number(process.env.BOT_USER_ID || 3)
+const acceptedCommentActors = new Set([owner.id, reviewBotId])
+
+type CommentKind = 'issue' | 'review'
+type TriggerKind = 'comment' | 'open'
+type GitHubUser = { id?: number, login?: string, type?: string }
+type GitHubReaction = { content?: string, id: number, user?: GitHubUser }
+type GitHubPullRequest = {
+  head: { ref: string, repo?: { full_name?: string }, sha: string }
+  number: number
+  state: string
+  user?: GitHubUser
+}
+
+type TriggerComment = { body: string, id: number, kind: CommentKind, user: GitHubUser }
+type GitHubWebhookInput = { body?: unknown, github?: { deliveryId?: string, event?: string, installationId?: number }, payload?: unknown }
+type ReactionPayload = { action: 'add' | 'remove', commentId: number, commentKind: CommentKind, content: string, installationId: number, repository: string }
+
+export default github({
+  app: true,
+  message: { methods: { 'comment-reaction': (_context, payload: ReactionPayload) => commentReactionEffect(payload) } },
+  pullRequest: false,
+  triggers: { webhook: { invoke: invokeGitHubWebhook } },
+  webhooks: true,
+})
+
+async function invokeGitHubWebhook(context: AgentChannelTriggerContext, input: GitHubWebhookInput): Promise<AgentTriggerInvokeResult> {
+  const payload = record(input.payload) || record(input.body) || record(input)
+  const event = input.github?.event
+  const deliveryId = input.github?.deliveryId
+  if (!payload || !event || !deliveryId) return ignored('missing-webhook-context')
+  if (string(record(payload.repository)?.full_name) !== repository) return ignored('wrong-repository')
+  const installationId = githubInstallationId(record(payload.installation)?.id || input.github?.installationId)
+  const number = positiveInteger(record(payload.pull_request)?.number || record(payload.issue)?.number)
+  if (!number) return ignored('not-pull-request')
+  const pullRequest = await githubApi<GitHubPullRequest>(`/repos/${repository}/pulls/${number}`, {}, installationId)
+  if (pullRequest.state !== 'open') return ignored('closed-pull-request')
+  if (pullRequest.user?.id !== owner.id || pullRequest.user.login !== owner.login) return ignored('unauthorized-author')
+  return context.invoke({
+    concurrencyKey: `${repository}#${number}`,
+    prompt: `Babysit this pull request ${number} after the ${event} event.`,
+  })
+}
+
+async function commentReactionEffect(payload: ReactionPayload) {
+  const endpoint = payload.commentKind === 'issue' ? `issues/comments/${payload.commentId}` : `pulls/comments/${payload.commentId}`
+  if (payload.action === 'add') {
+    await githubApi(`/repos/${payload.repository}/${endpoint}/reactions`, { body: JSON.stringify({ content: payload.content }), method: 'POST' }, payload.installationId)
+    return
+  }
+  const reactions = await githubApi<GitHubReaction[]>(`/repos/${payload.repository}/${endpoint}/reactions?per_page=100`, {}, payload.installationId)
+  await Promise.all(reactions.filter(reaction => reaction.content === payload.content && reaction.user?.id === botUserId).map(reaction => githubApi(`/repos/${payload.repository}/${endpoint}/reactions/${reaction.id}`, { method: 'DELETE' }, payload.installationId)))
+}
+
+function ignored(reason: string) {
+  return { ignored: true, reason }
+}
+
+function positiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function string(value: unknown) {
+  return typeof value === 'string' ? value : undefined
+}
+
+export function triggerKind(comment: TriggerComment | undefined): TriggerKind {
+  return comment && acceptedCommentActors.has(comment.user.id || 0) ? 'comment' : 'open'
+}

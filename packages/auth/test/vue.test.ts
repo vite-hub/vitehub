@@ -20,7 +20,7 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
-const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useSignIn, useSignUp, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 afterEach(() => {
   setSessionSeedResolver(undefined)
@@ -33,8 +33,6 @@ describe("Vue Auth composables", () => {
   it("projects the shared client", () => {
     expect(useAuthClient() === authClient).toBe(true)
     expect(useSession()).toBeDefined()
-    expect(typeof useSignIn()).toBe("function")
-    expect(typeof useSignUp()).toBe("function")
   })
 
   it("creates Better Auth's client on the first call, not before", async () => {

@@ -1,4 +1,3 @@
-import { isRuntimeBoolean, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "./runtime-value.ts"
 import { isPortableAgentWorkflowCapability } from "./final-channel-output.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -27,12 +26,12 @@ export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedO
       if (options.omitUndefinedObjectProperties !== false) return omittedWorkflowValue
       throw agentDiagnostics.AGENT_R0595({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
     }
-    if (input === null || isRuntimeString(input) || isRuntimeBoolean(input)) return input
-    if (isRuntimeNumber(input) && Number.isFinite(input) && !Object.is(input, -0)) return input
-    if (!input || !isRuntimeObject(input) || seen.has(input)) throw agentDiagnostics.AGENT_R0596({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
+    if (input === null || typeof input === "string" || typeof input === "boolean") return input
+    if (typeof input === "number" && Number.isFinite(input) && !Object.is(input, -0)) return input
+    if (!input || typeof input !== "object" || seen.has(input)) throw agentDiagnostics.AGENT_R0596({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
     seen.add(input)
     try {
-      if (Reflect.ownKeys(input).some((key) => isRuntimeSymbol(key))) throw agentDiagnostics.AGENT_R0597({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
+      if (Reflect.ownKeys(input).some((key) => typeof key === "symbol")) throw agentDiagnostics.AGENT_R0597({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
       if (Array.isArray(input)) {
         if (input.length !== Object.keys(input).length) throw agentDiagnostics.AGENT_R0598({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
         return Array.from({ length: input.length }, (_, index) => {

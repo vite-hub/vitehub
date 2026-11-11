@@ -34,7 +34,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Cache | fs-lite | Workers KV | Runtime Cache | KV | Deno KV | Host driver | fs-lite |
 | Database | SQLite | D1 | libSQL / D1 | libSQL | libSQL | Nuxt D1 | SQLite / libSQL |
 | Email | Resend | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
-| KV | fs-lite | Workers KV | Upstash | Upstash | Deno KV | Host driver | fs-lite / Upstash |
+| KV | fs-lite | Workers KV | Upstash | Upstash | Deno KV | Host driver | Redis / Postgres / fs-lite |
 | Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Local provider |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory |
 | Realtime | memory | Durable Objects | — | — | — | Host authority | memory |
@@ -57,6 +57,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
 | I18n | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 |
+| MCP server | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro route | Nitro |
 | Observability | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog |
 <!-- support-matrix:application-features:end -->
 

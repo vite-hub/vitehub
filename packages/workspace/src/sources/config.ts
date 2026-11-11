@@ -32,6 +32,7 @@ import type {
   WorkspaceValidateMode,
 } from "../core/types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
@@ -518,10 +519,6 @@ function isExplicitSourceBinding(input: WorkspaceSourceInput): input is Workspac
 
 function hasSourceMethods(input: Record<string, unknown>) {
   return typeof input.getKeys === "function" && typeof input.getItem === "function"
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function hasOwn(input: Record<string, unknown>, key: string) {

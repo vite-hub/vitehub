@@ -141,6 +141,18 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
   }
 }
 
+/**
+ * Returns the declarations that the Vite Integration writes to `.vitehub/types/env.d.ts` for an `env` config: the
+ * `PublicEnv` and `ServerEnv` types of `#vitehub/env/public` and `#vitehub/env/server`. A TypeScript host that does
+ * not run Vite, such as a test or a docs check, can write them itself.
+ */
+export function createEnvTypes(config: EnvDeclarations | undefined, options: Pick<EnvOptions, "prefix" | "runtimeImports" | "projectRoot"> = {}): string {
+  validateEnvConfigShape(config, "vite")
+  const root = resolve(options.projectRoot ?? process.cwd())
+  const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix, schemaModules: true })
+  return createViteTypes(createPublicTypeEntries(config?.public), registry, resolveRuntimeImports(options.runtimeImports), resolveSchemaModules(registry, root), viteHubEnvAmbientTypesPath(root))
+}
+
 export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
   validateEnvConfigShape(options, "vite")
   let buildPublicConfig: Record<string, unknown> = {}
@@ -674,7 +686,6 @@ function createServerEnvModule(
       : []),
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
     createServerEnvDescriptionModule(serverRegistry).trimEnd(),
-    'export const manageServerEnv = envRuntime.createServerEnvManagement?.(registry, providers) ?? (async () => Response.json({ message: "Env management is unavailable." }, { status: 503 }));',
     "export function useServerEnv(event) { return envRuntime.resolveServerEnv(registry, event); }",
     `export async function deriveSecret(purpose, event) { return await envRuntime.deriveSecret(purpose, event, undefined, ${JSON.stringify(developmentSecretGenerated)}, ${JSON.stringify(developmentSecretEnvKey)}); }`,
     `let sealing;`,
@@ -794,7 +805,6 @@ function createServerEnvInspectionTypes(indent: number): string[] {
     `${prefix}export interface ServerEnvDescriptionEntry { path?: string; canonicalName?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
-    `${prefix}export function manageServerEnv(request: Request, options?: { allowedOrigin?: string }): Promise<Response>`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  path?: string`,
@@ -896,4 +906,3 @@ function literalType(value: unknown): string {
       return "unknown"
   }
 }
-

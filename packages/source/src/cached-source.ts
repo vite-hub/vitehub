@@ -4,11 +4,6 @@ interface KeyedSourceReader {
   get(key: never): Promise<unknown>
 }
 
-function isRuntimeFunction(value: unknown): value is Function {
-  // Callable HTMLDDA browser values report undefined without being undefined.
-  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
-}
-
 type ValidCachedGet<TReader extends KeyedSourceReader> =
   (<T>() => T extends TReader["get"] ? 1 : 2) extends
   (<T>() => T extends (key: Parameters<TReader["get"]>[0]) => ReturnType<TReader["get"]> ? 1 : 2)
@@ -52,7 +47,7 @@ export function cachedSource<const TReader extends KeyedSourceReader>(
     get(_target, property) {
       if (property === "get") return readCached
       const value: unknown = Reflect.get(reader, property, reader)
-      return isRuntimeFunction(value) ? value.bind(reader) : value
+      return typeof value === "function" ? value.bind(reader) : value
     },
     set(_target, property, value: unknown) {
       return Reflect.set(reader, property, value, reader)

@@ -28,7 +28,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0024: {
-      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app with credentials in VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app and set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key whose public key the app has in VITEHUB_CONSOLE_KEY_<NAME>.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0023: {

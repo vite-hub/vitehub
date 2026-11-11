@@ -13,7 +13,7 @@ The Auth Definition is the `defineAuth()` file: `server/auth.ts` or `server.auth
 In Nuxt, a layer can supply `server/auth.ts`, and the app's own Definition replaces it. Definitions in two layers fail the build until the app defines one.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
@@ -132,7 +132,7 @@ export default defineConfig({
 ::
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   appName: 'Acme',
@@ -160,6 +160,8 @@ Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin
 Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
 
 ```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
 export default defineAuth(({ env, requestOrigin }) => ({
   advanced: { trustedProxyHeaders: true },
   baseURL: requestOrigin,
@@ -178,8 +180,8 @@ Caller runtime options override the `runtime` result, which overrides the Defini
 Use the `stateless()` preset when users sign in only with social providers and the app has no database. Each session lives in an encrypted cookie, so it survives restarts and works across replicas and Workers.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
-import { stateless } from '@vite-hub/auth/presets'
+import { defineAuth } from 'vite-hub/auth'
+import { stateless } from 'vite-hub/auth/presets'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   baseURL: requestOrigin,
@@ -229,7 +231,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 Better Auth extends a stored session once it is older than `session.updateAge`. `session.onRefresh` runs then, so you can check the user again, for example against a ban list.
 
 ```ts [server/auth.ts] fragment
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   session: {
@@ -265,7 +267,7 @@ The hook runs on every Better Auth path that refreshes a stored session: `/get-s
 
 With the session cookie, Auth also sets `vitehub_session=1`, with the same lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes. Better Auth clears both together, such as on sign-out. It is not `HttpOnly`, so page scripts can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [page tools](/docs/comments/configure#turn-comment-mode-on-and-off) read it to load comment mode right after sign-in.
 
-When a session starts or ends, Auth clears the `vitehub-tools` cookie of the [ViteHub tools pill](/docs/development/console#open-the-console-from-the-apps-pages). The next page checks if the new person may use the Console or Comments, so the pill appears at sign-in and goes away at sign-out. A session refresh keeps the cookie.
+When a session starts or ends, Auth clears the `vitehub-tools` cookie of the [ViteHub tools pill](/docs/comments/configure#turn-comment-mode-on-and-off). The next page checks if the new person may use Comments, so the pill appears at sign-in and goes away at sign-out. A session refresh keeps the cookie.
 
 ## Keep users in the app Database
 
@@ -292,11 +294,11 @@ pnpm vitehub database migrate
 - Keep one unconditional Database target. A callback must return one object with the inline call. Branches and `runtime.database` cannot pick another target. Other runtime options still work.
 - The tables use text IDs and references. Use Better Auth's default ID generator or a custom function that returns strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` need another adapter and your own schema. `authDatabase()` rejects them with `AUTH_C0053`.
 - The core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema with those columns. `authDatabase()` rejects them with `AUTH_C0055`, and a Database contribution cannot extend these tables.
-- `admin()`, `jwt()`, and `oauthProvider()` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
-- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [Console MCP OAuth](/docs/development/mcp#set-up-oauth), and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
+- `admin()`, `jwt()`, `oauthProvider()`, `organization()`, and `passkey()` from `@better-auth/passkey` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
+- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [MCP OAuth](#sign-mcp-clients-in), the [`organization()`](https://www.better-auth.com/docs/plugins/organization) tables (`organization`, `member`, `invitation`, and `session.activeOrganizationId`), the [`passkey()`](https://www.better-auth.com/docs/plugins/passkey) table, and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
 - The tables use the target Database's dialect: SQLite, libSQL, Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. Server code can read them from `useDatabase(name).schema`.
-- Other plugins that add tables, such as `organization()`, need those tables in the Database Definition. A missing table fails when Better Auth uses it.
+- Other plugins that only add tables need those tables in the Database Definition. A missing table fails when Better Auth uses it. `twoFactor()` also adds `user.twoFactorEnabled`, so it needs another adapter and a matching schema.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
 
 Better Auth's own adapters still work. To use another database, return one from the Definition callback or `runtime`.
@@ -342,17 +344,19 @@ Set this variable on the host, for example as a Worker secret:
 VITEHUB_ADMIN_CLAIM=sha256:3f9a...
 ```
 
-Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in, open `/_vitehub`, and enter the code under **Claim code** on the Access denied page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
+Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in to the app, and send the code to the claim route below, for example from your own admin page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
 
 The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
 
-The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value.
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
 ## Sign MCP clients in
 
-An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token. For the Console endpoint `/_vitehub/mcp`, use [Console MCP OAuth](/docs/development/mcp#set-up-oauth) instead.
+An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
+
+With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/development/app-mcp) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 
@@ -389,7 +393,16 @@ With a Better Auth `secondaryStorage` adapter, also set `session: { storeSession
 
 These helpers support only bearer tokens. Registration with `dpop_bound_access_tokens: true` gets `400 invalid_client_metadata`, and `verifyMcpRequest()` rejects DPoP-bound tokens even when sent as bearer tokens.
 
-The login and consent pages get a signed query from Better Auth. Send its parameters back unchanged as `oauth_query`, as [Console MCP OAuth](/docs/development/mcp#set-up-oauth) explains. The plugins keep keys, clients, and tokens in the `jwks` and `oauth*` tables, which `authDatabase()` includes.
+The plugins keep keys, clients, and tokens in the `jwks` and `oauth*` tables, which `authDatabase()` includes.
+
+Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`. Both pages get a signed query:
+
+1. Better Auth sends the person to your page with a signed query: the parameters named by `ba_param`, plus `sig`.
+2. Send those parameters back unchanged, in order, as `oauth_query` in the sign-in request body, such as `/api/auth/sign-in/email`. The response has the `url` of the next step.
+3. The signed-in person comes back to the consent page. Show the client name from `/api/auth/oauth2/public-client?client_id=…`, and send `{ accept, oauth_query }` to `/api/auth/oauth2/consent`.
+4. Go to the `url` in its response.
+
+Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests for you.
 
 ### Serve discovery at the origin root
 
@@ -471,7 +484,7 @@ The `database` and `secondaryStorage` fields record, for inspection, which ViteH
 | `secondaryStorage: { store: 'auth' }` | The named KV Store `auth`. |
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

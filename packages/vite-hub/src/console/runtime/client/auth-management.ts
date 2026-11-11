@@ -14,9 +14,10 @@ import type {
   AuthConsoleQuery,
 } from "@vite-hub/auth/console";
 
-import { consoleDateTime } from "./time";
+import { authConsoleActionOperations, authConsoleReadOperations } from "../auth-operations";
+import { consoleDateTime } from "./format";
 import { projectFetch } from "./project";
-import { ConsoleRequestError } from "./request";
+import { ConsoleRequestError, requestConsoleOperation } from "./request";
 
 type AuthResults = {
   describe: AuthConsoleDescription;
@@ -29,12 +30,11 @@ type AuthResults = {
   organization: AuthConsoleOrganizationDetail;
   agents: AuthConsoleList<AuthConsoleAgent>;
 };
-async function request(base: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
+async function request(base: string, body: unknown): Promise<unknown> {
   const response = await projectFetch(base, {
     method: "POST",
     headers: { "content-type": "application/json", "x-vitehub-console": "1" },
     body: JSON.stringify(body),
-    signal,
   });
   const value: unknown = await response.json();
   if (!response.ok)
@@ -46,20 +46,35 @@ async function request(base: string, body: unknown, signal?: AbortSignal): Promi
     );
   return value;
 }
+/** Reads the Auth section with its `auth.<read>` operation. */
 export async function readAuthConsole<K extends keyof AuthResults>(
-  base: string,
   operation: K,
   input: { query?: AuthConsoleQuery; activity?: AuthConsoleActivityQuery; id?: string } = {},
   signal?: AbortSignal,
 ): Promise<AuthResults[K]> {
+  const { activity, id, query } = input;
+  const value = await requestConsoleOperation(
+    authConsoleReadOperations[operation],
+    { ...query, ...activity, ...(id === undefined ? {} : { id }) },
+    signal ? { signal } : {},
+  );
   // The owner and the synthetic fixture share this response contract. Only the selected operation determines its type.
-  return (await request(base, { operation, ...input }, signal)) as AuthResults[K];
+  return value as AuthResults[K];
 }
+/**
+ * Runs one Auth action with its `auth.<action>` operation. Impersonation sets the app session cookie, so it posts to
+ * `base`, the Auth management route of the app.
+ */
 export async function changeAuthConsole(
   base: string,
   input: AuthConsoleMutation | { action: "stopImpersonating" },
 ): Promise<void> {
-  await request(base, input);
+  if (input.action === "impersonate" || input.action === "stopImpersonating") {
+    await request(base, input);
+    return;
+  }
+  const { action, ...fields } = input;
+  await requestConsoleOperation(authConsoleActionOperations[action], fields);
 }
 export const authDate = (value: string | null) =>
   value
@@ -71,12 +86,3 @@ export const authFieldValue = (value: unknown) =>
     : Array.isArray(value)
       ? value.join(", ")
       : String(value);
-/** A session length in words, such as "1 hour" or "1 hour 30 minutes". */
-export function authDuration(seconds: number): string {
-  const minutes = Math.max(1, Math.round(seconds / 60));
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  const unit = (value: number, name: string) => `${value} ${name}${value === 1 ? "" : "s"}`;
-  if (!hours) return unit(rest, "minute");
-  return rest ? `${unit(hours, "hour")} ${unit(rest, "minute")}` : unit(hours, "hour");
-}

@@ -91,7 +91,8 @@ afterEach(() => {
 
 const stubs = {
   ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
-  ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
+  UAlert: { props: ["title", "description"], template: "<div>{{ title }}<slot name='description'>{{ description }}</slot><slot name='actions' /></div>" },
+  Status: { props: ["label"], template: "<span>{{ label }}</span>" },
   UButton,
   UModal,
   UTooltip: { template: "<slot />" },
@@ -768,7 +769,7 @@ describe("Local only edits on the third review", () => {
     // The recovery actions show for a singleton too.
     expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
     expect(wrapper.get('[data-label="Apply to shared draft"]').attributes("disabled")).toBeUndefined()
-    expect(wrapper.get('[data-label="Copy"]').attributes("aria-label")).toBe("Copy your local edits")
+    expect(wrapper.getComponent({ name: "CopyButton" }).props()).toMatchObject({ ariaLabel: "Copy your local edits", label: "Copy" })
   })
 
   for (const [name, listed] of [["deleted from the draft", "deleted"], ["gone from the draft and the site", undefined]] as const) {

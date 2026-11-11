@@ -1,8 +1,10 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { getAuthTables } from "better-auth/db"
 import { getTableName } from "drizzle-orm"
-import { admin, jwt } from "better-auth/plugins"
-import { getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
+import { passkey } from "@better-auth/passkey"
+import { admin, jwt, organization } from "better-auth/plugins"
+import { PgDialect, getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
+import { postgresJsCodecs } from "drizzle-orm/postgres-js"
 import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
@@ -14,7 +16,7 @@ import type { AuthTableField, AuthTableSpec } from "../src/schema.ts"
 
 /** Better Auth's tables for the plugins that ViteHub ships and the database limiter, in the shape of `authTableSpecs`. */
 function betterAuthTables(): Record<string, AuthTableSpec> {
-  const tables = getAuthTables({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" })], rateLimit: { storage: "database" } })
+  const tables = getAuthTables({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" }), organization(), passkey()], rateLimit: { storage: "database" } })
   return Object.fromEntries(Object.entries(tables).map(([model, table]) => {
     const fields = Object.fromEntries(Object.entries(table.fields).map(([key, field]) => {
       const spec: AuthTableField = { type: field.type as AuthTableField["type"] }
@@ -42,15 +44,19 @@ function normalized(specs: Readonly<Record<string, AuthTableSpec>>) {
 
 describe("Auth tables", () => {
   it("accepts the shipped plugins and separately contributed plugin tables", () => {
-    expect(() => assertAuthDatabaseSchema({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" }), {
+    expect(() => assertAuthDatabaseSchema({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" }), organization(), passkey(), {
       id: "app-table",
       schema: { appTable: { fields: { value: { type: "string" } } } },
     }] })).not.toThrow()
   })
 
-  it("match Better Auth's tables for admin(), jwt(), and oauthProvider()", () => {
+  it("match Better Auth's tables for admin(), jwt(), oauthProvider(), organization(), and passkey()", () => {
     // A Better Auth upgrade that changes these tables fails here. Update `authTableSpecs` in src/schema.ts.
-    expect(normalized(authTableSpecs)).toEqual(normalized(betterAuthTables()))
+    const expected = betterAuthTables()
+    // Better Auth omits this storage flag, but Postgres needs bigint for unsigned 32-bit counters.
+    const expectedPasskey = expected.passkey!
+    expectedPasskey.fields = { ...expectedPasskey.fields, counter: { ...expectedPasskey.fields.counter!, bigint: true } }
+    expect(normalized(authTableSpecs)).toEqual(normalized(expected))
   })
 
   it("names SQLite and Postgres columns as the Better Auth CLI does", () => {
@@ -70,6 +76,20 @@ describe("Auth tables", () => {
       ["oauthClientResource_clientId_idx", false],
       ["oauthClientResource_resourceId_idx", false],
     ])
+  })
+
+  it("stores the full unsigned 32-bit passkey counter range as JavaScript numbers", () => {
+    const postgres = authPostgresSchema.passkey.counter!
+    const sqlite = authSqliteSchema.passkey.counter!
+    const dialect = new PgDialect({ codecs: postgresJsCodecs })
+    expect(postgres.getSQLType()).toBe("bigint")
+    expect(postgres.dataType).toBe("number int53")
+    expect(sqlite.getSQLType()).toBe("integer")
+    for (const counter of [0, 2 ** 31 - 1, 2 ** 31, 2 ** 32 - 1]) {
+      expect(postgres.mapToDriverValue(counter)).toBe(counter)
+      expect(dialect.codecs.apply(postgres, "normalize", String(counter))).toBe(counter)
+      expect(sqlite.mapFromDriverValue(counter)).toBe(counter)
+    }
   })
 
   it("lists every schema key and SQL name for the Database contribution", () => {
