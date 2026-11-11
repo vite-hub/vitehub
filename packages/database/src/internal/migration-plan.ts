@@ -11,7 +11,7 @@ import { migratePostgres } from "../runtime/migrate-on-start.ts"
 import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
-import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
+import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "./migration-ledger.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
@@ -193,7 +193,10 @@ export async function readMigrationPlan(
       return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
-    const { applied, unmatched } = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
+    const match = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
+    const problem = ledgerUpgradeProblem(match)
+    if (problem) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
+    const { applied, unmatched } = match
     // Drizzle 1.0 adds `name` to a Drizzle Kit 0.x ledger first, and refuses rows that match no migration folder, for
     // example the rows of another Definition on the same database.
     if (unmatched.length) {
@@ -246,6 +249,7 @@ export async function migratePostgresDatabases(
   try {
     const targets = databases.map((database) => {
       const target = resolveTarget(database, options)
+      // Internal invariant: the CLI passes only Definitions filtered by their Postgres dialect.
       if (target?.kind !== "postgres") throw new Error(`The database "${database.name}" is not a Postgres database.`)
       const client = connectPostgres(target, options.projectRoot, options.env)
       clients.push(client)

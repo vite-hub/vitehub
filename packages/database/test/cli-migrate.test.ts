@@ -260,7 +260,7 @@ describe("readMigrationPlan", () => {
   }, 60_000)
 
   it("accepts the Cloudflare D1 array row response shape", async () => {
-    const { database, rootDir } = await d1Project()
+    const { database, init, rootDir } = await d1Project()
     const request = vi.fn<typeof fetch>(async () => Response.json({ result: [{ results: { columns: ["name"], rows: [] } }], success: true }))
 
     const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: request, projectRoot: rootDir })
