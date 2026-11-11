@@ -107,6 +107,7 @@ export async function answerOperationRpc<Operation>(call: OperationRpcCall, serv
   let receive: ((message: OperationRpcCall) => unknown) | undefined
   let posted: { i: string, r?: unknown, e?: unknown } | undefined
   let resolved = false
+  let rejection: { reason: unknown } | undefined
   createBirpc<Record<string, never>, Record<string, never>, false>({}, {
     on: (listener) => {
       receive = listener
@@ -118,7 +119,16 @@ export async function answerOperationRpc<Operation>(call: OperationRpcCall, serv
       if (!Object.hasOwn(server.operations, name)) return undefined
       resolved = true
       const operation = server.operations[name]!
-      return (...args: unknown[]) => server.run(operation, args[0])
+      return async (...args: unknown[]) => {
+        try {
+          return await server.run(operation, args[0])
+        }
+        catch (reason) {
+          // birpc treats a falsy rejection as success. Keep the original reason for the diagnostic.
+          rejection = { reason }
+          throw rejection
+        }
+      }
     },
     proxify: false,
     // The server never calls the client, so no call waits for a timeout.
@@ -128,7 +138,8 @@ export async function answerOperationRpc<Operation>(call: OperationRpcCall, serv
   if (!posted) throw new Error("birpc did not reply to the operation call.")
   if (!Object.hasOwn(posted, "e")) return { t: "s", i: call.i, r: posted.r }
   // birpc refuses a name that the resolver does not return with its own error. The caller names the failure.
-  return { t: "s", i: call.i, e: server.failure(resolved ? posted.e : server.unknown(call.m)) }
+  const error = rejection ? rejection.reason : resolved ? posted.e : server.unknown(call.m)
+  return { t: "s", i: call.i, e: server.failure(error) }
 }
 
 /**

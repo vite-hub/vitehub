@@ -43,8 +43,8 @@ export function isConsoleRpcPath(pathname: string): boolean {
  * takes effect without a build.
  *
  * The signed origin must be the origin of this app: `vitehub({ publicUrl })` when it is set, else the URL of the request
- * as the host routed it. The forwarded `Host` and `X-Forwarded-*` headers never count, because any caller can set them.
- * A Node.js server behind a proxy that ends TLS sees `http:`, so it needs `publicUrl`.
+ * as the host routed it. Node adapters build that URL from the caller's Host header, so they require a configured
+ * public URL. Forwarding headers never supply the deployment identity.
  *
  * A match carries the signed body digest. The RPC route compares it with the bytes that it reads before it runs a call.
  * Signed requests reach only `POST /_vitehub/rpc`.
@@ -56,7 +56,12 @@ export async function checkConsoleSignature(request: Request, event: ConsoleRequ
   if (request.method !== "POST" || !isConsoleRpcPath(url.pathname)) {
     return { ok: false, response: consoleSignatureRejection(401, "CONSOLE_SIGNATURE_INVALID", `Signed requests reach only POST ${operationRpcPath}.`) }
   }
-  const verified = await verifyConsoleSignature({ headers: request.headers, keys, method: request.method, origin: resolvePublicUrl({ request }), url })
+  const nodeRequest = "runtime" in request && typeof request.runtime === "object" && request.runtime !== null && "node" in request.runtime
+  const origin = resolvePublicUrl({ configuredOnly: nodeRequest, request })
+  if (!origin) {
+    return { ok: false, response: consoleSignatureRejection(500, "CONSOLE_SIGNATURE_ORIGIN", "Signed requests on Node require vitehub({ publicUrl }) to identify this deployment. The request Host cannot supply its identity.") }
+  }
+  const verified = await verifyConsoleSignature({ headers: request.headers, keys, method: request.method, origin, url })
   if (!verified.ok) return { ok: false, response: consoleSignatureRejection(verified.status, verified.code, verified.message) }
   return verified
 }

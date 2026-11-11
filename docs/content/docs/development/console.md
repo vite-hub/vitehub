@@ -14,7 +14,7 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 | `/_vitehub/mcp` | The [MCP endpoint](/docs/development/mcp) for agents. |
 | `/_vitehub/.well-known/skills/` | The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
 
-### Call format
+## Call format
 
 Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
 
@@ -31,6 +31,8 @@ The response carries one reply. `r` holds the value. The HTTP status is `200`, o
 A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
 
 The sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
+
+The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
 
 - **Channels** lists the Channels of your Agents, their threads, and each conversation with its attachments and the runs that answered. You can download a conversation as Markdown or JSON. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
 - **Content** shows when `server/content.ts` defines document collections. It saves drafts, publishes, and restores revisions. `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console).
@@ -142,7 +144,7 @@ pnpm vitehub project info --url https://app.example.com
 
 Env searches declared Server Env variables and filters them by source. A variable shows its provider, secret flag, and whether it is required or has a default.
 
-Env does not read secret values, call providers, or check credentials. Values and defaults stay hidden. Env management (values, Access, and Activity) needed the Console that the app served, which is removed. Change host values in your deployment configuration. Set `env: false` in the ViteHub options to turn off Env and its section.
+Env does not read secret values, call providers, or check credentials. Values and defaults stay hidden. Env management (values, Access, and Activity) needed the Console that the app served, which is removed. Change host values in your deployment configuration. Set `env: false` in the ViteHub options to turn off Env, its section, and its `/_vitehub/env/manage` route.
 
 ## Manage Connections
 
@@ -411,9 +413,9 @@ The second line is the method, the third line is the path and query that the app
 
 When no key variable is set, every request gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`. When one of them is not a key, every request gets `500` with `CONSOLE_KEY_MALFORMED`, and the message names it. Signed requests reach only `POST /_vitehub/rpc`.
 
-The app origin is the origin of `vitehub({ publicUrl })` when it is set. Without it, it is the URL of the request as the host routed it. The server never reads `Host` or `X-Forwarded-*` headers for this, because any caller can set them. A Node.js server behind a proxy that ends TLS sees `http:`, so set `publicUrl` to its public URL. The origin stops a request signed for one app, such as a preview, from working on another app with the same key. Inside the 5 minutes, the same request can run again on the same app. TLS keeps others from reading it.
+The app origin is the origin of `vitehub({ publicUrl })` when it is set. Node.js adapters build the request URL from `Host`, which the caller controls, so signed requests on Node require `publicUrl`. Without a matching configured origin, they fail with `500 CONSOLE_SIGNATURE_ORIGIN`. Use the string form for one deployment origin; the function form permits its configured Agent origins. Other hosts can use the request URL as routed by the platform. Forwarding headers never supply the app origin. The origin stops a request signed for one app, such as a preview, from working on another app with the same key. Inside the 5 minutes, the same request can run again on the same app. TLS keeps others from reading it.
 
-A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the public key in its environment:
+A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. On Node, also set `publicUrl` to that origin in the development configuration. The dev server also needs the public key in its environment:
 
 ```bash [Terminal]
 VITEHUB_CONSOLE_PRIVATE_KEY_CI=<private key> vitehub kv list --url http://localhost:3000

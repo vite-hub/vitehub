@@ -10,7 +10,6 @@ import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import * as channelTasks from "../src/channel-tasks.ts"
 import { hubAgent } from "../src/vite.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 
 const cleanups: (() => Promise<void>)[] = []
 
@@ -112,7 +111,7 @@ async function installGeneratedHost(resume: () => () => Promise<void>) {
   await mkdir(join(root, "server", "agents"), { recursive: true })
   await writeFile(join(root, "server", "agents", "bot.ts"), "export default {}")
   const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:state.sqlite" } } })
-  if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+  if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
   // SAFETY: The config hook reads only command and root from this fixture.
   await plugin.configResolved.call({} as never, { command: "build", root } as never)
   const source = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")

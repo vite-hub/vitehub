@@ -1101,13 +1101,14 @@ function normalizePublicUrl(value: string): string {
 
 const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 
-function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin & ViteHubCliContributingPlugin {
+function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: boolean): Plugin & ViteHubCliContributingPlugin {
   return {
     name: "vite-hub/public-url",
     // `channels sync` and `channels history` use one public origin as their default `--url`.
     ...(typeof publicUrl === "string" ? { vitehub: { cli: () => ({ namespaces: [], publicUrl: normalizePublicUrl(publicUrl) }) } } : {}),
     config(config, { command }) {
-      if (publicUrl === undefined || command !== "build") return
+      // Signed Node requests need a configured deployment origin in development too.
+      if (publicUrl === undefined || (command !== "build" && !signedConsole)) return
       let resolved: PublicUrlConfig
       if (typeof publicUrl === "function") {
         const root = resolveViteHubProjectRoot(config.root ?? process.cwd())
@@ -1263,7 +1264,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(agentChannelEnvPlugin())
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
-  plugins.push(publicUrlPlugin(options.publicUrl))
+  plugins.push(publicUrlPlugin(options.publicUrl, configuredConsole?.auth === "token"))
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
