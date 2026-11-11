@@ -53,7 +53,7 @@ export interface ParsedContentRef {
 }
 
 function invalid(ref: unknown, reason: string): Error {
-  return contentErrorDiagnostics.CONTENT_R0024({ ref: typeof ref === "string" ? ref.slice(0, MAX_REF_LENGTH + 1) : String(ref), reason })
+  return contentErrorDiagnostics.CONTENT_R0027({ ref: typeof ref === "string" ? ref.slice(0, MAX_REF_LENGTH + 1) : String(ref), reason })
 }
 
 /**

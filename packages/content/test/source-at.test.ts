@@ -123,7 +123,7 @@ describe("content.sources.at()", () => {
     const content = server()
 
     for (const ref of ["missing", "feat", "pr/99", fakeSha("missing commit")]) {
-      await expect(content.sources.at(ref, "docs")).rejects.toMatchObject({ code: "CONTENT_R0025", message: expect.stringContaining(JSON.stringify(ref)) })
+      await expect(content.sources.at(ref, "docs")).rejects.toMatchObject({ code: "CONTENT_R0028", message: expect.stringContaining(JSON.stringify(ref)) })
     }
     // A failed lookup is not held: the branch opens once it exists.
     fake.commit("missing", { "guide.md": page("Now here") })
@@ -158,7 +158,7 @@ describe("content.sources.at()", () => {
     ]
     for (const ref of invalid) {
       // SAFETY: The test passes values that a JavaScript caller or a route parameter can pass.
-      await expect(content.sources.at(ref as string, "docs")).rejects.toMatchObject({ code: "CONTENT_R0024" })
+      await expect(content.sources.at(ref as string, "docs")).rejects.toMatchObject({ code: "CONTENT_R0027" })
     }
     expect(fake.requests).toHaveLength(0)
     await expect(content.sources.at("main", "unknown")).rejects.toMatchObject({ code: "CONTENT_R0008" })
@@ -170,7 +170,7 @@ describe("content.sources.at()", () => {
     const content = server()
 
     await expect(content.sources.at("feat/broken", "docs")).rejects.toMatchObject({
-      code: "CONTENT_R0027",
+      code: "CONTENT_R0030",
       message: expect.stringContaining(`Commit ${bad} of ref "feat/broken"`),
     })
     expect((await content.sources.head("docs")).views).toEqual([])

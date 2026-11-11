@@ -462,9 +462,9 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
         resolved = await resolve.call(state.definition, parsed.lookup)
       }
       catch (error) {
-        throw contentErrorDiagnostics.CONTENT_R0026({ source: state.name, ref: parsed.ref, reason: error instanceof Error ? error.message : String(error), cause: error })
+        throw contentErrorDiagnostics.CONTENT_R0029({ source: state.name, ref: parsed.ref, reason: error instanceof Error ? error.message : String(error), cause: error })
       }
-      if (!resolved) throw contentErrorDiagnostics.CONTENT_R0025({ source: state.name, ref: parsed.ref })
+      if (!resolved) throw contentErrorDiagnostics.CONTENT_R0028({ source: state.name, ref: parsed.ref })
       return { source: state.name, ref: parsed.ref, kind: parsed.kind, sha: resolved.sha.toLowerCase(), pull: resolved.pull ?? null }
     })()
     refs.set(key, { at: Date.now(), target })
@@ -565,7 +565,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       const state = stateOf(source)
       const target = await resolveRef(state, parsed)
       const loaded = await load(state, { id: target.sha, immutable: true })
-      if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0027({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
+      if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
       openView(state, target.sha)
       const read = <T>(run: (hub: ContentHub<ComarkContent[]>) => Promise<T>) => readAt(state, target.sha, run)
       return {
