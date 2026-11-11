@@ -62,8 +62,11 @@ describe("configured ability clients", () => {
     expect(ability!.can("posts.edit", ownPost)).toBe(true)
     expect(root.innerHTML).toContain("Edit")
 
-    await vi.waitFor(() => expect(requests.length).toBeGreaterThan(0))
-    await vi.waitFor(() => expect(ability!.can("posts.edit", ownPost)).toBe(true))
+    // Hydration keeps the server's session without a read. A refresh reads it at the custom path.
+    expect(requests).toEqual([])
+    await refresh!()
+    expect(requests.length).toBeGreaterThan(0)
+    expect(ability!.can("posts.edit", ownPost)).toBe(true)
     expect(explicit!.can("posts.edit", ownPost)).toBe(true)
     expect(root.innerHTML).toContain("Edit")
     expect(requests.every(url => url.endsWith("/auth/get-session"))).toBe(true)

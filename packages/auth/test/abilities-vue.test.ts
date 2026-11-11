@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { createApp, defineComponent, h, nextTick, ref } from "vue"
 import { renderToString } from "vue/server-renderer"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { Window } from "happy-dom"
 import type { Ref } from "vue"
@@ -29,7 +29,15 @@ async function untilLoaded(watched: number): Promise<void> {
 }
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
-const { Can, setSessionSeedResolver, useAbility } = await import("../src/vue.ts")
+// Each test gets new modules, because the app shares one session per client.
+let Can: typeof import("../src/vue.ts").Can
+let setSessionSeedResolver: typeof import("../src/vue.ts").setSessionSeedResolver
+let useAbility: typeof import("../src/vue.ts").useAbility
+
+beforeEach(async () => {
+  vi.resetModules()
+  ;({ Can, setSessionSeedResolver, useAbility } = await import("../src/vue.ts"))
+})
 
 const author = { session: { id: "s1" }, user: { id: "u1", name: "Ada", emailVerified: true } }
 const ownPost = { authorId: "u1", published: false }
@@ -68,8 +76,11 @@ describe("<Can> during server rendering", () => {
     betterAuth.session = pendingSession()
     expect(await render(canEdit(ownPost))).toBe("<button>Edit</button>")
     expect(await render(canEdit(otherPost))).toBe("<span>denied: not-author</span>")
+  })
 
+  it("renders #denied when the server read no session", async () => {
     setSessionSeedResolver(() => null)
+    betterAuth.session = pendingSession()
     expect(await render(canEdit(ownPost))).toBe("<span>denied: signed-out</span>")
   })
 })

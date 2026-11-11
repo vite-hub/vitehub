@@ -321,7 +321,7 @@ describe("hubAuth", () => {
 
     expect(resolveAuthModule(plugin, AUTH_CLIENT_ID)).toBe(client)
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
-    expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default, client: typeof import(\"../../app/auth.client.js\").default }")
+    expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default; client: typeof import(\"../../app/auth.client.js\").default }")
   })
 
   it("keeps the Vue client out of dependency prebundling when the app has auth.client.ts", async () => {
