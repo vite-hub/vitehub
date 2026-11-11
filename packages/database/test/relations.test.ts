@@ -16,6 +16,7 @@ import { mergeDatabaseRelations } from "../src/runtime/relations.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { CollectedDatabaseContribution } from "../src/contributions.ts"
+import type { MergeDatabaseRelations } from "../src/types.ts"
 
 const tempDirs: string[] = []
 
@@ -154,8 +155,8 @@ describe("mergeDatabaseRelations", () => {
     expect(Object.hasOwn(merged.posts!.relations, "__proto__")).toBe(true)
     expect(merged.posts!.relations["__proto__"]).toBe(part.posts.relations["__proto__"])
 
-    // This merge preserves the part's graph, including its computed relation name.
-    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged as typeof part, schema })
+    // The merged graph also includes the target table omitted by the partial graph.
+    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged as MergeDatabaseRelations<typeof schema, [typeof part]>, schema })
     await seed(db)
     await expect(db.query.posts!.findMany({ columns: { title: true }, orderBy: { id: "asc" }, where: { ["__proto__"]: { name: "Ada" } } })).resolves.toEqual([
       { title: "First" }, { title: "Second" },
