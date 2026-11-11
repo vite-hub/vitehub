@@ -74,6 +74,14 @@ export async function readRealtimeYDoc(editor: RealtimeEditor, document: Y.Doc):
   return { body: await editor.toMarkdown(content), fields }
 }
 
+/**
+ * Throws when the body of `document` does not fit the editor schema, such as a node type the schema does not know.
+ * A codec that builds an editor from such JSON writes an empty or partial document.
+ */
+export function checkRealtimeBody(editor: RealtimeEditor, document: Y.Doc): void {
+  realtimeEditorSchema(editor).nodeFromJSON(yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body))).check()
+}
+
 /** Whether `fromMarkdown(body)` gives back the body of `document`, where `body` is what `toMarkdown` wrote for it. */
 export async function realtimeCodecReadsBack(editor: RealtimeEditor, document: Y.Doc, body: string): Promise<boolean> {
   const schema = realtimeEditorSchema(editor)
