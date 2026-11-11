@@ -17,7 +17,7 @@ async function project(definitions: Record<string, string> = {}, extension = "ts
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-bundle-"))
   tempDirs.push(rootDir)
   for (const [name, body] of Object.entries(definitions)) {
-    const file = join(rootDir, "server", "databases", name, `config.${extension}`)
+    const file = join(rootDir, "server", "databases", `${name}.${extension}`)
     await mkdir(dirname(file), { recursive: true })
     await writeFile(file, [
       "import { defineDatabase } from '@vite-hub/database'",

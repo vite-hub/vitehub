@@ -171,37 +171,21 @@ Annotate optional fields and literal unions in the defaults to describe the acce
 
 Ordinary Agent overrides apply after the callback and stay through more extensions. Each extension clears an inherited Agent name.
 
-For discovered Agents, a Workspace reference object must use a `name` string that is known at build time. `name: undefined` owns a Workspace. Opaque names need an explicit Workspace ownership marker on the configured definition.
-
 A configured Agent exposes its resolved `options` for host setup and inspection; they do not become model instructions.
 
-## Keep definitions discoverable
+## Declare the Workspace
 
-At build time, discovery reads Agent files, without running configuration callbacks, to find the Workspaces (folders of files that server code reads and changes) they own.
+At build time, discovery reads Agent files without running them, to find the Workspaces (folders of files that server code reads and changes) that they own.
 
-For folder Agents discovered from `agent.ts`, define `configure` in that file and return `defineAgent()` directly, or declare `workspace: {}` or a named Workspace reference on the configured Agent. Discovery rejects an imported `configure`, because it cannot tell which Workspace setup the Agent needs.
+A folder Agent, such as `server/agents/review/agent.ts`, owns a Workspace only when the `defineAgent()` options that its file exports have a `workspace` key:
 
-Discovery cannot read these forms:
+- `workspace: {}` or Workspace options own a Workspace.
+- `workspace: 'shared'` and `workspace: { name: 'shared' }` use a shared Workspace.
+- No `workspace` key, or `workspace: undefined`, declares no Workspace. The Agent stays stateless.
 
-| Form | Examples |
-| --- | --- |
-| Opaque callback results | Imported callbacks, `builders["workspace"]()`, `build!()`, `(build as Factory)()`, returned Agent members such as `agents.storage`. |
-| Dynamic settings | Unresolved computed keys, quoted keys with unsupported escapes, compound `void` expressions, `options.workspaceName`, spreads such as `...importedSettings`. |
-| Indirect preset selection | Imported Agent parents or preset registries, registry spreads, dynamic preset names. |
-| Indirect Capability configuration | Imported options or values, destructured bindings, `options.caps`, `values.storage`, `values.storage()`. |
-| Constructed Capability lists | `false \|\| [storage]`, `Array.of(storage)`, or `[plain].concat(storage)`. |
-| Opaque Channels | Imported Channel maps, package imports, local Channel factories, `makeChannel()`. |
-| Opaque Channel options | `github(options.github)`, `github({ pullRequest: options.pullRequest })`, accessors such as `get pullRequest()`. |
+Write the key in the exported `defineAgent()` call or in a `const` that the call uses. Discovery does not set up a Workspace for a key that it cannot read, such as one in options that a function returns.
 
-When these forms add an owned Workspace, add `workspace: {}`. Otherwise, define settings, parents, Channels, and Capabilities in the same file with direct bindings.
-
-Discovery can read first-party Channel helper calls such as `github({ pullRequest: false })` without running them, Channels imported from relative modules such as `import portal from '../portal.github.ts'` (with the same rules), and relative re-exports such as `export { default } from './inner.ts'` and `export * from './channels.ts'`. It rejects re-exports from packages.
-
-- `github()` owns a Workspace only when `pullRequest` is enabled and `pullRequest.workspace` is not `false`.
-- `discord()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()` own one only through their `capabilities`.
-- An Agent whose Channels own no Workspace stays stateless; do not add `workspace: {}`.
-
-Discovery does not run calls, so it rejects Channel option bindings that are changed or passed to opaque calls, including local callbacks and mutators such as `Object.assign`. Use unchanged local options, or add `workspace: {}` when the Channel owns a Workspace.
+When a Capability, Channel, preset, parent, or `configure` callback adds a Workspace, such as `github({ pullRequest: true })`, also add `workspace: {}`. Without it, the Agent fails with `AGENT_R1037` when it loads.
 
 Configured presets merge Capabilities, Channels, and hooks like `extends`: a child replaces a Capability with the same ID or a Channel with the same key, and a same-name hook runs after the preset's, so an extension's `agent:finish` cannot remove preset behavior. Option callbacks are values that get replaced and are never called by merging.
 

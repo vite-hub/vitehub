@@ -86,12 +86,15 @@ A Database Definition is the file where you write your tables, next to the serve
 
 | File | Database |
 | --- | --- |
-| `src/database.ts` or `server/databases/config.ts` | The default database, named `default`. |
-| `src/<name>.database.ts` or `server/databases/<name>/config.ts` | A named database, `<name>`. The Definition must set `name: '<name>'`. |
+| `server/databases/<name>.ts` or `server/databases/<name>/index.ts` | The Database `<name>`. `server/databases/default.ts` is the Default Database. Every other name must set `name: '<name>'`. |
+| `src/database.ts` | Default Database, addressed as `default`. |
+| `src/<name>.database.ts` | Named Database, addressed as `<name>`. The Definition must set `name: '<name>'`. |
 
-A project has either one default database or several named ones. Mixing both, or two default databases, fails discovery.
+Use `server/databases/<name>/index.ts` when the Database has other files, such as schema modules. A folder with an `index.ts` is one Database, so ViteHub does not read its other files as Definitions. Every other file in `server/databases/` is a Definition. The migrations of the Database `<name>` are in `server/databases/<name>/migrations/`.
 
-In Vite, Database without a Definition gives one empty default database, like `server/databases/config.ts` with `defineDatabase({ schema: {} })`. It uses `database.connection`, keeps migrations in `server/databases/migrations`, gets contributed tables (Connections put theirs here), and shows in `vitehub inspect` and the Console. The Nuxt module does not add it.
+`src/database.ts` cannot be used beside Named Databases, and two Default Databases fail discovery. Before this release, Databases used `server/databases/config.ts` and `server/databases/<name>/config.ts`. Those files now fail with `DATABASE_LEGACY_CONFIG_FILE`, and `npx @vite-hub/codemods define-forms` moves them.
+
+An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/default.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/default/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
 
 ```ts [src/database.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -240,7 +243,7 @@ In Nuxt, ViteHub also finds Definitions in the server folder of each layer.
 Definitions with the same name join into one database with all their tables.
 `vitehub database generate` writes one set of migrations for it.
 
-```ts [layers/blog/server/databases/config.ts]
+```ts [layers/blog/server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -256,10 +259,9 @@ export default defineDatabase({
 
 Rules:
 
-- `connection`, `cloudflare`, and `drizzle` come from one Definition. If the app Definition sets one, it replaces all layer options, so it must repeat each option a layer sets. The app and those layers must then pass an object literal to `defineDatabase()`, so ViteHub can read them. Without the app, one layer can set them. Two layers that set them fail discovery until the app sets them.
-- An app table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers with the same table key fail discovery.
-- Migrations go to the app, in `server/databases/migrations` or `server/databases/<name>/migrations`, even when only layers define the database.
-- A project still has one default database or named ones. A layer with a default database and another with named ones fail discovery.
+- `connection`, `cloudflare`, and `drizzle` come from one Definition. When the application Definition sets one of them, it replaces all layer options, so it must also set each option that a layer sets. The application and each layer that sets options must then pass an object literal to `defineDatabase()`, so that ViteHub can read their options. Otherwise one layer can set them. Two layers that set them fail discovery until the application sets them.
+- An application table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers that declare the same table key fail discovery.
+- Migrations go to the application, in `server/databases/default/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
 
 ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A layer that queries its own `defineDatabase()` object sees only its own tables.
 
@@ -336,7 +338,7 @@ A contribution without `database` targets `default`, or the only database. `reso
 
 ### Need the default Database
 
-A package that needs a database contributes its tables without `database`, or with `database: 'default'`, and does not add one. When the app has no Definition, Database adds one empty `default` database for all such packages, in Vite and Nuxt. Its migrations go to `server/databases/migrations/`, and it uses the contributions' `dialect`, or SQLite. The CMS preset, Comments, and Connections work this way.
+A package that needs a database contributes its tables without `database`, or with `database: 'default'`, and does not add one. When the app has no Definition, Database adds one empty `default` database for all such packages, in Vite and Nuxt. Its migrations go to `server/databases/default/migrations/`, and it uses the contributions' `dialect`, or SQLite. The CMS preset, Comments, and Connections work this way.
 
 A package that uses its own SQL and has no Drizzle tables contributes an entry without `definition`. ViteHub checks its database and dialect as for tables:
 
@@ -346,7 +348,7 @@ vitehub: {
 },
 ```
 
-`vitehub inspect definitions --kind database` shows `Definition: Implicit` with the plugins that need it, a `Contributed tables` field per table contribution, and a `Used by` field per entry without tables. When the app adds `server/databases/config.ts`, the contributions move to it and keep the same migrations folder. Contributions that need different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
+`vitehub inspect definitions --kind database` shows `Definition: Implicit` with the plugins that need it, a `Contributed tables` field per table contribution, and a `Used by` field per entry without tables. When the app adds `server/databases/default.ts`, the contributions move to it and keep the same migrations folder. Contributions that need different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
 
 ### Contribute a Database
 
@@ -373,7 +375,7 @@ A project cannot mix a default database with named ones, so this fits an app who
 | `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })`, with the same `name`. |
 | `reason` | `string` | Optional. Why the package adds the Database. `vitehub inspect` shows it. |
 
-A contributed database works like one in `server/databases/`: `vitehub database generate`, `database migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection shows `Contributed by`, `Reason`, and `Migrations`. Its migrations go where an app Definition with the same name keeps them (`server/databases/migrations/` for `default`, else `server/databases/<name>/migrations/`), so adding that Definition later keeps the history.
+A contributed database works like one in `server/databases/`: `vitehub database generate`, `database migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection shows `Contributed by`, `Reason`, and `Migrations`. Its migrations go where an app Definition with the same name keeps them (`server/databases/default/migrations/` for `default`, else `server/databases/<name>/migrations/`), so adding that Definition later keeps the history.
 
 The factory context also has `rootDir`, the root where Definitions are found, and `plugins`, the flat list of Vite plugins.
 
@@ -458,7 +460,7 @@ Set `dialect: 'postgresql'`, write the tables with `drizzle-orm/pg-core`, and in
 pnpm add postgres
 ```
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 

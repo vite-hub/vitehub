@@ -87,45 +87,24 @@ describe.each([false, true])("Schedule option discovery, server=%s", (server) =>
     expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
-  it.each([false, true])("discovers positional options %s without executing the handler", async (manual) => {
-    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => { throw new Error('never execute') }, { manual: ${manual} })`, server)
-    expect(discover()).toMatchObject([{ name: "daily", manual }])
-  })
-
-  it("discovers positional schedules without options", async () => {
-    const { discover } = await fixture("export default defineSchedule('0 9 * * *', () => {})", server)
-    expect(discover()).toMatchObject([{ name: "daily", manual: false }])
+  it.each([
+    "export default defineSchedule('0 9 * * *', () => {})",
+    "export default defineSchedule('0 9 * * *', () => {}, { manual: true })",
+  ])("names the object form for the removed positional form: %s", async (source) => {
+    const { file, discover } = await fixture(source, server)
+    expect(discover).toThrow(expect.objectContaining({ code: "SCHEDULE_C0007" }))
+    expect(discover).toThrow(`${file}:1:`)
+    expect(discover).toThrow("export default defineSchedule({ cron: \"...\", handler })")
   })
 
   it.each(["é", "𐐀", "a\u0301", "manualé", "manual\u200C", "manual\u200D"])("accepts an unrelated Unicode option key: %s", async (name) => {
-    for (const source of [
-      `export default defineSchedule({ ${name}: true, cron: '0 9 * * *', handler() {} })`,
-      `export default defineSchedule('0 9 * * *', () => {}, { ${name}: true })`,
-    ]) {
-      const { discover } = await fixture(source, server)
-      expect(discover()).toMatchObject([{ name: "daily", manual: false }])
-    }
+    const { discover } = await fixture(`export default defineSchedule({ ${name}: true, cron: '0 9 * * *', handler() {} })`, server)
+    expect(discover()).toMatchObject([{ name: "daily", manual: false }])
   })
 
   it.each(["0x2a", "1e2", "1_000", ".5", "1.5", "1e+2", "1e-2", "1.", "1_000.5_2", "0b1010", "0o52", "42n"])("accepts an unrelated numeric option key: %s", async (name) => {
-    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => {}, { ${name}: true, manual: true })`, server)
+    const { discover } = await fixture(`export default defineSchedule({ cron: '0 9 * * *', handler() {}, ${name}: true, manual: true })`, server)
     expect(discover()).toMatchObject([{ name: "daily", manual: true }])
-  })
-
-  it.each([
-    "(({ manual: true }))",
-    "{ manual: true } as const",
-  ])("discovers normalized positional literal options: %s", async (options) => {
-    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => {}, ${options})`, server)
-    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
-  })
-
-  it.each([
-    "const options = {}; export default defineSchedule('0 9 * * *', () => {}, options)",
-    "export default defineSchedule('0 9 * * *', () => {}, { ...options })",
-  ])("rejects unresolved positional options", async (source) => {
-    const { discover } = await fixture(source, server)
-    expect(discover).toThrow(/literal/)
   })
 
   it.each([
@@ -145,14 +124,9 @@ describe.each([false, true])("Schedule option discovery, server=%s", (server) =>
     '"manual"() { return true }',
     "get /* option */ 'manual'() { return true }",
   ])("rejects quoted metadata getters and methods: %s", async (property) => {
-    for (const source of [
-      `export default defineSchedule({ cron: '0 9 * * *', handler() {}, ${property} })`,
-      `export default defineSchedule('0 9 * * *', () => {}, { ${property} })`,
-    ]) {
-      const { file, discover } = await fixture(source, server)
-      expect(discover).toThrow(file)
-      expect(discover).toThrow(/literal true or false/)
-    }
+    const { file, discover } = await fixture(`export default defineSchedule({ cron: '0 9 * * *', handler() {}, ${property} })`, server)
+    expect(discover).toThrow(file)
+    expect(discover).toThrow(/literal true or false/)
   })
 
   it("identifies an indirect default export at the definition call", async () => {

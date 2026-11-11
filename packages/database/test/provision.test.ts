@@ -19,7 +19,7 @@ async function createApp() {
   directories.push(rootDir)
   const dir = join(rootDir, "server", "databases", "primary")
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, "config.ts"), [
+  await writeFile(join(dir, "index.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "export default defineDatabase({",
     "  name: 'primary',",
@@ -86,7 +86,7 @@ describe("database provision step", () => {
   })
 
   async function writeReplicatedDefinition(rootDir: string) {
-    await writeFile(join(rootDir, "server", "databases", "primary", "config.ts"), [
+    await writeFile(join(rootDir, "server", "databases", "primary", "index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
       "  name: 'primary',",
@@ -244,7 +244,7 @@ describe("database provision step", () => {
     const rootDir = await createApp()
     const secondaryDir = join(rootDir, "server", "databases", "secondary")
     await mkdir(secondaryDir, { recursive: true })
-    await writeFile(join(secondaryDir, "config.ts"), [
+    await writeFile(join(secondaryDir, "index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
       "  name: 'secondary',",

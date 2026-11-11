@@ -55,7 +55,7 @@ import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }) },
 })
@@ -74,7 +74,7 @@ import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({
@@ -127,7 +127,7 @@ Adding a glob can change existing ids. Ids are relative to the folder all globs 
 `content.resolve(path)` finds the document a page shows, for example for an Edit button. It returns `{ collection, id }`, or `null`.
 
 ```ts [server/utils/edit-target.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function editTarget() {
   return await content.resolve('/blog/hello?utm=x')
@@ -176,7 +176,7 @@ A catch-all page serves every locale with the calls a page already makes. `conte
 
 ```ts [server/api/page.get.ts] fragment
 import { defineEventHandler, getQuery, HTTPError } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async (event) => {
   const page = await content.resolve(String(getQuery(event).path))
@@ -224,7 +224,7 @@ import { defineContent, image, optional } from 'vite-hub/content'
 import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     settings: singleton({
@@ -257,7 +257,7 @@ ViteHub has no settings schema. These fields are an example. Define the ones you
 The id is the file name without extension: `settings.json` is `settings`. You rarely need it, because singleton methods work without an id.
 
 ```ts [server/utils/settings.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function renameSite() {
   const settings = content.collection('settings')
@@ -363,7 +363,7 @@ A runtime can combine read-only `sources` with `collections`. They share one nam
 `authorize` decides what a user may do with a collection. The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()`. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
@@ -421,7 +421,7 @@ import { defineContent } from 'vite-hub/content'
 import { sqlite } from 'vite-hub/content/sqlite'
 import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
 	plugins: [sqliteFullTextSearch({ database: sqlite() })],
 	sources: {
 		docs: glob({ cwd: 'docs', include: '**/*.md' }),
@@ -468,7 +468,7 @@ A server route without Vue renders a document with `renderContentHtml()` from `v
 ```ts [server/routes/guides/[slug].get.ts]
 import { defineHandler, getRouterParam } from 'h3'
 import { renderContentHtml } from 'vite-hub/content'
-import { content } from '../../content'
+import content from '../../content'
 
 export default defineHandler(async (event) => {
   const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)

@@ -11,7 +11,7 @@ A Runtime Helper is the server function you import to use a ViteHub feature. It 
 
 ## Call the helper from server code
 
-```ts [server/api/health.ts]
+```ts [server/api/health.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
 
 export function health() {

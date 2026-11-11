@@ -19,7 +19,7 @@ import { defineContent } from 'vite-hub/content'
 import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     posts: documents({
@@ -44,7 +44,7 @@ export default defineAgent({
 })
 ```
 
-Generated Agent routes and Schedules pass the `content` export of `server/content.ts` to the Capability. With Auth, they also pass `agentAuth` from `vite-hub/auth/agent`, which reads the Auth user behind an Actor. A custom route that calls `runAgent()` passes both as `capabilities: { content, auth: agentAuth }`.
+Generated Agent routes and Schedules pass the default export of `server/content.ts` to the Capability. With Auth, they also pass `agentAuth` from `vite-hub/auth/agent`, which reads the Auth user behind an Actor. A custom route that calls `runAgent()` passes both as `capabilities: { content, auth: agentAuth }`.
 
 ## Tools
 
