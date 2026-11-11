@@ -11,6 +11,7 @@ import { runViteHubCli } from "@vite-hub/cli"
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
 import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
+import { consoleTestKey } from "./support/console-signature.ts";
 
 const roots: string[] = []
 
@@ -47,7 +48,7 @@ describe("ViteHub CLI config loading", () => {
     await writeFile(join(root, "vite.config.ts"), `
       // agent: false
       const unrelated = { agent: false }
-      export default { vitehub: { agent: { providers: { state: { provider: "memory" } }, cli: false } } }
+      export default { vitehub: { agent: { providers: { state: { driver: "memory" } }, cli: false } } }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
@@ -363,7 +364,7 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       let body = "";
       request.on("data", (chunk: Buffer) => { body += chunk.toString(); });
       request.on("end", () => {
-        calls.push({ authorization: request.headers.authorization, body: operationRpcRequest(body), url: request.url });
+        calls.push({ authorization: request.headers.authorization, body: operationRpcRequest(body), signature: request.headers["x-vitehub-signature"], url: request.url });
         response.setHeader("content-type", "application/json");
         response.end(JSON.stringify(operationRpcReply(body, { ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } })));
       });
@@ -372,14 +373,17 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
     try {
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected a TCP address.");
+      const ci = await consoleTestKey("CI");
       const { stdout } = await execFileAsync(
         process.execPath,
         [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}/_vitehub`],
-        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test" } },
+        // A bearer token is not a Console credential anymore. The CLI signs with its private key.
+        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test", [`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`]: ci.key.privateKey } },
       );
       expect(stdout).toBe("ainv_1 cancel requested\n");
       expect(calls).toEqual([{
-        authorization: "Bearer cli-test",
+        authorization: undefined,
+        signature: expect.stringContaining("key=CI"),
         body: { input: { id: "ainv_1" }, operation: "invocations.cancel" },
         url: "/_vitehub/rpc",
       }]);

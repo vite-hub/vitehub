@@ -1,18 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, inject, onMounted, ref, shallowRef } from "vue";
+import { computed, defineAsyncComponent, inject, onMounted, ref } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
-import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleAccountViewsKey } from "../client/account-views";
-import { consoleTokenRefused } from "../client/project-link";
-import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { forgetConsoleProject, openConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
-import ConsoleProjectLink from "./console-project-link.vue";
-import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
-import ConsoleProjectOAuth from "./console-project-oauth.vue";
-import ConsoleProjectToken from "./console-project-token.vue";
 
 // Only an `account` Console shows these, so they load with the Better Auth client. The page loads the view of its first
 // paint before it mounts.
@@ -21,18 +15,13 @@ const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-
 const ConsoleAccountShell = views.shell ?? defineAsyncComponent(() => import("./console-account-shell.vue"));
 const ConsoleAccountSignIn = views.signIn ?? defineAsyncComponent(() => import("./console-account-sign-in.vue"));
 
-// The page reads the feature catalog, so it loads only on /new.
-const ConsoleNewProject = defineAsyncComponent(() => import("./console-new-project.vue"));
-
 /**
- * What the Console shows before it opens a project: the empty state of a hosted Console, the Console token form, the
- * OAuth sign-in and its callback, the `/link` page of a one-time link, the `/new` page, or why the project did
- * not open. While the project answers, it draws the same shapes as the server page.
+ * What the Console shows before it opens a project: the sign-in page or the team sidebar of an `account` Console, or
+ * why the project did not open. While the project answers, it draws the same shapes as the server page.
  */
 const projects = useConsoleProjects();
 const gate = projects.gate;
 const busy = ref(false);
-const tokenError = shallowRef<ConsoleProjectProblem>();
 
 const current = computed(() => projects.current.value);
 // A signed-in person of an `account` Console sees the sidebar of the team on every page before a project opens.
@@ -43,21 +32,10 @@ const others = computed(() => projects.projects.value.filter(project => project.
 const switchItems = computed<DropdownMenuItem[][]>(() => [
   others.value.map(project => ({ label: consoleProjectName(project), description: consoleProjectHost(project), onSelect: () => switchConsoleProject(project.id) })),
   [
-    ...(projects.mode === "account" ? [] : [{ icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject }]),
-    { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
-    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: projects.mode === "account" ? "Unlink this project" : "Forget this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
+    { icon: "i-lucide-link", label: "Link an app", onSelect: () => { projects.linkOpen.value = true; } },
+    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Unlink this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
   ],
 ].filter(group => group.length));
-
-async function signIn(token: string): Promise<void> {
-  busy.value = true;
-  tokenError.value = undefined;
-  const next = await signInConsoleProject(token).catch(() => undefined);
-  busy.value = false;
-  if (!next) tokenError.value = { title: `Cannot reach ${host.value}`, message: "Check the connection and try again." };
-  else if (next.kind === "token") tokenError.value = { title: "The token is not correct", message: consoleTokenRefused(host.value) };
-  else if (next.kind === "problem") tokenError.value = next.problem;
-}
 
 async function retry(): Promise<void> {
   if (gate.value.kind === "problem" && gate.value.home) {
@@ -76,11 +54,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <ConsoleNewProject v-if="gate.kind === 'new'" />
+  <ConsoleAccountShell v-if="accountShell" />
 
-  <ConsoleAccountShell v-else-if="accountShell" />
-
-  <div v-else-if="gate.kind === 'opening' || gate.kind === 'callback'" class="vitehub-console-boot">
+  <div v-else-if="gate.kind === 'opening'" class="vitehub-console-boot">
     <div class="vh-primitive-rail">
       <div class="vh-primitive-rail__surface">
         <div class="vh-primitive-rail__header">
@@ -92,7 +68,7 @@ onMounted(() => {
       <div class="vitehub-console-boot__header" />
       <p role="status" class="vitehub-console-opening">
         <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        {{ gate.kind === "callback" ? "Finishing sign-in…" : host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
+        {{ host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
       </p>
     </div>
   </div>
@@ -102,39 +78,6 @@ onMounted(() => {
       <ConsoleMark class="size-6 text-highlighted!" />
 
       <ConsoleAccountSignIn v-if="gate.kind === 'account'" :invitation="gate.invitation" />
-
-
-      <template v-else-if="gate.kind === 'empty'">
-        <div class="grid gap-1.5">
-          <h1 class="vitehub-project-gate__title">Add your first project</h1>
-          <p class="vitehub-project-gate__text"><ConsoleCodeText text="Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in `console.origins`. The project list and tokens stay in this browser." /></p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <UButton icon="i-lucide-plus" label="New project" @click="openConsoleNewProject" />
-          <UButton variant="outline" icon="i-lucide-link" label="Link project" @click="projects.linkOpen.value = true" />
-        </div>
-      </template>
-
-      <template v-else-if="gate.kind === 'token'">
-        <div class="grid gap-1.5">
-          <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
-          <p class="vitehub-project-gate__text">
-            <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
-            <ConsoleCodeText v-else :text="`${host} uses \`auth: &quot;token&quot;\`.`" />
-          </p>
-        </div>
-        <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
-      </template>
-
-      <template v-else-if="gate.kind === 'oauth'">
-        <div class="grid gap-1.5">
-          <h1 class="vitehub-project-gate__title">Sign in to {{ consoleProjectHost(gate.target) }}</h1>
-          <p class="vitehub-project-gate__text">{{ consoleProjectHost(gate.target) }} signs you in on its own page.</p>
-        </div>
-        <ConsoleProjectOAuth :target="gate.target" :resource-metadata="gate.resourceMetadata" :problem="gate.problem" />
-      </template>
-
-      <ConsoleProjectLinkConfirm v-else-if="gate.kind === 'link'" :request="gate.request" />
 
       <template v-else-if="gate.kind === 'problem'">
         <div class="grid gap-1.5" role="alert">
@@ -151,12 +94,7 @@ onMounted(() => {
         />
       </template>
 
-      <p v-if="!projects.persistent.value" class="vitehub-project-gate__note">
-        <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        {{ consoleProjectsVolatileNote }}
-      </p>
-
-      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'link' && gate.kind !== 'account'" class="vitehub-project-gate__host">
+      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'account'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
           <UButton variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
@@ -164,7 +102,6 @@ onMounted(() => {
       </div>
     </div>
     <ConsoleAccountLink v-if="projects.mode === 'account'" v-model:open="projects.linkOpen.value" />
-    <ConsoleProjectLink v-else v-model:open="projects.linkOpen.value" />
   </main>
 </template>
 
@@ -206,15 +143,6 @@ onMounted(() => {
   font-size: 0.875rem;
   line-height: 1.25rem;
   overflow-wrap: anywhere;
-  text-wrap: pretty;
-}
-
-.vitehub-project-gate__note {
-  color: var(--ui-text-muted);
-  display: flex;
-  font-size: 0.75rem;
-  gap: 0.375rem;
-  line-height: 1rem;
   text-wrap: pretty;
 }
 
