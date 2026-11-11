@@ -191,6 +191,9 @@ Set `previews: true` and Content serves each ref that `allow()` lets through at 
 
 ```ts
 // server/content.ts
+import { defineContent } from "@vite-hub/content"
+import { github } from "@vite-hub/source"
+
 export default defineContent({
   sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
   previews: true,
