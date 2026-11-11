@@ -1192,11 +1192,11 @@ describe("vitehub", () => {
     }))
 
     vitehub({
-      agent: { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } },
+      agent: { providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } },
       preset: "cloudflare",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+      providers: { state: { driver: "libsql", url: "libsql://state.example.test" } },
     }))
 
     vitehub({
