@@ -261,7 +261,7 @@ describe("console.origins", () => {
     installConsoleDevelopment("/test/app", true)
     install({ mode: "token" })
     expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode: "token", sections: "all" })).toBe(false)
-    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "token", sections: "all" })).toBe(true)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "token", sections: "all", via: "token" })).toBe(true)
     expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "auth", sections: "all" })).toBe(false)
   })
 
@@ -438,7 +438,7 @@ describe("Console data route responses", () => {
 })
 
 describe("Console origin and token options", () => {
-  it("defaults origins to the hosted Console and keeps them for the token mode and for no sign-in", () => {
+  it("defaults origins to the hosted Console and keeps them for bearer modes and development without sign-in", () => {
     expect(resolveConsoleOrigins(undefined)).toEqual([consoleOrigin])
     expect(resolveConsoleAccessBuild({ auth: "token" }, { root: process.cwd() })).toEqual({ mode: "token", origins: [consoleOrigin] })
     expect(resolveConsoleAccessBuild({ auth: "token", origins: [] }, { root: process.cwd() })).toEqual({ mode: "token", origins: [] })
