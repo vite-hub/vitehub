@@ -68,8 +68,13 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** A `github()` Source has a token, but the app has no KV store for its head commit. */
     CONTENT_R0021: {
-      fix: "Enable ViteHub KV in `vite.config.ts`. Content keeps the head commit in the `default` KV store. On Cloudflare, bind a KV namespace as `KV`.",
+      fix: "Remove `kv: false` from `vitehub()`, or install `@vite-hub/kv`. ViteHub turns KV on when `server/content.ts` imports `github()`. If `server/content.ts` gets its Sources from another file, enable KV yourself. Content keeps the head commit in the `default` KV store.",
       why: ({ source }: { source: string }) => `[vitehub] Content source ${JSON.stringify(source)} has a GitHub token, but the app has no KV store, so it has no head commit. Each load reads the latest commit of its branch without validation.`,
+    },
+    /** The KV store failed while Content read or stored the head commit of a `github()` Source. */
+    CONTENT_R0022: {
+      fix: "Check the `default` KV store of the app. On Cloudflare, bind a KV namespace as `KV`. On Vercel, set `KV_REST_API_URL` and `KV_REST_API_TOKEN`. `vitehub kv get <key>` reads the head.",
+      why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] The KV store failed on ${JSON.stringify(key)} for Content source ${JSON.stringify(source)}: ${reason}. Reads do not fail: they serve the commit that this server already serves, or the latest commit of the branch without validation, and try KV again after 5 seconds.`,
     },
   },
 })
