@@ -17,7 +17,9 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
-import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { checkContentDocuments, contentCheckResult, parseContentFiles } from "./check.ts"
+import type { ContentCheckFinding, ContentCheckOptions, ContentCheckResult } from "./check.ts"
+import { contentSource, contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import { createContentHistory } from "./history.ts"
 import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
@@ -73,6 +75,8 @@ import type { ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, Def
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { contentCheckLimits, contentCheckRules } from "./check.ts"
+export type { ContentCheckCode, ContentCheckFinding, ContentCheckOptions, ContentCheckResult, ContentCheckRule, ContentCheckSeverity } from "./check.ts"
 export { defineContentTypesPlugin, generateContentTypes } from "./types.ts"
 export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
 /** Comark's registry interfaces. Generated Content types extend them through this module. */
@@ -294,6 +298,12 @@ export type DefineContentOptions<
    */
   seo?: DefineContentSeoOptions
   /**
+   * Options of `content.check()`. `advance()` runs its error rules before it moves the head of a `github()` Source.
+   * `ignoreLinks` names link targets that other routes serve, such as `/docs/*\/diagnostics/**`. `site` defaults to
+   * `seo.site`.
+   */
+  check?: ContentCheckOptions
+  /**
    * Serve each allowed ref of the `github()` Source at a URL: `/tree/<branch>/-/<path>`, `/blob/<sha>/<path>`, and
    * `/pr/<number>/<path>`. ViteHub generates the routes when this call sets it. With more than one `github()` Source,
    * name the one to preview: `{ source: "docs" }`.
@@ -411,6 +421,13 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
    * commit that readers get. It is safe to show on a public page, for "last updated", RSS, or a history panel.
    */
   history(path: string, options?: ContentHistoryOptions): Promise<ContentHistoryResult | null>
+  /**
+   * Check the documents of the Sources, with no built HTML and no network: frontmatter against the Source `schema`,
+   * links to pages that do not exist, links to missing headings, and the search rules of `@vite-hub/docs` (title and
+   * description length, duplicates, heading order). A `github()` Source is checked at `sha`, or at the latest commit of
+   * its branch, and its head does not move. `vitehub content check` prints the same result.
+   */
+  check(options?: { source?: string, sha?: string }): Promise<ContentCheckResult>
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -433,7 +450,7 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, previews = false, ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, check: checkOptions = {}, live = "auto", route = true, previews = false, ...sharedOptions } = options
   if (previews !== true && previews !== false && (Object(previews) !== previews || typeof previews.source !== "string")) {
     throw contentErrorDiagnostics.CONTENT_R0045({ message: "[vitehub] defineContent({ previews }) must be true, false, or { source: \"<github() Source name>\" }." })
   }
@@ -482,7 +499,8 @@ export function defineContent<
   // Source for the commit cache. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [] })
+  const check: ContentCheckOptions = { ...checkOptions, ...(checkOptions.site ?? seo?.site ? { site: checkOptions.site ?? seo?.site } : {}) }
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [], check })
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
@@ -801,6 +819,43 @@ export function defineContent<
     ...documentsApi,
     sources: Object.assign(heads.api, previewRoutes),
     history: historyApi.history,
+    async check(checkInput = {}) {
+      const { source: only, sha } = checkInput
+      if (only !== undefined && !Object.hasOwn(inputs, only)) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] content.check() found no Content source ${JSON.stringify(only)}. Sources: ${Object.keys(inputs).join(", ") || "none"}.` })
+      const names = only === undefined ? Object.keys(inputs) : [only]
+      if (sha !== undefined) {
+        const github = names.filter(name => heads.github(name))
+        if (github.length !== 1) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] content.check({ sha }) needs one github() Source. Name it with content.check({ source, sha }).` })
+        names.splice(0, names.length, github[0]!)
+      }
+      const sources: ContentCheckResult["sources"] = []
+      const findings: ContentCheckFinding[] = []
+      for (const name of names) {
+        if (heads.github(name)) {
+          const inspected = await heads.inspect(name, sha)
+          sources.push({ source: name, sha: inspected.sha, pages: inspected.pages })
+          findings.push(...inspected.findings)
+          continue
+        }
+        const input = inputs[name]!
+        const adapted = contentSource(input)
+        const files = await Promise.all((await adapted.keys()).map(async key => ({ key, path: key, content: await adapted.getItem(key) })))
+        const parsed = await parseContentFiles(name, files, { prefix: adapted.prefix, schema: adapted.schema }, { ...sharedOptions, basePath: "/api/content" }, true)
+        const url = contentSourceUrl(input)
+        const checked = checkContentDocuments({
+          source: name,
+          files,
+          items: parsed.commit?.items ?? [],
+          failures: parsed.failures,
+          ...(adapted.schema ? { schema: adapted.schema } : {}),
+          ...(url === undefined ? {} : { url }),
+          options: check,
+        })
+        sources.push({ source: name, sha: null, pages: checked.pages })
+        findings.push(...checked.findings)
+      }
+      return contentCheckResult(sources, findings)
+    },
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), rewriteContentLinks) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
