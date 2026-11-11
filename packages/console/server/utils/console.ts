@@ -6,12 +6,15 @@ import { useDatabase } from "vite-hub/database/drizzle"
 import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 
 import { forwardProjectRequest } from "../../src/forward.ts"
+import { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 import { createConsoleProjectStore } from "../../src/projects.ts"
 import { allowPrivateVariable, parseProjectUrl } from "../../src/project-url.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../src/token-box.ts"
 
-import type { ConsoleCaller, ConsoleCallerUser } from "@vite-hub/internal/console-signature"
+import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { ConsoleProjectStore } from "../../src/projects.ts"
+
+export { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 
 const { member, organization, session } = authSqliteSchema
 
@@ -30,43 +33,6 @@ export interface ConsoleTeamCaller {
   /** Better Auth roles, such as `owner`, `admin`, or `member`. A member can have several, with commas between them. */
   roles: string[]
   projects: ConsoleProjectStore
-}
-
-/** How the Console calls an app for a person: from the Console page, or from the ViteHub MCP. */
-export interface ConsoleCallOptions {
-  /**
-   * `"mcp"` when the ViteHub MCP calls for the person. The app then applies its MCP rules: it refuses operations with
-   * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
-   */
-  surface?: "mcp"
-  /** The person agreed to this destructive call. Only for `surface: "mcp"`. */
-  confirmed?: boolean
-}
-
-/**
- * The person that the Console signs into each call to a project: the signed-in user, the team, and the role. The app's
- * `console.authorize` receives them with `via: "console"`.
- */
-export function consoleCallerOf(caller: ConsoleTeamCaller, options: ConsoleCallOptions = {}): ConsoleCaller {
-  const role = presentationText(caller.roles.join(","))
-  return {
-    team: { id: caller.teamId, ...(role ? { role } : {}) },
-    user: caller.user,
-    via: "console",
-    ...(options.surface ? { surface: options.surface, ...(options.confirmed ? { confirmed: true } : {}) } : {}),
-  }
-}
-
-/** The signed fields of a person: the id, and the name and email when they have them and they fit the signed header. */
-export function consoleCallerUser(user: { id: string, name?: unknown, email?: unknown }): ConsoleCallerUser {
-  const name = presentationText(user.name)
-  const email = presentationText(user.email)
-  return { id: user.id, ...(name ? { name } : {}), ...(email ? { email } : {}) }
-}
-
-/** Optional presentation fields must fit `decodeConsoleCaller()`; the required identity fields stay unchanged. */
-function presentationText(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 && value.length <= 512 ? value : undefined
 }
 
 /** Owners and admins link and unlink projects. Every member opens them. */

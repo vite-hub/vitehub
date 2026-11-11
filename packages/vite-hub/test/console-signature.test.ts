@@ -9,7 +9,7 @@ import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { forwardProjectRequest } from "../../console/src/forward.ts"
-import { consoleCallerOf } from "../../console/src/caller.ts"
+import { consoleCallerOf, consoleCallerUser } from "../../console/src/caller.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import envManageHandler from "../src/console/runtime/server/env-manage.ts"
@@ -272,7 +272,7 @@ describe("signed callers", () => {
     stubKeys(link.env)
     install()
     const caller = consoleCallerOf({
-      authorization: { user: { email: "ada@example.com", id: "user-1", name: "a".repeat(length) } },
+      user: consoleCallerUser({ email: "ada@example.com", id: "user-1", name: "a".repeat(length) }),
       roles: ["owner"], teamId: "team-1",
     })
     const page = new Request("https://console.vitehub.dev/p/1/_vitehub/rpc", {
