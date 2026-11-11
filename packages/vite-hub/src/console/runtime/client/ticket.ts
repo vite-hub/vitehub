@@ -1,3 +1,5 @@
+import { ConsoleRequestError } from "./request.ts"
+
 /** The answer of an operation that returns a one-time link. Mirrors `ConsoleTicket` of the server. */
 export interface ConsoleTicketLink {
   url: string
@@ -33,7 +35,7 @@ export async function openConsoleTicket(request: () => Promise<unknown>): Promis
   if (tab) tab.opener = null
   try {
     const url: unknown = Reflect.get(Object(await request()), "url")
-    if (String(url) !== url) throw new TypeError("The app did not return a link.")
+    if (String(url) !== url) throw new ConsoleRequestError(502, "The app did not return a link.")
     if (tab) tab.location.replace(url)
     else Reflect.apply(Reflect.get(Object(Reflect.get(globalThis, "location")), "assign"), Reflect.get(globalThis, "location"), [url])
   }

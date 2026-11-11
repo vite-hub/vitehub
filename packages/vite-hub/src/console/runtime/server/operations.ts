@@ -338,7 +338,7 @@ const documentsPreview = defineConsoleOperation({
   input: v.strictObject({ collection: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)), section: text }),
   kind: "read",
   name: "documents.preview",
-  run: async ({ collection, id, section }, context) => (await import("./documents.ts")).issueConsoleDocumentPreview(context, { collection, id, section }),
+  run: async ({ collection, id, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : import("./documents.ts"))).issueConsoleDocumentPreview(context, { collection, id, section }),
   section: input => input.section,
 })
 

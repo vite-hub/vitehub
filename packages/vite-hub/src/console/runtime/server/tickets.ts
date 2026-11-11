@@ -257,7 +257,10 @@ async function sha256Base64(value: string): Promise<string> {
 async function openPreview(record: ConsoleTicketRecord): Promise<Response> {
   const { collection, id, path, section } = record.target
   if (!collection || !id || !path || !section) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
-  const documents = await import("./documents.ts")
+  // A build without a document editor leaves the editor code out, so a preview ticket has nothing to open.
+  const documents = await (import.meta.viteHubConsoleDocuments === false
+    ? Promise.reject(consoleRequestError(404, "The Console document editor section is disabled."))
+    : import("./documents.ts"))
   const actions = await documents.loadConsoleDocumentActions(section)
   const preview: unknown = await documents.runConsoleDocumentAction(() => actions.preview({ collection, id }, { user: { ...record.person } }))
   const parameter: unknown = Reflect.get(Object(preview), "parameter")
