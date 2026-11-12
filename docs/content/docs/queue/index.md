@@ -121,7 +121,7 @@ icon: i-lucide-list-ordered
   :::
 
   :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  On Node, jobs run in the server process. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
+  On Node, jobs run in the server process, on one instance only. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
   :::
 ::
 

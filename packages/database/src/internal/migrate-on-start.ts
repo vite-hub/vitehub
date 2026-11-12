@@ -39,35 +39,52 @@ export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | und
 }
 
 interface RenderMigrateOnStartOptions {
-  allowDataLoss: boolean
   /** The names that `selectMigrateOnStartDatabases()` returned. */
   databases: string[]
-  /** Module that exports `useDatabase()` in the server build. */
+  /** Module that exports `databases` in the server build. */
   drizzleImport: string
-  /** Module that exports `migrateOnStart()`. */
+  /** Module that `renderShippedMigrationsModule()` wrote. */
+  migrationsImport: string
+  /** Module that exports `ensureDatabaseMigrations()`. */
   runtimeImport: string
 }
 
 /**
- * Renders a Nitro plugin that applies each database's pending migrations before the server handles requests. The
- * migrations are read now and written into the plugin, so the server output does not need the migrations folder.
- * Returns `undefined` when no database has migrations.
+ * Renders the module of migrations that the server build ships, for the start plugin and `ensureMigrations()`. The
+ * migrations are read now, so the server output does not need the migrations folder. A folder that cannot be read
+ * fails only the call that needs it, so a build that never migrates in the server does not fail.
+ */
+export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, { allowDataLoss }: { allowDataLoss: boolean }): string {
+  const databases: Record<string, { dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
+  for (const name of config?.databaseNames ?? []) {
+    try {
+      const migrations = readStartMigrations(resolve(config!.rootDir, config!.databases[name]!.migrationsDir), name)
+      if (migrations.length) databases[name] = { dialect: config!.databases[name]!.dialect, migrations }
+    }
+    catch (error) {
+      databases[name] = { problem: error instanceof Error ? error.message : String(error) }
+    }
+  }
+  return `export default ${JSON.stringify({ allowDataLoss, databases })}\n`
+}
+
+/**
+ * Renders a Nitro plugin that applies each database's pending migrations before the server handles requests. It shares
+ * the run of `ensureMigrations()`, so a later call in the same process finds the migrations applied. Returns `undefined`
+ * when no database has migrations.
  */
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
-  const databases = options.databases
-    .map(name => ({ dialect: config.databases[name]!.dialect, migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir)), name }))
-    .filter(database => database.migrations.length)
+  const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name).length)
   if (!databases.length) return
   return [
-    `import { useDatabase } from ${JSON.stringify(options.drizzleImport)}`,
-    `import { migrateOnStart } from ${JSON.stringify(options.runtimeImport)}`,
+    `import { databases } from ${JSON.stringify(options.drizzleImport)}`,
+    `import { ensureDatabaseMigrations } from ${JSON.stringify(options.runtimeImport)}`,
+    `import migrations from ${JSON.stringify(options.migrationsImport)}`,
     "",
     "// Nitro imports plugins before it listens, so the server handles requests only after this finishes.",
     "// A failed migration rejects this import, and the server stops before it listens.",
     "// The prerender server runs during the build and must not migrate the runtime database.",
-    "if (!import.meta.prerender) await migrateOnStart([",
-    ...databases.map(database => `  { db: useDatabase(${JSON.stringify(database.name)}).db, dialect: ${JSON.stringify(database.dialect)}, migrations: ${JSON.stringify(database.migrations)}, name: ${JSON.stringify(database.name)} },`),
-    `], { allowDataLoss: ${options.allowDataLoss} })`,
+    `if (!import.meta.prerender) await ensureDatabaseMigrations({ databases, load: async () => migrations }, ${JSON.stringify(databases)})`,
     "",
     "export default () => {}",
     "",
@@ -88,8 +105,8 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
 }
 
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
-export function readStartMigrations(migrationsDir: string): StartMigration[] {
-  const entries = readMigrations(migrationsDir)
+export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+  const entries = readMigrations(migrationsDir, database)
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }

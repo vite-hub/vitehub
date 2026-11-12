@@ -40,8 +40,39 @@ Cloudflare Pages is not detected, because the `cloudflare` preset builds a
 Worker. Use `detectHost()` from `vite-hub/runtime` to choose
 host-specific options in your own config:
 
-```ts
-// vite.config.ts
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { detectHost } from "vite-hub/runtime";
+
+const preset = detectHost() ?? "node";
+
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  // The deno preset rejects Schedule.
+  vitehub: { preset, schedule: preset !== "deno" },
+});
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from "vite-hub";
+import { detectHost } from "vite-hub/runtime";
+import { defineConfig } from "vite";
+import { nitro } from "nitro/vite";
+
+const preset = detectHost() ?? "node";
+
+export default defineConfig({
+  // The deno preset rejects Schedule.
+  plugins: [vitehub({ preset, schedule: preset !== "deno" }), nitro()],
+});
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
 import { vitehub } from "vite-hub";
 import { detectHost } from "vite-hub/runtime";
 import { defineConfig } from "vite";
@@ -53,6 +84,8 @@ export default defineConfig({
   plugins: [vitehub({ preset, schedule: preset !== "deno" })],
 });
 ```
+:::
+::
 
 `detectHost()` returns `undefined` when no variable names a host, so the
 app picks its own default. Inside a Cloudflare Worker, it returns
@@ -60,7 +93,7 @@ app picks its own default. Inside a Cloudflare Worker, it returns
 
 | Preset | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |
-| `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `fs-lite`, Rate Limit `memory` | Queue, Sandbox |
+| `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `database` with Postgres or `fs-lite`, Queue `local`, Rate Limit `memory` | Sandbox |
 | `cloudflare` | [Cloudflare](/docs/frameworks-hosts/cloudflare) | `.output/server/wrangler.json` | Blob R2, KV Workers KV, Queue, Rate Limit, and Sandbox on Cloudflare | None |
 | `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Vercel Sandbox | Rate Limit |
 | `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Queue, Rate Limit, Sandbox |

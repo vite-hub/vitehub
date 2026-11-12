@@ -863,6 +863,19 @@ export default defineAgent({
 - Queued reconciliation reloads the PR head, comments, and files before the Driver starts.
 - Eligibility is decided on acceptance and kept while the delivery waits.
 
+### Hosted CI
+
+`pullRequest.ci` tells the run what to do with hosted CI after it pushes:
+
+- `'report'` (default): the Agent runs the project's local checks before it pushes, then reports the hosted checks that are still pending and finishes. The run does not wait for CI.
+- `'wait'`: the Agent waits for hosted CI after it pushes and fixes failures until all checks pass. The run stays open, and its tokens and time are spent, until CI finishes. Use it only when the Agent must see green checks before it finishes, and set a [deadline](#deadline) that covers your CI time.
+
+```ts [server/agents/reviewer.ts] fragment
+github({ app: true, pullRequest: { ci: 'wait', reconcile: { mentions: ['@agent'] } } })
+```
+
+Reconcile does not start a run on a failed check. To fix CI failures, ask the Agent in a comment, or let a workflow post a comment on failure that `reconcile.comments` accepts. Mention triggers skip bot comments.
+
 ### Deadline
 
 Persisted inline webhook runs time out after 15 minutes by default. Set `messages.timeout` in milliseconds, such as `30 * 60_000`. A timeout on the persisted input wins. Values must be positive, finite, and at most `2_147_483_647`, or the default applies. Replayed or rehydrated input can change the deadline after setup, minus setup time already spent, but setup keeps the first deadline. The deadline includes Workspace preparation, and expiry cancels the Invocation.

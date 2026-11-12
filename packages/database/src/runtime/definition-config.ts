@@ -17,7 +17,7 @@ function defaultUrl(name: string) {
 }
 
 export function runtimeConfig(
-  definition: DatabaseDefinition,
+  definition: Pick<DatabaseDefinition, "cloudflare" | "connection" | "name" | "remote">,
   defaults: DatabaseDefinitionDefaults = definitionDefaults,
 ): RuntimeDrizzleDatabaseConfig {
   const cloudflare = resolveRuntimeCloudflareConfig(defaults.cloudflare, definition.cloudflare, {

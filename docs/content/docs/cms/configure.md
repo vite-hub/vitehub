@@ -39,7 +39,7 @@ The preset sets `workspace` in `defineContent()`, so do not pass `workspace` nex
 
 ## Turn the features on
 
-`vitehub()` needs no settings for the preset. When `server/content.ts` uses it, `vitehub()` turns on `workspace`, `database`, and `blob` if you left them unset. The GitHub store needs no Blob.
+ViteHub needs no settings for the preset. When `server/content.ts` uses it, ViteHub turns on `workspace`, `database`, and `blob` if you left them unset. The GitHub store needs no Blob.
 
 A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `workspace: false` keeps Workspace off and fails the build with [`CONTENT_B0002`](/docs/cms/limits-and-errors#errors).
 
@@ -50,7 +50,7 @@ A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `wo
 | Workspace | `content`, on the [Blob + Database Store](/docs/workspace/configure#blob-database-store) with workspace identity `content` | `vitehub inspect definitions` and the Console Workspaces section list it as added by `@vite-hub/cms/vite`. The generated module is `.vitehub/content/workspace.mjs`. |
 | Database | Only when the app has no Database Definition: the implicit `default` Database. Its migrations go to `server/databases/default/migrations/`, where `server/databases/default.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Definition: Implicit` and names `@vite-hub/cms/vite` as a plugin that needs it. |
 | Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the `default` Database or the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
-| Features | `workspace`, `database`, and `blob`, when `vitehub()` leaves them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
+| Features | `workspace`, `database`, and `blob`, when the ViteHub options leave them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files live under `vitehub/workspace-history/` in that store. |
 | `defineContent()` | `workspace: 'content'`. With `access: 'roles'`, also the CMS roles as `authorize` when the app sets none | `content.collection(name)` reads and writes that Workspace. `vitehub inspect definitions --kind cms` shows what decides access. |
 

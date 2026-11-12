@@ -25,14 +25,14 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
 
 /**
  * Renders the `createPostgresDatabase()` call for a Postgres Definition in a generated runtime module.
- * `schemaExpression` is the merged schema, because Nuxt layers and contributed tables add tables that the evaluated
- * Definition does not hold.
+ * `schemaExpression` and `relationsExpression` are the merged schema and relations, because Nuxt layers and contributed
+ * tables add tables and relations that the evaluated Definition does not hold.
  */
-export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string) {
+export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, relationsExpression: string) {
   const database = config.databases[name]!
   const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
   if (database.connection?.url !== undefined) defaults.url = database.connection.url
-  return `createPostgresDatabase({ ...${definitionVariable}, schema: ${schemaExpression} }, ${JSON.stringify(defaults)})`
+  return `createPostgresDatabase({ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }, ${JSON.stringify(defaults)})`
 }
 
 export function usesPostgres(config: ResolvedDBViteConfig) {

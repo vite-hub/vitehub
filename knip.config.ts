@@ -137,8 +137,14 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },
-  // A script that people run by hand on real projects.
-  codemods: { entry: ["test/real-world/run.mjs"] },
+  codemods: {
+    entry: [
+      // A script that people run by hand on real projects.
+      "test/real-world/run.mjs",
+      // TypeScript loads the paired declaration; Knip follows only the .mjs implementation.
+      "test/nuxthub-runtime.d.mts",
+    ],
+  },
   // The overlay build aliases `@vite-hub/ui` to its source (`overlay.aliases.ts`) and bundles it.
   comments: { ignoreDependencies: ["@vite-hub/ui"] },
   // A ViteHub app. Its config imports `vite-hub` from the build output, which Knip cannot load before a build.

@@ -25,7 +25,7 @@ pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Then update the ViteHub options in your app config. Keep the other options of your app:
+Then update the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
