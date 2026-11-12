@@ -43,13 +43,13 @@ function setup() {
 }
 
 describe("Console invocation history", () => {
-  it("preserves the signed Actor without a console.authorize callback", async () => {
+  it("preserves the signed Invoker without a console.authorize callback", async () => {
     const fixture = setup()
     const signer = await signedConsoleAccess()
     try {
       expect(await fixture.request({ prompt: "Use my capabilities." }, request => signer.sign(request, { id: "editor", name: "Ada" }))).toMatchObject({ ok: true })
       await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
-      expect(fixture.run.mock.calls[0]![0].actor).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
+      expect(fixture.run.mock.calls[0]![0].invoker).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
     }
     finally {
       signer.restore()

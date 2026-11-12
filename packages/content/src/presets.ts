@@ -14,6 +14,11 @@ export interface ContentPresetDefaults {
   publish?: "commit" | "pr"
   /** The policy of `content.can()` when `defineContent()` sets no `authorize`. */
   authorize?: ContentAuthorize
+  /**
+   * Branches of `github()` Sources that `content.sources.allow()` never makes public, such as the CMS draft branch. A
+   * request needs the preview cookie or a signed link to read them, or a pull request from them.
+   */
+  privateBranches?: readonly string[]
 }
 
 /**

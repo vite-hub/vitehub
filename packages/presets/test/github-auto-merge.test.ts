@@ -4,6 +4,7 @@ import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOpti
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
 const head = "a".repeat(40)
+const reviewComment = { databaseId: 501, body: "P2: config spread", author: { login: "pullfrog", __typename: "Bot" }, createdAt: "2026-11-07T00:00:00Z", url: "https://github.com/acme/app/pull/12#discussion_r501" }
 const page = () => ({ hasNextPage: false, endCursor: null as string | null })
 async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}) {
   const pullRequest = {
@@ -29,11 +30,14 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     protectionReadable: true,
     children: 0,
     thread: { id: "THREAD_1", isResolved: false },
+    threadComments: [] as { databaseId: number, body: string, author: { login: string, __typename: string }, createdAt: string, url: string }[],
+    threadCommentPages: [] as (typeof reviewComment)[][],
     reviewPage: { nodes: [] as typeof pullRequest.latestOpinionatedReviews.nodes, pageInfo: page() },
     labelPage: { nodes: [] as { name: string }[], pageInfo: page() },
     run: { id: 123, head_sha: head, repository: { full_name: "acme/app" }, pull_requests: [] as { number: number, head: { sha: string } }[] },
     logs: "CI failure",
     mutationError: false,
+    threadFailure: undefined as "reply-result-lost" | "resolve-failed" | "resolve-result-lost" | undefined,
     merged: false,
     beforeRead: () => {},
   }
@@ -43,8 +47,16 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
         if (state.mutationError) return Response.json({ data: null, errors: [{ message: "Head oid mismatch" }] })
         return { enablePullRequestAutoMerge: { pullRequest: { id: pullRequest.id, state: state.merged ? "MERGED" : "OPEN", headRefOid: pullRequest.headRefOid, autoMergeRequest: state.merged ? null : { enabledAt: "2026-09-13T00:00:00Z" } } } }
       case "PullRequestOperationChildren": return { repository: { pullRequests: { totalCount: state.children } } }
-      case "ReviewThreadPage": return { repository: { pullRequest: { reviewThreads: { nodes: [{ ...state.thread, comments: { nodes: [] } }], pageInfo: page() } } } }
-      case "ResolveReviewThread": return { resolveReviewThread: { thread: { isResolved: true } } }
+      case "ReviewThreadPage": return { repository: { pullRequest: { reviewThreads: { nodes: [{ ...state.thread, comments: { nodes: state.threadComments } }], pageInfo: page() } } } }
+      case "ReviewThreadOutcomeComments": {
+        const index = Number(request.variables?.after ?? 0)
+        const pages = [state.threadComments, ...state.threadCommentPages]
+        return { viewer: { login: "worker[bot]" }, node: { comments: { nodes: pages[index], pageInfo: { hasNextPage: index < pages.length - 1, endCursor: index < pages.length - 1 ? String(index + 1) : null } } } }
+      }
+      case "ResolveReviewThread":
+        if (state.threadFailure !== "resolve-failed") state.thread.isResolved = true
+        if (state.threadFailure?.startsWith("resolve-")) return Response.json({ errors: [{ message: "Resolution failed" }] })
+        return { resolveReviewThread: { thread: { isResolved: true } } }
       case "PullRequestOperationLabels": return { node: { labels: state.labelPage } }
       case "PullRequestOperationReviews": return { node: { latestOpinionatedReviews: state.reviewPage } }
       case "PullRequestOperationSnapshot": state.beforeRead(); return { repository }
@@ -67,6 +79,12 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
     if (request.method === "POST" && path === "/repos/acme/app/issues/12/comments") return { id: 1, body: (request.body as { body: string }).body }
+    if (request.method === "POST" && path === "/repos/acme/app/pulls/12/comments/501/replies") {
+      const body = (request.body as { body: string }).body
+      state.threadComments.push({ ...reviewComment, databaseId: 502, body, author: { login: "worker[bot]", __typename: "Bot" } })
+      if (state.threadFailure === "reply-result-lost") throw new Error("Reply result lost")
+      return { id: 502, body, user: { login: "worker[bot]", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r502", in_reply_to_id: 501 }
+    }
     if (request.method === "PATCH" && path === "/repos/acme/app/pulls/12") return { number: 12, title: "Fix bug", state: "open", head: { sha: head } }
     return undefined
   }
@@ -107,6 +125,7 @@ describe("native auto-merge", () => {
     await expect(f.operations.comment("Please ask @other-user to confirm.")).rejects.toThrow(/guarded mention capability/)
     await expect(f.operations.comment("Please ask @stefina and @other-user to confirm.")).rejects.toThrow(/guarded mention capability/)
     await expect(f.operations.comment("Please ask @acme/ops to confirm.")).rejects.toThrow(/guarded mention capability/)
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "fixed", reason: "Please ask @other-user to confirm." })).rejects.toThrow(/guarded mention capability/)
   })
 
   it.each([
@@ -216,6 +235,7 @@ describe("native auto-merge", () => {
   ])("rejects wrapped mention %s before making GitHub calls", async (body) => {
     const f = await fixture({ restrictCommentMentions: true })
     await expect(f.operations.comment(body)).rejects.toThrow(/guarded mention capability/)
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: body })).rejects.toThrow(/guarded mention capability/)
     expect(f.forge).not.toHaveBeenCalled()
     const explicit = await fixture({ mentionAllowlist: ["stefina"] })
     await expect(explicit.operations.mention("stefina", body)).rejects.toThrow(/another mention/)
@@ -463,19 +483,47 @@ describe("host-owned repair operations", () => {
 
   it("reads bounded failure logs only for a run at the admitted head", async () => {
     const f = await fixture()
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false })
-    f.state.logs = "x".repeat(200_001)
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: `## test\n${"x".repeat(200_000 - 8)}`, truncated: true })
+    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false, totalLines: 2, includedLineRanges: [[1, 2]] })
     f.state.run.head_sha = "b".repeat(40)
     await expect(f.operations.readCheckLogs(123)).rejects.toThrow("does not belong")
-    expect(f.calls.filter(call => call.path === "/repos/acme/app/actions/jobs/7/logs")).toHaveLength(2)
+    expect(f.calls.filter(call => call.path === "/repos/acme/app/actions/jobs/7/logs")).toHaveLength(1)
+  })
+
+  it("returns the failure from a long colored log instead of its first 200,000 characters", async () => {
+    const f = await fixture()
+    const build = Array.from({ length: 20_000 }, (_, n) => `test\tbuild\t2026-11-01T00:00:00Z \u001b[32m✓\u001b[39m built chunk ${n}`)
+    const fetch = "test\tcheckout\t2026-11-01T00:00:00Z  * [new branch]          fix/agent-error -> origin/fix/agent-error"
+    const failure = "test\ttest\t2026-11-01T00:10:00Z \u001b[31mFAIL\u001b[39m TypeCheckError: 'details' does not exist in type"
+    f.state.logs = [fetch, ...build, failure].join("\n")
+    const excerpt = await f.operations.readCheckLogs(123)
+    expect(excerpt.truncated).toBe(true)
+    expect(excerpt.text).toContain("FAIL TypeCheckError: 'details' does not exist in type")
+    expect(excerpt.text).not.toContain("\u001b")
+    expect(excerpt.totalLines).toBe(20_002)
+    expect(excerpt.includedLineRanges.at(-1)).toEqual([19_998, 20_002])
+  })
+
+  it("reads a requested tail or line range from a failed-job log", async () => {
+    const f = await fixture()
+    const lines = Array.from({ length: 7229 }, (_, n) => `docs\tBuild docs\t2026-11-07T06:43:10Z ${n + 1} ${"build output ".repeat(8)}`)
+    lines[7135] = "docs\tBuild docs\tBroken docs links: /docs/getting-started/ai-resources links to /mcp, which has no page or file"
+    f.state.logs = lines.join("\n")
+    const log = ["## test", ...lines]
+    const tail = await f.operations.readCheckLogs(123, { tailLines: 100 })
+    expect(tail).toEqual({ text: log.slice(-100).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7131, 7230]] })
+    expect(tail.text).toContain("Broken docs links")
+    const range = await f.operations.readCheckLogs(123, { startLine: 7134, endLine: 7141 })
+    expect(range).toEqual({ text: log.slice(7133, 7141).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7134, 7141]], nextLine: 7142 })
+    await expect(f.operations.readCheckLogs(123, { startLine: 20, endLine: 10 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("1 to 1000") })
+    await expect(f.operations.readCheckLogs(123, { tailLines: 100, startLine: 1 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("Choose tailLines") })
+    await expect(f.operations.readCheckLogs(123, { startLine: 8000 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_START_PAST_END", why: "startLine 8000 is past the log's 7230 lines." })
   })
 
   it("accepts a synthetic merge workflow run linked to the expected PR head", async () => {
     const f = await fixture()
     f.state.run.head_sha = "b".repeat(40)
     f.state.run.pull_requests = [{ number: 12, head: { sha: head } }]
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false })
+    expect(await f.operations.readCheckLogs(123)).toMatchObject({ text: "## test\nCI failure", truncated: false })
   })
 
   it("rejects thread IDs owned by another PR", async () => {
@@ -492,6 +540,79 @@ describe("host-owned repair operations", () => {
     f.state.thread.isResolved = true
     await f.operations.resolveThread("THREAD_1")
     expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("posts a declined thread's outcome and reason as a reply before resolving it", async () => {
+    const commentPrefix = "<!-- vitehub-babysitter-repair:repair -->\n"
+    const f = await fixture({ commentPrefix })
+    f.state.threadComments = [{ databaseId: 501, body: "P2: config spread", author: { login: "pullfrog", __typename: "Bot" }, createdAt: "2026-11-07T00:00:00Z", url: "https://github.com/acme/app/pull/12#discussion_r501" }]
+    await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: outside this PR's scope." })
+    const replies = f.calls.filter(call => call.method === "POST" && call.path === "/repos/acme/app/pulls/12/comments/501/replies")
+    expect(replies.map(call => (call.body as { body: string }).body)).toEqual([`${commentPrefix}<!-- vitehub-babysitter-outcome:declined -->\n**Declined.** P2: outside this PR's scope.`])
+    expect(f.calls.indexOf(replies[0]!)).toBeLessThan(f.calls.findIndex(call => call.operationName === "ResolveReviewThread"))
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("requires a reason for every outcome except fixed", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "disproved", reason: " " })).rejects.toMatchObject({
+      code: "PRESETS_REVIEW_REASON_REQUIRED",
+      why: "A disproved review thread needs a one-sentence reason.",
+      fix: expect.stringContaining("non-empty reason"),
+      docs: "https://vitehub.dev/docs/agents/diagnostics/presets_review_reason_required",
+    })
+    expect(f.mutations()).toHaveLength(0)
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it.each(["reply-result-lost", "resolve-failed", "resolve-result-lost"] as const)("retries an outcome after %s with one reply", async failure => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    f.state.threadFailure = failure
+    const answer = { outcome: "declined", reason: "P2: outside this PR's scope." } as const
+    await expect(f.operations.resolveThread("THREAD_1", answer)).rejects.toThrow()
+    f.state.threadFailure = undefined
+    const retry = createGitHubPullRequestOperations({ forge: f.forge }, { repository: "acme/app", number: 12, expectedHeadOid: head })
+    await retry.resolveThread("THREAD_1", answer)
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.state.thread.isResolved).toBe(true)
+  })
+
+  it("answers an already resolved thread and ignores outcome markers from other authors", async () => {
+    const f = await fixture()
+    const body = "<!-- vitehub-babysitter-outcome:fixed -->\n**Fixed.**"
+    f.state.thread.isResolved = true
+    f.state.threadComments = [reviewComment, { ...reviewComment, databaseId: 503, body }]
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.mutations()).toHaveLength(0)
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+  })
+
+  it("refuses to record an outcome when the thread has no comment to reply to", async () => {
+    const f = await fixture()
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "fixed" })).rejects.toThrow(/comment/)
+    expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("finds an authenticated outcome on later comment pages", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    f.state.threadCommentPages = [[{ ...reviewComment, databaseId: 502, body: "<!-- vitehub-babysitter-outcome:fixed -->\n**Fixed.**", author: { login: "worker[bot]", __typename: "Bot" } }]]
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.calls.filter(call => call.operationName === "ReviewThreadOutcomeComments").map(call => call.variables?.after)).toEqual([null, "1"])
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(0)
+    expect(f.state.thread.isResolved).toBe(true)
+  })
+
+  it.each(["Use `@someone` as text.", "Contact ops@example.com.", "See https://example.com/@someone."])("allows non-mention outcome reasons: %s", async reason => {
+    const f = await fixture({ restrictCommentMentions: true })
+    f.state.threadComments = [reviewComment]
+    await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
   })
 
   it.each(["closed", "head", "filter"])("rejects %s work before allowing a host push", async condition => {

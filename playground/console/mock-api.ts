@@ -1,5 +1,4 @@
 import { createLogBuffer } from "../../packages/vite-hub/src/logs/memory.ts"
-import { authFixture } from "./auth-fixture.ts";
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
 import * as v from "valibot"
@@ -948,10 +947,6 @@ export function consoleMockAPI(): Plugin {
             response.statusCode = 302
             response.setHeader("location", "/_vitehub/")
             response.end()
-            return
-          }
-          if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
-            json(response, authFixture(await body(request), process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"));
             return
           }
           if (await handleAPI(request, response, url)) return

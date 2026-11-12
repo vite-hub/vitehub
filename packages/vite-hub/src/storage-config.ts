@@ -41,8 +41,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent ? {
       agent: {
         ...agent,
-        ...(state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
-          providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        ...(state !== false && (!state?.driver || ["auto", "sqlite", "libsql"].includes(state.driver)) ? {
+          providers: { ...agent.providers, state: { ...state, driver: state?.driver ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
         } : {}),
         ...(isDefaultAgentJournal(agent.invocations) ? {
           invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },

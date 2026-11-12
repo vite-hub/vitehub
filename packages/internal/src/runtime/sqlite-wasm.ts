@@ -93,8 +93,12 @@ class WasmSqliteError extends Error {
 let sqlite3Promise: Promise<Sqlite3> | undefined
 let warned = false
 
+// A failed load lets the next open try again.
 function loadSqlite3() {
-  return sqlite3Promise ??= import("@sqlite.org/sqlite-wasm").then(module => module.default())
+  return sqlite3Promise ??= import("@sqlite.org/sqlite-wasm").then(module => module.default()).catch((error: unknown) => {
+    sqlite3Promise = undefined
+    throw error
+  })
 }
 
 interface SharedDatabase {

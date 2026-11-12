@@ -85,50 +85,50 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./internal/default-invocations": {
+      "types": "./dist/internal/default-invocations.d.ts",
+      "import": "./dist/internal/default-invocations.js",
+      "default": "./dist/internal/default-invocations.js"
+    },
+    "./internal/default-invocations-core": {
+      "types": "./dist/internal/default-invocations-core.d.ts",
+      "import": "./dist/internal/default-invocations-core.js",
+      "default": "./dist/internal/default-invocations-core.js"
+    },
+    "./internal/default-invocations-libsql": {
+      "types": "./dist/internal/default-invocations-libsql.d.ts",
+      "import": "./dist/internal/default-invocations-libsql.js",
+      "default": "./dist/internal/default-invocations-libsql.js"
+    },
+    "./invocations": {
+      "types": "./dist/invocations/index.d.ts",
+      "import": "./dist/invocations/index.js",
+      "default": "./dist/invocations/index.js"
+    },
     "./invocations/app": {
       "types": "./dist/invocations/app.d.ts",
       "import": "./dist/invocations/app.js",
       "default": "./dist/invocations/app.js"
-    },
-    "./invocations/d1": {
-      "types": "./dist/invocations/d1.d.ts",
-      "import": "./dist/invocations/d1.js",
-      "default": "./dist/invocations/d1.js"
     },
     "./invocations/database": {
       "types": "./dist/invocations/database.d.ts",
       "import": "./dist/invocations/database.js",
       "default": "./dist/invocations/database.js"
     },
-    "./invocations/default": {
-      "types": "./dist/invocations/default.d.ts",
-      "import": "./dist/invocations/default.js",
-      "default": "./dist/invocations/default.js"
-    },
-    "./invocations/default-core": {
-      "types": "./dist/invocations/default-core.d.ts",
-      "import": "./dist/invocations/default-core.js",
-      "default": "./dist/invocations/default-core.js"
-    },
-    "./invocations/default-libsql": {
-      "types": "./dist/invocations/default-libsql.d.ts",
-      "import": "./dist/invocations/default-libsql.js",
-      "default": "./dist/invocations/default-libsql.js"
-    },
     "./invocations/drizzle": {
       "types": "./dist/invocations/drizzle.d.ts",
       "import": "./dist/invocations/drizzle.js",
       "default": "./dist/invocations/drizzle.js"
     },
-    "./invocations/sqlite": {
-      "types": "./dist/invocations/sqlite.d.ts",
-      "import": "./dist/invocations/sqlite.js",
-      "default": "./dist/invocations/sqlite.js"
-    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
+    },
+    "./messages": {
+      "types": "./dist/messages.d.ts",
+      "import": "./dist/messages.js",
+      "default": "./dist/messages.js"
     },
     "./observability": {
       "types": "./dist/observability.d.ts",
@@ -145,15 +145,10 @@
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
-    "./process-host": {
-      "types": "./dist/process-host.d.ts",
-      "import": "./dist/process-host.js",
-      "default": "./dist/process-host.js"
-    },
-    "./runtime/process": {
-      "types": "./dist/runtime/process.d.ts",
-      "import": "./dist/runtime/process.js",
-      "default": "./dist/runtime/process.js"
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "import": "./dist/process.js",
+      "default": "./dist/process.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -165,10 +160,10 @@
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
     },
-    "./state/sqlite": {
-      "types": "./dist/state/sqlite.d.ts",
-      "import": "./dist/state/sqlite.js",
-      "default": "./dist/state/sqlite.js"
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js",
+      "default": "./dist/state.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",

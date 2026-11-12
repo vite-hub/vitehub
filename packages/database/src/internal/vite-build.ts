@@ -51,16 +51,17 @@ export function usesRemoteLibsql(runtimeConfig: ResolvedDBViteConfig): boolean {
   })
 }
 
-function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
+function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig, provider: DBProvider) {
   const imports = runtimeConfig.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
-    `import schema_${index} from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
+    `import schema_${index}, { relations as relations_${index} } from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
   ])
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
     `  [${JSON.stringify(name)}]: {`,
     runtimeConfig.databases[name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`, `schema_${index}`)},`
-      : `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
+      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`, `schema_${index}`, `relations_${index}`)},`
+      : `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, relations_${index}),`,
+    `    relations: relations_${index},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -69,12 +70,14 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     chunkParametersImport: createImportPath(file, resolveRuntimeModule("runtime/chunk-parameters")),
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
+    ensureMigrationsImport: createImportPath(file, resolveRuntimeModule("runtime/migrate-on-start")),
     imports: [
       ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesRemoteLibsql(runtimeConfig) ? "runtime/hosted" : "runtime/d1")))}`] : []),
       ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
       "",
       ...imports,
     ],
+    migrations: { unsupported: `The build targets ${provider}.` },
     useDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/use-database")),
   })
 }
@@ -117,7 +120,7 @@ export async function writeHostedDatabaseRuntimeModules(
     writeFile(definitionDefaultsFile, `export default ${serializeGeneratedRegistry(definitionDefaults)}\n`, "utf8"),
     ...providers.map(async (provider) => {
       const file = resolve(generatedDir, `${provider}-runtime.mjs`)
-      await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig), "utf8")
+      await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig, provider), "utf8")
     }),
   ])
   return definitionDefaultsFile

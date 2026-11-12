@@ -73,15 +73,17 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
 }
 
 /**
- * The Console routes of an app: the one Console route, `POST /_vitehub/rpc`, which the ViteHub Console and the CLI call
- * with signed requests, and `POST /_vitehub/auth/manage`, which keeps impersonation until one-time tickets replace it.
+ * The one Console route of an app, `/_vitehub/rpc`. The ViteHub Console and the CLI `POST` signed calls to it, and a
+ * browser `GET`s it with a one-time ticket, for Content preview and impersonation.
  */
 const consoleRoutes = [
   "route ALL /_vitehub/rpc console/server/rpc.js",
-  "route POST /_vitehub/auth/manage console/server/auth-manage.js",
 ]
 
-/** App features that stay. They serve the app and its visitors, not the Console. */
+/**
+ * App features that stay on purpose. They serve the app and its visitors, with the app's own identity, not the Console:
+ * the Comments overlay, app Auth, and the Connections management API with the app's own actor module.
+ */
 const appRoutes = [
   // The Comments API of the overlay, with the app's own identity.
   "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
@@ -115,11 +117,11 @@ const publicAssets = [
 ]
 
 describe("Nitro routes of a production build with every Console section on", () => {
-  it("serves one Console route, POST /_vitehub/rpc, plus impersonation until PR E", async () => {
+  it("serves one Console route, /_vitehub/rpc, and the app features that stay", async () => {
     const inventory = await nitroInventory({ invoke: true, mcpClient: true })
     expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
     // The Console MCP, OAuth discovery, CORS, sign-in, Console Auth, and Env management are gone from apps.
-    const removed = ["/.well-known/oauth", "/_vitehub/mcp", "/_vitehub/sign-in", "/_vitehub/api/auth", "/_vitehub/env/manage"]
+    const removed = ["/.well-known/oauth", "/_vitehub/mcp", "/_vitehub/sign-in", "/_vitehub/api/auth", "/_vitehub/env/manage", "/_vitehub/auth/manage"]
     expect(inventory.handlers.filter(line => removed.some(path => line.split(" ")[2]!.startsWith(path)))).toEqual([])
     expect(inventory.handlers.filter(line => line.startsWith("middleware"))).toEqual([])
     expect(inventory.plugins.filter(plugin => /console-preflight|mcp-discovery/.test(plugin))).toEqual([])

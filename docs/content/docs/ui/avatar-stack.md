@@ -49,6 +49,7 @@ AvatarStack
 - An image, or the person's initials without one.
 - `outline` rings each avatar in the person's presence color, to match their caret.
 - Hover an avatar to see the name. Hover the count to list hidden names.
+- People marked `idle` are away: their avatars dim and come after the people who are here, and their names say "(away)".
 - Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`.
 
 ## Outline
@@ -88,12 +89,12 @@ Renders a `div` with `data-slot="avatar-stack"`. Each avatar is a `span` with `d
 
 #### Props
 
-| Prop      | Type                             | Default     | Description                                                                 |
-| --------- | -------------------------------- | ----------- | --------------------------------------------------------------------------- |
-| `people`  | `AvatarStackPerson[]`            | Required    | `{ id, name, image?, color? }`. Entries with the same `id` show once. |
-| `max`     | `number \| null`                 | `3`         | Most items, counting "+N". `null` shows everyone. |
-| `size`    | `"sm" \| "default" \| "lg"`      | `"default"` | The avatar size.                                                            |
-| `variant` | `"default" \| "outline"`         | `"default"` | `outline` rings each avatar in the person's `color`.                        |
+| Prop      | Type                        | Default     | Description                                                                                                        |
+| --------- | --------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `people`  | `AvatarStackPerson[]`       | Required    | `{ id, name, image?, color?, idle? }`. Entries with the same `id` show once, away only when every entry is `idle`. |
+| `max`     | `number \| null`            | `3`         | Most items, counting "+N". `null` shows everyone.                                                                  |
+| `size`    | `"sm" \| "default" \| "lg"` | `"default"` | The avatar size.                                                                                                   |
+| `variant` | `"default" \| "outline"`    | `"default"` | `outline` rings each avatar in the person's `color`.                                                               |
 
 ## Related
 

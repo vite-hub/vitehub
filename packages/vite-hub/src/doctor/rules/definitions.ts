@@ -42,13 +42,13 @@ export const knownDefinitionNames: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     const { definitions } = viteHubInventory(ctx)
-    // Discovery cannot see a Workflow that this file registers: an Agent with `runtime: workflow("name")`,
+    // Discovery cannot see a Workflow that this file registers: an Agent with `runtime: agentWorkflow("name")`,
     // or `createWorkflow("name", handler)` and `createWorkflow({ name, handler })`.
     const localWorkflows = new Set<string>()
     walkScript(ctx.file.scriptAst, (node) => {
       if (!isNodeType(node, "CallExpression")) return
       const callee = r.callee(node)
-      if (!isExport(callee, ["agent"], "workflow") && !isExport(callee, ["workflow"], "createWorkflow")) return
+      if (!isExport(callee, ["agent"], "agentWorkflow") && !isExport(callee, ["workflow"], "createWorkflow")) return
       const first = callArguments(node)[0]
       const name = stringValue(first) ?? stringValue(objectValue(first, "name"))
       if (name) localWorkflows.add(name)

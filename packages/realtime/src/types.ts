@@ -147,6 +147,11 @@ export interface RealtimeRequestContext {
   request: Request
 }
 
+export interface RealtimeOriginContext extends RealtimeRequestContext {
+  /** The `Origin` header of a request from another origin than the app's. */
+  origin: string
+}
+
 export interface RealtimeAuthorizeContext extends RealtimeRequestContext {
   /** Requested document, or `null` for the definition's Workspace event channel. */
   documentId: string | null
@@ -166,6 +171,13 @@ export interface RealtimeDefinition {
   auth?: boolean
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
+  /**
+   * Let a page on another origin connect to a definition with `identify`, such as a script that sites load from the
+   * app. Return `true` to accept `origin`. Without it, only the app's own origin connects. The browser sends cookies
+   * with a cross-site handshake too, so `identify` must then trust only what the page sends on purpose, such as a
+   * ticket in `params`, never the session cookie.
+   */
+  origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
   /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
   authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter

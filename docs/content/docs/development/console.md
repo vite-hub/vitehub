@@ -11,7 +11,7 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 | Route | Use |
 | --- | --- |
 | `POST /_vitehub/rpc` | The Operations endpoint. Each request carries one [birpc](https://github.com/antfu-collective/birpc) call, as the next section shows. An [operation](/docs/development/operations) is a named action, such as `invocations.list` or `content.publish`. |
-| `POST /_vitehub/auth/manage` | Starts and stops [impersonation](/docs/auth/console) when the app has Auth. |
+| `GET /_vitehub/rpc?ticket=<ticket>` | Redeems a [one-time link](#one-time-links), such as a Content preview or [impersonation](/docs/auth/console#changes-and-limits). The browser opens it. |
 | `/_vitehub/.well-known/skills/` | Static files of the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
 
 Agents connect to the ViteHub MCP of the Console, not to your app. See [ViteHub MCP](/docs/development/mcp).
@@ -50,6 +50,16 @@ The build and the development server include only the Console routes and server 
 > Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the endpoint before you put the app on a production URL.
 
 ## Open your app in the Console
+
+The `console` option has three states:
+
+| `console` | Development server | Production build |
+| --- | --- | --- |
+| Not set | The [Operations endpoint](/docs/development/operations#access) answers loopback requests, so `vitehub <command>` works. | Nothing under `/_vitehub`. |
+| `false` | Nothing under `/_vitehub`. | Nothing under `/_vitehub`. |
+| `true` or an object | The Console endpoint with the configured access policy. | The Console endpoint with the configured access policy. `auth: false` is refused. |
+
+With `console: false`, ViteHub registers no Console RPC route, Console Nitro plugin, or Console public asset path, also on a development server. Commands such as `vitehub kv` and `vitehub schedule run` cannot reach the development server then. Remove the option to get the development endpoint back.
 
 ### In development
 
@@ -155,13 +165,50 @@ The Console has no Connections section. To connect a provider account, use [`vit
 
 Set `console.mcpClient` to `true` to add the MCP client section. It runs on the server and connects to MCP servers over Streamable HTTP as the Console caller. It lists and calls their tools, reads their resources, gets their prompts, and shows each result as the server sent it.
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  console: { mcpClient: true },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { mcpClient: true },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { mcpClient: true },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { mcpClient: true },
+    }),
+  ],
+})
+```
+:::
+::
 
 The section uses the MCP SDK. Install it in your app first:
 
@@ -198,6 +245,24 @@ With the key, the server seals each connection and client registration with AES-
 
 Agents cannot use these connections.
 
+## One-time links
+
+Content preview and impersonation need your app's origin: the page renders the draft, or the app sets its own session cookie. The Console page runs on another origin, so it opens them with a one-time link:
+
+1. The Console calls an operation with a signed request, such as `documents.preview` or `auth.impersonate`. The operation checks the section, the grant, and the target, as any operation does.
+2. The operation returns `{ url, expiresAt }`. `url` is `GET /_vitehub/rpc?ticket=<ticket>` on your app.
+3. The Console opens `url` in a new tab. Your app redeems the ticket once and answers with the page: the draft preview, or a redirect to the app home with the impersonation cookies.
+
+A ticket is 32 random bytes. Your app keeps only its SHA-256, with the purpose, the app origin and mount, the person, the target, and the expiry. Redemption takes it out of the store first, so each ticket works once, also when two instances get it at the same time. A ticket works for 60 seconds. A used, expired, or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`. A ticket that another app made, or that reaches a browser signed in to the app as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
+
+The store is the verification table of Better Auth, so the app needs [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). A development server without one keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+
+| Operation | Opens | The app checks at redemption |
+| --- | --- | --- |
+| `documents.preview` | The page of a document with its saved draft. | The person may read the document. The page renders the draft through the [preview frame](/docs/content/preview). |
+| `auth.impersonate` | The app home as the user. | The browser's app session has the email of the person and Better Auth's `impersonate` permission. |
+| `auth.stop-impersonating` | The app home as the administrator again. | The browser impersonates for the person. |
+
 ## Links to the Console
 
 `hostedConsoleUrl()` from `vite-hub/runtime` builds a link to one page of a project in the Console. `consoleInvocationUrl()` and GitHub pull request comments use it. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
@@ -211,6 +276,8 @@ hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
 
 - `project` is the app origin, with its base path if it has one, such as `https://app.example.com/portal`.
 - `path` is the page in the Console, such as `/kv` or `/agents/<agent>/invocations/<id>`. It must start with one `/`.
+
+The Console opens that page of the app of your team whose URL is `project`. When your team has not linked the app, the link opens Home.
 
 A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
@@ -382,7 +449,7 @@ To rotate a key with no downtime, make a key pair with a new name, add its publi
 Earlier releases let the app sign people in to the Console with `console: { auth: 'app' }`, a Console Auth config (`auth: { ... }` with a server file, GitHub, or Cloudflare Access), or a bearer token with `auth: 'token'`. These options are removed, and so are `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed`. A build that sets one of them fails with `VITE_HUB_B0020`, and the message names the fix. The app no longer serves `/_vitehub/mcp`, `/_vitehub/sign-in`, `/_vitehub/api/auth/**`, `/_vitehub/env/manage`, or OAuth discovery for the Console.
 
 1. Remove `auth`, `origins`, `mcp`, and `signInPage` from the `console` options, or set `console: true`.
-2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc`: a signed call has no app session, and the route checks its own access.
+2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/rpc?ticket=`: a signed call has no app session, a one-time link has its ticket as proof, and the route checks its own access. A build fails when an app route file, such as `server/routes/_vitehub/rpc.post.ts`, uses the same path.
 3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/development/app-mcp).
 4. Link the app in [console.vitehub.dev](#in-production), and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows. Invite the people who used the app's Console to your team.
 5. For the CLI, make a key with `vitehub secret console-key`, and replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
@@ -530,13 +597,50 @@ When the endpoint takes calls without a signature, the dev server prints a note 
 
 `invoke` lets the Console start Agent Invocations and run manual Schedules. It is `true` on the development server and `false` in a production build by default:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  console: { authorize: './server/console-authorize.ts', invoke: true },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { authorize: './server/console-authorize.ts', invoke: true },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { authorize: './server/console-authorize.ts', invoke: true },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { authorize: './server/console-authorize.ts', invoke: true },
+    }),
+  ],
+})
+```
+:::
+::
 
 The invocation operations call `authorize`, so it decides who can start invocations. A user also needs the `agents` section. `invoke: false` keeps inspection and turns off new invocations. Fixture mode always turns them off.
 
@@ -675,6 +779,9 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGNATURE_ORIGIN` | `401` | Link the app with the URL that serves it. Behind a proxy that ends TLS, set `vitehub({ publicUrl })`. |
 | `CONSOLE_SIGNATURE_INVALID` | `401` | Use the private key whose public key is in the `VITEHUB_CONSOLE_KEY_<NAME>` that the signature names. |
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers. A proxy must not change it. |
+| `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](#one-time-links) works once, within 60 seconds. |
+| `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in the browser where you are signed in to the app with the email of your Console account. |
+| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, so every instance shares the tickets. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |

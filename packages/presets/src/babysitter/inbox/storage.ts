@@ -2,14 +2,14 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { SQLInputValue } from 'node:sqlite'
 
-import type { SqliteAgentStateExtension, SqliteAgentStateExtensionExecutor, SqliteAgentStateRow } from '@vite-hub/agent/state/sqlite'
+import type { SqliteAgentStateExtension, SqliteAgentStateExtensionExecutor, SqliteAgentStateRow } from '@vite-hub/agent/state'
 
 export type PullRequestInboxRow = SqliteAgentStateRow
 export type PullRequestInboxExecutor = SqliteAgentStateExtensionExecutor
 
 /**
  * SQL access for the PR inbox. `agentState.extension("babysitter")` from
- * `@vite-hub/agent/state/sqlite` satisfies it and keeps the inbox in the Agent State database.
+ * `@vite-hub/agent/state` satisfies it and keeps the inbox in the Agent State database.
  */
 export interface PullRequestInboxStorage extends Pick<SqliteAgentStateExtension, 'execute' | 'tablePrefix' | 'transaction'> {
   close?: () => Promise<void>

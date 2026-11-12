@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { defaultAgentInvocationsDatabase } from "@vite-hub/agent/invocations/default-core"
+import { defaultAgentInvocationsDatabase } from "@vite-hub/agent/internal/default-invocations-core"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import {
@@ -12,7 +12,7 @@ import {
 import { resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 
 import type { Value } from "@libsql/client"
-import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/invocations/default-core"
+import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/internal/default-invocations-core"
 import type { ConsoleUsageClient, createConsoleUsageIndex } from "./usage-index.ts"
 import type { AgentInvocations } from "@vite-hub/agent"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"

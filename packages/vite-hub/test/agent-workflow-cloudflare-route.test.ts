@@ -21,7 +21,7 @@ interface WorkflowBinding {
 }
 
 const agent = (name: string, runtime?: string) => [
-  `import { defineAgent${runtime ? ", workflow" : ""} } from "vite-hub/agent"`,
+  `import { defineAgent${runtime ? ", agentWorkflow" : ""} } from "vite-hub/agent"`,
   "",
   "export default defineAgent({",
   ...(runtime ? [`  runtime: ${runtime},`] : []),
@@ -42,16 +42,16 @@ beforeAll(async () => {
   await mkdir(join(root, "server/agents"), { recursive: true })
   await mkdir(join(root, "server/api"), { recursive: true })
   await writeFile(join(root, "server/agents/hello.ts"), agent("hello"))
-  await writeFile(join(root, "server/agents/greeter.ts"), agent("greeter", "workflow(\"greeter\")"))
+  await writeFile(join(root, "server/agents/greeter.ts"), agent("greeter", "agentWorkflow(\"greeter\")"))
   await writeFile(join(root, "server/api/run.post.ts"), [
     "import { defineEventHandler, getQuery } from \"h3\"",
-    "import { defineAgent, startAgentInvocation, workflow } from \"vite-hub/agent\"",
+    "import { defineAgent, startAgentInvocation, agentWorkflow } from \"vite-hub/agent\"",
     "import { getRuntimeContext } from \"vite-hub/runtime/h3\"",
     "import greeter from \"../agents/greeter\"",
     "import hello from \"../agents/hello\"",
     "",
     "// An Agent that the host did not discover, with the Workflow name of a discovered Agent.",
-    "const impostor = defineAgent({ runtime: workflow(\"hello\"), driver: { run: () => \"Hello from impostor\" } })",
+    "const impostor = defineAgent({ runtime: agentWorkflow(\"hello\"), driver: { run: () => \"Hello from impostor\" } })",
     "const agents = { greeter, hello, impostor }",
     "",
     "export default defineEventHandler(async (event) => {",
@@ -101,7 +101,7 @@ async function run(agentName: string): Promise<Record<string, unknown>> {
 
 it.each([
   ["hello", "a default Agent"],
-  ["greeter", "an Agent with a workflow() binding"],
+  ["greeter", "an Agent with an agentWorkflow() binding"],
 ])("startAgentInvocation() from a route starts the discovered Workflow of %s (%s) in workerd", async (name) => {
   const started = await run(name)
   expect(started).toEqual({ id: expect.any(String) })

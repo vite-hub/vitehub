@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleSignInMethods } from "../client/account";
 import { acceptConsoleInvitation, linkConsoleGitHub, loadConsoleSignInMethods, signInWithGitHub, signInWithPasskey, signUpWithPasskey } from "../client/account";
-import { reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
+import { consoleSignInReturnPath, finishConsoleSignIn, reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
 
 /**
  * The sign-in page of an `account` Console: GitHub, a passkey, or a new account with a passkey. On an `/invite/<id>`
@@ -25,7 +25,10 @@ onMounted(async () => {
   methods.value = await loadConsoleSignInMethods();
 });
 
-/** Run a sign-in step. After it, the Console loads again: the invitation page shows Accept, other pages the projects. */
+/**
+ * Run a sign-in step. After it, the Console loads again: the invitation page shows Accept, an `/open` link opens its
+ * page, and other pages show the projects.
+ */
 async function run(kind: NonNullable<typeof busy.value>, action: () => Promise<void>): Promise<void> {
   if (busy.value) return;
   busy.value = kind;
@@ -35,7 +38,8 @@ async function run(kind: NonNullable<typeof busy.value>, action: () => Promise<v
     // The browser is on its way to GitHub.
     if (kind === "github") return;
     if (props.invitation && kind !== "accept") window.location.reload();
-    else reloadConsoleAccount();
+    // A sign-in from an `/open` link opens that link again.
+    else finishConsoleSignIn();
   }
   catch (error) {
     // A person who closed the browser's passkey sheet chose not to sign in. That is not an error to show.
@@ -89,7 +93,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
         block
         class="h-10"
         :loading="busy === 'github'"
-        @click="run('github', () => signInWithGitHub(`${projects.pageOrigin}${invitationPath ?? '/'}`))"
+        @click="run('github', () => signInWithGitHub(`${projects.pageOrigin}${invitationPath ?? consoleSignInReturnPath()}`))"
       />
       <UButton
         v-if="passkeys && methods"

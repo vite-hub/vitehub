@@ -7,10 +7,14 @@ import { dirname, join } from "node:path"
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { createHash } from "node:crypto"
+
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import { copyD1MigrationFiles, d1MigrationNamesFile, listD1Migrations } from "../src/internal/d1-migrations.ts"
+import { renderMigrateOnStartPlugin, renderShippedMigrationsModule } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
+import { createTestDatabaseClient } from "../src/runtime/test-database.ts"
 
 import type { InArgs } from "@libsql/client"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
@@ -80,7 +84,7 @@ async function createProject() {
     rootDir,
   }) as unknown as ResolvedDBViteConfig)!
 
-  async function run(feature: "generate" | "migrate", args: string[] = [], env: NodeJS.ProcessEnv = process.env, spawn: typeof realSpawn = realSpawn) {
+  async function run(feature: "generate" | "migrate" | "up", args: string[] = [], env: NodeJS.ProcessEnv = process.env, spawn: typeof realSpawn = realSpawn) {
     const stdout = { write: vi.fn() }
     const stderr = { write: vi.fn() }
     const command = contributor.namespaces[0]!.features.find(candidate => candidate.name === feature)!
@@ -101,6 +105,104 @@ async function createProject() {
 
   return { columns, database, rootDir, run, writeSchema: (columns: string[]) => writeFile(join(rootDir, "schema.ts"), notesSchema(columns)) }
 }
+
+const drizzleKit0xFixture = join(import.meta.dirname, "fixtures/drizzle-kit-0x-migrations")
+
+describe("vitehub database up", () => {
+  it("converts a Drizzle Kit 0.x folder, which generate and migrate refuse before, then migrates it on libSQL", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(drizzleKit0xFixture, migrationsDir, { recursive: true })
+    await project.writeSchema(["title", "body"])
+
+    for (const feature of ["migrate", "generate"] as const) {
+      const refused = await project.run(feature)
+      expect(refused.exitCode).toBe(1)
+      expect(refused.stderr).toContain("DATABASE_MIGRATIONS_OLD_LAYOUT")
+      expect(refused.stderr).toContain("The migrations of the database \"default\" in migrations use the layout of Drizzle Kit 0.x")
+      expect(refused.stderr).toContain("Run `vitehub database up` once")
+    }
+    expect(existsSync(join(project.rootDir, ".vitehub/data/database/sqlite.db"))).toBe(false)
+    await expect(readdir(migrationsDir)).resolves.toEqual(["0000_init.sql", "0001_add_body.sql", "meta"])
+
+    const converted = await project.run("up")
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(converted.stdout).toContain("[vitehub] Database \"default\": converted migrations to the layout of Drizzle Kit 1.0. Commit the new folders.")
+    const tags = await migrationTags(migrationsDir)
+    expect(tags).toEqual([expect.stringMatching(/^\d{14}_init$/), expect.stringMatching(/^\d{14}_add_body$/)])
+    await expect(readFile(join(migrationsDir, tags[0]!, "migration.sql"), "utf8")).resolves.toBe(await readFile(join(drizzleKit0xFixture, "0000_init.sql"), "utf8"))
+
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stdout: "[vitehub] Every migrations folder already uses the layout of Drizzle Kit 1.0.\n" })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
+    // The converted snapshots match the schema, so Drizzle Kit has no migration to write.
+    await expect(project.run("generate")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+  }, 120_000)
+
+  it("keeps the migrations that Drizzle Kit 0.x applied, and applies the next one", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(drizzleKit0xFixture, migrationsDir, { recursive: true })
+    // The database as `drizzle-kit migrate` 0.31 left it: both migrations applied, with 0.x ledger rows.
+    const journal = JSON.parse(await readFile(join(drizzleKit0xFixture, "meta/_journal.json"), "utf8")) as { entries: Array<{ tag: string, when: number }> }
+    await mkdir(join(project.rootDir, ".vitehub/data/database"), { recursive: true })
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await client.execute("CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric)")
+      for (const entry of journal.entries) {
+        const sql = await readFile(join(drizzleKit0xFixture, `${entry.tag}.sql`), "utf8")
+        await client.executeMultiple(sql)
+        await client.execute({ args: [createHash("sha256").update(sql).digest("hex"), entry.when], sql: "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)" })
+      }
+    }
+    finally {
+      client.close()
+    }
+
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0 })
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun.stdout).toContain("no pending migrations.")
+
+    await project.writeSchema(["title", "body", "tags"])
+    await nextSecond()
+    await expect(project.run("generate", ["--name", "add_tags"])).resolves.toMatchObject({ exitCode: 0 })
+    const applied = await project.run("migrate")
+    expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body", "tags"])
+    await expect(project.run("migrate", ["--dry-run"])).resolves.toMatchObject({ stdout: expect.stringContaining("no pending migrations.") })
+  }, 120_000)
+
+  it("asks for drizzle-kit 1.0 when the project has drizzle-kit 0.x", async () => {
+    const project = await createProject()
+    await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
+    // The project root wins over the package's own drizzle-kit, as in an app that still pins 0.31.
+    await mkdir(join(project.rootDir, "node_modules/drizzle-kit"), { recursive: true })
+    await writeFile(join(project.rootDir, "node_modules/drizzle-kit/package.json"), JSON.stringify({ bin: "bin.cjs", name: "drizzle-kit", version: "0.31.4" }))
+    await writeFile(join(project.rootDir, "node_modules/drizzle-kit/bin.cjs"), "process.exit(0)\n")
+
+    const refused = await project.run("up")
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("`vitehub database up` needs drizzle-kit 1.0, and")
+    expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.5`")
+    await expect(readdir(project.database.migrationsDir)).resolves.toContain("meta")
+  })
+
+  it("stops migrate on start and test mode at a Drizzle Kit 0.x folder", async () => {
+    const project = await createProject()
+    await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
+    const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
+
+    expect(() => renderMigrateOnStartPlugin(config, { databases: ["default"], drizzleImport: "db", migrationsImport: "migrations", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
+      code: "DATABASE_MIGRATIONS_OLD_LAYOUT",
+      why: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`),
+    }))
+    const shipped = JSON.parse(renderShippedMigrationsModule(config, { allowDataLoss: false }).replace(/^export default /, ""))
+    expect(shipped.databases.default).toEqual({ problem: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`) })
+    const client = createTestDatabaseClient(project.rootDir, "migrations")
+    await expect(client.execute("SELECT 1")).rejects.toMatchObject({ code: "DATABASE_MIGRATIONS_OLD_LAYOUT" })
+  })
+})
 
 describe("vitehub database migrate", () => {
   it("prints pending migrations, refuses data loss, and applies it with --allow-data-loss", async () => {

@@ -45,6 +45,28 @@ pnpm nuxt dev
 pnpm nuxt build
 ```
 
+## Server auto-imports
+
+On Nuxt 5, the module auto-imports the server helpers of each feature that you
+turn on, such as `kv`, `db`, `sendQueue`, and `requireRateLimit`. Server code
+uses them without an import, and `nuxt typecheck` knows their types.
+
+```ts [server/api/visits.get.ts] fragment
+import { defineEventHandler } from 'nitro/h3'
+
+export default defineEventHandler(async () => {
+  const [error, visits] = await kv.get<number>('visits')
+  if (error) throw error
+  return { visits: visits ?? 0 }
+})
+```
+
+They are on by default. To turn them off, set `nitro: { imports: false }` in
+`nuxt.config.ts`. Then import each helper from its `vite-hub/*` path.
+
+[Nuxt server folders and auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports)
+lists each folder that the module scans and the auto-imports of each feature.
+
 ## Nuxt layers
 
 ViteHub scans the server directory of the app and of every layer it extends.
@@ -81,7 +103,7 @@ Definition.
 | Generated types | The module adds the `.vitehub` declarations to the Nuxt and Nitro TypeScript configs, not to `tsconfig.json`. |
 | Generated Agent files | Agent route handlers and wrappers go to `<buildDir>/vitehub/agent/**`, normally `.nuxt/vitehub/agent/**`, not `.vitehub/agent/**`. Discovery still uses `server/agents`. |
 | Database on Cloudflare | With the `cloudflare` preset, `database` defaults to `driver: 'd1'`: one D1 host resource that Nitro and Nuxt Content share. |
-| Server auto-imports | With Nitro auto-imports on, server code can use `kv` (with `kv`), `blob` (with `blob`), and `db` and `schema` (with `database`) without an import. Explicit `vite-hub/*` imports also work. A same-name entry from another source fails module setup. |
+| Server auto-imports | On Nuxt 5, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: { actor } }`, behind your actor policy. |
 
@@ -123,4 +145,5 @@ pnpm vitehub inspect output
 
 - Choose a host guide from [Frameworks and hosts](/docs/frameworks-hosts).
 - Read [Generated files](/docs/development/generated-files) for the other generated paths.
+- Read [Nuxt server folders and auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports) for each feature's helpers.
 - Read [Import paths](/docs/reference/import-paths) for public imports.

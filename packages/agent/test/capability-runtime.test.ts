@@ -2715,7 +2715,7 @@ describe("agent capability runtime", () => {
     }))
 
     try {
-      const { defineAgent, resolveAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const order: string[] = []
       const agent = defineAgent({
@@ -2727,7 +2727,7 @@ describe("agent capability runtime", () => {
         driver: { model: {} as never },
       })
 
-      await resolveAgent(agent, runtime())
+      await agent.resolve(runtime() as never)
       expect(order).toEqual([])
 
       await runAgentWithContext(agent, runtime(), { messages: [createMessage({ role: "user", text: "hello" })] })

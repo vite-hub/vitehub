@@ -145,6 +145,6 @@ A selection object accepts the same grant fields as a scope definition.
 - [Workspace primitive](/docs/workspace)
 - [Workspace context](/docs/agents/workspace-context)
 - [Channels](/docs/agents/channels)
-- [Actors](/docs/agents/actors)
+- [Trusted Invokers](/docs/agents/trusted-invokers)
 - [workspaceShell()](/docs/workspace/agent-capability)
 - [Official Capabilities](/docs/agents/capabilities/official)

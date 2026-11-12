@@ -38,7 +38,7 @@ describe("Node storage defaults", () => {
   it("puts enabled local stores under the explicit directory", () => {
     const dataDir = "/var/lib/app data"
     expect(withDataDir({ preset: "node", dataDir, agent: true, console: { auth: false }, kv: true, blob: true, workspace: true })).toMatchObject({
-      agent: { providers: { state: { provider: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } },
+      agent: { providers: { state: { driver: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } },
       console: { auth: false },
       kv: { driver: "fs-lite", base: join(dataDir, "kv") },
       blob: { driver: "fs", base: join(dataDir, "blob") },
@@ -55,7 +55,7 @@ describe("Node storage defaults", () => {
       expect(plugin).toContain("journal: { projectRoot: ")
     }
     const explicit = withDataDir({ preset: "node", dataDir, agent: { invocations: { databaseUrl: "libsql://journal.example.com", retention: { maxAge: "14d" } } } })
-    expect(explicit.agent).toEqual({ invocations: { databaseUrl: "libsql://journal.example.com", retention: { maxAge: "14d" } }, providers: { state: { provider: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } })
+    expect(explicit.agent).toEqual({ invocations: { databaseUrl: "libsql://journal.example.com", retention: { maxAge: "14d" } }, providers: { state: { driver: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } })
     expect(withDataDir({ preset: "node", dataDir, agent: { invocations: "memory" } }).agent).toMatchObject({ invocations: "memory" })
   })
 
@@ -73,7 +73,7 @@ describe("Node storage defaults", () => {
   })
 
   it("keeps remote agent state and does not enable disabled services", () => {
-    const options = { preset: "node" as const, dataDir: "/var/lib/app", agent: { invocations: false as const, providers: { state: { provider: "libsql" as const, url: "libsql://state.example.com" } } }, kv: false as const, blob: false as const }
+    const options = { preset: "node" as const, dataDir: "/var/lib/app", agent: { invocations: false as const, providers: { state: { driver: "libsql" as const, url: "libsql://state.example.com" } } }, kv: false as const, blob: false as const }
     expect(withDataDir(options)).toEqual(options)
   })
 

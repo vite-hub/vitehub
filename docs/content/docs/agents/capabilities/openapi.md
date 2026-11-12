@@ -185,8 +185,7 @@ openapi({
 })
 ```
 
-> [!WARNING]
-> Channel metadata shows where a tool is available. It authorizes nothing. Check the trusted request, Agent Actor, or `access()` before privileged calls.
+Treat Channel metadata as an availability hint, not authorization. Check trusted request, Agent Invoker, or `access()` evidence before privileged API calls.
 
 Run the CLI through the Agent Dev Loop. Generated CLIs are shown by default; `defineAgent({ cli: { capabilities: false } })` hides them.
 

@@ -5,7 +5,7 @@ import { operationRpcPath, operationRpcRefusal, readOperationRpcCall } from "../
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import { consolePublicURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
-import { authConsoleActionOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
+import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
 import { authFixture } from "./auth-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
@@ -23,7 +23,12 @@ function authOperationFixture(operation: string, input: Record<string, unknown>)
     return { ok: true, value: authFixture({ activity: { cursor, group, limit: query.limit, userId: query.userId }, id, operation: read, query }, events) }
   }
   const action = authActions.get(operation)
-  return action ? { ok: true, value: authFixture({ ...input, action }, events) } : undefined
+  if (action) return { ok: true, value: authFixture({ ...input, action }, events) }
+  // Impersonation returns a one-time link in a real app. The playground changes its fixture and links to its home page.
+  const impersonation = operation === authConsoleImpersonationOperations.start ? "impersonate" : operation === authConsoleImpersonationOperations.stop ? "stopImpersonating" : undefined
+  if (!impersonation) return undefined
+  authFixture({ ...input, action: impersonation }, events)
+  return { ok: true, value: { url: "/", expiresAt: new Date(Date.now() + 60_000).toISOString() } }
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {

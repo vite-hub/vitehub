@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { validateAgentCapabilityComposition, workspaceRetirementPathsSymbol } from "../src/capability-runtime.ts"
 import { gmail } from "../src/capabilities.ts"
-import { codexDriver, createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { agentInvocationTraceIdContextKey } from "../src/trace.ts"
 
 import type { AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"

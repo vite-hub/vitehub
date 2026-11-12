@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import * as v from 'valibot'
 import type { Claim, PullRequestInbox } from './store.ts'
 import type { GitHubEvidence } from './types.ts'
+import { compactCiLog, diagnosticExcerpt } from '../../github/ci-logs.ts'
 const jobSchema = v.looseObject({ id: v.number(), run_id: v.number(), head_sha: v.string(), status: v.string(), conclusion: v.nullish(v.string()),
   name: v.optional(v.string()), run_attempt: v.optional(v.number()), completed_at: v.nullish(v.string()), updated_at: v.nullish(v.string()),
   steps: v.optional(v.array(v.object({ name: v.string(), number: v.number(), conclusion: v.nullish(v.string()), started_at: v.nullish(v.string()), completed_at: v.nullish(v.string()) }))) })
@@ -18,42 +19,6 @@ const failures = new Set(['failure', 'timed_out', 'startup_failure', 'action_req
 const key = (kind: string, value: unknown) => `ci-evidence:v1:${kind}:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
 export const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => item.status === 'completed' && failures.has(item.conclusion ?? '')
 const sourceUrl = (repository: string, job: ActionJob) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`
-
-/** Bound log context explicitly; the full fetched log remains in the local cache. */
-export function diagnosticExcerpt(log: string, limit = 16_000, failedSteps: string[] = []) {
-  const lines = log.split('\n')
-  if (log.length <= limit) return { excerpt: log, complete: true, totalLines: lines.length, includedLineRanges: [[1, lines.length]], partialLines: [] }
-  const wanted = new Set<number>(), anchors = new Set<number>()
-  const mark = (line: number) => { for (let n = Math.max(0, line - 4); n <= Math.min(lines.length - 1, line + 5); n++) wanted.add(n) }
-  for (let n = 0; n < lines.length; n++) {
-    const line = lines[n]!
-    if (/##\[error\]|\berror(?:\s|:|\[)|\bFAIL(?:ED)?\b|TypeError|AssertionError|exit code [1-9]|ELIFECYCLE|ERR_/i.test(line)
-      || failedSteps.some(step => step && line.includes(step))) { anchors.add(n); mark(n) }
-  }
-  if (!wanted.size) for (let n = Math.max(0, lines.length - 80); n < lines.length; n++) wanted.add(n)
-  const selected = new Map<number, string>(), included: number[] = [], partialLines: number[] = []
-  let remaining = Math.max(0, limit)
-  // Failure diagnostics are commonly emitted at the end of a job. Select the
-  // newest diagnostic windows first, then restore source order for the excerpt.
-  // This keeps a late assertion or exit-code line when an early warning-heavy
-  // section would otherwise consume the entire budget.
-  for (const n of [...anchors].sort((a, b) => b - a).concat([...wanted].filter(n => !anchors.has(n)).sort((a, b) => b - a))) {
-    const prefix = selected.size ? '\n' : ''
-    if (remaining <= prefix.length) break
-    const line = lines[n]!, content = line.slice(0, remaining - prefix.length)
-    selected.set(n + 1, content); included.push(n + 1); remaining -= prefix.length + content.length
-    if (content.length < line.length) { partialLines.push(n + 1); break }
-  }
-  included.sort((a, b) => a - b)
-  const chunks = included.map(lineNumber => selected.get(lineNumber)!)
-  const includedLineRanges: number[][] = []
-  for (const n of included) {
-    const last = includedLineRanges.at(-1)
-    if (last && last[1] === n - 1) last[1] = n
-    else includedLineRanges.push([n, n])
-  }
-  return { excerpt: chunks.join('\n'), complete: false, totalLines: lines.length, includedLineRanges, partialLines }
-}
 
 export function actionLocation(repository: string, check: GitHubEvidence): { runId: number; jobId?: number } | undefined {
   if (check.app?.slug && check.app.slug !== 'github-actions') return undefined
@@ -117,7 +82,7 @@ export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Cl
         try {
           const log = await readers.readLog(`repos/${repository}/actions/jobs/${job.id}/logs`, repository)
           if (!log) throw new Error('Empty log response')
-          cached = { value: { log }, fetchedAt: now }
+          cached = { value: { log: compactCiLog(log) }, fetchedAt: now }
         } catch {
           cached = { value: { error: 'Job log unavailable or expired; this is an API read failure, not an additional CI failure.' }, retryAt: now + 120_000, fetchedAt: now }
         }

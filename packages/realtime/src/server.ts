@@ -533,7 +533,10 @@ async function identify(request: Request, event: H3Event, definitionName: string
     // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
     // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
     // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
-    if (origin && origin !== forwardedRequestOrigin(request)) throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+    // `origins` lets other origins in for definitions whose identify() reads a credential the page sends.
+    if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
+      throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+    }
     const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
     if (definition.auth && !user) throw new HTTPError({ status: 401 })
     return user

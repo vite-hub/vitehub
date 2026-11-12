@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, shallowRef, watch } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
-import { accountAppStatusLabels, canManageConsoleProjects, loadConsoleTeam } from "../client/account";
-import { accountProjectPath, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
+import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
+import ConsoleAccountUnlink from "./console-account-unlink.vue";
 
 /**
  * Home of an `account` Console. Until the team has a connected app, it is the setup checklist, and the first app is
@@ -21,6 +22,15 @@ const apps = computed(() => account.value?.projects ?? []);
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const firstName = computed(() => account.value?.user.name.split(/\s+/)[0] ?? "");
 const shared = ref(false);
+
+// The app whose Unlink dialog is open. Home is the place to unlink an app that works, so the app switcher stays navigation.
+const unlinking = shallowRef<ConsoleAccountProject>();
+const unlinkOpen = ref(false);
+
+function askUnlink(app: ConsoleAccountProject): void {
+  unlinking.value = app;
+  unlinkOpen.value = true;
+}
 
 const url = ref("");
 const busy = ref(false);
@@ -77,7 +87,7 @@ onMounted(async () => {
 });
 
 function name(app: ConsoleAccountProject): string {
-  return app.label || consoleProjectHost(app);
+  return consoleProjectDisplayName(app);
 }
 
 function stepLabel(index: number, done: boolean): string {
@@ -118,18 +128,22 @@ async function link(): Promise<void> {
         <UButton v-if="manage" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Link an app" @click="projects.linkOpen.value = true" />
       </div>
       <ul class="vitehub-account-list">
-        <li v-for="app in apps" :key="app.id">
+        <li v-for="app in apps" :key="app.id" class="vitehub-account-list__item">
           <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" data-focus-inset @click="openApp($event, app.id)">
             <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
             <span class="grid min-w-0 flex-1 text-start">
               <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
-              <span v-if="app.label" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
+              <span v-if="name(app) !== consoleProjectHost(app)" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
             </span>
             <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
             <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           </a>
+          <UDropdownMenu v-if="manage" :items="[[{ icon: 'i-lucide-unlink', label: 'Unlink app', color: 'error', onSelect: () => askUnlink(app) }]]" :content="{ align: 'end' }">
+            <UButton class="me-2 shrink-0" icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="sm" :aria-label="`More actions for ${name(app)}`" />
+          </UDropdownMenu>
         </li>
       </ul>
+      <ConsoleAccountUnlink v-if="unlinking" v-model:open="unlinkOpen" :project-id="unlinking.id" :name="name(unlinking)" />
     </section>
 
     <section v-if="!setupDone" aria-label="Setup steps">
@@ -331,6 +345,16 @@ async function link(): Promise<void> {
 }
 
 a.vitehub-account-list__row:hover {
+  background: var(--ui-bg-elevated);
+}
+
+/* An app row: the link fills the row, and the menu of its actions sits at the end. The whole row takes the hover. */
+.vitehub-account-list__item {
+  align-items: center;
+  display: flex;
+}
+
+.vitehub-account-list__item:hover {
   background: var(--ui-bg-elevated);
 }
 </style>

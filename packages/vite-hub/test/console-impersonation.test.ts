@@ -6,26 +6,31 @@ import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import authManage from "../src/console/runtime/server/auth-manage.ts"
+import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { assertConsoleAccess, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
-import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
+import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
+import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
-const state = vi.hoisted(() => ({ inspect: undefined as unknown, host: undefined as unknown }))
+import type { AuthConsoleHostOptions } from "../../auth/src/console-types.ts"
+import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
+
+const state = vi.hoisted(() => ({ create: undefined as undefined | ((host: unknown) => unknown), hosts: [] as unknown[] }))
 vi.mock("@vite-hub/auth/server", async importOriginal => ({
   ...(await importOriginal<typeof import("@vite-hub/auth/server")>()),
   getAuthConsoleForRequest: (_request: Request, _event: unknown, host: unknown) => {
-    state.host = host
-    return state.inspect
+    state.hosts.push(host)
+    return state.create?.(host)
   },
 }))
 const closers: Array<() => void> = []
 afterEach(() => {
   for (const close of closers.splice(0)) close()
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
-  state.inspect = undefined
-  state.host = undefined
+  state.create = undefined
+  state.hosts = []
+  vi.unstubAllEnvs()
 })
 
 /** Merge the cookies that a response sets into a Cookie header, as a browser does. */
@@ -40,21 +45,32 @@ function jar(cookie: string, response: Response): string {
   return [...values.values()].join("; ")
 }
 
-function manage(body: unknown, cookie = "") {
-  return authManage.fetch(new Request("http://localhost:5173/_vitehub/auth/manage", {
-    method: "POST",
-    body: JSON.stringify(body),
-    headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
-  }))
+const origin = "http://localhost:5173"
+const operator: ConsoleCallerUser = { email: "operator@example.com", id: "console-operator", name: "Operator" }
+const key = await consoleTestKey("CONSOLE_TEST")
+
+/** Take signed calls only, as an app with `console: true` does, with `console.impersonation`. */
+function signedApp(options: { impersonation?: boolean, sections?: string[] } = {}): void {
+  for (const [name, value] of Object.entries(key.env)) vi.stubEnv(name, value)
+  installConsoleSections("impersonation-tickets", ["auth"])
+  installConsoleAccess({ mode: "token", impersonation: options.impersonation ?? true, authorize: () => ({ sections: options.sections ?? ["auth"] }) })
 }
 
-/** One `auth.*` operation through the Console RPC, with the cookies of the browser. */
-async function operation(name: string, input: Record<string, unknown> = {}, cookie = "") {
-  return await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc", {
-    method: "POST",
-    body: operationRpcBody(name, input),
-    headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
-  }))
+/** One operation, signed by the Console for `user`, as the Console server forwards it. */
+async function operation(name: string, input: Record<string, unknown> = {}, user: ConsoleCallerUser = operator): Promise<Response> {
+  return await handleConsoleRpcRequest(await signedRpcRequest({ caller: { user, via: "console" }, input, key: key.key, operation: name, url: `${origin}/_vitehub/rpc` }))
+}
+
+/** The link of a successful ticket operation. */
+async function link(response: Response): Promise<string> {
+  const result: unknown = await operationRpcResponseResult(response)
+  expect(result, JSON.stringify(result)).toMatchObject({ ok: true, value: { url: expect.stringMatching(/^http:\/\/localhost:5173\/_vitehub\/rpc\?ticket=vt1_[\w-]{43}$/) } })
+  return String(Reflect.get(Object(Reflect.get(Object(result), "value")), "url"))
+}
+
+/** The browser opens the link with its app cookies. */
+async function open(url: string, cookie = ""): Promise<Response> {
+  return await consoleRpcRoute.fetch(new Request(url, { headers: cookie ? { cookie } : {} }))
 }
 
 describe("console.impersonation configuration", () => {
@@ -78,64 +94,81 @@ describe("console.impersonation configuration", () => {
   })
 })
 
-describe("Auth Console impersonation route", () => {
-  it("rejects start and stop when console.impersonation is off", async () => {
-    const inspect = { describe: vi.fn(), execute: vi.fn(), stopImpersonating: vi.fn() }
-    state.inspect = inspect
-    installConsoleSections("impersonation-off", ["auth"])
-    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["auth"] }) })
-    for (const body of [{ action: "impersonate", userId: "user-1" }, { action: "stopImpersonating" }]) {
-      const response = await manage(body)
+describe("impersonation with one-time links", () => {
+  it("refuses the links when console.impersonation is off", async () => {
+    signedApp({ impersonation: false })
+    for (const name of ["auth.impersonate", "auth.stop-impersonating"]) {
+      const response = await operation(name, name === "auth.impersonate" ? { userId: "user-1" } : {})
       expect(response.status).toBe(404)
-      expect(await response.json()).toMatchObject({ message: expect.stringContaining("console.impersonation") })
+      expect(await operationRpcResponseResult(response)).toMatchObject({ message: expect.stringContaining("console.impersonation") })
     }
-    // The route refuses before it opens the Auth Console.
-    expect(state.host).toBeUndefined()
-    expect(inspect.execute).not.toHaveBeenCalled()
-    expect(inspect.stopImpersonating).not.toHaveBeenCalled()
+    // The operation refuses before it opens the Auth Console.
+    expect(state.hosts).toEqual([])
   })
 
-  it("lets a read-only Auth grant list users but not change them", async () => {
-    const inspect = { users: vi.fn(async () => [undefined, { items: [], total: 0, offset: 0, limit: 25 }]), execute: vi.fn() }
-    state.inspect = inspect
-    installConsoleSections("impersonation-read-only", ["auth"])
-    installConsoleAccess({ mode: "open", impersonation: true, authorize: () => ({ sections: ["auth:read"] }) })
-    expect((await operation("auth.users")).status).toBe(200)
-    const impersonate = await manage({ action: "impersonate", userId: "user-1" })
-    expect(impersonate.status).toBe(403)
-    expect(await impersonate.json()).toEqual({ message: "This Console access can read Auth data but not change it." })
-    const ban = await operation("auth.ban", { userId: "user-1" })
-    expect(ban.status).toBe(403)
-    expect(await operationRpcResponseResult(ban)).toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("read-only") })
-    expect(inspect.execute).not.toHaveBeenCalled()
+  it("lets a read-only Auth grant read users but not make an impersonation link", async () => {
+    signedApp({ sections: ["auth:read"] })
+    const response = await operation("auth.impersonate", { userId: "user-1" })
+    expect(response.status).toBe(403)
+    expect(await operationRpcResponseResult(response)).toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("read-only") })
+    expect(state.hosts).toEqual([])
   })
 
-  it("starts and stops impersonation, restores the admin session, and records both events", async () => {
+  it("starts and stops impersonation with links, restores the admin session, and records both events", async () => {
     const app = await consoleEventsFixture()
     closers.push(() => app.database.sqlite.close())
-    state.inspect = createAuthConsole(app.auth, {}, app.store, { impersonation: true })
-    installConsoleSections("impersonation-route", ["auth"])
-    installConsoleAccess({ mode: "open", impersonation: true, authorize: () => ({ sections: ["auth"] }) })
+    state.create = host => createAuthConsole(app.auth, {}, app.store, host as AuthConsoleHostOptions)
+    signedApp()
 
-    const described = await operationRpcResponseResult(await operation("auth.describe", {}, app.operator.cookie))
-    expect(state.host).toEqual({ impersonation: true })
+    // The Console person acts as the app account with the same email.
+    const described = await operationRpcResponseResult(await operation("auth.describe"))
+    expect(state.hosts.at(-1)).toEqual({ actor: { email: "operator@example.com" }, impersonation: true })
     expect(described).toMatchObject({ value: { actions: { impersonate: { enabled: true } }, impersonation: { duration: 3600, active: null } } })
-    expect(await operationRpcResponseResult(await operation("auth.user", { id: app.member.id }, app.operator.cookie))).toMatchObject({ value: { impersonation: { enabled: true } } })
 
-    const started = await manage({ action: "impersonate", userId: app.member.id }, app.operator.cookie)
-    expect(started.status).toBe(200)
+    const start = await link(await operation("auth.impersonate", { userId: app.member.id }))
+    // The browser of the operator opens it: the app sets the impersonation cookies and opens its home page.
+    const started = await open(start, app.operator.cookie)
+    expect(started.status).toBe(303)
+    expect(started.headers.get("location")).toBe(`${origin}/`)
     const impersonating = jar(app.operator.cookie, started)
     const session = (cookie: string) => app.auth.api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })
     expect(await session(impersonating)).toMatchObject({ user: { id: app.member.id }, session: { impersonatedBy: app.operator.id } })
-    expect(await operationRpcResponseResult(await operation("auth.describe", {}, impersonating))).toMatchObject({
-      value: { impersonation: { active: { user: { id: app.member.id, name: "Ada Lovelace" } } } },
-    })
 
-    const stopped = await manage({ action: "stopImpersonating" }, impersonating)
-    expect(stopped.status).toBe(200)
-    expect(await stopped.json()).toEqual({ action: "stopImpersonating", ok: true })
+    // A link works once.
+    const again = await open(start, app.operator.cookie)
+    expect(again.status).toBe(401)
+    expect(await again.text()).toContain("CONSOLE_TICKET_INVALID")
+
+    const stop = await link(await operation("auth.stop-impersonating"))
+    const stopped = await open(stop, impersonating)
+    expect(stopped.status).toBe(303)
     expect(await session(jar(impersonating, stopped))).toMatchObject({ user: { id: app.operator.id } })
     for (const type of ["impersonation.started", "impersonation.stopped"] as const)
       expect((await app.store.list({ type })).events, type).toEqual([expect.objectContaining({ actor: `user:${app.operator.id}`, userId: app.member.id })])
+  })
+
+  it("binds the link to the person: another app session, or none, cannot use it", async () => {
+    const app = await consoleEventsFixture()
+    closers.push(() => app.database.sqlite.close())
+    state.create = host => createAuthConsole(app.auth, {}, app.store, host as AuthConsoleHostOptions)
+    signedApp()
+
+    const signedOut = await open(await link(await operation("auth.impersonate", { userId: app.member.id })))
+    expect(signedOut.status).toBe(403)
+    expect(await signedOut.text()).toContain("Sign in to the app as operator@example.com")
+
+    // Ada is signed in to the app, but the link was made for the operator.
+    const other = await open(await link(await operation("auth.impersonate", { userId: app.member.id })), app.member.cookie)
+    expect(other.status).toBe(403)
+    const page = await other.text()
+    expect(page).toContain("CONSOLE_TICKET_MISMATCH")
+    expect(page).toContain("signed in to the app as ada@example.com")
+    expect(other.headers.get("set-cookie")).toBeNull()
+    expect((await app.store.list({ type: "impersonation.started" })).events).toEqual([])
+
+    // A Console person without an app account cannot make a link.
+    const stranger = await operation("auth.impersonate", { userId: app.member.id }, { email: "stranger@example.com", id: "console-stranger" })
+    expect(stranger.status).toBe(403)
+    expect(await operationRpcResponseResult(stranger)).toMatchObject({ message: expect.stringContaining("No app user has the email") })
   })
 })

@@ -61,7 +61,6 @@ for (const source of ["direct", "callback"] as const) {
       },
     })
     const context: AgentAdapterRunContext = {
-      actor: { id: "actor" },
       context: createAgentInvocationContextStore(),
       input: {},
       invoker: { id: "invoker", kind: "user" },

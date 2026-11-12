@@ -86,7 +86,6 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
       ...unresolved,
       context: {
         ...unresolved.context,
-        actor: state.derivedInvoker,
         invoker: state.derivedInvoker,
       },
     })
@@ -164,7 +163,6 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
     derivedChatTriggerInvoker(invocationContext.get("invoker")),
   )
   if (invoker !== invocationContext.get("invoker")) {
-    invocationContext.set("actor", invoker, { overwrite: true })
     invocationContext.set("invoker", invoker, { overwrite: true })
   }
   if (receipt) invocationContext.set(parsedAgentMessageMetaContextKey, receipt, { overwrite: true })

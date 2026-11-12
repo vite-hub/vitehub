@@ -70,8 +70,10 @@ Nitro's Vite plugin. A Nuxt app adds the `vite-hub/nuxt` module. Server code use
 ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. The
 module takes the same options as `vitehub()`, also from the `vitehub` key in
 `nuxt.config.ts`. It scans the server folder of the app and of each Nuxt
-layer. With Nitro auto-imports on, server code can use `kv`, `blob`, `db`, and
-`schema` without an import, as in NuxtHub. The Console runs as Nuxt pages.
+layer. On Nuxt 5, server code uses `kv`, `blob`, `db`, `schema`, and the
+helpers of every other enabled feature without an import, as in NuxtHub. See
+[Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports).
+The Console runs as Nuxt pages.
 
 Differences from a Vite app:
 

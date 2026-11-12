@@ -1592,7 +1592,6 @@ export async function resolveAgentCapabilities<
       ...runtimeContext,
       abortSignal: currentInput.abortSignal,
       executionBudget: invocationOptions.executionBudget,
-      actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
       fs: currentWorkspace.fs,
@@ -1630,7 +1629,6 @@ export async function resolveAgentCapabilities<
           ...runtimeContext,
           abortSignal: currentInput.abortSignal,
           executionBudget: invocationOptions.executionBudget,
-          actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },
           fs: currentWorkspace?.fs,
@@ -1822,7 +1820,7 @@ export async function resolveAgentCapabilities<
             input: trigger.input,
             invoke: input => trigger.invoke({
               ...runtimeContext,
-              actor: invoker,
+              invoker,
               capability,
               trigger: {
                 capabilityId: capability.id,
@@ -1968,7 +1966,6 @@ export async function resolveStaticCapabilityTools<
     const capabilityContext = asUnknownBoundary({
       ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
-      actor: invoker,
       context: invocationContext,
       fs: workspace?.fs,
       invoker,

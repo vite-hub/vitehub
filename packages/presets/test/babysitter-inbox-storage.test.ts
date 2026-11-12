@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { looksMergeReady, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
-import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"
+import { createLibsqlAgentState } from "@vite-hub/agent/state"
 
 const repository = 'vite-hub/vitehub'
 const pr = (number: number, patch: Record<string, unknown> = {}) => ({ number, state: 'open', user: { login: 'onmax' },

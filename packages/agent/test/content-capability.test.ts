@@ -8,13 +8,14 @@ import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
 import { resolveChatTriggerInvoker } from "../src/chat-message-input.ts"
 import { webChat } from "../src/channels.ts"
-import { codexDriver, createAgentInspectionMetadata, defineAgent, defineAgentInvoker } from "../src/index.ts"
+import { codexDriver, defineAgent, defineAgentInvoker } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 import type { ContentAuthorize } from "../../content/src/index.ts"
 import type { ContentCapabilityOptions } from "../src/capabilities.ts"
-import type { AgentActor, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
+import type { AgentInvoker, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -23,9 +24,9 @@ afterEach(async () => {
 })
 
 /** Actors as `authenticated()` resolves them: the Auth user id is in `meta.authUserId`. */
-const editor: AgentActor = { id: "user_1", kind: "authUser", label: "editor@example.com", meta: { authUserId: "user_1" } }
-const viewer: AgentActor = { id: "user_2", kind: "authUser", label: "viewer@example.com", meta: { authUserId: "user_2" } }
-const anonymous: AgentActor = { id: "anonymous:http", kind: "anonymous" }
+const editor: AgentInvoker = { id: "user_1", kind: "authUser", label: "editor@example.com", meta: { authUserId: "user_1" } }
+const viewer: AgentInvoker = { id: "user_2", kind: "authUser", label: "viewer@example.com", meta: { authUserId: "user_2" } }
+const anonymous: AgentInvoker = { id: "anonymous:http", kind: "anonymous" }
 
 /** Auth users by id, as the `auth` primitive from `@vite-hub/auth/agent` reads them. */
 const authUsers: Record<string, Record<string, unknown>> = {
@@ -33,7 +34,7 @@ const authUsers: Record<string, Record<string, unknown>> = {
   user_2: { email: "viewer@example.com", id: "user_2", role: "viewer" },
 }
 const auth = {
-  user: async (actor: AgentActor | undefined) => {
+  user: async (actor: AgentInvoker | undefined) => {
     const id = actor?.meta?.authUserId
     return String(id) === id ? authUsers[id] ?? null : null
   },
@@ -82,13 +83,13 @@ async function setupMixed() {
 async function tools(
   capability: AgentCapabilityDefinition,
   runtime: unknown,
-  actor: AgentActor = editor,
+  actor: AgentInvoker = editor,
   primitives: Record<string, unknown> = { auth },
 ): Promise<Record<string, AgentToolDefinition>> {
   if (!(capability.tools instanceof Function)) throw new Error("content() must resolve tools from the Invocation context")
   // SAFETY: The Content tools read only the fields that this context sets.
   return await capability.tools({
-    actor,
+    invoker: actor,
     agentIdentity: { name: "editor" },
     capabilities: { ...primitives, content: runtime },
     context: new Map(),
@@ -725,11 +726,11 @@ describe("content capability with the Actor of a chat", () => {
   })
 
   /** The Actor that the generated HTTP chat route of a Web Chat Channel gives the Agent for one request. */
-  async function httpChatActor(headers: Record<string, string> = {}): Promise<AgentActor> {
-    let actor: AgentActor | undefined
+  async function httpChatActor(headers: Record<string, string> = {}): Promise<AgentInvoker> {
+    let actor: AgentInvoker | undefined
     const agent = defineAgent({
       channels: { portal: webChat },
-      driver: { run: (context) => { actor = context.actor; return "ok" } },
+      driver: { run: (context) => { actor = context.invoker; return "ok" } },
       invoker: signedIn,
     })
     // SAFETY: The generated route accepts every Agent Definition that defineAgent() returns.
@@ -745,10 +746,10 @@ describe("content capability with the Actor of a chat", () => {
   }
 
   /** The Actor of a Channel message, such as Discord, after the Agent's own `invoker` ran. */
-  async function channelActor(invoker?: Parameters<typeof defineAgent>[0]["invoker"]): Promise<AgentActor> {
-    let actor: AgentActor | undefined
+  async function channelActor(invoker?: Parameters<typeof defineAgent>[0]["invoker"]): Promise<AgentInvoker> {
+    let actor: AgentInvoker | undefined
     const agent = defineAgent({
-      driver: { run: (context) => { actor = context.actor; return "ok" } },
+      driver: { run: (context) => { actor = context.invoker; return "ok" } },
       ...(invoker ? { invoker } : {}),
     })
     const platformUser = resolveChatTriggerInvoker({
@@ -762,7 +763,7 @@ describe("content capability with the Actor of a chat", () => {
   }
 
   async function recordedAuthorize() {
-    const decisions: Array<{ actor?: AgentActor, user: unknown }> = []
+    const decisions: Array<{ actor?: AgentInvoker, user: unknown }> = []
     const runtime = await setup({
       authorize: (context) => {
         decisions.push({ actor: context.actor, user: context.user })

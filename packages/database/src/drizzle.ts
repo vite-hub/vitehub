@@ -1,16 +1,24 @@
 import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb, useDatabase as useRuntimeDatabase } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase, createDatabaseBindingLookup } from "./runtime/agent.ts"
+import { ensureDatabaseMigrations } from "./runtime/migrate-on-start.ts"
 
+import type { AnyRelations } from "drizzle-orm"
+import type { DatabaseDialect, MergeDatabaseRelations, RuntimeDrizzleDatabase, RuntimePostgresDatabase, SchemaRelations } from "./types.ts"
 import type { DatabaseD1Binding } from "./runtime/agent.ts"
-import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
 
-type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
-  ? RuntimePostgresDatabase<TSchema>
-  : RuntimeDrizzleDatabase<TSchema>
+type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect, TRelations extends AnyRelations> = TDialect extends "postgresql"
+  ? RuntimePostgresDatabase<TSchema, TRelations>
+  : RuntimeDrizzleDatabase<TSchema, TRelations>
 
-export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> {
-  db: DrizzleRuntimeDatabase<TSchema, TDialect>
+export interface RuntimeDatabaseEntry<
+  TSchema extends Record<string, unknown>,
+  TDialect extends DatabaseDialect = "sqlite",
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
+  db: DrizzleRuntimeDatabase<TSchema, TDialect, TRelations>
+  /** Every table of the schema, with the relations of the Definition, its Nuxt layers, and contributed tables. */
+  relations: TRelations
   schema: TSchema
 }
 
@@ -24,8 +32,18 @@ type RegisteredDatabaseDialect<Name extends keyof DatabaseRegistry> = DatabaseRe
   dialect: infer TDialect extends DatabaseDialect
 } ? TDialect : "sqlite"
 
+/**
+ * A registry entry sets `relations` to one relations object, or to a list of parts that merge like Nuxt layers, lowest
+ * precedence first. The generated registry lists the parts of contributed tables and of each layer.
+ */
+type RegisteredDatabaseRelations<Name extends keyof DatabaseRegistry> = DatabaseRegistry[Name] extends { relations: infer TRelations }
+  ? TRelations extends readonly unknown[]
+    ? MergeDatabaseRelations<RegisteredDatabaseSchema<Name>, TRelations>
+    : TRelations extends AnyRelations ? TRelations : SchemaRelations<RegisteredDatabaseSchema<Name>>
+  : SchemaRelations<RegisteredDatabaseSchema<Name>>
+
 type RuntimeDatabaseRegistry = {
-  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>>
+  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>, RegisteredDatabaseRelations<Name>>
 }
 
 type DefaultDatabaseEntry = RuntimeDatabaseRegistry extends { default: infer TEntry }
@@ -75,6 +93,21 @@ export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegist
 }
 
 export const agentDb = createAgentDatabase(databases)
+
+/**
+ * Applies the pending migrations of the Database `name`, or of every Database, once in this process. It runs the same
+ * path as the server start: a Postgres database migrates under the advisory lock, so other processes apply nothing
+ * twice. Parallel calls share one run, and the server start shares it too. A failed run is forgotten, so the next call
+ * tries again.
+ *
+ * @example
+ * await ensureMigrations()
+ */
+export function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string): Promise<void> {
+  // A dynamic import keeps the migration SQL out of the server start until a call needs it.
+  const load = () => import("#vitehub/database/migrations").then(module => module.default)
+  return ensureDatabaseMigrations({ databases, load }, name === undefined ? undefined : [name])
+}
 
 // SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
 // The package resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that

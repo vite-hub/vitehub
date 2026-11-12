@@ -63,9 +63,9 @@ describe("vitehub/known-definition-names", () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "scripts/smoke.ts": [
-        'import { defineAgent, workflow } from "vite-hub/agent"',
+        'import { agentWorkflow, defineAgent } from "vite-hub/agent"',
         'import { getWorkflowRun } from "vite-hub/workflow"',
-        'export const agent = defineAgent({ runtime: workflow("inline-agent") })',
+        'export const agent = defineAgent({ runtime: agentWorkflow("inline-agent") })',
         'export const run = await getWorkflowRun("inline-agent", "run-1")',
       ].join("\n"),
     })).toEqual([])

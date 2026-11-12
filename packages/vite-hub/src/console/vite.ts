@@ -184,7 +184,7 @@ function configureConsoleNitroRoutes(
   // add. Without a Nitro `baseURL`, this is the whole Vite base.
   const mount = viteHubPageToolsBase({ base: baseURL, nitro }).mount
   const kit = createNitroServerKit({ ...nitro, handlers: Array.isArray(nitro.handlers) ? [...nitro.handlers] : [] })
-  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, sections)
+  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount)
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
     .filter(asset => asset?.dir !== consoleSkillsRoot)
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations.

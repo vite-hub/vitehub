@@ -19,7 +19,7 @@ The host works inside one process only. Its `dataDir` must belong to one running
 Export the host from a server module. The `run` callback finds work and tracks it only while the host accepts work:
 
 ```ts [server/host.ts] fragment
-import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentHost } from 'vite-hub/agent/process'
 
 export default await createProcessAgentHost({
   name: 'reviewer',
@@ -65,7 +65,7 @@ The host creates `invocations.sqlite` and `provider-sessions.sqlite` below `data
 `capacity.concurrency` is the hard maximum of concurrent runs. Queue options control what happens when slots are full. `createProcessAgentCapacity()` can admit fewer new runs under pressure:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const sharedCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -174,6 +174,8 @@ export default defineConfig({
 
 The default is 0, which stops work at once. Set the host's termination grace period above the budget plus 25 seconds (15 for interrupted work such as a Chat restart notice, 10 for close hooks), such as 90 seconds for a 45-second budget.
 
+The [systemd unit](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-systemd) that the `node` preset writes sets `TimeoutStopSec` from `shutdown.drainMs`.
+
 ViteHub handles stop signals only where the Nitro server does: the `node`, `node-cluster`, `bun`, and `deno` presets. In development, during prerender, on serverless and Cloudflare hosts, and when graceful shutdown is off (srvx turns it off when `CI` or `TEST` is set), the signal keeps its default behavior, and drains run only when Nitro calls its `close` hooks.
 
 - `agent: { shutdown: false }` skips draining inline Chat Invocations.
@@ -248,7 +250,7 @@ The default health route is `/api/health`. Generated routes grant no Console aut
 To test admission independent of machine pressure, use a disposable directory and a custom `sample` function:
 
 ```ts
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 const capacity = createProcessAgentCapacity({
   concurrency: 2,

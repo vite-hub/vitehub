@@ -48,7 +48,7 @@ describe("ViteHub CLI config loading", () => {
     await writeFile(join(root, "vite.config.ts"), `
       // agent: false
       const unrelated = { agent: false }
-      export default { vitehub: { agent: { providers: { state: { provider: "memory" } }, cli: false } } }
+      export default { vitehub: { agent: { providers: { state: { driver: "memory" } }, cli: false } } }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })

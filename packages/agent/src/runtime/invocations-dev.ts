@@ -9,7 +9,7 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 
 import * as v from "valibot"
 
-import { getAgentFromRegistry } from "../index.ts"
+import { loadAgent } from "../index.ts"
 import { agentInvocationsDevGuard, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { isAgentInvocations } from "../invocations.ts"
 
@@ -42,7 +42,7 @@ async function registeredInvocationJournals(): Promise<AgentInvocations[]> {
   const journals = new Set<AgentInvocations>()
   for (const name of Object.keys(agentRegistry)) {
     try {
-      const journal: unknown = (await getAgentFromRegistry(name)).invocations
+      const journal: unknown = (await loadAgent(name)).invocations
       if (isAgentInvocations(journal)) journals.add(journal)
     }
     catch {

@@ -112,7 +112,7 @@ function i18nTools(context: AgentCapabilityContext, enabled: ReadonlySet<I18nCap
           ...(input.context ? { context: input.context } : {}),
           translation: input.translation,
           review: "machine",
-          by: context.actor?.label ?? context.actor?.id ?? "agent",
+          by: context.invoker?.label ?? context.invoker?.id ?? "agent",
         })
         return error ? failed(error) : { ok: true as const, saved }
       },

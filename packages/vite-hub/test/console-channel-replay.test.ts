@@ -101,7 +101,7 @@ describe("Console Channel replay operation", () => {
       const result = await replay({ agent: "labeller", channel: "mailbox" }, { cookie: "session=verified" }, request => signer.sign(request, { id: "console-user" }))
       expect(result).toMatchObject({ body: { ok: true, value: { processed: 2 } }, status: 200 })
       expect(fixture.runContext?.request?.headers.get("cookie")).toBe("session=verified")
-      expect(fixture.runContext?.actor).toMatchObject({ id: "console-user", kind: "authUser" })
+      expect(fixture.runContext?.invoker).toMatchObject({ id: "console-user", kind: "authUser" })
     }
     finally {
       signer.restore()

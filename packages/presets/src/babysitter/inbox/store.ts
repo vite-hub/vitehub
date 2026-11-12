@@ -32,6 +32,8 @@ export type Snapshot = {
   sourcePushOverflow?: boolean
   prospectivePush?: { token: string; heads: string[] }
   threadReopens?: Record<string, number>
+  /** Authenticated outcome replies, including IDs used by thread-only reads. */
+  ownedReviewCommentIds?: string[]
   hydrated: boolean; refresh: boolean; feedbackRefresh: boolean
   comments: Record<string, GitHubEvidence>; reviews: Record<string, GitHubEvidence>
   reviewComments: Record<string, GitHubEvidence>; checks: Record<string, GitHubEvidence>; statuses: Record<string, GitHubEvidence>
@@ -89,6 +91,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.recoveryHead !== undefined) v.parse(v.string(), input.recoveryHead)
   if (input.humanFeedbackGeneration !== undefined) v.parse(v.pipe(v.number(), v.integer(), v.minValue(0)), input.humanFeedbackGeneration)
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
+  if (input.ownedReviewCommentIds !== undefined) v.parse(v.array(v.string()), input.ownedReviewCommentIds)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
   if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
@@ -116,6 +119,8 @@ export interface PullRequestInboxOptions {
   activityAuthors?: readonly string[]
   activityAppId?: number
   budgets?: InboxBudgets
+  /** Claim a PR whose base is another open PR's branch. By default it waits until its parent merges. */
+  claimStackChildren?: boolean
   /**
    * Called once per process for each stored PR row that fails validation. The inbox skips such a row
    * in claims, summaries and wait evaluation, so one bad row cannot stop the queue or its health.
@@ -239,12 +244,14 @@ export class PullRequestInbox {
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
+  private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
     this.budgets = { ...budgets }
+    this.claimStackChildren = claimStackChildren
     this.invalidRow = invalidRow
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
@@ -338,8 +345,27 @@ export class PullRequestInbox {
   private isActivityComment(comment: GitHubEvidence | undefined): boolean {
     return this.ownsComment(comment) && String(comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
   }
+  private isOutcomeComment(comment: GitHubEvidence | undefined): boolean {
+    return this.ownsComment(comment) && /^(?:<!-- vitehub-babysitter-repair:[^\n]* -->\r?\n)?<!-- vitehub-babysitter-outcome:(?:fixed|disproved|declined|pre-existing|duplicate) -->/.test(String(comment?.body ?? ''))
+  }
+  private cleanReviewComments(snapshot: Snapshot): void {
+    const owned = new Set(snapshot.ownedReviewCommentIds)
+    const comments = [...Object.values(snapshot.reviewComments), ...snapshot.threads.flatMap(thread => Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [])]
+    for (const comment of comments) {
+      if (this.isOutcomeComment(comment)) {
+        for (const id of [comment.id, comment.node_id, comment.databaseId]) if (id !== undefined && id !== null) owned.add(String(id))
+      }
+    }
+    const keep = (comment: GitHubEvidence) => !this.isOutcomeComment(comment) && ![comment.id, comment.node_id, comment.databaseId].some(id => id !== undefined && id !== null && owned.has(String(id)))
+    snapshot.reviewComments = Object.fromEntries(Object.entries(snapshot.reviewComments).filter(([, comment]) => keep(comment)))
+    snapshot.threads = snapshot.threads.map(thread => ({ ...thread, ...(thread.comments === undefined ? {} : {
+      comments: Array.isArray(thread.comments) ? thread.comments.filter(keep) : { ...thread.comments, nodes: thread.comments.nodes.filter(keep) },
+    }) }))
+    if (owned.size) snapshot.ownedReviewCommentIds = [...owned]
+  }
   private cleanSnapshot(snapshot: Snapshot): Snapshot {
     snapshot.comments = Object.fromEntries(Object.entries(snapshot.comments).filter(([, comment]) => !this.isActivityComment(comment)))
+    this.cleanReviewComments(snapshot)
     return snapshot
   }
   private async getIn(tx: PullRequestInboxExecutor, repository: string, number: number): Promise<Snapshot | undefined> {
@@ -374,6 +400,7 @@ export class PullRequestInbox {
     s.checks = {}
     s.statuses = {}
     s.threads = []
+    delete s.ownedReviewCommentIds
     delete s.ciEvidence
     s.hydrated = false
     s.refresh = true
@@ -917,8 +944,8 @@ export class PullRequestInbox {
         return result
       }
       if (!this.repositories.includes(repository)) return await finish('repository not configured')
-      // Activity suppression applies to issue comments only. Actual reviews
-      // and inline review comments are evidence regardless of reviewer name.
+      // Actual reviews remain evidence. Only authenticated activity and outcome
+      // markers identify transport records from the host.
       const commentBody = String(payload.comment?.body ?? '')
       const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
       const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
@@ -993,13 +1020,23 @@ export class PullRequestInbox {
           // must not advance the repair generation or revoke the active claim.
           if (activity || repairMarked && this.ownsComment(payload.comment)) changed = false
         }
-        if (event === 'pull_request_review_comment') { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
+        if (event === 'pull_request_review_comment') {
+          if (this.isOutcomeComment(payload.comment)) {
+            // Retain ownership for later thread reads that contain only IDs.
+            if (payload.comment) s.reviewComments[String(payload.comment.id)] = payload.comment
+            this.cleanReviewComments(s)
+          } else { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
+        }
         if (event === 'pull_request_review') { upsert(s.reviews, payload.review); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review_thread' && payload.thread) {
           const id = String(payload.thread.node_id)
           const position = s.threads.findIndex(thread => String(thread.node_id ?? thread.id) === id)
           const previous = position < 0 ? undefined : s.threads[position]
-          const incomingComments: GitHubEvidence[] = Array.isArray(payload.thread.comments) ? payload.thread.comments : []
+          const incoming = { ...s, threads: [payload.thread] }
+          this.cleanReviewComments(incoming)
+          s.ownedReviewCommentIds = incoming.ownedReviewCommentIds
+          const incomingThread = incoming.threads[0]
+          const incomingComments: GitHubEvidence[] = Array.isArray(incomingThread?.comments) ? incomingThread.comments : incomingThread?.comments?.nodes ?? []
           const previousComments: GitHubEvidence[] = Array.isArray(previous?.comments) ? previous.comments : previous?.comments?.nodes ?? []
           const comments = new Map(previousComments.map(comment => [String(comment.node_id ?? comment.id), comment]))
           for (const comment of incomingComments) {
@@ -1108,8 +1145,8 @@ export class PullRequestInbox {
       for (const candidate of candidates) {
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
-        // Stack children remain local; a parent merge's base push wakes them.
-        if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
+        // Stack children remain local unless they repair alongside their parent; a parent merge's base push wakes them.
+        if (!this.claimStackChildren && candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
             AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
@@ -1138,13 +1175,17 @@ export class PullRequestInbox {
       this.cleanSnapshot(s)
       if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
       if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
-      await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, status: s.status, progressBudget: s.progressBudget }); return true
+      await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, reviewComments: s.reviewComments, threads: s.threads, ownedReviewCommentIds: s.ownedReviewCommentIds, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
   async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s || s.lease || s.generation !== observed.generation || (s.revision ?? 0) !== (observed.revision ?? 0)) return false
+      const incoming = { ...s, threads }
+      this.cleanReviewComments(incoming)
+      threads = incoming.threads
+      s.ownedReviewCommentIds = incoming.ownedReviewCommentIds
       const semantic = (items: GitHubReviewThread[]) => items.map(thread => ({
         id: thread.node_id ?? thread.id, isResolved: thread.isResolved, isOutdated: thread.isOutdated,
         comments: (Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? []).map((comment: GitHubEvidence) => String(comment.node_id ?? comment.id)).sort(),
@@ -1449,7 +1490,7 @@ export class PullRequestInbox {
       const parsed = this.parseRow(row, parseSummary, 'summary')
       if (!parsed) return []
       const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
-      if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
+      if (this.claimStackChildren || summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })
   }
