@@ -153,6 +153,13 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed").ready).toBe(false);
   });
 
+  it("ignores configured and worker authors in either bot spelling", () => {
+    const s = snapshot();
+    s.comments.preview = { id: 3, body: "Preview ready", author: { login: "preview", __typename: "Bot" } };
+    s.reviewComments.own = { id: 5, body: "Fixed in abc123.", author: { login: "Repair", __typename: "Bot" } };
+    expect(directMergeReadiness(s, "passed", feedbackPolicy)).toEqual({ ready: true, head });
+  });
+
   it.each(["maintainer", "preview[bot]", "repair[bot]"])("always counts requested changes from %s, even without a body", (login) => {
     const s = snapshot();
     s.reviews.blocked = { id: 6, state: "CHANGES_REQUESTED", body: "", user: { login, type: "User" } };

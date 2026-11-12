@@ -209,6 +209,7 @@ catalogs:
     ocache: ^0.3.1
     ofetch: ^1.5.1
     pathe: ^2.0.3
+    srvx: ^1.0.8
     unimport: ^6.5.0
   vercel:
     "@vercel/functions": ^3.9.11
