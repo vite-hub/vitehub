@@ -6,6 +6,13 @@ import {
 } from "../src/babysitter/result.ts";
 
 describe("Babysitter provider result", () => {
+  it("keeps a valid automated review class and drops any other value", () => {
+    const { validate } = babysitterPassResultSchema["~standard"];
+    expect(validate({ disposition: "park", text: "Assessed", automatedReview: "P2" })).toEqual({ value: { disposition: "park", text: "Assessed", automatedReview: "P2" } });
+    expect(validate({ disposition: "park", text: "Assessed", automatedReview: "none" })).toEqual({ value: { disposition: "park", text: "Assessed", automatedReview: "none" } });
+    expect(validate({ disposition: "park", text: "Assessed", automatedReview: "high" })).toEqual({ value: { disposition: "park", text: "Assessed" } });
+  });
+
   it("reports malformed supplied coordination fields without rejecting useful output", () => {
     const diagnostics: BabysitterResultDiagnostic[] = [];
     const schema = createBabysitterPassResultSchema((value) => diagnostics.push(value));

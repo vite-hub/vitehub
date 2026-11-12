@@ -152,6 +152,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
+  const minorReviewRounds = presetOptions.minorReviewRounds ?? false;
+  const reviewConvergencePushes = presetOptions.reviewConvergencePushes ?? false;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: options.repositories,
@@ -159,6 +161,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     activityAuthors,
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
+      ...reviewPushBudget === false || minorReviewRounds === false ? {} : { minorReviewRounds },
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
     // One invalid row must not stop the claim loop or the health endpoint.
     invalidRow: ({ repository, number, error }) => options.error?.("babysitter.inbox.invalid_row", error, { repository, pullRequest: number }),
@@ -202,6 +205,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     wakeWhenReady: merge.mode === "direct",
     noFindingsReviews: baseAgent.noFindingsReviews ?? presetOptions.noFindingsReviews ?? [],
     ...reviewPushBudget === false ? {} : { reviewPushBudget },
+    ignoreAssessedBotThreads: presetOptions.ignoreAssessedBotThreads === true,
   };
   const schedulerEvent = (name: string, properties: Record<string, unknown> = {}) =>
     options.event?.(name, properties);
@@ -665,7 +669,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!deferWhilePending) return undefined;
     const pr = snapshot.pr;
     if (!pr || pr.mergeable === false || pr.mergeable_state === "dirty") return undefined;
-    if (checksStillRunning(snapshot)) return reviewCheckRunning(snapshot, waitPolicy) ? "review checks" : "running checks";
+    if (checksStillRunning(snapshot, Date.now(), waitPolicy)) return reviewCheckRunning(snapshot, waitPolicy) ? "review checks" : "running checks";
     if (failureKeys(snapshot).length) return undefined;
     if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
     const evaluation = await requiredCheckEvaluation(snapshot);
@@ -1078,9 +1082,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           modelWorkParked = true;
           outcome = "waiting";
           const pushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+          const minorHeads = inboxClaim.snapshot.reviewPushBudget?.minorHeads?.length ?? 0;
           const checks = waitPolicy.pendingReviewChecks.size ? `failed ${[...waitPolicy.pendingReviewChecks].join(", ")} checks` : "failed review checks";
+          const spent = minorReviewRounds !== false && minorHeads >= minorReviewRounds
+            ? `Automated review settled: ${minorHeads} heads in a row had no finding above P2 (minorReviewRounds ${minorReviewRounds})`
+            : `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget})`;
           await pullRequestInbox.finish(inboxClaim, {
-            text: `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget}). Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
+            text: `${spent}. Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
             wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "review-push-budget" },
           });
           schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "review-push-budget" });
@@ -1740,7 +1748,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);
               const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, try \`pnpm install --lockfile-only\` first, then \`pnpm install --lockfile-only --fix-lockfile\`. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
-              const userMessage = `${prompt}\n\n${snapshotContext}${installContext}`;
+              const settled = reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy);
+              const reviewPushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+              const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
+              const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
+              const userMessage = `${prompt}\n\n${snapshotContext}${installContext}${severityContext}${convergenceContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
@@ -1799,6 +1811,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // SAFETY: The configured worker output schema guarantees this
               // shape before runAgent resolves.
               passResult = result as BabysitterPassResult;
+              if (passResult.automatedReview) inboxClaim.automatedReview = passResult.automatedReview;
               if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
               disposition = passResult.disposition;
               resultText = passResult.text;
