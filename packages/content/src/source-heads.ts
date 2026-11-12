@@ -9,11 +9,13 @@ import { formatDiagnostic } from "nostics"
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
 import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
 import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
 import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
+import type { ContentKV } from "./kv.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
 import type { ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 import type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
@@ -211,19 +213,6 @@ function isGitHubDefinition(definition: Source<string, unknown, object> | undefi
   return definition?.name === "github" && "authenticated" in definition && typeof definition.authenticated === "function"
 }
 
-/** The part of a ViteHub KV store that Content uses, such as `kv` from `@vite-hub/kv`. */
-export interface ContentKV {
-  get<T>(key: string): Promise<readonly [unknown, T | null | undefined]>
-  set<T>(key: string, value: T): Promise<readonly [unknown, unknown]>
-}
-
-let installedKV: ContentKV | undefined
-/**
- * The build that registered KV. Plugin options can live in closures that the parser hash cannot read, so each build
- * gets its own commit cache keys.
- */
-let installedBuild: string | undefined
-
 /** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
 const kvFailures = new WeakSet<object>()
 
@@ -231,15 +220,6 @@ type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
 
 function isKVFailure(error: unknown): error is KVFailure {
   return error instanceof Error && kvFailures.has(error)
-}
-
-/**
- * Give Content the KV store that keeps the heads of `github()` Sources. When the app enables ViteHub KV, the build
- * calls it at the top of `server/content.ts`; you do not call it yourself. Without it, no Source is live.
- */
-export function registerContentKV(store: ContentKV | undefined, build?: string): void {
-  installedKV = store
-  installedBuild = build
 }
 
 /** The head state of one Content runtime. */
@@ -288,14 +268,15 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   async function isLive(state: HeadState): Promise<boolean> {
     state.live ??= state.definition.authenticated().then((authenticated) => {
       if (!authenticated) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0020({ source: state.name })))
-      else if (!installedKV) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0021({ source: state.name })))
-      return authenticated && Boolean(installedKV)
+      else if (!contentKV()) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0021({ source: state.name })))
+      return authenticated && Boolean(contentKV())
     })
     return await state.live
   }
 
   function kv(state: HeadState): ContentKV {
-    if (installedKV) return installedKV
+    const store = contentKV()
+    if (store) return store
     throw contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
   }
 
@@ -366,12 +347,12 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   function hashOf(state: HeadState): Promise<string> {
     const { prefix, schema } = contentSource(state.input)
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: installedBuild ?? null })
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: contentKVBuild() ?? null })
     return state.hash
   }
 
   async function readCommit(key: string): Promise<ContentCommit | undefined> {
-    const store = installedKV
+    const store = contentKV()
     if (!store) return
     let result: readonly [unknown, CacheArtifact | null | undefined]
     // A KV store that throws counts as a miss, so the page still loads the commit from GitHub.
@@ -391,7 +372,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   async function writeCommit(state: HeadState, key: string, commit: ContentCommit): Promise<void> {
-    const store = installedKV
+    const store = contentKV()
     if (!store) return
     let failure: unknown
     try {
@@ -718,7 +699,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       if (typeof sha !== "string" || !fullSha.test(sha)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.pin() needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
       }
-      if (!await isLive(state)) throw installedKV ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
+      if (!await isLive(state)) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })

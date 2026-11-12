@@ -19,6 +19,7 @@ import {
   normalizeSafeWorkspacePath,
 } from "../../core/path.ts"
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
+import { BoundedMap } from "./bounded-map.ts"
 import {
   commitGitHubChanges,
   gitBlobSha,
@@ -26,6 +27,7 @@ import {
   githubRequest,
   githubRequestStatus,
   joinGitPath,
+  preloadGitHubFiles,
   readCurrentHead,
   readGitHubBranchState,
   readGitHubFile,
@@ -204,7 +206,8 @@ function messageWithMetadata(message: string, metadata: Record<string, unknown> 
   return `${message}\n\n${metadataTrailer}${json}`
 }
 
-function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[], url?: string, suppliedMetadata?: Record<string, unknown>): WorkspaceRevision {
+/** A revision from its commit. Without `entries`, the revision leaves out `files` and `bytes`. */
+function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[] | undefined, url?: string, suppliedMetadata?: Record<string, unknown>): WorkspaceRevision {
   const stored = readCommitMessage(commit.message)
   suppliedMetadata ??= stored.metadata
   const author = commit.author
@@ -236,8 +239,7 @@ function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistor
     createdAt: createdAt.toISOString(),
     ...(stored.message ? { message: stored.message } : {}),
     ...(metadata ? { metadata } : {}),
-    files: entries.length,
-    bytes: entries.reduce((total, entry) => total + entry.size, 0),
+    ...(entries ? { files: entries.length, bytes: entries.reduce((total, entry) => total + entry.size, 0) } : {}),
   }
 }
 
@@ -314,9 +316,10 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   // Hide a literal alias only when its reported ref resolves to another branch.
   const hiddenBranch = (branch: string): boolean => toBranch(fromBranch(branch)) !== branch
   const heads = new Map<string, { expires: number, head: Promise<string | null> }>()
-  const commitCache = new Map<string, GitHubCommit>()
-  const treeCache = new Map<string, GitHubHistoryEntry[]>()
-  const commitRefs = new Map<string, string>()
+  // Commits and trees never change, so they stay until newer ones push them out.
+  const commitCache = new BoundedMap<string, GitHubCommit>(2_000)
+  const treeCache = new BoundedMap<string, GitHubHistoryEntry[]>(32)
+  const commitRefs = new BoundedMap<string, string>(2_000)
 
   const readCommit = async (id: string): Promise<GitHubCommit> => {
     const cached = commitCache.get(id)
@@ -377,6 +380,14 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     return publicRevision(commit, ref, entries, `https://github.com/${options.repository}/commit/${commit.sha}`, suppliedMetadata)
   }
 
+  /** A revision from a commit that a list or a head read returned, without the tree request that `files` and `bytes` need. */
+  const listedRevision = (ref: string, commit: GitHubCommit): WorkspaceRevision => {
+    if (!nonEmptyString(commit.sha)) malformed("commit list")
+    commitCache.set(commit.sha, commit)
+    commitRefs.set(commit.sha, ref)
+    return publicRevision(commit, ref, undefined, `https://github.com/${options.repository}/commit/${commit.sha}`)
+  }
+
   const readBranches = async (): Promise<GitHubBranch[]> => {
     try {
       return await githubRequest(client(), async (provider, repo) => {
@@ -399,7 +410,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (cached && cached.expires > Date.now()) return await cached.head
     const head = (async () => {
       try {
-        return await githubRequest(client(), async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit")
+        // The commit of the branch, in one request. A later revision() of this head reads no commit again.
+        const commit = await githubRequest(client(), async (provider, repo) => await provider.commits.get({ forge: provider.forge, instance: provider.instance, repo, sha: encodeURIComponent(`heads/${branch}`) }), "commit")
+        if (!nonEmptyString(commit.sha)) malformed("commit")
+        commitCache.set(commit.sha, commit)
+        return commit.sha
       }
       catch (error) {
         if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return null
@@ -428,6 +443,9 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     }
     const afterId = revisionCursor ?? (listOptions.cursor && /^[0-9a-f]{40}$/i.test(listOptions.cursor) ? listOptions.cursor : undefined)
     const page = afterId ? 1 : pageFromCursor(ref, listOptions.cursor)
+    // The first page starts at the head commit, so every page names a commit and its answer never changes.
+    const start = afterId ?? (page === 1 ? await readBranchHead(branch) : branch)
+    if (!start) return { revisions: [] }
     // Only the commits that changed this file or folder.
     const gitPath = !listOptions.path ? "" : joinGitPath(options.root, normalizeHistoryPath(listOptions.path))
     let result: Page<Commit>
@@ -437,7 +455,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const cursor = page === 1
           ? undefined
           : { nextUrl: `${provider.baseUrl.replace(/\/+$/, "")}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/commits?sha=${encodeURIComponent(branch)}&per_page=${limit}&page=${page}${gitPath ? `&path=${encodeURIComponent(gitPath)}` : ""}` }
-        return await provider.commits.list(repo, { cursor, perPage: afterId ? Math.min(limit + 1, 100) : limit, ref: afterId ?? branch, ...(gitPath ? { path: gitPath } : {}) }).page()
+        return await provider.commits.list(repo, { cursor, perPage: afterId ? Math.min(limit + 1, 100) : limit, ref: start, ...(gitPath ? { path: gitPath } : {}) }).page()
       }, "commit list")
     }
     catch (error) {
@@ -447,10 +465,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     // The listing starts at the cursor's revision, which the caller already has.
     const items = afterId && result.items[0]?.sha === afterId ? result.items.slice(1) : result.items
     const shown = items.slice(0, limit)
-    const revisions = await Promise.all(shown.map(commit => {
-      if (!nonEmptyString(commit.sha)) malformed("commit list")
-      return revision(ref, commit.sha)
-    }))
+    const revisions = shown.map(commit => listedRevision(ref, commit))
     const followingPage = nextPage(result.cursor?.nextUrl)
     if (afterId) {
       const last = shown.at(-1)?.sha
@@ -563,6 +578,13 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         if (!entry) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
         const bytes = await readGitHubFile(client(), { ...entry, path: joinGitPath(options.root, normalized) }, commit.sha)
         return decodeFile(bytes, readOptions)
+      },
+      preload: async (paths: readonly string[]) => {
+        const entries = paths.flatMap((path) => {
+          const entry = byPath.get(normalizeHistoryPath(path))
+          return entry ? [{ ...entry, path: joinGitPath(options.root, entry.path) }] : []
+        })
+        await preloadGitHubFiles(client(), commit.sha, entries)
       },
     })
     return view
@@ -980,7 +1002,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     head: async (headOptions) => {
       const { branch, ref } = resolveRef(headOptions?.ref)
       const id = await readBranchHead(branch)
-      return id ? await revision(ref, id) : null
+      return id ? listedRevision(ref, await readCommit(id)) : null
     },
     digest: gitBlobSha,
     forksFrom: async ref => options.refs?.published && ref !== "published" ? "published" : undefined,

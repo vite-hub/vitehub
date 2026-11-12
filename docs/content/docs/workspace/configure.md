@@ -80,6 +80,12 @@ In one isolate, GitHub Stores and history views cache blob bytes by sha, across 
 - The cache holds up to 32 MiB, removes the oldest entries first, and skips blobs over 4 MiB.
 - New isolates, and reads after removal, fetch the blob from GitHub again. You can retry failed reads.
 
+GitHub Stores also keep other answers, so a read asks GitHub only for what changed:
+
+- A branch head is one request. The Store keeps it for 5 seconds, then asks again with its ETag. GitHub answers `304 Not Modified` when the branch did not move, and a `304` does not count against the GitHub rate limit.
+- History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
+- `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
+
 Without a `store`, development uses Local. In production:
 
 - Cloudflare uses Memory.

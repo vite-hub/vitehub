@@ -1343,6 +1343,8 @@ describe("GitHub workspace store", () => {
     await expect(store.readFile("draft.md")).resolves.toMatchObject({
       content: textBytes("unrelated draft\n"),
     });
+    // A changed tree is a new commit.
+    refSha = fakeSha("remote-sha-2");
     remoteTree = remoteTree.filter(
       (entry) => entry.path !== ".vitehub/workspaces/docs/draft.md",
     );
