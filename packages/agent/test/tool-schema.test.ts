@@ -1,3 +1,5 @@
+import { jsonSchema } from "ai"
+import type { JSONSchema7 } from "json-schema"
 import { expect, it, vi } from "vitest"
 import * as v from "valibot"
 import { z } from "zod"
@@ -86,4 +88,12 @@ it.each(["getter", "proxy"])("ignores inherited marker %s access without side ef
   expect(agentToolJsonSchema(schema as never, "input")).toEqual(jsonSchema)
   expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toEqual(jsonSchema)
   expect(read).not.toHaveBeenCalled()
+})
+
+it("unwraps the AI SDK jsonSchema() wrapper that MCP client tools use", () => {
+  const input: JSONSchema7 = { properties: { expand: { type: "string" }, id: { type: "string" } }, required: ["id"], type: "object" }
+  const schema = jsonSchema(input)
+
+  expect(agentToolJsonSchema(schema as never, "input")).toEqual(input)
+  expect(inspectAgentTools({ threads_get: { inputSchema: schema as never } })?.[0]?.inputSchema).toEqual(input)
 })

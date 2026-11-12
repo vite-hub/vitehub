@@ -24,7 +24,7 @@ import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
-import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -40,6 +40,7 @@ type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOpt
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-stats.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
+const generatedNitroShippedMigrations = "database/migrations.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
@@ -113,7 +114,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
   const module = async function viteHubDatabaseNuxtModule(inlineOptions, nuxt) {
     // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the options this integration reads.
     const nuxtOptions = (nuxt as NuxtLike).options
-    const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions, nuxtOptions)
+    const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions)
     if (resolvedOptions === false) {
       return
     }
@@ -454,19 +455,20 @@ async function installNitroLocalDatabaseRuntime(
   dev = false,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+  const migrationsFile = resolve(generatedRoot, generatedNitroShippedMigrations)
   const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseDrizzleImport]
   const customRegistry = !!existingAlias && existingAlias !== file
   if (customRegistry) {
-    await rm(file, { force: true })
+    await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (!dev) return
   }
 
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
-    await rm(file, { force: true })
+    await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (dev) {
       await rm(defaultsFile, { force: true })
       if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
@@ -550,10 +552,14 @@ async function installNitroLocalDatabaseRuntime(
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
+  // `ensureMigrations()` and the start plugin apply the migrations that this module ships.
+  await writeFileIfChanged(migrationsFile, renderShippedMigrationsModule(runtime, { allowDataLoss: resolveMigrateOnStart(options)?.allowDataLoss ?? false }))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
+    ensureMigrationsImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
+    migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
       `import { mergeDatabaseRelations } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "relations.js")).href)}`,
@@ -572,7 +578,7 @@ async function installNitroLocalDatabaseRuntime(
 
 function resolveNuxtContentModuleDependencies(options: DatabaseNuxtIntegrationOptions, nuxt: unknown): NuxtModuleDependencies {
   const nuxtOptions = (nuxt as NuxtLike).options
-  const resolvedOptions = resolveDatabaseNuxtOptions(options, undefined, nuxtOptions)
+  const resolvedOptions = resolveDatabaseNuxtOptions(options, undefined)
   if (resolvedOptions === false || !hasNuxtContentModule(nuxtOptions.modules)) {
     return {}
   }
@@ -597,16 +603,15 @@ function usesDefinitionResources(options: ResolvedDatabaseNuxtIntegrationOptions
   return Boolean(config && options.binding === undefined && options.databaseId === undefined && options.databaseName === undefined)
 }
 
+/** `vite-hub/nuxt` passes the Database options from its `vitehub` key. A top-level Nuxt `database` key is not read. */
 function resolveDatabaseNuxtOptions(
   options: DatabaseNuxtIntegrationOptions,
   inlineOptions: DatabaseNuxtIntegrationOptions | undefined,
-  nuxtOptions: NuxtLike["options"],
 ): ResolvedDatabaseNuxtIntegrationOptions | false {
-  if (options === false || inlineOptions === false || nuxtOptions.database === false) {
+  if (options === false || inlineOptions === false) {
     return false
   }
   return {
-    ...(isRecord(nuxtOptions.database) ? nuxtOptions.database : {}),
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
@@ -775,9 +780,9 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
 async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings, databases: string[]) {
   const file = resolve(root, migrateOnStartPluginFile)
   const plugin = renderMigrateOnStartPlugin(runtime, {
-    allowDataLoss: settings.allowDataLoss,
     databases,
     drizzleImport: databaseDrizzleImport,
+    migrationsImport: pathToFileURL(resolve(root, ".vitehub", generatedNitroShippedMigrations)).href,
     runtimeImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
   })
   if (!plugin) return

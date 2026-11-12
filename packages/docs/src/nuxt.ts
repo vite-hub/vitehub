@@ -318,6 +318,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // package must be listed itself: its Vue app runtime ships as `.vue` and `.ts` source that imports `#imports`.
     const packageRoot = resolver.resolve("..")
     nuxt.options.build.transpile.push(packageRoot)
+    // The shell renders with Comark, comark-ui and its block packages, and VueUse. They go into the app's server bundle
+    // so that they share its copy of Vue. Nitro would bundle them with a second copy that has no app, and Markdown would
+    // render on the server without the app's prose components.
+    nuxt.options.build.transpile.push(/^(?:@comark\/|comark(?:-[\w-]+)?(?:\/|$))/, "@vueuse/core")
     // Nuxt auto-imports composables only outside node_modules. The shell components use them, so an app that installs
     // this package needs its files included, or they fail with `useRoute is not defined`.
     const transform = nuxt.options.imports.transform ??= {}
@@ -555,7 +559,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // lists the folders that Tailwind scans, so the docs folders go there. An app with its own `@import "@nuxt/ui"`
     // then builds the docs classes in its one Tailwind build. A second build would put its utilities after the docs
     // ones, so `flex` would win over `xl:hidden`. An app without one gets the Tailwind build of the docs.
-    const cssSources = [join(runtime, "app"), resolver.resolve("./theme.js"), ...contentDirsToWatch].map(source => `@source "${source}";`).join("\n")
+    // Tailwind reads the design's classes from this file. In the package build, `theme.js` only re-exports a hashed chunk.
+    const designClasses = addTemplate({ filename: "docs/design.json", write: true, getContents: () => JSON.stringify(design, null, 1) }).dst
+    const cssSources = [join(runtime, "app"), designClasses, ...contentDirsToWatch].map(source => `@source "${source}";`).join("\n")
     nuxt.hook("app:templates", (app) => {
       const ui = app.templates.find(template => template.filename === "ui.css")
       const getContents = ui?.getContents
