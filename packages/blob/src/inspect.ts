@@ -39,7 +39,9 @@ export function inspectBlobResources(
         host: "vercel",
         kind: "vercel-blob-store",
         owner: "blob",
-        ...(!isMaskedBlobRuntimeValue(store.token)
+        ...(store.secretEnv?.token
+          ? { env: store.secretEnv.token, source: "env" }
+          : !isMaskedBlobRuntimeValue(store.token)
           ? { source: "config" }
           : !store.tokenFromConfig && storeId
             ? { env: "BLOB_STORE_ID", id: storeId, source: "env" }
