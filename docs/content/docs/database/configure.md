@@ -298,9 +298,11 @@ export default defineConfig({
 :::
 ::
 
-The build copies each migrations folder into a Nitro plugin, so the output needs no folder. Nitro loads the plugin before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub database migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
+The build copies each migrations folder into the server output, so the output needs no folder. A Nitro plugin applies them, and Nitro loads it before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub database migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
 When a migration fails, the database keeps none of the pending migrations of that start, and the server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. A migration that loses data, by the `vitehub database migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
+
+To apply the same migrations from a Nitro task, a test, or a build without the start plugin, call [`ensureMigrations()`](/docs/database/server-api#apply-migrations-from-server-code). It shares the run of the start plugin, so the process applies each migration once.
 
 ### Several instances on Postgres
 
