@@ -178,6 +178,8 @@ export const panelStyles = `
 /** The toolbar in the pill, after the pill's button styles. It takes the pill's font and colors. */
 export const pillBarStyles = `
 :host { font: inherit; color: inherit; color-scheme: inherit; }
+/* The overlay's mount point sits between the segment and the toolbar. It passes the pill's alignment on, so items such as the avatars center like the buttons. */
+:host > div { align-items: inherit; }
 .toolbar { display: flex; flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; gap: 2px; font-variant-numeric: tabular-nums; }
 .toolbar svg { flex: none; }
 .sep { width: 4px; height: 4px; flex: none; }
