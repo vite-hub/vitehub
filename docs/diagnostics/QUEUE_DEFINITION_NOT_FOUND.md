@@ -49,7 +49,7 @@ Run `vitehub inspect definitions --kind queue`. It lists each discovered Queue D
 
 - [Define a queue](/docs/queue/configure#define-a-queue)
 - [Queue Server API](/docs/queue/server-api)
-- [Inspect Definitions and Provider Output](/docs/development/cli#inspect-definitions-and-provider-output)
+- [Inspect Definitions and Provider Output](/docs/cli/inspect#inspect-definitions-and-provider-output)
 - [Local delivery](/docs/queue/limits-and-errors#local-delivery)
 - [`QUEUE_DISABLED`](/docs/queue/diagnostics/queue_disabled)
 - [`QUEUE_DEFINITION_LOAD_FAILED`](/docs/queue/diagnostics/queue_definition_load_failed)

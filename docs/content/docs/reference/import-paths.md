@@ -173,7 +173,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/docs/navigation` | Docs Package | The manifest types and navigation helpers. |
 | `@vite-hub/docs/server` | Docs Package | `createDocsManifest()`, the Markdown parser, and `toRawMarkdown()`, for tools and tests that read a content folder without Nuxt. |
-| `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
+| `@vite-hub/cli` | CLI Package | The [`vitehub` command](/docs/cli) and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |

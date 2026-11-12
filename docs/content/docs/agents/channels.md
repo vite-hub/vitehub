@@ -509,7 +509,7 @@ pnpm vitehub conversations export support telegram telegram:456 > chat.md
 pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
 ```
 
-Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/development/cli#export-a-channel-conversation).
+Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/cli/agents#export-a-channel-conversation).
 
 The Markdown export is safe to open: each message sits in a fence longer than any backtick run in it, names in headings and links are escaped, and only `http(s)` URLs and export files become links.
 
@@ -605,7 +605,7 @@ export default defineAgent({
 })
 ```
 
-Set `history.trigger` when the Channel has several triggers. Replay from the terminal with [`vitehub channels replay`](/docs/development/cli#download-channel-history):
+Set `history.trigger` when the Channel has several triggers. Replay from the terminal with [`vitehub channels replay`](/docs/cli/agents#download-channel-history):
 
 ```sh
 pnpm vitehub channels replay --agent labeller --channel mailbox --folder archive --dry-run
@@ -1087,7 +1087,7 @@ pnpm vitehub channels sync \
   --json
 ```
 
-The command is a dry run by default. Apply a reviewed plan with `--apply` and the exact `--confirm-origin`. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks) for the safeguards on deletion and secrets.
+The command is a dry run by default. Apply a reviewed plan with `--apply` and the exact `--confirm-origin`. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks) for the safeguards on deletion and secrets.
 
 ## Control admission and delivery
 

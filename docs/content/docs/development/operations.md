@@ -148,7 +148,7 @@ pnpm vitehub reports list --help
 pnpm vitehub reports list acme --url https://app.example.com --json
 ```
 
-See [Run any operation](/docs/development/cli#run-any-operation) for `--json`, `--yes`, `--url`, and credentials. A `kind: 'destructive'` operation asks for confirmation, or needs `--yes`.
+See [Run any operation](/docs/cli/inspect#run-any-operation) for `--json`, `--yes`, `--url`, and credentials. A `kind: 'destructive'` operation asks for confirmation, or needs `--yes`.
 
 Confirmation uses the schema's defaults and transforms. If the server parses the input as destructive after the CLI treated it as a read, the call fails with `INTERNAL_R0026`. Check the call and run it again with `--yes`.
 
@@ -229,10 +229,10 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | Package | Operations |
 | --- | --- |
 | `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
-| [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, `blob.variants` |
-| [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.del` |
-| [Email](/docs/development/cli#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
-| [Rate Limit](/docs/development/cli#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
+| [Blob](/docs/cli/primitives#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, `blob.variants` |
+| [KV](/docs/cli/primitives#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.del` |
+| [Email](/docs/cli/primitives#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
+| [Rate Limit](/docs/cli/primitives#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
 | [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap` |

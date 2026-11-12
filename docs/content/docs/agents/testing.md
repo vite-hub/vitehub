@@ -144,7 +144,7 @@ pnpm vitehub agent info --agent support --json
 
 Check the Driver, Capabilities, Workspace Sources, instructions, warnings, and
 metadata. `agent info` does not run the Driver. The
-[CLI reference](/docs/development/cli#inspect-an-agent-definition) lists the
+[CLI reference](/docs/cli/agents#inspect-an-agent-definition) lists the
 route and authentication needs for a dev server.
 
 For a Capability CLI, add `--cli`:
