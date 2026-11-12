@@ -7,6 +7,7 @@ import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "../github/index.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
+import { hasGitHubLogin } from "./pull-request-filter.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
@@ -89,7 +90,7 @@ function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
   // After the review push budget is spent, bot feedback is not repair work, even a request for changes.
   const settled = reviewPushBudgetSpent(s, policy);
   const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value)
-    || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
+    || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (hasGitHubLogin(policy.workerAuthors, login(value)) || hasGitHubLogin(policy.ignoreFeedbackAuthors, login(value)));
   const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
   const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
   const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
