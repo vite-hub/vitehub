@@ -264,9 +264,9 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /**
    * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
-   * credential. It receives the target `repository`.
+   * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
    */
-  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal }) => string | undefined | Promise<string | undefined>)
+  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
   /** Trusted identity of the host's authenticated GitHub user or App. */
   identity?: { login: string, appId?: number }
   apiBaseUrl?: string
@@ -1723,12 +1723,14 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
+  minLifetime?: number,
 ) {
   const options = githubAppOptions(app) || {}
   if (options.token) {
     const token = typeof options.token === "function" ? await options.token(context, {
       repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
       signal,
+      ...(minLifetime === undefined ? {} : { minLifetime }),
     }) : options.token
     return requiredString(token, 'token')
   }
@@ -1750,7 +1752,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     const installationId = (configuredInstallation === undefined || configuredInstallation === "") && repository
       ? await credentials.installation(repository, signal)
       : requiredNumber(configuredInstallation, "installationId")
-    return (await credentials.installationToken(installationId, { signal })).token
+    return (await credentials.installationToken(installationId, { signal, minLifetime })).token
   }
   catch (error) {
     const status = forgeErrorStatus(error)
@@ -1766,12 +1768,13 @@ async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntim
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
+  minLifetime?: number,
 ) {
   const env = await githubEnv(context)
   const token = cleanSecret(env.token)
   if (!app) return token
   try {
-    return await githubAppInstallationToken(app, context, installation, repository, signal)
+    return await githubAppInstallationToken(app, context, installation, repository, signal, minLifetime)
   }
   catch (error) {
     if (token) return token
@@ -3998,7 +4001,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
-      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal)
+      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
       return token ? { token, baseUrl: appOptions === true ? undefined : appOptions.apiBaseUrl } : undefined
     }
     Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
