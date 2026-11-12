@@ -10,7 +10,7 @@ import { createTraceEventLog } from "@vite-hub/runtime"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { gmail, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
-import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
+import { defineAgent, runAgentTrigger, agentWorkflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
@@ -295,7 +295,7 @@ describe("gmail() Channel", () => {
     const chatSet = vi.spyOn(chatState, "set")
     const webhookSet = vi.spyOn(webhookState, "set")
     const driver = vi.fn(() => "ok")
-    const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: driver }, name: "gmail-workflow-state", runtime: workflow("gmail-workflow-state") })
+    const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: driver }, name: "gmail-workflow-state", runtime: agentWorkflow("gmail-workflow-state") })
     const tasks: Promise<unknown>[] = []
     const response = await createChannelWebhookRouteHandler(agent)(new Request(audience, {
       body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: 100 })), messageId: "workflow-state" }, subscription }),
