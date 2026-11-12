@@ -88,7 +88,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,
       "Run `npx nuxi prepare`, then type-check the app.",
-      `Run \`${run} nuxt build\` and \`${run} vitehub inspect provider-output --json\` to check the resources and bindings.`,
+      `Run \`${run} nuxt build\` and \`${run} vitehub inspect output --json\` to check the resources and bindings.`,
     ],
   }
 }

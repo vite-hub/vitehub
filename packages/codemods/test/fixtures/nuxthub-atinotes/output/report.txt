@@ -20,4 +20,4 @@ Notes:
 Next steps:
   - Run `pnpm install` to install vite-hub and remove @nuxthub/core.
   - Run `npx nuxi prepare`, then type-check the app.
-  - Run `pnpm nuxt build` and `pnpm vitehub inspect provider-output --json` to check the resources and bindings.
+  - Run `pnpm nuxt build` and `pnpm vitehub inspect output --json` to check the resources and bindings.
