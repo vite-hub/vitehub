@@ -94,6 +94,12 @@ export declare function useDatabaseBinding(name: "default" | keyof RuntimeDataba
 
 export declare const db: DefaultDatabaseEntry["db"]
 
+/**
+ * Applies the pending migrations of the Database `name`, or of every Database, once in this process. Parallel calls
+ * share one run, and a failed run is forgotten, so the next call tries again.
+ */
+export declare function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string): Promise<void>
+
 export declare const agentDb: AgentDatabaseHandle & {
   database(name: string): AgentDatabaseHandle
 }

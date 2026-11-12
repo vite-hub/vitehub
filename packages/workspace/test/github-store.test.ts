@@ -749,6 +749,22 @@ describe("GitHub workspace store", () => {
     ]);
   });
 
+  it("loads the branch again on the next call after a failed load", async () => {
+    seedRemote(".vitehub/workspaces/docs/README.md", "# Docs");
+    malformedResponsePath = "/repos/onmax/repo/commits/heads/main";
+    malformedResponse = null;
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github",
+      repository: "onmax/repo",
+      token: "token",
+    }, "docs");
+
+    await expect(store.list()).rejects.toMatchObject({ code: "WORKSPACE_FAILED" });
+    malformedResponsePath = undefined;
+    await expect(store.list()).resolves.toMatchObject([{ path: "README.md" }]);
+  });
+
   it("loads many private files from one branch snapshot with one blob request per file", async () => {
     for (let index = 0; index < 756; index++) {
       seedRemote(`.vitehub/workspaces/docs/data/file-${index}.txt`, `file ${index}\n`);
