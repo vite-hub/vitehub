@@ -1,5 +1,7 @@
 import { gunzipSync } from "node:zlib";
 
+import { workspaceError } from "../../core/errors.ts";
+
 /** One regular file of a GitHub archive. `path` is from the repository root, without the archive's top folder. */
 export interface TarFile {
   path: string;
@@ -37,10 +39,10 @@ export function readTarGz(archive: Uint8Array): TarFile[] {
     const header = tar.subarray(offset, offset + 512);
     if (header.every(byte => byte === 0)) break;
     const size = Number.parseInt(text(header.subarray(124, 136)).trim() || "0", 8);
-    if (!Number.isSafeInteger(size) || size < 0) throw new Error("[vitehub] GitHub returned a malformed archive.");
+    if (!Number.isSafeInteger(size) || size < 0) throw workspaceError("[vitehub] GitHub workspace returned a malformed archive.");
     const start = offset + 512;
     const end = start + Math.ceil(size / 512) * 512;
-    if (end > tar.length) throw new Error("[vitehub] GitHub returned a malformed archive.");
+    if (end > tar.length) throw workspaceError("[vitehub] GitHub workspace returned a malformed archive.");
     const content = tar.subarray(start, start + size);
     const type = String.fromCharCode(header[156] ?? 0);
     if (type === "x") longPath = paxPath(content);
