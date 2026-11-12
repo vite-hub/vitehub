@@ -46,16 +46,8 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
       size="sm"
       :aria-label="link.label"
     />
-    <ClientOnly>
-      <UColorModeButton color="neutral" variant="ghost" size="sm" :class="{ 'ms-auto': !stacked }" />
-      <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
-      <template #fallback>
-        <span class="inline-flex size-7 items-center justify-center text-default" :class="{ 'ms-auto': !stacked }" aria-hidden="true">
-          <UIcon name="i-ph-sun-light" class="size-4 dark:hidden" />
-          <UIcon name="i-ph-moon-light" class="hidden size-4 dark:block" />
-        </span>
-      </template>
-    </ClientOnly>
+    <!-- The button renders both icons and the color mode class picks one, so the server draws it too. -->
+    <UColorModeButton color="neutral" variant="ghost" size="sm" :class="{ 'ms-auto': !stacked }" />
   </div>
 </template>
 

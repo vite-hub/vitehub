@@ -736,6 +736,7 @@ describe("vitehub", () => {
       "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
+      "vite-hub/cloudflare-pkce-challenge",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -1970,7 +1971,7 @@ describe("vitehub", () => {
   ] as const)("resolves the Blob driver with the %s preset in development (explicit=%s)", async (preset, explicit) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-app-driver-"))
     try {
-      const plugins = vitehub({ preset, blob: explicit ? { driver: "vercel-blob", token: "app-token" } : true })
+      const plugins = vitehub({ preset, blob: explicit ? { driver: "vercel-blob" } : true })
       const args = integrationMocks.hubBlob.mock.lastCall
       if (!args) throw new Error("Expected the Blob plugin to be installed.")
       const { hubBlob } = await import("../../blob/src/vite.ts")
@@ -1987,7 +1988,7 @@ describe("vitehub", () => {
       }, "serve")
 
       const store = explicit
-        ? { driver: "vercel-blob", token: "app-token" }
+        ? { driver: "vercel-blob" }
         : preset === "cloudflare" ? { driver: "cloudflare-r2", localFallback: { driver: "fs" } } : { driver: "fs" }
       expect(blob.api.getConfig().blob).toMatchObject({ store })
       const [inspector] = blob.vitehub.inspect!().definitions!
