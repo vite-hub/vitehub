@@ -79,6 +79,14 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+`filter.authorAssociation` selects authors by their GitHub `author_association`,
+such as `{ allow: ["OWNER", "MEMBER", "COLLABORATOR"] }`. A pull request passes
+when its author matches `filter.author.allow` or `filter.authorAssociation.allow`,
+and a match on either deny list excludes it. Bots usually report `NONE`, so list
+them in `filter.author`. Logins match without case and in either bot spelling,
+so `renovate[bot]` also matches the GraphQL login `renovate`; this also applies
+to `filter.actor` and `ignoreFeedbackAuthors`.
+
 `driver` selects the provider Driver that repairs each checkout: `"codex"` (the
 default) or `"claude-code"`. Set its model and other provider settings with the
 ordinary `driver` field. Model and custom run Drivers cannot repair a checkout.
@@ -135,6 +143,13 @@ other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
 PR from an author without write access only after a reviewer with write access
 approves its current head and no such reviewer's latest review requests changes.
 
+A PR that is only `behind` a base requiring up-to-date branches, or whose base
+changed its files after its checks ran, gets a branch update instead of a merge
+or a model pass. A head that already contains the base tip needs no update. When
+GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
+the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
+after checking that the head did not move.
+
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
 they need one: new human or bot feedback, a new failing check, a merge conflict,
@@ -186,7 +201,10 @@ workspaces from an earlier process when its temporary directory is inside the
 service directory. Claims take reviewed heads first, then heads whose checks all
 passed, then stack parents. A restart releases the claims of the previous process.
 A stacked PR whose parent merged into the default branch is retargeted to the
-default branch. A provider rate limit is retried three times; after that, model
+default branch; until then the child waits. With `merge: "direct"`,
+`repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
+and feedback alongside its open parent. The child never merges into the parent's
+branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried three times; after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.

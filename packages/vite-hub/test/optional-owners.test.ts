@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { registerHooks } from "node:module"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
@@ -186,4 +187,90 @@ describe("assertFeaturePackages version warning", () => {
       warn.mockRestore()
     }
   })
+})
+
+/** Records the lookups of `packageName`. A hidden package fails to resolve, as a package that is not installed. */
+function watchPackage(packageName: string) {
+  const watched = { hidden: false, lookups: [] as string[] }
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier !== packageName && !specifier.startsWith(`${packageName}/`)) return nextResolve(specifier, context)
+      watched.lookups.push(specifier)
+      if (watched.hidden) throw Object.assign(new Error(`Cannot find package '${specifier}'`), { code: "ERR_MODULE_NOT_FOUND" })
+      return nextResolve(specifier, context)
+    },
+  })
+  return Object.assign(watched, { stop: () => hooks.deregister() })
+}
+
+async function importOptionalOwners() {
+  vi.resetModules()
+  return await import("../src/internal/optional-owners.ts")
+}
+
+it("looks up each package one time in a process", async () => {
+  const { isPackageInstalled } = await importOptionalOwners()
+  const installed = watchPackage("@vite-hub/kv")
+  const missing = watchPackage("@vite-hub/not-a-package")
+  try {
+    for (let check = 0; check < 3; check++) {
+      expect(isPackageInstalled("@vite-hub/kv")).toBe(true)
+      expect(isPackageInstalled("@vite-hub/not-a-package")).toBe(false)
+    }
+  }
+  finally {
+    installed.stop()
+    missing.stop()
+  }
+  expect(installed.lookups).toEqual(["@vite-hub/kv/package.json"])
+  expect(missing.lookups).toEqual(["@vite-hub/not-a-package/package.json"])
+})
+
+it("finds a package that the app installs after the error that names it", async () => {
+  const { assertFeaturePackages } = await importOptionalOwners()
+  const kv = watchPackage("@vite-hub/kv")
+  try {
+    kv.hidden = true
+    expect(() => assertFeaturePackages(["kv"])).toThrow("pnpm add @vite-hub/kv")
+    kv.hidden = false
+    expect(() => assertFeaturePackages(["kv"])).not.toThrow()
+  }
+  finally {
+    kv.stop()
+  }
+})
+
+it("sees a removed package after it forgets the checks", async () => {
+  const { forgetPackageChecks, isPackageInstalled } = await importOptionalOwners()
+  const kv = watchPackage("@vite-hub/kv")
+  try {
+    expect(isPackageInstalled("@vite-hub/kv")).toBe(true)
+    kv.hidden = true
+    expect(isPackageInstalled("@vite-hub/kv")).toBe(true)
+    forgetPackageChecks()
+    expect(isPackageInstalled("@vite-hub/kv")).toBe(false)
+  }
+  finally {
+    kv.stop()
+  }
+})
+
+it("sees a package that the app installed before a Vite restart", async () => {
+  const { isPackageInstalled, startPackageChecks } = await importOptionalOwners()
+  const kv = watchPackage("@vite-hub/kv")
+  try {
+    kv.hidden = true
+    // The import of `vite-hub` checks the package before Vite loads the app config.
+    expect(isPackageInstalled("@vite-hub/kv")).toBe(false)
+    startPackageChecks()
+    expect(isPackageInstalled("@vite-hub/kv")).toBe(false)
+    kv.hidden = false
+    // Vite loads the config of the new server before it closes the old one.
+    startPackageChecks()
+    expect(isPackageInstalled("@vite-hub/kv")).toBe(true)
+  }
+  finally {
+    kv.stop()
+  }
+  expect(kv.lookups).toEqual(["@vite-hub/kv/package.json", "@vite-hub/kv/package.json"])
 })
