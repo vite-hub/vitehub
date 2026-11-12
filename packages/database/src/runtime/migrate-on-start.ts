@@ -1,3 +1,5 @@
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
@@ -168,6 +170,59 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
   })
   // The SQLite files change only after every Postgres database passed its check under the lock.
   await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, log), log })
+}
+
+/** The migrations that a server build ships, by Database name. The build writes them, so the server needs no migrations folder. */
+export interface ShippedMigrations {
+  allowDataLoss: boolean
+  /** A Database without migrations is not listed. `problem` says why the build could not read its migrations. */
+  databases: Record<string, Pick<StartMigrationDatabase, "dialect" | "migrations"> | { problem: string }>
+  /** Why this build cannot apply migrations in the server process. */
+  unsupported?: string
+}
+
+export interface EnsureMigrationsContext {
+  /** The `databases` of `@vite-hub/database/drizzle`. */
+  databases: Record<string, { db: unknown }>
+  load: () => Promise<ShippedMigrations>
+}
+
+// One run for each Database in this process. The server start and `ensureMigrations()` share it.
+const runs = new Map<string, Promise<void>>()
+// Runs start one after the other. Definitions on one SQLite file share its ledger, so a run must read it after the
+// previous run committed, or both apply the same migration.
+let lastRun: Promise<unknown> = Promise.resolve()
+
+/**
+ * Applies the pending migrations of `names`, or of every Database, once in this process. It runs `migrateOnStart()`,
+ * so a Postgres database migrates under the advisory lock. Calls during a run and after a successful run share that
+ * run. A run that fails is forgotten, so the next call starts a new one. A new run waits for the previous run, so
+ * Definitions that share a SQLite file apply each migration once.
+ *
+ * In app tests, a SQLite Database is an in-memory copy that already has its migrations, so it is skipped.
+ */
+export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names?: readonly string[]): Promise<void> {
+  const selected = names ?? Object.keys(context.databases)
+  const unknown = selected.find(name => !Object.hasOwn(context.databases, name))
+  if (unknown !== undefined) return Promise.reject(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: unknown }))
+  const missing = [...new Set(selected.filter(name => !runs.has(name)))]
+  if (missing.length) {
+    const run = lastRun.then(() => context.load()).then(async (shipped) => {
+      if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
+      const test = getViteHubTestMode()
+      await migrateOnStart(missing.flatMap((name) => {
+        const database = Object.hasOwn(shipped.databases, name) ? shipped.databases[name] : undefined
+        if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
+        if (!database?.migrations.length || (test && database.dialect === "sqlite")) return []
+        return [{ db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
+      }), { allowDataLoss: shipped.allowDataLoss })
+    })
+    for (const name of missing) runs.set(name, run)
+    lastRun = run.catch(() => {
+      for (const name of missing) if (runs.get(name) === run) runs.delete(name)
+    })
+  }
+  return Promise.all(selected.map(name => runs.get(name))).then(() => undefined)
 }
 
 async function planSqlite(databases: StartMigrationDatabase[], options: MigrateOnStartOptions): Promise<StartMigrationPlan[]> {

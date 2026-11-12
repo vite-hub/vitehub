@@ -9,7 +9,7 @@ import type { ConsoleSectionId } from "../sections";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import type { ConsoleNavigation } from "../client/sections";
 import {
-  consoleGuides,
+  consoleGuide,
   consolePrimitives,
   consoleSectionDetails,
   consoleSectionGroupLabels,
@@ -101,11 +101,22 @@ const sessionItems = computed(() =>
     time: recentTimestamp(item.updatedAt, sessionsLoadedAt.value),
   })),
 );
+// Plain words for the people who run the app, such as "This app uses Content and Comments."
 const summary = computed(() => {
-  const count = availableSections.value.length;
-  const groups = sectionGroups.value.length;
-  if (!count) return "No primitives enabled yet.";
-  return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
+  const labels = availableSections.value.map(section => section.label);
+  if (!labels.length) return "Nothing in this app has a Console page yet.";
+  const shown = labels.length > 4 ? [...labels.slice(0, 3), `${labels.length - 3} more`] : labels;
+  return `This app uses ${new Intl.ListFormat("en", { type: "conjunction" }).format(shown)}.`;
+});
+// Learn links the Console guide and the docs of the sections that the app uses. Sections that share a page link it once.
+const sectionGuides = computed(() => {
+  const seen = new Set<string>([consoleGuide.href]);
+  return availableSections.value.flatMap((section) => {
+    const primitive = consolePrimitives.find(entry => entry.id === section.id);
+    if (!primitive || seen.has(primitive.docs)) return [];
+    seen.add(primitive.docs);
+    return [{ description: primitive.pitch, href: primitive.docs, icon: section.icon, label: `${section.label} docs` }];
+  });
 });
 
 async function loadRecentSessions(): Promise<void> {
@@ -404,9 +415,19 @@ onBeforeUnmount(() => {
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>
                 <ul class="vitehub-console__overview-list">
-                  <li v-for="guide in consoleGuides" :key="guide.href">
+                  <li>
+                    <a class="vitehub-console__overview-row" data-focus-inset :href="consoleGuide.href" rel="noreferrer" target="_blank">
+                      <UIcon :name="consoleGuide.icon" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">{{ consoleGuide.label }}</span>
+                      <span class="vitehub-console__overview-description" :title="consoleGuide.description">{{ consoleGuide.description }}</span>
+                      <span class="vitehub-console__overview-meta">
+                        <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+                      </span>
+                    </a>
+                  </li>
+                  <li v-for="guide in sectionGuides" :key="guide.href">
                     <a class="vitehub-console__overview-row" data-focus-inset :href="guide.href" rel="noreferrer" target="_blank">
-                      <UIcon :name="guide.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="guide.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ guide.label }}</span>
                       <span class="vitehub-console__overview-description" :title="guide.description">{{ guide.description }}</span>
                       <span class="vitehub-console__overview-meta">
