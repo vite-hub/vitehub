@@ -500,7 +500,8 @@ describe("hubBlob", () => {
   it.each(["vercel-blob", "netlify-blobs"] as const)("preserves generated default and named %s stores when Nitro installs its plugin", async (driver) => {
     const root = await temporaryDirectory("vitehub-blob-nitro-replay-")
     try {
-      const plugin = hubBlob({ stores: { default: { driver, name: "default" }, assets: { driver, name: "assets" } } })
+      const store = (name: string) => driver === "netlify-blobs" ? { driver, name } : { driver }
+      const plugin = hubBlob({ stores: { default: store("default"), assets: store("assets") } })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
         nitro: { preset: driver === "vercel-blob" ? "vercel" : "netlify" },
