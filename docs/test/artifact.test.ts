@@ -56,6 +56,11 @@ describe("Cloudflare docs artifact", () => {
     expect(await response.json()).toMatchObject({ openapi: "3.1.0" });
   });
 
+  it("server-renders the color mode button", async () => {
+    const response = await server.fetch("/docs/getting-started", { headers: { accept: "text/html" } });
+    expect(await response.text()).toContain(`aria-label="Switch to dark mode"`);
+  });
+
   it.each([
     ["text/markdown", "text/markdown"],
     ["text/html, text/markdown;q=0.5", "text/html"],
