@@ -326,6 +326,21 @@ describe("Agent instruction layers", () => {
     await expect(resolve(templateChild)).resolves.toBe("Before\nDefault\nAfter\n\nChild rules.")
   })
 
+  it("passes the complete document of a configured preset chain to a child extend function", async () => {
+    const preset = defineAgent({
+      options: {},
+      configure: () => defineAgent({ workspace: {}, driver: codexDriver({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } }) }),
+    })
+    const middle = defineAgent({ extends: preset, driver: { instructions: "Middle" } })
+    const child = defineAgent({ extends: middle, driver: { instructions: { extend: inherited => `${inherited}\nChild` } } })
+    const replaced = defineAgent({ extends: child, driver: { instructions: "Replaced" } })
+    // SAFETY: These instructions read no Invocation context.
+    const resolve = (agent: typeof child) => resolveAgentInstructions(agent.__vitehubWorkspaceAgentOptions.driver.instructions, { context: new Map() } as never)
+    await expect(resolve(middle)).resolves.toBe("Before\nMiddle\nAfter")
+    await expect(resolve(child)).resolves.toBe("Before\nMiddle\nAfter\nChild")
+    await expect(resolve(replaced)).resolves.toBe("Replaced")
+  })
+
   it("gives a model Driver the instructions that a child extend function returns", async () => {
     const model = new MockLanguageModelV3({ doGenerate: {
       content: [{ type: "text", text: "done" }],

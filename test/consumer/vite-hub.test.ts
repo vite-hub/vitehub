@@ -1153,7 +1153,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
 
       expect(server.value.sections.status, server.value.sections.body).toBe(200)
-      expect(JSON.parse(server.value.sections.body)).toMatchObject({ i: "sections", r: { sections: expect.arrayContaining(["env", "kv"]) }, t: "s" })
+      // The app declares no Server Env, so the navigation hides the empty Env section.
+      const sections = JSON.parse(server.value.sections.body)
+      expect(sections).toMatchObject({ i: "sections", r: { sections: expect.arrayContaining(["kv"]) }, t: "s" })
+      expect(sections.r.sections).not.toContain("env")
     }
     finally {
       await rm(root, { recursive: true, force: true })
