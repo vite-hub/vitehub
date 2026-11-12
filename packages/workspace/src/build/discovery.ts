@@ -224,8 +224,8 @@ function workspaceDefinitionExpression(definition: DiscoveredWorkspaceDefinition
   return definition.export ? `mod[${JSON.stringify(definition.export)}]` : "mod.default"
 }
 
-function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string, override?: { store: unknown }): string {
-  if (definition.source === contributedWorkspaceSource) return createContributedWorkspaceRegistryEntry(definition, importExpression, override)
+function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string, override?: { store: unknown }, eager = false): string {
+  if (definition.source === contributedWorkspaceSource) return createContributedWorkspaceRegistryEntry(definition, importExpression, override, eager)
   const renderedStore = override ? JSON.stringify(override.store) : undefined
   const defaultValue = [
     "...mod.default",
@@ -238,19 +238,19 @@ function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition,
       : []),
   ].join(", ")
   return [
-    `  [${JSON.stringify(definition.name)}]: async () => {`,
-    `    const mod = await ${importExpression}`,
+    `  [${JSON.stringify(definition.name)}]: ${eager ? "" : "async "}() => {`,
+    `    const mod = ${eager ? "" : "await "}${importExpression}`,
     definition.sourceRootDir || override ? `    return { ...mod, default: { ${defaultValue} } }` : "    return mod",
     "  },",
   ].join("\n")
 }
 
-function createContributedWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string, override?: { store: unknown }): string {
+function createContributedWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string, override?: { store: unknown }, eager = false): string {
   const exportName = definition.export ?? "default"
   const missingExport = `[vitehub] Workspace "${definition.name}" module ${JSON.stringify(definition.path)} has no export ${JSON.stringify(exportName)}. Check the Workspace contribution of ${JSON.stringify(definition.contributor ?? "its plugin")}.`
   return [
-    `  [${JSON.stringify(definition.name)}]: async () => {`,
-    `    const mod = await ${importExpression}`,
+    `  [${JSON.stringify(definition.name)}]: ${eager ? "" : "async "}() => {`,
+    `    const mod = ${eager ? "" : "await "}${importExpression}`,
     `    const definition = ${workspaceDefinitionExpression(definition)}`,
     // Internal invariant: this line runs in the generated registry module, which does not import the Workspace catalog.
     `    if (!definition) throw new TypeError(${JSON.stringify(missingExport)})`,
@@ -259,15 +259,16 @@ function createContributedWorkspaceRegistryEntry(definition: DiscoveredWorkspace
   ].join("\n")
 }
 
-export function createWorkspaceRegistryContents(registryFile: string, definitions: DiscoveredWorkspaceDefinition[], overrides?: Map<string, { store: unknown }>): string {
-  const importExpression = (definition: DiscoveredWorkspaceDefinition) => {
-    if (isWorkspaceDefinitionPackageSpecifier(definition)) return `import(${JSON.stringify(definition.path)})`
+export function createWorkspaceRegistryContents(registryFile: string, definitions: DiscoveredWorkspaceDefinition[], overrides?: Map<string, { store: unknown }>, eager = false): string {
+  const importSpecifier = (definition: DiscoveredWorkspaceDefinition) => {
+    if (isWorkspaceDefinitionPackageSpecifier(definition)) return JSON.stringify(definition.path)
     const importPath = relative(resolve(registryFile, ".."), definition.handler)
-    return `import(${JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)})`
+    return JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)
   }
   return [
+    ...(eager ? definitions.map((definition, index) => `import * as definition${index} from ${importSpecifier(definition)}`) : []),
     "const registry = {",
-    ...definitions.map(definition => createWorkspaceRegistryEntry(definition, importExpression(definition), overrides?.get(definition.name))),
+    ...definitions.map((definition, index) => createWorkspaceRegistryEntry(definition, eager ? `definition${index}` : `import(${importSpecifier(definition)})`, overrides?.get(definition.name), eager)),
     "}",
     "export default registry",
     "",

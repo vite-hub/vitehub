@@ -105,7 +105,7 @@ it("prints the durability table and serves with one instance", async () => {
   expect(result.output).toMatch(/ {2}kv {2}fs-lite {2}host {2}Files in \.vitehub\/data\/kv on this host\./);
 }, 30_000);
 
-it("enforces evaluated Database and Workspace Definition overrides in a built server", async () => {
+it("loads Definitions with deferred Nitro hooks before serving and enforces their stores", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-durability-definitions-"));
   try {
     await mkdir(join(projectRoot, "server/api"), { recursive: true });
@@ -113,9 +113,27 @@ it("enforces evaluated Database and Workspace Definition overrides in a built se
     await mkdir(join(projectRoot, "server/workspaces/docs"), { recursive: true });
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(projectRoot, "node_modules"), "dir");
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({ private: true, type: "module" }));
-    await writeFile(join(projectRoot, "server/api/ping.get.ts"), `import { getDurabilityReport } from "vite-hub/runtime/durability"\nexport default () => getDurabilityReport()\n`);
+    await writeFile(join(projectRoot, "server/api/ping.get.ts"), [
+      'import { getDurabilityReport } from "vite-hub/runtime/durability"',
+      'import { useWorkspaceFiles } from "@vite-hub/workspace/files"',
+      'export default async () => {',
+      '  const workspace = useWorkspaceFiles("docs", { mode: "write" })',
+      '  await workspace.fs.writeFile("probe.txt", "ready")',
+      '  return { ...getDurabilityReport(), content: await workspace.fs.readFile("probe.txt", "utf8") }',
+      '}',
+    ].join("\n"));
     await writeFile(join(projectRoot, "server/databases/default.ts"), `import { defineDatabase } from "@vite-hub/database"\nconst options = { connection: { url: "file:instance.db" }, schema: {} }\nexport default defineDatabase(options)\n`);
-    await writeFile(join(projectRoot, "server/workspaces/docs/config.ts"), `import { defineWorkspace } from "@vite-hub/workspace"\nconst options = { store: { provider: "memory" } }\nexport default defineWorkspace(options)\n`);
+    await writeFile(join(projectRoot, "server/workspaces/docs/config.ts"), [
+      'import { defineWorkspace } from "@vite-hub/workspace"',
+      'import { useNitroApp } from "nitro/app"',
+      'const options = {',
+      '  store: { provider: "memory" },',
+      '  hooks: { "write:error": ({ error }) => {',
+      '    if (error instanceof Error) useNitroApp().captureError?.(error, { tags: ["workspace"] })',
+      '  } },',
+      '}',
+      'export default defineWorkspace(options)',
+    ].join("\n"));
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
     const builder = await createBuilder({
       logLevel: "silent",
@@ -123,15 +141,15 @@ it("enforces evaluated Database and Workspace Definition overrides in a built se
         preset: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
         kv: false,
-        workspace: { store: { provider: "github", repository: "acme/workspaces" } },
+        workspace: { assets: false, store: { provider: "github", repository: "acme/workspaces" } },
       })],
       root: projectRoot,
     });
     await builder.buildApp();
     const single = await startBuiltServer("1", {}, projectRoot);
-    expect(single.response?.status).toBe(200);
+    expect(single.response?.status, single.output).toBe(200);
     const report = await single.response?.json();
-    expect(report).toMatchObject({ primitives: expect.arrayContaining([
+    expect(report).toMatchObject({ content: "ready", primitives: expect.arrayContaining([
       expect.objectContaining({ primitive: "database", store: "sqlite", scope: "host" }),
       expect.objectContaining({ primitive: "workspace", name: "docs", store: "memory", scope: "process" }),
     ]) });

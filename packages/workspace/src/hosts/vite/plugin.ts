@@ -54,6 +54,7 @@ const WORKSPACE_ID_PATTERN = /^#vitehub(?:-workspace-(?:assets-)?registry$|\/wor
 const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/workspaces(?:$|\/))|^file:|[/\\]node_modules[/\\]@vite-hub[/\\](?:agent|connections|runtime|workspace)[/\\]dist[/\\].+\.js$)/
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
+const generatedNitroWorkspaceDurabilityRegistry = ".vitehub/nitro/workspace/durability-registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
 const noExternalAddition = createNoExternalAddition(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
@@ -798,6 +799,9 @@ async function writeNitroWorkspacePlugin(
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
   const runtimeConfig = runtimeWorkspaceConfig(config, options, cloudflareRuntime)
   await writeFileIfChanged(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides))
+  // Durability reads Definitions synchronously at boot. Awaited imports here can cycle back through `nitro/app`.
+  const durabilityRegistryFile = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+  await writeFileIfChanged(durabilityRegistryFile, createWorkspaceRegistryContents(durabilityRegistryFile, definitions, definitionOverrides, true))
   await writeFileIfChanged(
     pluginFile,
     renderNitroWorkspacePlugin(
@@ -1103,16 +1107,18 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
         if (!resolvedOptions) return []
         const root = projectRoot ?? process.cwd()
         const module = resolve(root, ".vitehub/nitro/workspace/durability.mjs")
-        const registry = resolve(root, generatedNitroWorkspaceRegistry)
+        const registry = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
         const definitions = discoverDefinitions({ projectRoot: root, viteRoot: viteRoot ?? root }, serverDirs, contributions)
         const config = shouldConfigureRuntime(publicOptions, resolvedOptions) ? resolvedOptions : false
         writeFileIfChangedSync(module, [
           `import { workspaceDefinitionsDurability } from ${JSON.stringify(ownModule(import.meta.url, "durability"))}`,
           ...(definitions.length ? [
             `import registry from ${JSON.stringify(registry)}`,
-            "const definitions = Object.fromEntries(await Promise.all(Object.entries(registry).map(async ([name, load]) => [name, (await load()).default])))",
-          ] : ["const definitions = {}"]),
+          ] : []),
           "export function workspaceDurability(_input, context) {",
+          definitions.length
+            ? "  const definitions = Object.fromEntries(Object.entries(registry).map(([name, load]) => [name, load().default]))"
+            : "  const definitions = {}",
           `  return workspaceDefinitionsDurability(definitions, ${renderRuntimeValue(config)}, context)`,
           "}",
           "",
