@@ -115,6 +115,13 @@ export interface BabysitterOptions {
   /** Rerun failed GitHub Actions runs once before a model pass repairs them. Defaults to `true`. */
   ciRecovery: boolean;
   /**
+   * Repair a PR whose base is another open PR's branch in parallel with its parent: checks, conflicts
+   * and feedback. It never merges into the parent's branch and waits for the parent once its reviewed
+   * head has nothing left to repair. Requires `merge: "direct"`. Defaults to `false`, which leaves a
+   * stack child unclaimed until its parent merges.
+   */
+  repairStackChildren: boolean;
+  /**
    * Model passes that run at the same time. Set it to what the provider accounts can serve; host
    * work such as merges and stack retargets still uses `concurrency`. Defaults to `concurrency`.
    */
@@ -323,10 +330,11 @@ export const babysitter: BabysitterAgent = defineAgent({
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
     ciRecovery: true,
+    repairStackChildren: false,
     modelConcurrency: undefined as number | undefined,
     providerCooldownMs: 5 * 60_000,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -357,6 +365,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
     }
+    if (!hasRuntimeType(repairStackChildren, "boolean")) {
+      throw new TypeError("[vitehub] Babysitter repairStackChildren must be a boolean.");
+    }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
     }
@@ -371,7 +382,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
-    resolveBabysitterMerge(merge);
+    if (resolveBabysitterMerge(merge).mode !== "direct" && repairStackChildren) {
+      throw new TypeError('[vitehub] Babysitter repairStackChildren requires merge: "direct".');
+    }
     const definition = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
       // Signed GitHub deliveries feed the PR inbox. They never start the Agent directly.

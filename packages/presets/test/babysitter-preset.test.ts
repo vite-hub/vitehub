@@ -1525,6 +1525,9 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { required: "yes" as unknown as boolean } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: "direct" } })).not.toThrow();
     for (const modelConcurrency of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);
     }
@@ -1676,6 +1679,78 @@ describe("Babysitter preset runtime", () => {
       expect(f.passes).toHaveLength(0);
       expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ files: ["source.ts"] }));
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("merges the base into a stacked head through the merges API when GitHub refuses update-branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("repos/acme/app/pulls/12/update-branch")) throw new Error("HTTP 403: Cannot update a stacked PR branch");
+      if (args.includes("repos/acme/app/git/ref/heads/fix")) return { stdout: JSON.stringify({ ref: "refs/heads/fix", object: { type: "commit", sha: f.pr().head.sha } }), stderr: "" };
+      return await command(args, request);
+    });
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.includes("repos/acme/app/merges"));
+      expect(merge?.[0]).toEqual(["api", "-X", "POST", "repos/acme/app/merges", "base=fix", "head=main", "commit_message=Merge main into fix"]);
+      expect(f.passes).toHaveLength(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ files: ["source.ts"] }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not merge the base into a head that moved after GitHub refused update-branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("repos/acme/app/pulls/12/update-branch")) throw new Error("HTTP 403: Cannot update a stacked PR branch");
+      if (args.includes("repos/acme/app/git/ref/heads/fix")) return { stdout: JSON.stringify({ ref: "refs/heads/fix", object: { type: "commit", sha: "e".repeat(40) } }), stderr: "" };
+      return await command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/merges"))).toBe(false);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.update_failed", expect.objectContaining({ reason: "merges API fallback: head changed" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("updates a green branch that is only behind a base requiring up-to-date branches", async () => {
+    const f = await fixture(false, false, { merge: "direct", mergeableState: "behind" });
+    try {
+      await f.reconcile();
+      const update = f.command.mock.calls.find(([args]) => args.includes("repos/acme/app/pulls/12/update-branch"));
+      expect(update?.[0]).toEqual(["api", "-X", "PUT", "repos/acme/app/pulls/12/update-branch", `expected_head_sha=${"a".repeat(40)}`]);
+      expect(f.passes).toHaveLength(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ reason: "behind" }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a stack child while its parent is open only with repairStackChildren", async () => {
+    const parents = [{ number: 7, state: "open", head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" } }];
+    const parked = await fixture(false, false, { merge: "direct", base: "feat/parent", parents });
+    try {
+      await parked.reconcile();
+      expect(parked.passes).toHaveLength(0);
+      expect((await parked.runtime.inbox.get("acme/app", 12))?.wait?.reason).toBe("stack-parent");
+    } finally { await parked.runtime.inbox.close(); }
+    const f = await fixture(false, false, { merge: "direct", base: "feat/parent", parents, options: { repairStackChildren: true },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      // Once the reviewed head has nothing left to repair, the child waits for its parent.
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      const child = await f.runtime.inbox.get("acme/app", 12);
+      expect(child?.wait).toMatchObject({ reason: "stack-parent", wake: { kind: "pull-request", repository: "acme/app", number: 7 } });
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
     } finally { await f.runtime.inbox.close(); }
   });
 

@@ -44,7 +44,7 @@ import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPas
 import { dailyPassResumeAt, nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -152,6 +152,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
+  const repairStackChildren = merge.mode === "direct" && presetOptions.repairStackChildren === true;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: options.repositories,
@@ -160,6 +161,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
+    claimStackChildren: repairStackChildren,
     // One invalid row must not stop the claim loop or the health endpoint.
     invalidRow: ({ repository, number, error }) => options.error?.("babysitter.inbox.invalid_row", error, { repository, pullRequest: number }),
   });
@@ -285,8 +287,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     page: readOnePage,
   };
 
-  /** Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses. */
-  async function updateBranch(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal): Promise<boolean> {
+  /**
+   * Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses.
+   * `pr` is the live or snapshot PR; its branches allow the merges API fallback.
+   */
+  async function updateBranch(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal, pr: unknown): Promise<boolean> {
     try {
       // forges has no branch update, so this uses the provider request escape hatch.
       const { provider } = await forge(repository, signal);
@@ -294,8 +299,29 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return true;
     } catch (error) {
       await noteForgeQuota(error, "update-branch");
-      schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
-      return false;
+      const branches = sameRepositoryBranches(pr, repository);
+      // GitHub refuses update-branch for a PR it treats as part of a stack, and for some App
+      // installations. Merging the base into a same-repository head branch does the same update.
+      if (!branches || error instanceof RateLimitedError || forgeErrorStatus(error) !== 403 && !/stacked/i.test(error instanceof Error ? error.message : String(error))) {
+        schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+        return false;
+      }
+      try {
+        const { provider } = await forge(repository, signal);
+        const ref = (await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${encodeURIComponent(branches.head)}`, { signal })).data;
+        if (!isRuntimeRecord(ref) || !isRuntimeRecord(ref.object) || ref.object.sha !== head) {
+          schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: "merges API fallback: head changed" });
+          return false;
+        }
+        await provider.request("POST", `/repos/${repository}/merges`, {
+          body: { base: branches.head, head: branches.base, commit_message: `Merge ${branches.base} into ${branches.head}` }, signal,
+        });
+        return true;
+      } catch (fallback) {
+        await noteForgeQuota(fallback, "merge-base-into-head");
+        schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: `merges API fallback: ${(fallback instanceof Error ? fallback.message : String(fallback)).slice(0, 180)}` });
+        return false;
+      }
     }
   }
 
@@ -313,7 +339,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if ((await pullRequestInbox.metaNumber(key) ?? 0) > Date.now() - 6 * 60 * 60_000) return false;
     const ahead = await baseFixedSinceFailure(freshnessReader, snapshot, failedConclusions, signal);
     if (!ahead) return false;
-    if (!await updateBranch(owner, repository, number, head, signal)) return false;
+    if (!await updateBranch(owner, repository, number, head, signal, pr)) return false;
     await pullRequestInbox.setMeta(key, Date.now());
     schedulerEvent("babysitter.branch.retest", { ...owner, base_ahead: ahead });
     return true;
@@ -500,6 +526,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       });
       if (!current.ready) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: current.reason });
+        // A base that requires up-to-date branches never merges a PR that is only behind it.
+        if (!pending && current.reason === "mergeable_state behind") {
+          if (!await updateBranch(owner, repository, number, decision.head, signal, live)) return "not-ready";
+          schedulerEvent("babysitter.branch.updated", { ...owner, reason: "behind" });
+          return await parkMerge(`Updated the branch with ${base} because ${base} requires up-to-date branches; waiting for checks on the new head.`);
+        }
         return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
       }
       if (!pending && isRuntimeRecord(live) && isRuntimeRecord(live.head) && hasRuntimeType(live.head.sha, "string") && isRuntimeRecord(live.base) && hasRuntimeType(live.base.ref, "string")) {
@@ -509,7 +541,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         if (overlap.length) {
           const files = overlap.slice(0, 3).join(", ") + (overlap.length > 3 ? ` and ${overlap.length - 3} more` : "");
           schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `${base} changed files this PR touches after its checks ran: ${files}` });
-          if (!await updateBranch(owner, repository, number, decision.head, signal)) return "not-ready";
+          if (!await updateBranch(owner, repository, number, decision.head, signal, live)) return "not-ready";
           schedulerEvent("babysitter.branch.updated", { ...owner, files: overlap.slice(0, 10) });
           return await parkMerge(`Updated the branch with ${base} because ${base} changed ${files} after its checks ran; waiting for checks on the new head.`);
         }
@@ -1158,21 +1190,25 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             return;
           }
           const retargeted = await retargetMergedStackBase(inboxClaim, passSignal);
-          if (retargeted && "parent" in retargeted) {
-            await pullRequestInbox.finish(inboxClaim, { text: `Waiting for open parent PR #${retargeted.parent} before repairing its child.`,
-              wait: await externalWait(inboxClaim.snapshot, { kind: "pull-request", repository, number: retargeted.parent }, "stack-parent") });
-            schedulerEvent("babysitter.stack.waiting", { ...owner, parent: retargeted.parent });
+          const stackParent = retargeted && "parent" in retargeted ? retargeted.parent : undefined;
+          const parkOnStackParent = async (parent: number, text: string) => {
+            await pullRequestInbox.finish(inboxClaim, { text,
+              wait: await externalWait(inboxClaim.snapshot, { kind: "pull-request", repository, number: parent }, "stack-parent") });
+            schedulerEvent("babysitter.stack.waiting", { ...owner, parent });
+          };
+          if (stackParent !== undefined && !repairStackChildren) {
+            await parkOnStackParent(stackParent, `Waiting for open parent PR #${stackParent} before repairing its child.`);
             return;
           }
-          if (retargeted) {
+          if (retargeted && "from" in retargeted) {
             // GitHub sends an edited event for the new base; that event wakes the next pass.
             await pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${retargeted.from} to ${retargeted.to} after the parent pull request merged.` });
             schedulerEvent("babysitter.stack.retargeted", { ...owner, ...retargeted });
             return;
           }
           if (merge.mode === "direct") {
-            const mergeResult = await mergeReadyPullRequest(inboxClaim, owner, passSignal);
-            if (mergeResult !== "not-ready") return;
+            // A stack child never merges into its parent's branch.
+            if (stackParent === undefined && await mergeReadyPullRequest(inboxClaim, owner, passSignal) !== "not-ready") return;
             // A previous pass explicitly reviewed this unchanged head. If the
             // merge gates are still closed, keep waiting instead of invoking
             // the model again. New feedback, conflicts, or a new failure alter
@@ -1185,6 +1221,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               && inboxClaim.snapshot.threads.every(thread => thread.isResolved === true)
               && inboxClaim.snapshot.pr?.mergeable !== false
               && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
+              if (stackParent !== undefined) {
+                await parkOnStackParent(stackParent, `Waiting for open parent PR #${stackParent} to merge; this child has nothing left to repair.`);
+                return;
+              }
               await pullRequestInbox.finish(inboxClaim, {
                 text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
                 wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
