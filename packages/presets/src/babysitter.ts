@@ -11,12 +11,12 @@ import type { AgentSandboxDefinition, BuiltInAgentDriverName } from "@vite-hub/a
 import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
-import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { githubAuthorAssociations } from "./babysitter/pull-request-filter.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
@@ -130,6 +130,13 @@ export interface BabysitterOptions {
   /** Rerun failed GitHub Actions runs once before a model pass repairs them. Defaults to `true`. */
   ciRecovery: boolean;
   /**
+   * Repair a PR whose base is another open PR's branch in parallel with its parent: checks, conflicts
+   * and feedback. It never merges into the parent's branch and waits for the parent once its reviewed
+   * head has nothing left to repair. Requires `merge: "direct"`. Defaults to `false`, which leaves a
+   * stack child unclaimed until its parent merges.
+   */
+  repairStackChildren: boolean;
+  /**
    * Model passes that run at the same time. Set it to what the provider accounts can serve; host
    * work such as merges and stack retargets still uses `concurrency`. Defaults to `concurrency`.
    */
@@ -180,6 +187,12 @@ export type BabysitterInstall = boolean | {
    * its inputs change. Defaults to `false`.
    */
   required?: boolean;
+  /**
+   * `refreshDependencies` calls per pass. Further calls return a tool error that tells the model to
+   * commit its dependency fixes and let hosted CI validate them. Retryable install failures do not
+   * count. Defaults to no limit.
+   */
+  refreshes?: number;
 };
 
 export type BabysitterPassWake =
@@ -206,7 +219,8 @@ export const babysitterPassResultSchema: ReturnType<typeof createBabysitterPassR
 function validInstall(install: unknown): boolean {
   if (hasRuntimeType(install, "boolean")) return true;
   if (!isRuntimeRecord(install)) return false;
-  const { command, args, cache, concurrency, required } = install;
+  const { command, args, cache, concurrency, required, refreshes } = install;
+  if (refreshes !== undefined && !(Number.isSafeInteger(refreshes) && Number(refreshes) >= 1)) return false;
   if (command !== undefined && !(hasRuntimeType(command, "string") && command.trim())) return false;
   if (concurrency !== undefined && !(Number.isSafeInteger(concurrency) && Number(concurrency) >= 1)) return false;
   if (required !== undefined && !hasRuntimeType(required, "boolean")) return false;
@@ -344,10 +358,11 @@ export const babysitter: BabysitterAgent = defineAgent({
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
     ciRecovery: true,
+    repairStackChildren: false,
     modelConcurrency: undefined as number | undefined,
     providerCooldownMs: 5 * 60_000,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -373,10 +388,13 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
     }
     if (!validInstall(install)) {
-      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required }.");
+      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required, refreshes }.");
     }
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+    }
+    if (!hasRuntimeType(repairStackChildren, "boolean")) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "repairStackChildren", expected: "a boolean" });
     }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
@@ -398,7 +416,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
-    resolveBabysitterMerge(merge);
+    if (resolveBabysitterMerge(merge).mode !== "direct" && repairStackChildren) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STACK_REPAIR_NEEDS_DIRECT_MERGE();
+    }
     const definition = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
       // Signed GitHub deliveries feed the PR inbox. They never start the Agent directly.
