@@ -6,7 +6,7 @@ import { createWorkflowDevPluginModule } from "../src/internal/dev-registry.ts"
 import { createWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
-import type { ResolvedWorkflowOptions } from "../src/types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowHandle } from "../src/types.ts"
 
 interface FakeWorker {
   definitions: string[]
@@ -97,10 +97,11 @@ afterEach(async () => {
 
 describe("installOpenWorkflow", () => {
   it.each(["default", "named"])("keeps a discovered %s handle available for dispatch after startup and reinstall", async (exportName) => {
-    let loaded: object | undefined
+    let loaded: Partial<Record<"default" | "named", WorkflowHandle<unknown, string>>> | undefined
     const loader = vi.fn(async () => loaded ??= { [exportName]: createWorkflow("welcome", async () => "ok") })
     setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({ welcome: loader })
+    // SAFETY: Discovered modules can export handles, which the runtime resolves to their registered definitions.
+    setWorkflowRuntimeRegistry({ welcome: loader as unknown as WorkflowDefinitionRegistry[string] })
     const app = createApp()
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -122,7 +123,8 @@ describe("installOpenWorkflow", () => {
       return { default: createWorkflow("welcome", async () => "ok") }
     })
     setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({ welcome: loader })
+    // SAFETY: Exercise a discovered handle export at the runtime module boundary.
+    setWorkflowRuntimeRegistry({ welcome: loader as unknown as WorkflowDefinitionRegistry[string] })
     const definition = loadWorkflowDefinition("welcome")
     const app = createApp()
     const started = installOpenWorkflow(app)
