@@ -126,6 +126,7 @@ Available namespaces:
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
 | `vitehub database generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
+| `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
@@ -810,7 +811,10 @@ pnpm vitehub database generate --name add-audit-log
 pnpm vitehub database generate --custom --name backfill-state
 pnpm vitehub database generate --custom --schema-snapshot --name move-tables
 pnpm vitehub database migrate
+pnpm vitehub database up
 ```
+
+`database up` converts each migrations folder of Drizzle Kit 0.x, with `meta/_journal.json`, to one folder per migration, as Drizzle Kit 1.0 writes them. `database generate` and `database migrate` refuse a 0.x folder with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
 
 `database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. `database migrate` accepts forwarded Drizzle Kit migration arguments.
 

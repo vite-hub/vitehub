@@ -2,7 +2,7 @@
 title: Docs site server API
 description: The imports of @vite-hub/docs, every module option and frontmatter field, the routes and files that the module adds, and how to inspect them.
 navigation.title: Server API
-navigation.order: 5
+navigation.order: 6
 icon: i-lucide-code-2
 ---
 
@@ -25,7 +25,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `dir` | `string` | `'content'` | Folder of Markdown pages, relative to the app root. |
-| `base` | `string` | `'/docs'` | URL prefix whose folders are sections. |
+| `base` | `string` | `'/docs'`, or `'/'` without a `docs/` folder in `dir` | URL prefix whose folders are sections. |
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`, for canonical links, raw Markdown links, llms.txt, and the sitemap. |
 | `site.description` | `string` | `''` | llms.txt description. |

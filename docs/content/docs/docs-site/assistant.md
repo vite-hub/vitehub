@@ -2,7 +2,7 @@
 title: Add the docs assistant
 description: Answer reader questions from your pages with a ViteHub Agent on your ChatGPT plan. Run it on Node.js or Cloudflare Workers and set its model and limits.
 navigation.title: Docs assistant
-navigation.order: 4
+navigation.order: 5
 icon: i-lucide-message-square-text
 ---
 
