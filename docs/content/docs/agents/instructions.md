@@ -133,7 +133,7 @@ To add to the parent document, or to change part of it, set
 `instructions: { extend }`. The function gets the parent's instructions as one
 string and returns the child's complete document:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 import development from './development.md?raw'
