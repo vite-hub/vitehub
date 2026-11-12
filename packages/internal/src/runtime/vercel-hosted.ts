@@ -15,13 +15,14 @@ export interface VercelHostedServerAdapter {
 export function createVercelHostedServer(
   adapter: VercelHostedServerAdapter,
 ): (req: unknown, res: unknown) => unknown {
-  const app = new H3()
   const appHandler = resolveAppFetch(adapter.label, adapter.app)
 
   let nodeHandlerPromise: Promise<(req: unknown, res: unknown) => unknown> | undefined
   return function hostedVercelServer(req, res) {
     const handle = async () => {
       nodeHandlerPromise ||= (async () => {
+        // Each attempt builds its own app, so a retry does not register the app handler twice.
+        const app = new H3()
         if (appHandler) {
           const h3ModulePath = "h3"
           const { fromWebHandler } = await import(h3ModulePath)
@@ -31,7 +32,11 @@ export function createVercelHostedServer(
         const nodeModulePath = "h3/node"
         const { toNodeHandler } = await import(nodeModulePath)
         return toNodeHandler(app)
-      })()
+      })().catch((error: unknown) => {
+        // A failed load lets the next request try again.
+        nodeHandlerPromise = undefined
+        throw error
+      })
       const nodeHandler = await nodeHandlerPromise
       return nodeHandler(req as never, res as never)
     }

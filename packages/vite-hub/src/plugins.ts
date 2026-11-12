@@ -35,6 +35,7 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
@@ -1298,7 +1299,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin())
+  if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
@@ -1607,7 +1608,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
-    disabledTypeFiles: workflowEnabled ? [] : ["workflow.d.ts"],
+    disabledTypeFiles: [...workflowEnabled ? [] : ["workflow.d.ts"], ...blobEnabled ? [] : ["types/blob.d.ts"]],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. These plugins run its config hooks after ViteHub's, whether `vitehub()` includes Nitro

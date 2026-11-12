@@ -374,6 +374,21 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(binding.create).not.toHaveBeenCalled()
   })
 
+  it("loads the repository again on the next call after a transient lookup failure", async () => {
+    const error = artifactsError("INTERNAL_ERROR", 10400, "Artifacts unavailable")
+    const binding = {
+      create: vi.fn(),
+      get: vi.fn()
+        .mockRejectedValueOnce(error)
+        .mockImplementation(async () => artifactsRepo()),
+    }
+    const store = await createStore(binding)
+
+    await expect(store.readFile("README.md")).rejects.toBe(error)
+    await expect(store.readFile("README.md")).resolves.toBeUndefined()
+    expect(binding.get).toHaveBeenCalledTimes(2)
+  })
+
   it("disposes the repository handle when reading its info fails", async () => {
     const infoError = new Error("repository info unavailable")
     const repo = artifactsRepo({ infoError })
