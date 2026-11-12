@@ -31,6 +31,18 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Babysitter merge.bypassInheritedChecks must map repositories to check names.",
       fix: "Set merge.bypassInheritedChecks to an object whose keys are owner/name repositories and whose values are arrays of non-empty required check names, such as { 'acme/app': ['ci'] }.",
     },
+    PRESETS_DEPENDENCY_PATCH_MISSING: {
+      why: ({ path }: { path: string }) => `Dependency patch ${path} does not exist in this checkout.`,
+      fix: "Restore the patch file, or remove its entry from patchedDependencies.",
+    },
+    PRESETS_DEPENDENCY_REFRESH_LIMIT: {
+      why: ({ limit }: { limit: number }) => `refreshDependencies already ran ${limit} time${limit === 1 ? "" : "s"} in this pass, the limit.`,
+      fix: "Do not call refreshDependencies again. Read .git/vitehub-install.json for the last install result, then commit your dependency fixes and let hosted CI validate them, or report the install failure as the blocker.",
+    },
+    PRESETS_BABYSITTER_STACK_REPAIR_NEEDS_DIRECT_MERGE: {
+      why: 'Babysitter repairStackChildren requires merge: "direct": only a direct merge stops a stack child from merging into its parent\'s branch.',
+      fix: 'Set merge to "direct" or { strategy: "direct" }, or set repairStackChildren to false.',
+    },
     PRESETS_REVIEW_COMMENT_MISSING: {
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",
