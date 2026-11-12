@@ -1684,6 +1684,10 @@ describe("Babysitter preset runtime", () => {
 
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
+    for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
+      expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: authorAssociation as never } } })).toThrow(/filter\.authorAssociation must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: { allow: ["OWNER", "MEMBER"], deny: ["NONE"] } } } })).not.toThrow();
     for (const noProgressBudget of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }

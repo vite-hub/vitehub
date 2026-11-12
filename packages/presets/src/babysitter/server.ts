@@ -23,6 +23,7 @@ import {
 } from "../github/index.ts";
 import type { GitHubHost } from "../github/index.ts";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
+import { matchesBabysitterPullRequestFilter } from "./pull-request-filter.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
 import { hydrateSnapshot, reconcileOneSnapshot, readForgePullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
@@ -1836,7 +1837,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // exposing their forge access to provider credential resolution.
               const workerChannel = withoutForgeAccess(github.channel({
                 activity: activityEnabled,
-                pullRequest: { filter, workspace: false },
+                // The Channel filter would require both author rules and compare logins exactly.
+                pullRequest: { filter: { ...filter, author: undefined, authorAssociation: undefined, actor: undefined }, when: context => matchesBabysitterPullRequestFilter(context, filter), workspace: false },
               }));
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
