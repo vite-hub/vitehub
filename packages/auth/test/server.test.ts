@@ -349,7 +349,8 @@ describe("server auth helpers", () => {
     }))
 
     expect(response?.status).toBe(401)
-    expect(await response?.json()).toEqual({ error: "Unauthorized." })
+    expect(response?.statusText).toBe("Unauthorized")
+    expect(await response?.json()).toEqual({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "SIGNED_OUT" } })
   })
 
   it("accepts request events with Standard Context for guarded requests", async () => {
@@ -361,7 +362,7 @@ describe("server auth helpers", () => {
     const response = await withAuth(() => undefined, definition)(requestEvent(new Request("https://app.example.com/api/data", { method: "POST" })))
 
     expect(response?.status).toBe(401)
-    expect(await response?.json()).toEqual({ error: "Unauthorized." })
+    expect(await response?.json()).toEqual({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "SIGNED_OUT" } })
   })
 
   it("does not run route authorization without an Auth Session", async () => {

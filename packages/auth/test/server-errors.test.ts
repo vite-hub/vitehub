@@ -464,7 +464,7 @@ describe("server authentication provider boundaries", () => {
     allowed = false
     const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition)
     expect(forbidden?.status).toBe(403)
-    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    expect(await forbidden?.json()).toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
     expect(authorize).toHaveBeenCalledTimes(2)
   })
 
@@ -481,7 +481,7 @@ describe("server authentication provider boundaries", () => {
     const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition, [0])
 
     expect(forbidden?.status).toBe(403)
-    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    expect(await forbidden?.json()).toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
   })
 
   it("passes through custom route authorization responses", async () => {
@@ -516,7 +516,7 @@ describe("server authentication provider boundaries", () => {
       if (!(response instanceof Response)) return
       expect(response.status).toBe(401)
       expect(response.headers.get("location")).toBeNull()
-      expect(await response.json()).toEqual({ error: "Unauthorized." })
+      expect(await response.json()).toEqual({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "SIGNED_OUT" } })
       expect(authorize).not.toHaveBeenCalled()
       expect(protectedAction).not.toHaveBeenCalled()
     })
@@ -548,7 +548,7 @@ describe("server authentication provider boundaries", () => {
       expect(forbidden).toBeInstanceOf(Response)
       if (!(forbidden instanceof Response)) return
       expect(forbidden.status).toBe(403)
-      expect(await forbidden.json()).toEqual({ error: "Forbidden." })
+      expect(await forbidden.json()).toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
       expect(protectedAction).toHaveBeenCalledOnce()
     })
 
@@ -627,7 +627,7 @@ describe("server authentication provider boundaries", () => {
       expect(signedOut).toMatchObject({ status: 401 })
       if (!(signedOut instanceof Response)) return
       expect(signedOut.headers.get("location")).toBeNull()
-      expect(await signedOut.json()).toEqual({ error: "Unauthorized." })
+      expect(await signedOut.json()).toEqual({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "SIGNED_OUT" } })
 
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
       await expect(guarded(requestEvent(new Request(sharedRequest.url)))).resolves.toMatchObject({ status: 403 })

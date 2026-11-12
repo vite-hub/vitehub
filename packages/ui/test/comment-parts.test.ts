@@ -995,6 +995,27 @@ describe("agent messages and replies since resolved", () => {
 });
 
 describe("composer layout", () => {
+  afterEach(() => {
+    document.documentElement.style.fontSize = "";
+  });
+
+  async function draftLayer(width = 288) {
+    // happy-dom has no layout. Supply the measured width, independently of CSS and the root font size.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "comment-layer-popover" ? width : 0;
+    });
+    const comments = client();
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    return { state, wrapper };
+  }
+
   it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
     const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
     expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
@@ -1010,6 +1031,49 @@ describe("composer layout", () => {
         .get("[data-slot=comment-composer]").attributes("data-layout");
     expect(box()).toBe("box");
     expect(box("row")).toBe("row");
+  });
+
+  it("opens a new comment on the layer as a one-line bubble", async () => {
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+  });
+
+  it.each([
+    { viewport: 375, rem: 16, x: 50, left: 58, flipped: false },
+    { viewport: 375, rem: 16, x: 100, left: 79, flipped: false },
+    { viewport: 375, rem: 16, x: 250, left: 8, flipped: true },
+    { viewport: 375, rem: 16, x: 350, left: 54, flipped: true },
+    { viewport: 1024, rem: 16, x: 700, left: 708, flipped: false },
+    { viewport: 1024, rem: 16, x: 900, left: 604, flipped: true },
+    { viewport: 240, rem: 16, x: 100, left: 8, flipped: false },
+    { viewport: 400, rem: 20, x: 50, left: 30, flipped: false },
+    { viewport: 375, rem: 16, width: 300, x: 100, left: 67, flipped: false },
+    { viewport: 375, rem: 10, width: 300, x: 180, left: 70, flipped: false },
+  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, width = Math.min(18 * rem, viewport - rem), x, left, flipped }) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    document.documentElement.style.fontSize = `${rem}px`;
+    const { state, wrapper } = await draftLayer(width);
+    const target = document.createElement("div");
+    document.body.append(target);
+    state.startDraft(target, { point: { x, y: 100 } });
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
+    expect(Number.parseFloat(item.element.style.left)).toBe(x);
+    expect(x + Number.parseFloat(popover.element.style.left)).toBe(left);
+  });
+
+  it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.left) + 144).toBe(viewport / 2);
   });
 
   it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
