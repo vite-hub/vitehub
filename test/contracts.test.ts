@@ -419,6 +419,32 @@ describe("playground import contracts", () => {
       expect(kvShim).toContain(String.raw`kvResult(\"${operation}\", \"default\"`)
     }
   })
+
+  // `vite-hub/content` re-exports `@vite-hub/content`, an optional peer. A playground that does not declare it fails
+  // in `vp dev` with "Cannot find module '@vite-hub/content'".
+  it("declares the ViteHub owner packages that each workspace playground imports", () => {
+    const vitehubManifest = readPackageManifest("vite-hub")
+    const optionalOwners = new Set(Object.keys(vitehubManifest.peerDependencies ?? {}).filter(name => name.startsWith("@vite-hub/")))
+    const workspace = parse(object({ packages: array(string()) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+    const playgrounds = workspace.packages.filter(path => path.startsWith("playground/"))
+    expect(playgrounds).toContain("playground/content")
+
+    const importSpecifier = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm
+    const missing = playgrounds.flatMap((playground) => {
+      const manifest = readJson(packageManifestSchema, join(repoRoot, playground, "package.json"))
+      const declared = new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }))
+      const files = execFileSync("git", ["ls-files", "--", playground], { cwd: repoRoot, encoding: "utf8" })
+        .split("\n")
+        .filter(file => /\.(?:[cm]?[jt]sx?|vue)$/.test(file))
+      return files.flatMap(file => [...readFileSync(join(repoRoot, file), "utf8").matchAll(importSpecifier)].flatMap(([, specifier]) => {
+        const match = /^(?:(@vite-hub\/[^/]+)|vite-hub\/([^/]+))/.exec(specifier ?? "")
+        const owner = match?.[1] ?? (match?.[2] && optionalOwners.has(`@vite-hub/${match[2]}`) ? `@vite-hub/${match[2]}` : undefined)
+        return owner && !declared.has(owner) ? [`${file} imports ${specifier}, but ${playground}/package.json does not declare ${owner}`] : []
+      }))
+    })
+
+    expect([...new Set(missing)]).toEqual([])
+  })
 })
 
 describe("runtime hygiene contracts", () => {
