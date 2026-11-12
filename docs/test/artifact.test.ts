@@ -3,6 +3,8 @@ import { resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
 
+import { docsUi } from "../../packages/docs/src/theme";
+
 import type { Unstable_RawConfig } from "wrangler";
 
 const docsRoot = resolve(import.meta.dirname, "..");
@@ -79,5 +81,17 @@ describe("Cloudflare docs artifact", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/plain");
     expect(await response.text()).toBe(robots);
+  });
+
+  it("builds the CSS of every class in the docs design", () => {
+    const cssDir = resolve(docsRoot, ".output/public/_nuxt");
+    const css = readdirSync(cssDir).filter(file => file.endsWith(".css")).map(file => readFileSync(resolve(cssDir, file), "utf8")).join("\n");
+    const strings = (value: unknown): string[] => typeof value === "string"
+      ? value.split(/\s+/)
+      : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
+    // Utilities only: icon names and plain words such as `vertical` are not classes.
+    const classes = new Set(strings(docsUi("ViteHub")).filter(name => /[-:[]/.test(name) && !name.startsWith("i-")));
+    const selector = (name: string) => `.${name.replace(/[^\w-]/g, character => `\\${character}`)}`;
+    expect([...classes].filter(name => !css.includes(selector(name)))).toEqual([]);
   });
 });
