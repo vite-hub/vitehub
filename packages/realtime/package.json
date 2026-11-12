@@ -120,12 +120,14 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "miniflare": "4.20260730.0"
+    "miniflare": "4.20260730.0",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {

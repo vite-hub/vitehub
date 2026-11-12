@@ -347,6 +347,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/markdown": {
+      "types": "./dist/content/markdown.d.ts",
+      "import": "./dist/content/markdown.js",
+      "default": "./dist/content/markdown.js"
+    },
     "./content/preview": {
       "types": "./dist/content/preview.d.ts",
       "import": "./dist/content/preview.js",
@@ -681,6 +686,11 @@
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js",
       "default": "./dist/ui.js"
+    },
+    "./ui/agent-session": {
+      "types": "./dist/ui/agent-session.d.ts",
+      "import": "./dist/ui/agent-session.js",
+      "default": "./dist/ui/agent-session.js"
     },
     "./ui/attachment": {
       "types": "./dist/ui/attachment.d.ts",

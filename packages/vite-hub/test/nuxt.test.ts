@@ -1370,9 +1370,18 @@ describe("ViteHub Nuxt integration", () => {
       baseURL: "/_vitehub/.well-known/skills",
       dir: expect.stringMatching(/console\/runtime\/public\/skills$/),
       fallthrough: false,
+    }, {
+      // The Console link of the page tools pill, and the page tools loader for an app without Comments.
+      baseURL: "/_vitehub/console/assets",
+      dir: expect.stringMatching(/console\/runtime\/page-tool$/),
+      maxAge: 300,
+    }, {
+      baseURL: "/_vitehub/page/assets",
+      dir: expect.stringMatching(/console\/runtime\/page$/),
+      maxAge: 300,
     }])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }],
+      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/page/session" }],
       plugins: [`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`],
     })
     // The app's own route rules stay as they were. ViteHub adds no Console page rules.
@@ -1403,7 +1412,7 @@ describe("ViteHub Nuxt integration", () => {
       production.nuxt,
     )
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }],
+      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/page/session" }],
       plugins: expect.arrayContaining([`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`]),
     })
     expect(Object.keys(production.nuxt.options.routeRules ?? {})).not.toContain("/_vitehub/**")
@@ -1817,7 +1826,7 @@ describe("ViteHub Nuxt integration", () => {
       preset: "node",
     }, development.nuxt)
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }],
+      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/page/session" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -1855,7 +1864,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(paths.filter(path => path?.includes("//"))).toEqual([])
     if (mount) expect(paths.filter(path => path?.startsWith(mount))).toEqual([])
     expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
-    expect(handlers).not.toContainEqual(expect.objectContaining({ route: "/_vitehub/page/session" }))
+    expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/page/session" }))
     expect(publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills" }))
   })
 
@@ -2352,7 +2361,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, preset: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/rpc" }],
+        handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/page/session" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -2427,6 +2436,7 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
+          { route: "/_vitehub/page/session" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -2489,6 +2499,7 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
+          { route: "/_vitehub/page/session" },
         ],
       })
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -2522,6 +2533,7 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
+          { route: "/_vitehub/page/session" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -2772,7 +2784,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/portal"))).toEqual([])
     expect(config.publicAssets).not.toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/assets" }))
     const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
-    expect(plugin).not.toContain("installConsolePageTool")
+    expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/"')
   })
 
   it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {

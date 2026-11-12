@@ -14,10 +14,10 @@ Realtime is for collaborative documents, presence, and explicit Workspace checkp
 ## Install
 
 ```sh
-pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3 nitro vite vue
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5 h3 nitro vite vue
 ```
 
-ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both.
+ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both. It also declares `drizzle-orm` as a peer: Realtime depends on Auth, and Auth uses the app's copy of Drizzle.
 
 ## Connect one document
 

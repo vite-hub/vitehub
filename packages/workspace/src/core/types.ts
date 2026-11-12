@@ -231,6 +231,8 @@ export interface ExecResult {
 
 export interface WorkspaceSession {
   readonly executionAuthority: ExecutionAuthority
+  /** Retained revision used to materialize this Session, when the Store provides one. */
+  readonly revision?: string
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>

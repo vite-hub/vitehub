@@ -18,10 +18,10 @@ In this tutorial, you open the same document in two browser tabs. You type in on
 ::tutorial-step{title="Configure Realtime"}
 ## Configure Realtime
 
-Add Realtime, Workspace, and the TipTap editor for Vue to your app:
+Add Realtime, Workspace, the TipTap editor for Vue, and Drizzle to your app. Realtime checks sessions with Auth, which uses the `drizzle-orm` of your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5
 ```
 
 Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app. In Vite, also keep the Vue plugin.
