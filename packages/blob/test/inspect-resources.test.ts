@@ -69,14 +69,14 @@ describe("Blob resource inspection", () => {
   it.each([
     {},
     { BLOB_READ_WRITE_TOKEN: "env-secret", BLOB_STORE_ID: "env-store" },
-  ])("reports an explicit Vercel Blob token ahead of environment credentials: %j", (env) => {
+  ])("reports the env variable of a configured Vercel Blob token ahead of environment credentials: %j", (defaultEnv) => {
     const store = { driver: "vercel-blob", token: "configured-secret" } as const
+    const env = { ...defaultEnv, MEDIA_BLOB_TOKEN: "configured-secret" }
     for (const options of [store, { stores: { default: store, media: store } }]) {
       const resources = inspectBlobResources(options, { env })
       expect(resources).toHaveLength("stores" in options ? 2 : 1)
       for (const resource of resources) {
-        expect(resource).toMatchObject({ host: "vercel", kind: "vercel-blob-store", source: "config" })
-        expect(resource).not.toHaveProperty("env")
+        expect(resource).toMatchObject({ env: "MEDIA_BLOB_TOKEN", host: "vercel", kind: "vercel-blob-store", source: "env" })
         expect(resource).not.toHaveProperty("id")
       }
       expect(JSON.stringify(resources)).not.toContain("configured-secret")
