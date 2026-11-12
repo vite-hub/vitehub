@@ -1,19 +1,22 @@
 import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, isPackageInstalled, missingFeaturePackagesError } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
   return {
     ...original,
     assertFeaturePackages: vi.fn(original.assertFeaturePackages),
+    forgetPackageChecks: vi.fn(original.forgetPackageChecks),
     isPackageInstalled: vi.fn(original.isPackageInstalled),
+    startPackageChecks: vi.fn(original.startPackageChecks),
   }
 })
 
@@ -1354,13 +1357,35 @@ describe("vitehub", () => {
     expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 
-  it("checks the packages of each owner facade once when it builds the aliases", () => {
+  it("looks up the packages of the owner facades one time when Nuxt and Vite both run the config hook", () => {
     const plugin = dependencyPlugin()
-    vi.mocked(isPackageInstalled).mockClear()
     pluginAliases(plugin)
-    const checks = vi.mocked(isPackageInstalled).mock.calls.map(([name]) => name)
-    expect(checks.filter(name => name === "@vite-hub/ui")).toHaveLength(1)
-    expect(new Set(checks).size).toBe(checks.length)
+    const lookups: string[] = []
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        lookups.push(specifier)
+        return nextResolve(specifier, context)
+      },
+    })
+    try {
+      pluginAliases(plugin)
+    }
+    finally {
+      hooks.deregister()
+    }
+    expect(lookups).toEqual([])
+  })
+
+  it("starts new package checks each time Vite loads the app config", () => {
+    vi.mocked(startPackageChecks).mockClear()
+    vitehub({ preset: "node" })
+    expect(startPackageChecks).toHaveBeenCalledOnce()
+  })
+
+  it("forgets the package checks when Vite closes the plugins", () => {
+    vi.mocked(forgetPackageChecks).mockClear()
+    callHook(dependencyPlugin().closeBundle, [])
+    expect(forgetPackageChecks).toHaveBeenCalledOnce()
   })
 
   it("passes the unused Upstash and Redis fallbacks only to provider bundlers", () => {
