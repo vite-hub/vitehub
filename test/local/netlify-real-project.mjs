@@ -6,6 +6,8 @@ import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 
+import { parse as parseYaml } from "yaml"
+
 import { stopChild } from "./process.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "..", "..")
@@ -205,6 +207,10 @@ async function createProject({ packageSource, preview }) {
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
     : { "vite-hub": previewSpec("vite-hub", preview) }
+  // Transitive Nuxt peers need the same nightly alias as the workspace;
+  // the stable `nuxt` package does not yet publish Nuxt 5.
+  const workspace = parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8"))
+  overrides.nuxt = workspace.catalogs.nuxt.nuxt
   await writeFixtureFiles(overrides, vitePlus.version, vitePlus.dependencies.vitest)
 
   const packageSpecs = fixturePackages.map(packageName).map(name => packageSource === "local"
