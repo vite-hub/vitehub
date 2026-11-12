@@ -559,18 +559,13 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
-  if (id === "console") {
-    if (enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
-    const auth = options ? options.auth : "app"
-    if ((isPlainObject(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.includes("auth"))) selected.push(...consoleFeaturePackages.signIn)
-  }
+  if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
 
-/** Additional Console owners selected by its access policy and enabled Agent integration. */
+/** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {
   agents: ["@libsql/client", "drizzle-orm"],
-  signIn: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
 } as const
 
 /** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */

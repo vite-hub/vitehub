@@ -220,9 +220,9 @@ describe("docs product navigation", () => {
     for (const [from, to] of Object.entries(docsPageRedirects)) {
       expect(findDocsPage(docsManifest, from), from).toBeNull();
       expect(findDocsPage(docsManifest, to), to).not.toBeNull();
-      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
-      expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
-      expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
+      expect(routeRules[from]).toEqual({ redirect: { status: 301, to } });
+      expect(routeRules[`${from}/`]).toEqual({ redirect: { status: 301, to } });
+      expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { status: 301, to: `/raw${to}.md` } });
     }
   });
 });

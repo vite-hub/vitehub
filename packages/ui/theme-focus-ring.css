@@ -3,3 +3,32 @@
   outline: 2px solid var(--vh-focus, var(--vh-primary));
   outline-offset: 2px;
 }
+
+/* Row comment fields share this frame through both styles.css and theme.css. Its specificity keeps the row's soft
+   focus and drag states above the theme's general data-focus-frame rule, regardless of import order. */
+[data-slot="comment-composer"][data-layout="row"] {
+  & [data-slot="prompt-input-textarea"]:focus-visible {
+    outline: none;
+  }
+
+  &:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+    border-color: color-mix(in oklab, var(--vh-highlighted) 22%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-highlighted) 6%, transparent);
+  }
+
+  &[data-dragging="true"] [data-slot="prompt-input-group"] {
+    border-color: var(--vh-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 14%, transparent);
+  }
+}
+
+/* The draft bubble owns its focus ring; its nested row field stays ring-free. */
+[data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+  outline: 2px solid var(--vh-focus, var(--vh-primary));
+  outline-offset: 2px;
+}
+
+[data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] [data-slot="comment-composer"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+  border-color: transparent;
+  box-shadow: none;
+}

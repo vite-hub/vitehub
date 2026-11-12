@@ -53,6 +53,7 @@ export default defineNuxtConfig({
 - The docs page answers only below `/docs`. The app keeps its own pages, its layouts, and its error page, also next to its own `pages/[...slug].vue`.
 - The app keeps its `app.vue`. The docs layouts draw the site header, the search, and the page head on docs pages only. The `app.vue` must wrap `<NuxtPage />` in `<UApp>` and `<NuxtLayout>`, as Nuxt UI and Nuxt layouts need. The development server warns when one is missing.
 - The build prerenders every docs page and crawls nothing else, so the app's own pages stay server-rendered.
+- The docs theme applies to the docs pages only. The app's pages keep its Nuxt UI theme. See [Theme](#theme).
 
 ## Content
 
@@ -274,7 +275,7 @@ Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console 
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `comarkUi` | `{ typeset: false, chips: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
+| `comarkUi` | `{ typeset: false, chips: false, diagrams: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. `mermaid` fences render as SVG on the server with no network request. `diagrams: true` draws D2, PlantUML, and Graphviz fences through kroki.io, which receives their source; `diagrams: { server }` uses your own Kroki server. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
 | `examples.tags` | `["example", "correct", "incorrect"]` | Tags of the blocks that get a preview of their first fenced block, such as `["example", "correct", "incorrect"]`. |
 | `examples.play` | None | `(source, tag) => url`: a playground URL for the block's Markdown, written as its `play`. Return `undefined` for no link. |
 | `plugins` | `[]` | More Comark plugins, after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. A plugin that adds a tag that comark-ui doesn't render needs a component for it in `app/components/content/`. |
@@ -285,6 +286,14 @@ The design follows the comark-ui site on top of the ViteHub design system (`@vit
 
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
+
+In an app with its own `app.vue`, the theme stays on the docs pages:
+
+- The theme's CSS applies below the `vh-docs` class. The docs layouts put it on `<html>` on docs pages only.
+- The docs layouts give the theme's slot classes and default props to Nuxt UI's `<UTheme>`, with the live `app.config.ts` UI values above the design. The app's pages keep their look.
+- The docs pages use the app's Nuxt UI colors and icons. To change the docs pages only, set the CSS variables on `:root.vh-docs`.
+
+### Link checks
 
 The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
 
