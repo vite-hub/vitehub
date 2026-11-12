@@ -317,11 +317,14 @@ A required check that never reported on a head whose checks finished 10 minutes 
 
 `bypassInheritedChecks` lets the host merge past such failures. It maps a repository to the required checks it may skip:
 
-```ts [agent.ts]
-merge: {
-  strategy: 'direct',
-  bypassInheritedChecks: { 'acme/app': ['ci'] },
-},
+```ts [server/agents/babysitter/agent.ts] fragment
+export default defineAgent({
+  extends: babysitter,
+  options: {
+    filter: { repository: { allow: ['acme/app'] } },
+    merge: { strategy: 'direct', bypassInheritedChecks: { 'acme/app': ['ci'] } },
+  },
+})
 ```
 
 Before the merge, the host rereads the head's checks, the base branch tip, the branch protection and rulesets, the review decision, and the review threads. It merges only when the named checks fail the same way on the tip, every other check passes, and every other branch rule is known and satisfied. The merge bypasses branch rules, so the GitHub App must be a bypass actor of the ruleset, or the classic protection must not apply to admins. The host records the head, base, and skipped checks in its inbox as `inherited-merge-proof:<repository>#<number>`.

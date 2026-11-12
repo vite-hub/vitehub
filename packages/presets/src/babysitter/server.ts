@@ -655,7 +655,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     let mergeStarted = false;
     const bypass = evaluation.bypassedRequiredChecks.length > 0;
-    let inheritedProof: Awaited<ReturnType<typeof verifyInheritedMerge>> | undefined;
+    let inheritedProof: Exclude<Awaited<ReturnType<typeof verifyInheritedMerge>>, { refused: string }> | undefined;
     const mergeToken = pending?.token ?? claim.token;
     try {
       const { provider, repo, pull } = await forge(repository, signal);
@@ -703,14 +703,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         return "not-ready";
       }
       if (bypass && isRuntimeRecord(live)) {
-        try {
-          inheritedProof = await verifyInheritedMerge(snapshot, live, signal);
-        } catch (error) {
-          if (isAbortError(error)) throw error;
-          await noteForgeQuota(error, "inherited-merge");
-          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+        const proof = await verifyInheritedMerge(snapshot, live, signal);
+        if ("refused" in proof) {
+          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: proof.refused });
           return pending?.asynchronous ? await parkMerge("Unconfirmed merge is waiting for inherited-check verification.") : "not-ready";
         }
+        inheritedProof = proof;
         const verified = readiness(inheritedProof.fresh, inheritedProof.evaluation.state, inheritedProof.evaluation.inheritedCheckIds);
         if (!verified.ready) return await parkMerge(`Inherited-check bypass is waiting for ${verified.reason}.`);
       }
@@ -762,27 +760,28 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   /**
    * Proves from fresh GitHub reads that a bypass merge only skips inherited failures. The failures must
    * repeat on the base branch tip, where the merge lands: the PR's `base.sha` can be a day old and have no
-   * CI runs (vitehub#3715). Every other branch rule must be known and satisfied. Throws why it cannot.
+   * CI runs (vitehub#3715). Every other branch rule must be known and satisfied. Returns why it cannot.
    */
-  async function verifyInheritedMerge(snapshot: Snapshot, live: Record<string, unknown>, signal: AbortSignal) {
+  async function verifyInheritedMerge(snapshot: Snapshot, live: Record<string, unknown>, signal: AbortSignal): Promise<{ fresh: Snapshot; evaluation: InheritedCheckEvaluation; baseSha: string } | { refused: string }> {
     const { repository, number } = snapshot;
     const head = isRuntimeRecord(live.head) ? live.head.sha : undefined;
     const prBase = isRuntimeRecord(live.base) ? live.base : {};
     const base = prBase.ref;
-    if (!hasRuntimeType(head, "string") || head !== snapshot.pr?.head?.sha || !hasRuntimeType(base, "string") || !/^[a-f\d]{40}$/i.test(String(prBase.sha))) throw new Error("Inherited-check bypass target changed.");
+    if (!hasRuntimeType(head, "string") || head !== snapshot.pr?.head?.sha || !hasRuntimeType(base, "string") || !/^[a-f\d]{40}$/i.test(String(prBase.sha))) return { refused: "Inherited-check bypass target changed." };
     const tip = await readOnePage(`repos/${repository}/git/ref/heads/${encodeURIComponent(base)}`, signal);
     const baseSha = isRuntimeRecord(tip) && isRuntimeRecord(tip.object) ? tip.object.sha : undefined;
-    if (!hasRuntimeType(baseSha, "string") || !/^[a-f\d]{40}$/i.test(baseSha)) throw new Error("Inherited-check bypass base tip unavailable.");
+    if (!hasRuntimeType(baseSha, "string") || !/^[a-f\d]{40}$/i.test(baseSha)) return { refused: "Inherited-check bypass base tip unavailable." };
     const [owner, name] = repository.split("/");
     const [protection, rules, review, threads] = await Promise.all([
-      readOnePage(`repos/${repository}/branches/${encodeURIComponent(base)}/protection`, signal),
+      // A branch without classic protection answers 404, and the bypass is then refused below.
+      readOnePage(`repos/${repository}/branches/${encodeURIComponent(base)}/protection`, signal).catch(() => undefined),
       readRest(`repos/${repository}/rules/branches/${encodeURIComponent(base)}?per_page=100`, ".[]", signal),
       readGraphql(repository, signal)("query BabysitterInheritedMergeReview($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid baseRefOid reviewDecision}}}", { owner, name, number }),
       readThreads(repository, number, signal),
     ]);
     const data = isRuntimeRecord(review) && isRuntimeRecord(review.data) && isRuntimeRecord(review.data.repository) ? review.data.repository.pullRequest : undefined;
     if (!isRuntimeRecord(data) || isRuntimeRecord(review) && Array.isArray(review.errors) && review.errors.length || data.headRefOid !== head || data.baseRefOid !== prBase.sha) {
-      throw new Error("Inherited-check bypass head or base changed during verification.");
+      return { refused: "Inherited-check bypass head or base changed during verification." };
     }
     const freshChecks = async () => {
       const [runs, statuses] = await Promise.all([
@@ -801,11 +800,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Logs take time to download. A rerun must not reuse an older run's failure.
     fresh = { ...fresh, ...await freshChecks() };
     const evaluation = inheritedCheckEvaluation(fresh, policy, ids, waitPolicy.pendingReviewChecks, bypassChecksFor(repository));
-    if (evaluation.state !== "passed" || !evaluation.bypassedRequiredChecks.length) throw new Error("Fresh checks do not justify an inherited-check bypass.");
+    if (evaluation.state !== "passed" || !evaluation.bypassedRequiredChecks.length) return { refused: "Fresh checks do not justify an inherited-check bypass." };
     const ancestry = await readOnePage(`repos/${repository}/compare/${baseSha}...${head}?per_page=1`, signal);
     const safety = inheritedBypassSafety({ protection, rules, reviewDecision: data.reviewDecision ?? null, threadsResolved: threads.every(thread => thread.isResolved === true),
       method: merge.mode === "direct" ? merge.method : "squash", upToDate: isRuntimeRecord(ancestry) && ancestry.behind_by === 0 });
-    if (safety !== true) throw new Error(`Inherited-check bypass refused: ${safety}.`);
+    if (safety !== true) return { refused: `Inherited-check bypass refused: ${safety}.` };
     return { fresh, evaluation, baseSha };
   }
 

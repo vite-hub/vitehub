@@ -4,6 +4,7 @@ import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { newestCheckRun } from "./inbox/ci-evidence.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -192,11 +193,9 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     const ready = merge.ready as BabysitterMergeReady | undefined;
     const bypassInheritedChecks = new Map<string, ReadonlySet<string>>();
     if (merge.bypassInheritedChecks !== undefined) {
-      if (!isRuntimeRecord(merge.bypassInheritedChecks)) throw new TypeError("[vitehub] Babysitter merge.bypassInheritedChecks must map repositories to check names.");
+      if (!isRuntimeRecord(merge.bypassInheritedChecks)) throw presetsErrorDiagnostics.PRESETS_MERGE_BYPASS_CHECKS_INVALID();
       for (const [repository, checks] of Object.entries(merge.bypassInheritedChecks)) {
-        if (!Array.isArray(checks) || !checks.every(check => hasRuntimeType(check, "string") && check.trim())) {
-          throw new TypeError("[vitehub] Babysitter merge.bypassInheritedChecks must map repositories to check names.");
-        }
+        if (!Array.isArray(checks) || !checks.every(check => hasRuntimeType(check, "string") && check.trim())) throw presetsErrorDiagnostics.PRESETS_MERGE_BYPASS_CHECKS_INVALID();
         if (checks.length) bypassInheritedChecks.set(repository.toLowerCase(), new Set(checks.map((check: string) => check.toLowerCase())));
       }
     }
