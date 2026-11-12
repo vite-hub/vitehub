@@ -33,17 +33,20 @@ async function app() {
   return new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
 }
 
-it("shares each page parse between concurrent page and search requests", async () => {
+// Search reads pages through Content, which parses each page once and keeps it. The page route still parses on its own.
+it("parses each page once for page requests and once for search, however many requests come", async () => {
   const server = await app()
   const page = () =>
     server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
   const search = () => server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
-  const responses = await Promise.all([page(), page(), search()])
+  const responses = await Promise.all([page(), page(), search(), search()])
   for (const response of responses) expect(response.status).toBe(200)
   expect(await responses[0]!.json()).toMatchObject({ page: { path: "/docs/kv" } })
   expect(await responses[2]!.json()).toContainEqual(expect.objectContaining({ id: "/docs/kv" }))
   const files = getItem.mock.calls.map(([file]) => file)
-  expect(new Set(files).size).toBe(files.length)
+  // Search reads every page, and the page route reads the KV page once more.
+  expect(files.filter(file => file !== "docs/kv/index.md")).toEqual([...new Set(files.filter(file => file !== "docs/kv/index.md"))])
+  expect(files.filter(file => file === "docs/kv/index.md")).toHaveLength(2)
   expect(parsed).toHaveBeenCalledTimes(files.length)
   await page()
   await search()
@@ -145,5 +148,6 @@ it("reads mapped page and search content from the configured storage mount", asy
   const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect(search.status).toBe(200)
   expect(JSON.stringify(await search.json())).toContain("Only in mapped content.")
-  expect(mapped).toHaveBeenCalledExactlyOnceWith(page.file)
+  // Once for the page route and once for search, which reads it through Content.
+  expect(mapped.mock.calls).toEqual([[page.file], [page.file]])
 })

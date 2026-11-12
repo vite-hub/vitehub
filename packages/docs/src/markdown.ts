@@ -9,6 +9,7 @@ import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
 import comarkUiHtml from "comark-ui/html"
 import comarkUi from "comark-ui/vue"
+import { contentSearchSections } from "@vite-hub/content"
 import { defu } from "defu"
 import css from "shiki/dist/langs/css.mjs"
 import diff from "shiki/dist/langs/diff.mjs"
@@ -133,16 +134,21 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
 }
 
 /**
- * Parse Markdown with components (`::name`), comark-ui's blocks, GitHub alerts, task lists, highlighted code, and a
- * heading outline. The client renders the nodes with comark-ui's components.
+ * The Comark parse plugins of a docs page: components (`::name`), comark-ui's blocks, GitHub alerts, task lists,
+ * highlighted code, a heading outline, and `::example`. Content parses the docs Sources with them too.
  */
-export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
+export function docsMarkdownPlugins(options: DocsParserOptions = {}): NonNullable<ParserOptions["plugins"]> {
   const extra = options.plugins ?? []
   const configured = options.examples ?? {}
   const isSources = (value: DocsExamplesOptions | Record<string, string>): value is Record<string, string> => Object.values(value).every(source => typeof source === "string")
   const settings = isSources(configured) ? {} : configured
   const sources = { ...options.exampleSources, ...(isSources(configured) ? configured : {}) }
-  const examplePlugin = examples(markdown => parseDocument(markdown), sources, settings)
+  // An example around Markdown parses it with the page's own plugins.
+  const parseExample = async (markdown: string): Promise<DocsDocument> => {
+    const document = await parse(markdown)
+    return { nodes: document.nodes, toc: tocOf(document) }
+  }
+  const examplePlugin = examples(parseExample, sources, settings)
   // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
   // plugins replace both.
   const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks(options.comarkUi), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), examplePlugin, ...extra]
@@ -151,15 +157,19 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin && plugin !== examplePlugin)
   if (byName.get(examplePlugin.name) === examplePlugin) plugins.push(examplePlugin)
   const parse = createMarkdownParser({ plugins })
-  const parseDocument = async (markdown: string): Promise<DocsDocument> => {
-    const document = await parse(markdown)
-    return { nodes: document.nodes, toc: tocOf(document) }
-  }
+  return plugins
+}
+
+/**
+ * Parse Markdown with the docs plugins. The client renders the nodes with comark-ui's components.
+ */
+export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
+  const parse = createMarkdownParser({ plugins: docsMarkdownPlugins(options) })
   return async (markdown) => {
-    const document = await parseDocument(markdown)
+    const document = await parse(markdown)
     const nodes = isolateExampleHeadings(unwrapListParagraphs(document.nodes))
     await renderHtmlBlocks(nodes)
-    return { ...document, nodes }
+    return { nodes, toc: tocOf(document) }
   }
 }
 
@@ -265,39 +275,13 @@ function tocOf(document: MarkdownDocument): DocsTocLink[] {
   return meta.toc?.links ?? []
 }
 
-/** Blocks that only agents read. The site renders nothing for them, so search skips them too. */
-const agentOnly = new Set(["agent-only"])
-/** An example's preview repeats its source, which search already reads in the code block. */
-const repeated = new Set(["example-preview"])
+/**
+ * Blocks that search skips: `::agent-only`, which the site does not render, an example's preview, which repeats its
+ * source, and the styles that comark-ui adds.
+ */
+const searchIgnore = ["agent-only", "example-preview", "typeset-styles"]
 
 /** Split a page into one search entry per h2 and h3, like Nuxt UI's content search expects. */
 export function docsSearchSections(path: string, title: string, nodes: ComarkNode[]): DocsSearchSection[] {
-  const sections: DocsSearchSection[] = [{ id: path, title, titles: [], level: 1, content: "" }]
-  const titles = [title]
-  const visit = (node: ComarkNode) => {
-    if (typeof node === "string") {
-      sections.at(-1)!.content += node
-      return
-    }
-    const [tag, props, ...children] = node
-    if (tag === null || agentOnly.has(tag) || repeated.has(tag) || tag === "typeset-styles") return
-    const level = /^h([23])$/.exec(tag)?.[1]
-    if (level) {
-      const depth = Number(level)
-      titles.length = depth - 1
-      const text = textOf(children)
-      sections.push({ id: `${path}#${String(props.id ?? "")}`, title: text, titles: [...titles], level: depth, content: "" })
-      titles[depth - 1] = text
-      return
-    }
-    for (const child of children) visit(child)
-    if (/^(p|li|pre|h4|h5|h6|td|th|blockquote)$/.test(tag)) sections.at(-1)!.content += " "
-  }
-  for (const node of nodes) visit(node)
-  for (const section of sections) section.content = section.content.replace(/\s+/g, " ").trim()
-  return sections
-}
-
-function textOf(nodes: ComarkNode[]): string {
-  return nodes.map(node => typeof node === "string" ? node : node[0] === null ? "" : textOf(node.slice(2) as ComarkNode[])).join("")
+  return contentSearchSections({ path, title, nodes }, { ignore: searchIgnore })
 }
