@@ -412,6 +412,10 @@
   --vh-primitive-icon-motion: translate(1.5px, 1.5px);
 }
 
+.vh-primitive-icon[data-icon="bundle"] {
+  --vh-primitive-icon-motion: translateY(-1px);
+}
+
 .vh-primitive-icon[data-icon="channels"] {
   --vh-primitive-icon-motion: translateX(1.5px);
 }
