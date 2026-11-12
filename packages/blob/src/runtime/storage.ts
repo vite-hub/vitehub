@@ -67,7 +67,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       head: async pathname => (await activeDriver()).head(pathname),
       list: async options => (await activeDriver()).list(options),
       put: async (pathname, body, options) => (await activeDriver()).put(pathname, body, options),
-      sign: (pathname, options) => nativeDriver.sign!(pathname, options),
+      sign: (pathname, options, context) => nativeDriver.sign!(pathname, options, context),
     } satisfies BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>
   }
 

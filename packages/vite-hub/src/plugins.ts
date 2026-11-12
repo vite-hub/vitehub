@@ -24,7 +24,7 @@ import { deploymentPresetFromNitro, detectPreset, normalizeNitroPreset, resolveD
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
@@ -339,19 +339,9 @@ function frameworkDependencyResolver(
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
-      // Many facades share a package, and each resolution of a package that is not installed walks every node_modules folder.
-      const installed = new Map<string, boolean>()
-      const isInstalled = (packageName: string) => {
-        let result = installed.get(packageName)
-        if (result === undefined) {
-          result = isPackageInstalled(packageName)
-          installed.set(packageName, result)
-        }
-        return result
-      }
       for (const specifier of Object.keys(aliases)) {
         const feature = ownerFacadeFeature(specifier)
-        if (feature && !optionalFeaturePackages[feature].every(isInstalled)) delete aliases[specifier]
+        if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
       }
       // Each alias matches its specifier alone. A Vite alias given as a string also matches the subpaths under it, so
       // a subpath the package doesn't export, such as `vite-hub/realtime/nope`, would load `dist/realtime.js/nope`
@@ -361,6 +351,11 @@ function frameworkDependencyResolver(
           alias: Object.entries(aliases).map(([specifier, replacement]) => ({ find: exactSpecifier(specifier), replacement })),
         },
       }
+    },
+    // Vite closes the plugins when the dev server stops and when a build ends. Nuxt closes its Vite server before it
+    // reloads the app. The next start must see the packages that the app installed or removed in the meantime.
+    closeBundle() {
+      forgetPackageChecks()
     },
     configResolved(config) {
       if (envPlugin && config.root) {
