@@ -469,6 +469,62 @@ Give a credential in one of two ways:
 - Leave the option out, and set the env variable that the driver reads at runtime. For example, `s3` uses the AWS SDK credential chain, which reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 - Set the option to an env variable with `process.env`. ViteHub finds the variable that holds the value at build time, writes only its name into the output, and reads it again when the store starts. Set the variable for the build and for the server. On Cloudflare Workers, ViteHub reads the Worker env first, so a Worker secret works without `process.env`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      stores: {
+        default: { driver: 'fs' },
+        media: {
+          driver: 's3',
+          bucket: 'media',
+          region: 'eu-west-1',
+          credentials: {
+            accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!,
+          },
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        stores: {
+          default: { driver: 'fs' },
+          media: {
+            driver: 's3',
+            bucket: 'media',
+            region: 'eu-west-1',
+            credentials: {
+              accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!,
+              secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!,
+            },
+          },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -494,6 +550,9 @@ export default defineConfig({
   ],
 })
 ```
+
+:::
+::
 
 A literal credential, or a value that no env variable holds, fails `vite dev` and the build with [`BLOB_C0019`](/docs/blob/diagnostics/blob_c0019). At build time, ViteHub looks only in `process.env`. A value that `loadEnv()` reads from a `.env` file is not there, so set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` first. A variable that the build used but the server does not have fails when the store starts, with [`BLOB_R0044`](/docs/blob/diagnostics/blob_r0044). ViteHub reads the variable as it is: a value that the config changes, such as a private key with `\n` replaced by line breaks, does not match. Put the final value in the variable, or use `keyFilename` for Google Cloud Storage.
 
