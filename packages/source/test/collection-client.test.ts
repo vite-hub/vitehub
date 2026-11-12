@@ -404,3 +404,64 @@ describe("useCollection", () => {
     scope.stop()
   })
 })
+
+describe("useCollection default requester", () => {
+  it("sends the query with fetch and reads the JSON page", async () => {
+    const fetch = vi.fn(async (_input: string, _init: RequestInit) => Response.json(page([{ id: 1 }], null)))
+    vi.stubGlobal("fetch", fetch)
+    const filter = ref({ search: "a b", tags: ["x", "y"], range: { from: 1 }, empty: null })
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      // SAFETY: The filter adds array, object and null values to check how the default requester encodes them.
+      collection = useCollection("items", { filter: filter as never, immediate: false, limit: 2 })
+    })
+
+    await collection.refresh()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const [url, init] = fetch.mock.calls[0]!
+    expect(url).toBe("/api/items?search=a+b&tags=x&tags=y&range=%7B%22from%22%3A1%7D&empty=&limit=2")
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(new Headers(init.headers).get("accept")).toBe("application/json")
+    expect(collection.items.value).toEqual([{ id: 1 }])
+    scope.stop()
+    vi.unstubAllGlobals()
+  })
+
+  it.each([401, 403] as const)("turns a %s response into CollectionAccessError", async (status) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ message: "no" }, { status })))
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { immediate: false })
+    })
+
+    await collection.refresh()
+    expect(collection.error.value).toBeInstanceOf(CollectionAccessError)
+    expect(collection.error.value).toMatchObject({ status })
+    scope.stop()
+    vi.unstubAllGlobals()
+  })
+
+  it("reports other error statuses with the status", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("down", { status: 503 })))
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { immediate: false })
+    })
+
+    await collection.refresh()
+    expect(collection.error.value).toBeInstanceOf(Error)
+    expect(collection.error.value).toMatchObject({
+      code: "SOURCE_R0034",
+      docs: "https://vitehub.dev/docs/source/diagnostics/source_r0034",
+      fix: expect.stringContaining("server logs"),
+      name: "CollectionRequestError",
+      status: 503,
+      why: "[vitehub] Collection request to /api/items failed with status 503.",
+    })
+    scope.stop()
+    vi.unstubAllGlobals()
+  })
+})

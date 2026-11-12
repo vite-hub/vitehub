@@ -79,14 +79,14 @@ The preset prompt already carries the generic repair rules: it classes findings 
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
+| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
 | `merge.markDraftsReady` | `[]` | Logins whose drafts the host marks ready for review once a pass has reviewed the head and no required check failed. Only drafts from a branch in the repository itself qualify, so a fork's draft stays a draft. |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
-| `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. |
+| `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. List a bot once: `vercel[bot]` also matches `vercel`. |
 | `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A GitHub Actions check counts as stuck after 24 hours in the queue or 8 hours running. Other checks count as stuck after 30 minutes. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
@@ -107,6 +107,23 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `placement` | None | Runs each pass on this host or in a Sandbox on another host ([Bound local verification](#bound-local-verification)). |
 
 For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capabilities/budget). `admission` is a host gate over time windows that can delay a new pass, based on journal usage. You can use both.
+
+## Choose whose pull requests
+
+Select authors by their role in the repository with `filter.authorAssociation`, the `author_association` that GitHub reports on each pull request: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, or `NONE`. A bot's association is usually `NONE` or `CONTRIBUTOR`, so add bots by login in `filter.author`:
+
+```ts fragment
+filter: {
+  repository: { allow: ['acme/app'] },
+  authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] },
+  author: { allow: ['renovate[bot]'] },
+},
+```
+
+- A pull request passes when its author matches `author.allow` or `authorAssociation.allow`. With only one of them set, that one decides.
+- A match on `author.deny` or `authorAssociation.deny` excludes the pull request, even when an allow list matches.
+- Logins match without case, and a bot matches in either spelling: GitHub's REST API names it `renovate[bot]` and its GraphQL API `renovate`. List each bot once. The same applies to `filter.actor` and `ignoreFeedbackAuthors`.
+- The rules apply to discovery, webhook admission, and the checks before each claim and before each push or merge.
 
 ## Gate outside contributors
 
