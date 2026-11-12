@@ -51,3 +51,12 @@ export function directMergeBranchSafety(repository: unknown, pr: unknown, openCh
   return openChildren.some(child => String(field(child, "state")).toLowerCase() === "open"
     && field(child, "base", "ref") === branch) ? "repository cleanup would delete an open child pull request's base branch" : true;
 }
+
+/** The head and base branch of a PR whose head branch lives in `repository`, which the host can push to. */
+export function sameRepositoryBranches(pr: unknown, repository: string): { head: string; base: string } | undefined {
+  const head = field(pr, "head", "ref");
+  const base = field(pr, "base", "ref");
+  const headRepository = field(pr, "head", "repo", "full_name");
+  if (!hasRuntimeType(head, "string") || !hasRuntimeType(base, "string") || !hasRuntimeType(headRepository, "string")) return undefined;
+  return headRepository.toLowerCase() === repository.toLowerCase() ? { head, base } : undefined;
+}
