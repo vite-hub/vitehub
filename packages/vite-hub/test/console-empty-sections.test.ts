@@ -2,6 +2,7 @@ import { agentWithSkills, codexDriver, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { beforeEach, expect, it } from "vitest"
 
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 import { installConsoleInvocationFallback } from "../src/console/internal.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
@@ -20,8 +21,8 @@ beforeEach(() => {
 })
 
 function call(operation: string) {
-  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ operation, input: {} }),
+  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody(operation, {}),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
@@ -30,11 +31,11 @@ function call(operation: string) {
 it("hides empty sections through RPC while keeping their readers available", async () => {
   const sections = await call("sections.list")
   expect(sections.status).toBe(200)
-  await expect(sections.json()).resolves.toMatchObject({ ok: true, value: { sections: ["agents"] } })
+  await expect(operationRpcResponseResult(sections)).resolves.toMatchObject({ ok: true, value: { sections: ["agents"] } })
 
   const env = await call("env.get")
   expect(env.status).toBe(200)
-  await expect(env.json()).resolves.toMatchObject({ ok: true, value: { entries: [] } })
+  await expect(operationRpcResponseResult(env)).resolves.toMatchObject({ ok: true, value: { entries: [] } })
 })
 
 it("filters empty sections within the installed navigation without removing operations", async () => {
@@ -42,11 +43,11 @@ it("filters empty sections within the installed navigation without removing oper
 
   const sections = await call("sections.list")
   expect(sections.status).toBe(200)
-  await expect(sections.json()).resolves.toMatchObject({ ok: true, value: { sections: [] } })
+  await expect(operationRpcResponseResult(sections)).resolves.toMatchObject({ ok: true, value: { sections: [] } })
 
   const env = await call("env.get")
   expect(env.status).toBe(200)
-  await expect(env.json()).resolves.toMatchObject({ ok: true, value: { entries: [] } })
+  await expect(operationRpcResponseResult(env)).resolves.toMatchObject({ ok: true, value: { entries: [] } })
 })
 
 it("shows bundled Skills and declared Env through the operation reader", async () => {
@@ -62,5 +63,5 @@ it("shows bundled Skills and declared Env through the operation reader", async (
 
   const sections = await call("sections.list")
   expect(sections.status).toBe(200)
-  await expect(sections.json()).resolves.toMatchObject({ ok: true, value: { sections: ["agents", "skills", "env"] } })
+  await expect(operationRpcResponseResult(sections)).resolves.toMatchObject({ ok: true, value: { sections: ["agents", "skills", "env"] } })
 })

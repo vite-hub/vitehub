@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 
-import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "../src/blob-database.ts"
+import { createBlobDatabaseWorkspaceStore } from "../src/blob-database.ts"
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { custom } from "../src/sources/custom.ts"
@@ -261,7 +261,7 @@ function workspace() {
 async function retainedWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-session-history-"))
   const client = createClient({ url: "file::memory:" })
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client })
   const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const store = createBlobDatabaseWorkspaceStore({
