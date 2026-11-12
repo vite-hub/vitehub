@@ -27,8 +27,50 @@ export interface GitHubArchiveFile {
   path: string
 }
 
+/** A ref of the repository: a full commit SHA, a branch name, or a pull request number. */
+export type GitHubRef = { sha: string } | { branch: string } | { pull: number }
+
+/** A pull request, as `resolveRef({ pull })` returns it. */
+export interface GitHubPullRequest {
+  number: number
+  state: "open" | "closed"
+  merged: boolean
+  /** The head branch, such as `feat/x`. */
+  head: string
+  /** The repository of the head branch, such as `acme/docs`. Null when the fork was deleted. */
+  headRepo: string | null
+  /** The base branch, such as `main`. */
+  base: string
+  /** True when the head branch lives in another repository. */
+  fork: boolean
+  /** The label names, such as `preview:enabled`. */
+  labels: string[]
+}
+
+/** The commit that a ref points to. `pull` is set for a pull request ref. */
+export interface GitHubRefTarget {
+  sha: string
+  pull?: GitHubPullRequest
+}
+
 /** What github() returns: a File Source with every optional method. */
 export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>, "getItems" | "getMeta" | "resolveRevision">> & {
   /** Whether reads send a token: `auth`, or the Server Env token when `auth` is omitted. */
   authenticated(): Promise<boolean>
+  /**
+   * The commit that a ref of the repository points to now. A branch must match its full name, and a SHA must be a full
+   * commit SHA. Undefined when the repository has no such commit, branch, or pull request.
+   */
+  resolveRef(ref: GitHubRef, options?: { signal?: AbortSignal }): Promise<GitHubRefTarget | undefined>
+  /**
+   * Whether the history of the Source ref (the `ref` option, or the default branch) contains a commit: GitHub compares
+   * the ref with the commit and answers `behind` or `identical`. False for a commit that shares no history with it.
+   */
+  contains(sha: string, options?: { signal?: AbortSignal }): Promise<boolean>
+  /**
+   * The pull requests whose head commit is this commit, open or closed, from this repository or a fork. GitHub does not
+   * list a fork pull request for its commits, so a fork pull request counts only while it is one of the 100 most recently
+   * updated open pull requests.
+   */
+  pullsAt(sha: string, options?: { signal?: AbortSignal }): Promise<GitHubPullRequest[]>
 }
