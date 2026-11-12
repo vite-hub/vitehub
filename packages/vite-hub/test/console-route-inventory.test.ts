@@ -82,9 +82,11 @@ const consoleRoutes = [
 
 /**
  * App features that stay on purpose. They serve the app and its visitors, with the app's own identity, not the Console:
- * the Comments overlay, app Auth, and the Connections management API with the app's own actor module.
+ * Blob signed links, the Comments overlay, app Auth, and the Connections management API with the app's own actor module.
  */
 const appRoutes = [
+  // Signed links for private files in the app's fs Blob store.
+  "route ALL /_vitehub/blob/signed/** @vite-hub/blob/dist/runtime/signed.js",
   // The Comments API of the overlay, with the app's own identity.
   "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
   // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
