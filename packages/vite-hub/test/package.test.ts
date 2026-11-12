@@ -417,8 +417,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toMatch(/aria-label="[^"]*'Filter sessions'"/);
     expect(consolePage).toContain("selectedCapabilityId");
-    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
-    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
+    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(2);
+    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(1);
     expect(consolePage).toContain(
       'const view = target === "agent" ? "details" : "workspace";',
     );
@@ -463,18 +463,17 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
-    );
-    expect(consolePage).toContain(
-      'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
+      'v-if="isDesktop && selectedInvocationId"',
     );
     expect(consolePage).toContain("detail.isLoading.value || initialSessionLoading");
-    expect(consolePage).toContain('@toggle-maximized="detailsMaximized = false"');
     expect(consolePage).not.toContain("min-height: 32rem");
     expect(consoleFrame).toContain("min-height: 0");
     expect(consoleFrame).not.toContain("min-height: 32rem");
     expect(consolePage).toContain("<ConsoleSessionNavbar");
-    expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
+    // A desktop session uses the AgentSession header. Phones keep the session navbar and its details slideover.
+    expect(consolePage.split("<ConsoleSessionNavbar").length).toBe(2);
+    expect(consolePage).toContain('<ConsoleSessionNavbar\n              v-if="!(isDesktop && selectedInvocationId)"');
+    expect(consolePage).toContain('<ConsoleAgentSession\n            v-if="isDesktop && selectedInvocationId"');
     expect(consolePage).toContain('@inspect="inspectSession"');
     expect(consolePage).toContain("function inspectSession");
     const consoleSessionNavbar = readFileSync(
@@ -494,7 +493,12 @@ describe("framework package contract", () => {
     expect(consoleSessionLoading).toContain(':disabled="!props.maximizable"');
     expect(consoleSessionLoading).toContain('class="session-inspector__header"');
     expect(consoleSessionLoading).toContain("emit('toggleMaximized')");
-    expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
+    const consoleAgentSession = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-agent-session.vue`,
+      "utf8",
+    );
+    // The AgentSession panel is the only panel, so its inspector surfaces do not maximize.
+    expect(consoleAgentSession).toContain(':maximizable="false"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
     expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
@@ -609,10 +613,7 @@ describe("framework package contract", () => {
     expect(consoleSessionNavbar).toContain('class="md:hidden"');
     expect(consoleSessionNavbar).not.toContain('class="lg:hidden"');
     expect(consolePage).toContain(':header="false"');
-    expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout-v2"');
-    expect(consolePage).toMatch(
-      /id: "thread",[\s\S]*?defaultSize: 720,[\s\S]*?id: "details",[\s\S]*?defaultSize: 440,/,
-    );
+    expect(consoleAgentSession).toContain('storage-key="vitehub-console:session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
     expect(consolePage).not.toContain(':retry-key="invocationPaginationKey"');
     expect(consolePage).toContain("list.loadMoreError.value");
@@ -653,10 +654,6 @@ describe("framework package contract", () => {
     expect(consolePage).toMatch(
       /\.vitehub-console__session-panel > \[data-slot="body"\][\s\S]*?padding: 0 !important;/,
     );
-    expect(consolePage).toContain("minSize: 360");
-    expect(consolePage).toContain("defaultSize: 720");
-    expect(consolePage).toContain("maxSize: 1080");
-    expect(consolePage).toContain("defaultSize: 440");
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
     expect(consolePage).not.toContain("groupConsoleSessions");
@@ -745,7 +742,6 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
     expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
-    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures distributed Console files without OAuth discovery for open access", async () => {

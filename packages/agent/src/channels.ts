@@ -17,7 +17,8 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
+import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
+import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
@@ -267,8 +268,11 @@ export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
    * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
    */
   token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
-  /** Trusted identity of the host's authenticated GitHub user or App. */
-  identity?: { login: string, appId?: number }
+  /**
+   * Trusted identity of the host's authenticated GitHub user or App. Provider Drivers and the `git()` Capability
+   * commit as `login` with `email`.
+   */
+  identity?: { login: string, appId?: number, email?: string }
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -1528,7 +1532,9 @@ function githubPullRequestTaskPrompt(
           "- Run the project's local checks for your changes before you push.",
           "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.",
         ],
-    "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+    source.checkout === false
+      ? "- Resolve merge conflicts. Keep the intent of both sides, run the checks, and finish the merge or rebase. Do not abort it."
+      : `- Resolve merge conflicts with the ${mergeConflictSkillName} skill.`,
     "",
     `Request: ${command.body || "Inspect and resolve the requested pull request work."}`,
   ].join("\n")
@@ -3675,6 +3681,28 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
   return trustGitHubPullRequestWorkspaceCapability(Object.freeze(capability))
 }
 
+function githubPullRequestSkillCapability<TRuntimeConfig extends AgentRuntimeConfig>(
+  workspace: GitHubPullRequestWorkspacePolicy | undefined,
+): AgentCapabilityDefinition<TRuntimeConfig> | undefined {
+  // The prompt names the Skill only when the run has a checkout, which needs the Agent Workspace.
+  if (!workspace?.enabled) return
+  return Object.assign(defineCapability({
+    id: "github-pull-request-skills",
+    workspace: {
+      sources: {
+        "skill.mergeConflicts": {
+          content: mergeConflictSkillContent,
+          mediaType: "text/markdown",
+          workspacePath: mergeConflictSkillPath,
+        },
+      },
+    },
+  }), {
+    [workspaceMaterializationPathsSymbol]: [mergeConflictSkillPath],
+    [workspacePersistencePathsSymbol]: [mergeConflictSkillPath],
+  })
+}
+
 const reservedChannelMessageMethodNames = new Set(["channel", "data", "kind"])
 
 function validateChannelMessageDefinition(kind: string, message: unknown): void {
@@ -3972,6 +4000,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
   const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
   const workspaceCapability = githubPullRequestWorkspaceCapability(workspace, appOptions)
+  const skillCapability = githubPullRequestSkillCapability<TRuntimeConfig>(workspace)
   const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
         apiBaseUrl: app?.apiBaseUrl,
@@ -3987,6 +4016,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     activity: activityDefinition,
     capabilities: [
       ...(workspaceCapability ? [workspaceCapability] : []),
+      ...(skillCapability ? [skillCapability] : []),
       ...channelOptions.capabilities || [],
     ],
     ...(appEffects ? { [channelDeliveryHandlers]: appEffects } : {}),
@@ -4002,7 +4032,13 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
       const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
-      return token ? { token, baseUrl: appOptions === true ? undefined : appOptions.apiBaseUrl } : undefined
+      if (!token) return undefined
+      const identity = app?.identity
+      return {
+        token,
+        baseUrl: app?.apiBaseUrl,
+        ...(identity?.login ? { identity: { login: identity.login, ...(identity.email ? { email: identity.email } : {}) } } : {}),
+      }
     }
     Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
   }
