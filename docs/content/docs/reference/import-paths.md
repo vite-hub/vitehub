@@ -110,7 +110,7 @@ the same behavior.
 | `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
 | `vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
 | `vite-hub/kv` | KV Runtime Helper. |
-| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
+| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/mcp` | `defineMcpTool()` for the tools of the app's MCP server in `server/mcp/tools/`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
 | `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |

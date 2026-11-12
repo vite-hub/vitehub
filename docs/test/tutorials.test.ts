@@ -96,7 +96,7 @@ describe("documentation tutorials", () => {
     for (const [page, title] of [
       ["content/docs/ui/get-started.md", "Get started"],
       ["content/docs/agents/sandbox-tutorial.md", "Sandbox tutorial"],
-      ["content/docs/reference/markdown-template-tutorial.md", "Tutorial"],
+      ["content/docs/markdown-template/get-started.md", "Get started"],
     ]) {
       const source = await readFile(resolve(docsRoot, page), "utf8");
       expect(source, page).toContain("layout: tutorial");

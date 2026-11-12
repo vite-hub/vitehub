@@ -176,7 +176,7 @@ Prefer customer-facing language and next actions.
 
 Conditions bind `data.context.*` paths and support `eq`, `neq`, `gt`, `gte`,
 `lt`, and `lte`. For a compound condition, compute a boolean in TypeScript. See
-[Markdown templates](/docs/reference/markdown-templates) for the full syntax.
+[Markdown templates](/docs/markdown-template) for the full syntax.
 
 ## Insert Workspace bindings
 

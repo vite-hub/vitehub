@@ -126,6 +126,6 @@ An independent provider `driver` uses its own configuration, credentials, and pe
 - [title()](/docs/agents/capabilities/title)
 - [Agent Drivers](/docs/agents/agent-drivers)
 - [Channels](/docs/agents/channels)
-- [Markdown templates](/docs/reference/markdown-templates)
+- [Markdown templates](/docs/markdown-template)
 - [Markdown pages](/docs/getting-started/ai-resources/markdown-pages)
 - [Official Capabilities](/docs/agents/capabilities/official)

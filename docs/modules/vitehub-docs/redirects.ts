@@ -147,6 +147,8 @@ export const docsPageRedirects = {
   "/docs/reference/runtime-context": "/docs/runtime/context",
   "/docs/reference/runtime-events": "/docs/runtime/events",
   "/docs/reference/runtime-helpers": "/docs/runtime/helpers",
+  "/docs/reference/markdown-template-tutorial": "/docs/markdown-template/get-started",
+  "/docs/reference/markdown-templates": "/docs/markdown-template",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",

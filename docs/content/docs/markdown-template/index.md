@@ -1,15 +1,15 @@
 ---
 title: Markdown templates
 description: Render predictable Markdown from explicit data, simple conditions, and reusable fragments.
-navigation.order: 53
-navigation.group: Application APIs
+navigation.title: Overview
+navigation.order: 1
 icon: i-vscode-icons-file-type-markdown
 ---
 
 ::agent-only{skill="markdown-template"}
 Use Markdown Templates when an application needs predictable Markdown composition with data bindings, conditions, or fragments. The renderer does not evaluate JavaScript or read files implicitly.
 
-Start with the [Markdown Template tutorial](/docs/reference/markdown-template-tutorial).
+Start with the [Markdown Template tutorial](/docs/markdown-template/get-started).
 
 Keep input data explicit and validate it before rendering. Use the file integration only with explicit paths or `file:` URLs.
 
@@ -18,7 +18,7 @@ Prove interpolation, a false condition, a fragment, and a missing or invalid val
 
 `@vite-hub/markdown-template` fills Markdown with your data and conditions. It never runs JavaScript or reads files on its own. Use it for Agent Instructions, review prompts, and other generated documents that must keep your Markdown structure.
 
-For a short working example, start with [Render your first Markdown template](/docs/reference/markdown-template-tutorial).
+For a short working example, start with [Render your first Markdown template](/docs/markdown-template/get-started).
 
 ## Install
 
