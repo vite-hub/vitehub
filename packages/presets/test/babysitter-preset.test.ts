@@ -471,7 +471,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     await Promise.all(tracked);
     if (expectedError) {
       expect(errors).toHaveBeenCalledExactlyOnceWith(expectedError, expect.anything(), expect.anything());
-    } else if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure instanceof RateLimitedError)
+    } else if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure.name === "ForgeNetworkError" || checkoutFailure instanceof RateLimitedError)
       expect(errors.mock.calls).toEqual([]);
     else expect(errors).toHaveBeenCalledOnce();
   }
@@ -1077,6 +1077,40 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("polls a pending GitHub merge less often as it ages and stops after 30 minutes", async () => {
+    // vite-hub/vitehub#3350: GitHub answered "pending" for one merge request for 19 hours, read every 30 seconds.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    const uuid = "9e6273b9-0000-4000-8000-000000000000";
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/pulls/12/merge-async/${uuid}`)) throw new Error("gh: Merge result unavailable (HTTP 502)");
+      if (args.includes("repos/acme/app/pulls/12/merge-async")) return { stdout: JSON.stringify({ status: "pending", details: { uuid, expected_head_sha: "a".repeat(40), merge_action: "direct_merge", merge_method: "squash" } }), stderr: "" };
+      return command(args, request);
+    });
+    const requests = () => f.command.mock.calls.filter(([args]) => args.includes("PUT")).length;
+    const wait = async () => (await f.runtime.inbox.get("acme/app", 12))!.wait!;
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      expect((await wait()).retryAt).toBe(started + 30_000);
+      vi.setSystemTime(started + 10 * 60_000);
+      await f.reconcile();
+      expect((await wait()).retryAt).toBe(Date.now() + 5 * 60_000);
+      const polled = requests();
+      vi.setSystemTime(started + 31 * 60_000);
+      await f.reconcile();
+      expect(requests()).toBe(polled);
+      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toBeUndefined();
+      expect((await wait()).retryAt).toBe(Date.now() + 2 * 60 * 60_000);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.lastResult).toMatch(/still pending after 31 minutes/);
+      vi.setSystemTime(started + 31 * 60_000 + 2 * 60 * 60_000 + 1);
+      await f.reconcile();
+      expect(requests()).toBe(polled + 1);
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
   it.each([404, 502])("reconciles an unavailable asynchronous result with HTTP %s", async status => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const f = await fixture(false, false, { merge: "direct" });
@@ -1627,6 +1661,38 @@ describe("Babysitter preset runtime", () => {
       await botReview(303);
       await f.reconcile();
       expect(f.passes).toHaveLength(3);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("retries a pass after a network error instead of failing it", async () => {
+    // 2026-10-18: GitHub App token timeouts and dropped TLS connections showed up as failed Babysitter runs.
+    const f = await fixture();
+    f.failCheckout(Object.assign(new Error("Request to https://api.github.com/graphql failed: fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }), { name: "ForgeNetworkError" }));
+    try {
+      await f.reconcile();
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current).toMatchObject({ status: "ready", lastResult: "Network error; retrying the pass." });
+      expect(current?.nextAt).toBeGreaterThan(Date.now());
+      expect(current?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.events.mock.calls.some(([name, properties]) => name === "babysitter.owner.deferred" && properties.reason === "network")).toBe(true);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("reads a pull request again after a 502 from GitHub", async () => {
+    const f = await fixture();
+    const command = f.command.getMockImplementation()!;
+    let failures = 1;
+    f.command.mockImplementation(async (args, request) => {
+      if (failures > 0 && args.length === 2 && args[1] === "repos/acme/app/pulls/12") {
+        failures--;
+        throw new Error("HTTP 502: Bad Gateway");
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(failures).toBe(0);
+      expect(f.passes).toHaveLength(1);
     } finally { await f.runtime.inbox.close(); }
   });
 
