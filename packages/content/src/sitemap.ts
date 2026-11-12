@@ -6,7 +6,7 @@ import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { AnyContentCollection } from "./collections-types.ts"
-import { titleCase } from "./collections-runtime.ts"
+import { titleCase } from "./title-case.ts"
 import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
 import type { ContentDocumentUrl } from "./documents.ts"
 import type { ContentMcpOptions } from "./mcp.ts"

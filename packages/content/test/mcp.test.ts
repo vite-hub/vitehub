@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { files, github } from "@vite-hub/source"
@@ -61,17 +60,9 @@ async function call(handler: ReturnType<typeof defineContentMcpHandler>, method:
 const tool = async (handler: ReturnType<typeof defineContentMcpHandler>, name: string, args: Record<string, unknown> = {}) =>
   (await call(handler, "tools/call", { name, arguments: args })).body.result!
 
-/**
- * The text that the `@vite-hub/docs` MCP server sends for a tool that returns `value`, from the `normalizeToolResult()`
- * of the `@nuxtjs/mcp-toolkit` that docs installs.
- */
+/** The tool text of a JSON value: two-space JSON, as the MCP server of `@vite-hub/docs` sent it before docs moved onto this server. */
 async function docsText(value: unknown): Promise<string> {
-  const results = fileURLToPath(new URL("../../docs/node_modules/@nuxtjs/mcp-toolkit/dist/runtime/server/mcp/definitions/results.js", import.meta.url))
-  const module: unknown = await import(/* @vite-ignore */ results)
-  const normalize: unknown = Reflect.get(Object(module), "normalizeToolResult")
-  if (!(normalize instanceof Function)) throw new TypeError("Expected normalizeToolResult() in @nuxtjs/mcp-toolkit.")
-  const result: unknown = normalize(value)
-  return z.object({ content: z.tuple([z.object({ type: z.literal("text"), text: z.string() })]) }).parse(result).content[0].text
+  return JSON.stringify(value, null, 2)
 }
 
 describe("seo.mcp for collections", () => {
