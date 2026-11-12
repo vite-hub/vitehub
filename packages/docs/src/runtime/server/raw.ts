@@ -4,7 +4,7 @@ import type { EventHandler, EventHandlerRequest } from "nitro/h3"
 import { docsContent } from "../content.ts"
 
 /**
- * `/raw/<page>.md`: the agent copy of a page, from Content. The build prerenders the copies of indexed pages, so static
+ * `/raw/<page>.md`: the agent copy of a page, from Content. The build prerenders the copy of every page, so static
  * hosts serve those files first. Negotiated pages and `.md` twins fetch the copy inside the server, from this route.
  */
 const handler: EventHandler<EventHandlerRequest, Promise<string>> = defineHandler(async (event) => {

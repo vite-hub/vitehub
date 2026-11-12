@@ -605,7 +605,7 @@ describe("docs Nuxt setup", () => {
     expect(nitro.runtimeConfig.public.agentDiscovery.resources[0]?.href).toBe("/portal/sitemap.md")
     expect(nitro.routeRules["/"].headers.Link).toBe('</portal/llms.txt>; rel="describedby"')
     const routes = nitro.prerender.routes
-    expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml", "/sitemap.md", "/llms.txt", "/llms-full.txt"]))
+    expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml", "/raw/docs/kv.md", "/sitemap.md", "/llms.txt", "/llms-full.txt"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual([
       "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",

@@ -677,6 +677,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
           `/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`,
         ]),
+        // The agent copy of every page, also of the pages that search engines skip, so static hosts serve them as files.
+        ...docsManifestPages(manifest).map(page => docsRawPath(page.path)),
         "/api/_docs/search.json",
         "/sitemap.xml",
         // Content serves the agent indexes per request. Their pages are known at build time.
