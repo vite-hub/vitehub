@@ -292,6 +292,7 @@ export const CommentPanel = defineComponent({
               }, {
                 ...(slots.extra ? { extra: slots.extra } : {}),
                 ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+                ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
               }),
             ]),
       ];
