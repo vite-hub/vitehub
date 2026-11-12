@@ -1,7 +1,7 @@
 import { defineContentPreset } from "@vite-hub/content"
 
 import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
-import { cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
+import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
 
 import type { ContentAuthorize, ContentPreset } from "@vite-hub/content"
 
@@ -35,7 +35,7 @@ export interface CmsPresetOptions {
    * root, where a collection path such as `content/posts/**\/*.md` starts at the root.
    */
   root?: string
-  /** GitHub store: how a publish reaches `branch`. `"commit"` (default) commits to it. `"pr"` opens a pull request. */
+  /** GitHub store: how a publish reaches `branch`. `"commit"` (default) commits to it. `"pr"` opens a pull request from a `vitehub/publish/*` branch, which only Console access or a signed link previews. */
   publish?: "commit" | "pr"
 }
 
@@ -86,7 +86,13 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
     const set = { ...options, blob: github && options.blob === "default" ? undefined : options.blob }
     const problem = cmsOptionsProblem(set)
     if (problem) throw cmsErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset ${problem}` })
-    return { workspace: options.workspace, ...(options.access === "roles" ? { authorize: cmsDefaultAuthorize } : {}), ...(github && options.publish === "pr" ? { publish: "pr" as const } : {}) }
+    return {
+      workspace: options.workspace,
+      ...(options.access === "roles" ? { authorize: cmsDefaultAuthorize } : {}),
+      ...(github && options.publish === "pr" ? { publish: "pr" as const } : {}),
+      // Drafts live on this branch: `content.sources.allow()` keeps it behind the preview cookie or a signed link.
+      ...(github ? { privateBranches: [options.draftBranch ?? cmsGitHubDefaults.draftBranch] } : {}),
+    }
   },
 })
 
