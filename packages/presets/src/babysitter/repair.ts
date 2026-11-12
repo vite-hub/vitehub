@@ -3,7 +3,7 @@ import { defineCapability } from "@vite-hub/agent";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import type { GitHubPullRequestOperations } from "../github/index.ts";
 import { isRuntimeRecord, hasRuntimeType } from "../internal/runtime-type.ts";
-import { isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
+import { GitHubWorkspaceInstallError, isGitHubLockfileDefect, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
 
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
@@ -18,6 +18,8 @@ function stringField(input: unknown, key: string, allowEmpty = false): string {
 export function repairCapability(operations: GitHubPullRequestOperations, autoMerge: boolean, mentionAllowlist: readonly string[] = [], beforePush?: (context: AgentInvocationContextStore) => Promise<void>, workspace?: {
   beforeRepair(context: AgentInvocationContextStore, paths?: readonly string[]): Promise<void>;
   afterRefresh(context: AgentInvocationContextStore): Promise<void>;
+  /** Charges one refresh against the pass and returns a refund for a retryable failure. Throws when none are left. */
+  admitRefresh?(): () => void;
   runRepair?<T>(execute: () => Promise<T>): Promise<T>;
   readState?(): Promise<unknown>;
   readFeedback?(input: unknown): Promise<unknown>;
@@ -26,6 +28,19 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
   const readState = workspace?.readState;
   const readFeedback = workspace?.readFeedback;
   const allowedMentions = normalizeGitHubMentionAllowlist(mentionAllowlist)
+  let refreshing: Promise<{ refreshed: true }> | undefined;
+  const refresh = async (context: AgentInvocationContextStore) => {
+    const refund = workspace?.admitRefresh?.();
+    try {
+      await workspace?.beforeRepair(context);
+      await operations.refreshDependencies();
+      await workspace?.afterRefresh(context);
+      return { refreshed: true as const };
+    } catch (error) {
+      if (error instanceof GitHubWorkspaceInstallError && error.retryable && !isGitHubLockfileDefect(error)) refund?.();
+      throw error;
+    }
+  };
   return defineCapability({
     id: "babysitter.github",
     tools: context => ({
@@ -91,11 +106,21 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           return operations.readBaseCheckLogs(input.runId);
         },
       },
+      checkDependencies: {
+        name: "checkDependencies",
+        description: "Check dependency inputs before validation. Lists the manifests, lockfiles, patches and local dependency files that changed since the last install. If current is false, call refreshDependencies before running checks.",
+        inputSchema: noArguments,
+        execute: () => withinRepair(async () => {
+          await workspace?.beforeRepair(context.context);
+          return await operations.checkDependencies();
+        }),
+      },
       refreshDependencies: {
         name: "refreshDependencies",
         description: "Install frozen dependencies after resolving dependency conflicts or changing manifests or lockfiles. Run before validation.",
         inputSchema: noArguments,
-        execute: () => withinRepair(async () => { await workspace?.beforeRepair(context.context); await operations.refreshDependencies(); await workspace?.afterRefresh(context.context); return { refreshed: true }; }),
+        // A retry while an install runs joins it instead of starting a second install in the same checkout.
+        execute: () => refreshing ??= withinRepair(() => refresh(context.context)).finally(() => { refreshing = undefined; }),
       },
       commitRepair: {
         name: "commitRepair",
