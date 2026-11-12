@@ -15,7 +15,7 @@ const examplesDir = resolve(import.meta.dirname, "../../../docs/app/examples")
 let search: ReturnType<typeof createDocsSearch>
 
 beforeAll(async () => {
-  const manifest = createDocsManifest({ dir: contentDir, base: "/docs" })
+  const manifest = await createDocsManifest({ dir: contentDir, base: "/docs" })
   const examples = Object.fromEntries(await Promise.all(
     (await readdir(examplesDir)).filter(file => file.endsWith(".vue")).map(async file => [
       file.slice(0, -4),

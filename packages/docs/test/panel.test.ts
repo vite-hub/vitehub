@@ -43,7 +43,7 @@ for (const [file, source] of Object.entries(files)) {
 }
 afterAll(() => rmSync(dir, { force: true, recursive: true }))
 
-const manifest = createDocsManifest({ dir, base: "/docs" })
+const manifest = await createDocsManifest({ dir, base: "/docs" })
 
 function section(id: string) {
   const found = manifest.sections.find(candidate => candidate.id === id)

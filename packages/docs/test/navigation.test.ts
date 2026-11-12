@@ -33,7 +33,7 @@ import {
   isDocsPath,
 } from "../src/navigation.ts"
 
-const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
+const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 const categories = ["Start", "Data", "Reference"]
 
 function section(id: string) {
@@ -238,9 +238,11 @@ describe("docs groups", () => {
   })
 })
 
+// The playground is a small site: no `content/docs/index.md`, two sections without icons, and `guides` has no Overview.
+const small = await createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
+const vitehub = await createDocsManifest({ dir: resolve(import.meta.dirname, "../../../docs/content"), base: "/docs" })
+
 describe("docs home links", () => {
-  // The playground is a small site: no `content/docs/index.md`, two sections without icons, and `guides` has no Overview.
-  const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
 
   it("opens the docs base page when it exists", () => {
     expect(docsHomePath(manifest)).toBe("/docs")
@@ -273,8 +275,6 @@ describe("docs home links", () => {
 
 describe("docs rail", () => {
   const noIcons = { rail: {}, sections: {} }
-  const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
-  const vitehub = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../docs/content"), base: "/docs" })
 
   it("drops the rail for three sections or fewer", () => {
     expect(docsHasRail(small, noIcons)).toBe(false)

@@ -8,7 +8,7 @@ import config from "../nuxt.config";
 import { createDocsRedirectRouteRules, docsPageRedirects } from "../modules/vitehub-docs/redirects";
 
 const docsRoot = resolve(import.meta.dirname, "..");
-const docsManifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+const docsManifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
 const categories = config.docs?.categories ?? [];
 const railExclude = config.docs?.railExclude ?? [];
 

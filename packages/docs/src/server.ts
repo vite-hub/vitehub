@@ -1,4 +1,5 @@
-export { createDocsManifest, DocsContentError } from "./manifest.ts"
+export { createDocsContent, createDocsManifest, DocsContentError } from "./manifest.ts"
+export type { DocsContent } from "./manifest.ts"
 export type { DocsManifestOptions } from "./manifest.ts"
 export { createDocsParser, docsSearchSections } from "./markdown.ts"
 export type { DocsDocument, DocsParserOptions } from "./markdown.ts"

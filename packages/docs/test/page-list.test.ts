@@ -15,7 +15,7 @@ const filename = resolve(import.meta.dirname, "../runtime/app/components/content
 const { descriptor } = parse(readFileSync(filename, "utf8"), { filename })
 const script = compileScript(descriptor, { id: "page-list", inlineTemplate: true }).content
 const { outputText } = transpileModule(script, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext } })
-const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
+const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 const section = manifest.sections.find(candidate => candidate.id === "kv")!
 const page = section.pages.find(candidate => candidate.id === "api")!
 const icons: DocsIcons = {

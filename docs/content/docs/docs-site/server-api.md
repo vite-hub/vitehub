@@ -126,12 +126,12 @@ The module writes its output to the Nuxt build folder:
 | `.nuxt/docs/raw/` | The agent copy of each page, as `/raw` serves it. |
 | `.nuxt/docs/components.mjs` | The Markdown blocks that pages can use, and their files. |
 
-To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it throws `DocsContentError` on the first invalid file:
+To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DocsContentError` on the first invalid file:
 
 ```ts [scripts/docs-pages.ts]
 import { createDocsManifest } from '@vite-hub/docs/server'
 
-const manifest = createDocsManifest({ dir: 'content', base: '/docs' })
+const manifest = await createDocsManifest({ dir: 'content', base: '/docs' })
 for (const section of manifest.sections) {
   console.log(section.id, section.pages.map(page => page.path))
 }
