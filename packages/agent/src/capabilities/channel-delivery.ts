@@ -14,10 +14,14 @@ import type {
   MaybePromise,
 } from "../types.ts"
 
-/** The Channel client that `useChannel(name)` returns, or any object with the same `send()` contract. */
-export interface ChannelDeliveryClient<TOptions = never> {
+/**
+ * The Channel client that `useChannel(name)` returns, or any object with the same `send()` contract.
+ * `channelDelivery()` sends the model's text. `TMessage` types what else application code sends through the same
+ * client, such as a chat card.
+ */
+export interface ChannelDeliveryClient<TOptions = never, TMessage = string> {
   name?: string
-  send: (text: string, options: TOptions) => Promise<[error: Error, receipt: undefined] | [error: undefined, receipt: { deliveryId: string }]>
+  send: (message: string | TMessage, options: TOptions) => Promise<[error: Error, receipt: undefined] | [error: undefined, receipt: { deliveryId: string }]>
 }
 
 /** What `onDelivered` receives after a successful send or a recorded dry-run send. */
@@ -33,9 +37,9 @@ export interface ChannelDeliveryReceipt {
 /** Resolves the send options once per Agent Invocation. */
 export type ChannelDeliveryOptionsResolver<TOptions> = (context: AgentCapabilityRuntimeContext) => MaybePromise<TOptions>
 
-export interface ChannelDeliveryOptions<TOptions> {
+export interface ChannelDeliveryOptions<TOptions, TMessage = string> {
   /** The Channel to send through, for example `useChannel("teams")`. */
-  channel: ChannelDeliveryClient<TOptions>
+  channel: ChannelDeliveryClient<TOptions, TMessage>
   /**
    * Send options, such as the recipient. They are fixed by the application, not by the model.
    * A function resolves them once per Agent Invocation, before the Driver runs, also in a dry run.
@@ -98,7 +102,7 @@ const channelDeliveryInputSchema: AgentToolSchema = {
  * Give the Agent one tool that sends a message through a Channel to a recipient that the application selects.
  * Use it when a run must deliver its result somewhere other than the Channel that started it, for example from a Schedule.
  */
-export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptions>): AgentCapabilityDefinition {
+export function channelDelivery<TOptions, TMessage = string>(options: ChannelDeliveryOptions<TOptions, TMessage>): AgentCapabilityDefinition {
   const name = options.name ?? "send_message"
   const maxCalls = options.maxCalls ?? 1
   const reminder = options.reminder === true ? {} : options.reminder || undefined

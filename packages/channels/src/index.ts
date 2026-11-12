@@ -17,6 +17,7 @@ export type {
   ChannelExtensionOptions,
   ChannelHandler,
   ChannelHandlerContext,
+  ChannelMessage,
   ChannelSendOptions,
   ChannelSendReceipt,
   ChannelSendResult,

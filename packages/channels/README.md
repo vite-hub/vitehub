@@ -55,6 +55,8 @@ The adapter receives `Build finished.` and the original options object. Channels
 
 `deliveryId` is a new UUID for every send. It identifies the attempt in logs and results; it does not deduplicate sends.
 
+The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/agent/channels`. `ChannelMessage<typeof adapter>` names it.
+
 ## Discover named Channels
 
 Install Vite before enabling discovery:
@@ -98,7 +100,7 @@ Include the generated declarations in the application's TypeScript configuration
 }
 ```
 
-Server code can then send through the discovered Channel. The options are typed from its adapter:
+Server code can then send through the discovered Channel. The message and options are typed from its adapter:
 
 ```ts fragment
 import { useChannel } from "@vite-hub/channels/server";

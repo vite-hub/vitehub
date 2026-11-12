@@ -25,11 +25,14 @@ export type ChannelErrorCode = "CHANNEL_DEFINITION_FAILED" | "CHANNEL_INVALID_SE
  * The connection of a Channel to one platform, such as Slack, Teams, Stripe, or your own API.
  * `send` sends one outbound message. Adapters that receive messages carry more data that the Agent package reads.
  */
-export interface ChannelAdapter<TSendOptions = never> {
+export interface ChannelAdapter<TSendOptions = never, TMessage = string> {
   /** The platform, such as `"slack"` or `"stripe"`. Logs and the Console show it. */
   readonly kind: string
-  /** Sends one message. Without it, `useChannel(name).send()` returns `CHANNEL_INVALID_SEND`. */
-  send?: (text: string, options: TSendOptions) => MaybePromise<ChannelSendReceipt>
+  /**
+   * Sends one message: text, or any object that the adapter accepts, such as a card. Without it,
+   * `useChannel(name).send()` returns `CHANNEL_INVALID_SEND`.
+   */
+  send?: (message: TMessage, options: TSendOptions) => MaybePromise<ChannelSendReceipt>
 }
 
 /** The request of an inbound webhook, as the adapter's `event` and `id` functions receive it. */
@@ -156,7 +159,7 @@ type AdapterEventData<TAdapter> = TAdapter extends WebhookChannelAdapter<infer T
  */
 export interface ChannelExtensionOptions {}
 
-export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never> = ChannelAdapter<never>> extends ChannelExtensionOptions {
+export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never, never> = ChannelAdapter<never, never>> extends ChannelExtensionOptions {
   /** The connection, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`. */
   adapter: TAdapter
   /** Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. */
@@ -164,7 +167,7 @@ export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never>
 }
 
 /** A Channel from `defineChannel()`. */
-export type ChannelDefinition<TAdapter extends ChannelAdapter<never> = ChannelAdapter<never>> = ChannelDefinitionOptions<TAdapter> & {
+export type ChannelDefinition<TAdapter extends ChannelAdapter<never, never> = ChannelAdapter<never, never>> = ChannelDefinitionOptions<TAdapter> & {
   readonly [channelDefinitionBrand]: true
 }
 
@@ -179,13 +182,18 @@ export interface DiscoveredChannelDefinition {
 }
 
 /** The options of the adapter's `send()`. */
-export type ChannelSendOptions<TAdapter> = TAdapter extends { send?: (text: string, options: infer TOptions) => unknown } ? TOptions : never
+export type ChannelSendOptions<TAdapter> = TAdapter extends { send?: (message: never, options: infer TOptions) => unknown } ? TOptions : never
+
+/** The message of the adapter's `send()`: text, or what else the adapter accepts, such as a Chat SDK card. */
+export type ChannelMessage<TAdapter> = TAdapter extends { send?: infer TSend }
+  ? NonNullable<TSend> extends (message: infer TMessage, options: never) => unknown ? TMessage : string
+  : string
 
 type SendArguments<TOptions> = [TOptions] extends [never]
   ? [options?: Record<string, unknown>]
   : undefined extends TOptions ? [options?: TOptions] : [options: TOptions]
 
-export interface ChannelClient<TSendOptions = never> {
+export interface ChannelClient<TSendOptions = never, TMessage = string> {
   readonly name: string
-  send: (text: string, ...options: SendArguments<TSendOptions>) => Promise<Result<ChannelSendResult, ChannelErrorCode>>
+  send: (message: TMessage, ...options: SendArguments<TSendOptions>) => Promise<Result<ChannelSendResult, ChannelErrorCode>>
 }

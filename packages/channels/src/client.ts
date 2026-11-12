@@ -2,7 +2,7 @@ import { defineChannel, isChannelDefinition } from "./definition.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { ChannelAdapter, ChannelClient, ChannelDefinitionOptions, ChannelErrorCode, ChannelSendOptions, ChannelSendReceipt, ChannelSendResult } from "./types.ts"
+import type { ChannelAdapter, ChannelClient, ChannelDefinitionOptions, ChannelErrorCode, ChannelMessage, ChannelSendOptions, ChannelSendReceipt, ChannelSendResult } from "./types.ts"
 import { channelErrors } from "./error-diagnostics.ts"
 
 const uninspectableSendErrorMessage = "Channel send failed with an uninspectable value."
@@ -68,18 +68,19 @@ function normalizeSendReceipt(result: object): ChannelSendReceipt {
 }
 
 /** A client that sends through the Channel's adapter. `useChannel()` returns the same client for discovered Channels. */
-export function createChannel<TAdapter extends ChannelAdapter<never>>(
+export function createChannel<TAdapter extends ChannelAdapter<never, never>>(
   name: string,
   definition: ChannelDefinitionOptions<TAdapter>,
-): ChannelClient<ChannelSendOptions<TAdapter>> {
+): ChannelClient<ChannelSendOptions<TAdapter>, ChannelMessage<TAdapter>> {
   const { adapter } = isChannelDefinition(definition) ? definition : defineChannel(definition)
 
   return {
     name,
-    async send(text: string, options?: unknown): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
+    async send(message: unknown, options?: unknown): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
       const invalid = (detail: string): Result<ChannelSendResult, ChannelErrorCode> => [channelErrors.CHANNEL_INVALID_SEND({ detail }), undefined]
-      if (typeof text !== "string" || text.trim().length === 0) {
-        return invalid("Channel message text must be a non-empty string.")
+      // Text must have content. The adapter checks the shape of an object message, such as a card.
+      if (typeof message === "string" ? message.trim().length === 0 : (!message || typeof message !== "object" || Array.isArray(message))) {
+        return invalid("Channel message must be non-empty text or an object that the adapter accepts.")
       }
       if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options))) {
         return invalid(`Channel "${name}" send options must be an object.`)
@@ -92,8 +93,8 @@ export function createChannel<TAdapter extends ChannelAdapter<never>>(
       const deliveryId = globalThis.crypto.randomUUID()
       try {
         logDelivery("outbound.started", deliveryId, name, adapter.kind)
-        // SAFETY: ChannelClient types the options as the adapter's send options.
-        const result: unknown = await send.call(adapter, text, (options ?? {}) as never)
+        // SAFETY: ChannelClient types the message and options as the adapter's send arguments.
+        const result: unknown = await send.call(adapter, message as never, (options ?? {}) as never)
         if (!result || typeof result !== "object") {
           throw new Error(`The "${adapter.kind}" adapter of Channel "${name}" returned an invalid result.`)
         }
@@ -107,5 +108,5 @@ export function createChannel<TAdapter extends ChannelAdapter<never>>(
         return [channelErrors.CHANNEL_SEND_FAILED({ cause, channel: name, kind: adapter.kind }), undefined]
       }
     },
-  } as ChannelClient<ChannelSendOptions<TAdapter>>
+  } as ChannelClient<ChannelSendOptions<TAdapter>, ChannelMessage<TAdapter>>
 }
