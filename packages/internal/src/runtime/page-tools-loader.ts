@@ -128,7 +128,7 @@ function storedDockText(): string | null {
 }
 
 /**
- * Whether a fixed or sticky element of the page, such as its own floating menu button, lies in the middle of the bottom
+ * Whether a fixed element of the page, or a sticky one that sticks to the bottom, such as its own floating menu button, lies in the middle of the bottom
  * edge, where the pill docks until the person drags it. Elements in the page's flow do not count: the pill floats over
  * text anyway. A layer over most of the screen, such as a backdrop, is no control, but a small element in it is.
  */
@@ -152,7 +152,9 @@ function pageControlAtPillPlace(): boolean {
       for (let node: Element | null = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
         if (node.localName.startsWith("vitehub-")) break
         const style = getComputedStyle(node)
-        if (style.position === "fixed" || style.position === "sticky") {
+        // A sticky element is a control only when it sticks to the bottom edge. A heading that sticks to the top only
+        // passes the bottom edge while the page scrolls.
+        if (style.position === "fixed" || (style.position === "sticky" && style.bottom !== "auto")) {
           if (small(node) || (node !== element && small(element))) return true
           break
         }

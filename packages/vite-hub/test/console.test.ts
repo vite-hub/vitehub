@@ -1236,7 +1236,7 @@ describe("Agent invocation console", () => {
     installConsoleSections("/project", ["kv", "kv"])
     installConsoleProjectName("/project", "second-app")
 
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
       projectName: "second-app",
       sections: ["kv"],
     })
@@ -1250,7 +1250,7 @@ describe("Agent invocation console", () => {
 
     expect(resolveConsoleProjectRoot()).toBe("/first")
     expect(resolveConsoleInvocations()).toBe(first)
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({ sections: ["kv"] })
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({ sections: ["kv"] })
   })
 
   it("keeps configured identities across concurrent same-root runtimes", async () => {

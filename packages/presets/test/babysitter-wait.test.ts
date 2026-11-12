@@ -188,6 +188,14 @@ describe("Babysitter check waits", () => {
     expect(wakeReasons(snapshot, "pending", ignoring)).toEqual(["feedback-changed"]);
   });
 
+  it("matches configured feedback authors in either bot spelling", async () => {
+    const ignoring = { ...policy, ignoreFeedbackAuthors: new Set(["preview[bot]"]) };
+    const snapshot = await parked();
+    snapshot.wait = { headSha: head, ...createCheckWait(snapshot, ignoring) };
+    snapshot.comments["15"] = { id: 15, body: "Preview deployed", author: { login: "Preview", __typename: "Bot" } };
+    expect(wakeReasons(snapshot, "pending", ignoring)).toEqual([]);
+  });
+
   it("holds an external dependency through an unrelated green PR check", async () => {
     expect(wakeReasons(await parked(s => { s.wait!.wake = { kind: "checks", repository, headSha: "b".repeat(40) }; s.wait!.reason = "base CI"; }), "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
   });
@@ -226,6 +234,31 @@ describe("Babysitter review push budget", () => {
       s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } };
     });
     expect(wakeReasons(deferred, "pending", budget)).toEqual(["gates-settled"]);
+  });
+
+  it("stops holding a pass or a deferral for a running review once the budget is spent", async () => {
+    const now = Date.now();
+    const review = { id: 3, name: "review-bot", head_sha: head, status: "queued", started_at: new Date(now - 5 * 60_000).toISOString(), app: { id: 6 } };
+    const running = (count: number) => spent(s => { s.checks = { "check_run:3": review }; s.wait = { ...s.wait!, defer: "checks", knownFailures: [] } }, count);
+    expect(reviewCheckRunning(await running(1), budget)).toBe(true);
+    expect(reviewCheckRunning(await running(2), budget)).toBe(false);
+    expect(checksStillRunning(await running(1), now, budget)).toBe(true);
+    expect(checksStillRunning(await running(2), now, budget)).toBe(false);
+    expect(checksStillRunning(await running(2), now)).toBe(true);
+    expect(wakeReasons(await running(1), "passed", budget)).toEqual([]);
+    expect(wakeReasons(await running(2), "passed", budget)).toEqual(["gates-settled"]);
+    // CI that still runs keeps holding the deferral.
+    const ci = await spent(s => { s.checks = { "check_run:3": review, "check_run:4": { ...review, id: 4, name: "ci" } }; s.wait = { ...s.wait!, defer: "checks", knownFailures: [] } });
+    expect(checksStillRunning(ci, now, budget)).toBe(true);
+  });
+
+  it("stops waking for an assessed bot-only thread with ignoreAssessedBotThreads", async () => {
+    const thread = { id: "T2", isResolved: false, comments: [{ id: 22, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] };
+    const open = await parked(s => { s.checks = {}; s.threads = [thread]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
+    expect(wakeReasons(open, "pending", policy)).toEqual(["unresolved-thread"]);
+    expect(wakeReasons(open, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual([]);
+    const person = await parked(s => { s.checks = {}; s.threads = [{ ...thread, comments: [...thread.comments, { id: 23, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
+    expect(wakeReasons(person, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual(["unresolved-thread"]);
   });
 
   it("counts a push as review-driven only without a conflict or a failure outside the review checks", async () => {

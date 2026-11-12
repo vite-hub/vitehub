@@ -7,6 +7,7 @@ import { requestEvent } from "./request-event.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
+    vi.unstubAllEnvs()
     resetAuth()
     setAuthRuntimeEnvResolver(undefined)
   })
@@ -209,6 +210,28 @@ describe("server auth helpers", () => {
     expect(response.status).toBe(200)
     expect(helperAuth).toBe(routeAuth)
     expect(session?.user.email).toMatch(/^auth-\d+@example\.com$/)
+  })
+
+  it.each([
+    ["BETTER_AUTH_SECRET", "first-secret-at-least-32-characters", "second-secret-at-least-32-characters"],
+    ["AUTH_SECRET", "first-secret-at-least-32-characters", "second-secret-at-least-32-characters"],
+    ["BETTER_AUTH_SECRETS", "1:first-secret-at-least-32-characters", "2:second-secret-at-least-32-characters"],
+  ])("rejects a cookie of the old %s after it changes", async (name, first, second) => {
+    vi.stubEnv(name, first)
+    const definition = defineAuth({ appName: "ViteHub", emailAndPassword: { enabled: true } })
+    const origin = "http://localhost:3000"
+    const signUp = await handleAuthRequest(definition, new Request(`${origin}/api/auth/sign-up/email`, {
+      body: JSON.stringify({ email: `rotate-${name}@example.com`, name: "Rotate", password: "passwordpassword" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    }))
+    expect(signUp.status).toBe(200)
+    const cookie = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const guard = withAuth(() => "ok", definition)
+    const send = () => guard(new Request(`${origin}/private`, { headers: { cookie } }))
+    expect(await send()).toBe("ok")
+    vi.stubEnv(name, second)
+    expect(await send()).toMatchObject({ status: 401 })
   })
 
   it("signs in a user who signed up in an earlier request without a database", async () => {

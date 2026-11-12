@@ -63,6 +63,8 @@ interface ConsoleProjectsState {
   gate: ShallowRef<ConsoleProjectGate>
   projects: ShallowRef<ConsoleLinkedProject[]>
   statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
+  /** The name that each project reported in `project.get`, by project id. This browser keeps them for the next visit. */
+  names: ShallowRef<Readonly<Record<string, string>>>
   /** The Link an app dialog is open. The rail and the search palette open it. */
   linkOpen: Ref<boolean>
   /** The signed-in account of an `account` Console. */
@@ -148,6 +150,7 @@ export function startConsoleProjects(options: {
     info: shallowRef(),
     linkOpen: ref(false),
     mode: options.mode,
+    names: shallowRef(options.mode === "account" ? readProjectNames() : {}),
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     projects: shallowRef(projects),
@@ -165,7 +168,10 @@ function open(info: ConsoleProjectInfo): void {
   const projects = useState()
   projects.info.value = info
   const current = projects.current.value
-  if (current?.id) projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
+  if (current?.id) {
+    projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
+    rememberProjectName(current.id, info.name)
+  }
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
 }
@@ -252,7 +258,45 @@ export async function checkConsoleProjects(): Promise<void> {
     const probe = await probeConsoleProject(targetOf(projects, project)).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
+    if (probe.kind === "ready") rememberProjectName(project.id, probe.info.name)
   }))
+}
+
+const projectNamesKey = "vitehub-console:project-names"
+
+function readProjectNames(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(projectNamesKey) ?? "{}")
+    if (!(value instanceof Object)) return {}
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""))
+  }
+  catch {
+    return {}
+  }
+}
+
+function rememberProjectName(id: string, name: string | undefined): void {
+  const projects = useState()
+  const value = name?.trim()
+  if (projects.mode !== "account" || !value || projects.names.value[id] === value) return
+  projects.names.value = { ...projects.names.value, [id]: value }
+  try {
+    globalThis.localStorage?.setItem(projectNamesKey, JSON.stringify(projects.names.value))
+  }
+  catch {}
+}
+
+/**
+ * The name that the Console shows for a project: the name that the app reports in `project.get`, else the label of the
+ * link, else the host.
+ */
+export function consoleProjectDisplayName(project: { id: string, label?: string | null, url: string }): string {
+  return useState().names.value[project.id] || project.label || consoleProjectHost(project)
+}
+
+/** Only owners and admins of a team link and unlink its apps. */
+export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">): boolean {
+  return account.roles.includes("owner") || account.roles.includes("admin")
 }
 
 const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`

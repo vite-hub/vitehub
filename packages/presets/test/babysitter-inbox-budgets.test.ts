@@ -382,8 +382,41 @@ test('a pass whose wait loses to a new event on the same head still uses the no-
       check_run: { id: 100 + index, name: 'lint', head_sha: 'a', status: 'completed', conclusion: 'success', app: { id: 1 }, pull_requests: [{ number: 7 }] } })
     assert.equal(await inbox.finish(claim, { text: 'Needs a maintainer', progress: { kind: 'no-progress' }, wait: { kind: 'external', reason: 'Needs a maintainer', evidenceKey: 'maintainer' } }), false)
   }
-  assert.deepEqual((await inbox.get(repository, 7))?.progressBudget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
+  const { exhaustedAt, ...budget } = (await inbox.get(repository, 7))!.progressBudget!
+  assert.deepEqual(budget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
+  assert.equal(typeof exhaustedAt, 'number')
   assert.equal((await inbox.claim(1)).length, 0)
+})
+
+test('an exhausted head waits three hours, then gets one more pass without a person', async t => {
+  // 2026-10-19: exhausted heads waited for a person to push until someone noticed.
+  let now = Date.UTC(2026, 9, 19)
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 3 }, clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const wait = { reason: 'Required checks pending', evidenceKey: 'checks:pending' }
+  for (let index = 0; index < 3; index++) {
+    const claim = (await inbox.claim(1))[0]!
+    assert.ok(claim)
+    await inbox.finish(claim, { text: 'No progress', progress: { kind: 'no-progress' }, wait })
+    if (index < 2) assert.equal(await inbox.wake((await inbox.get(repository, 7))!, `checks:${index}`), true)
+  }
+  const parked = (await inbox.get(repository, 7))!
+  assert.equal(parked.progressBudget?.exhausted, true)
+  assert.equal(parked.wait?.retryAt, now + 3 * 60 * 60_000)
+  assert.equal(await inbox.wake(parked, 'early'), true)
+  assert.equal((await inbox.claim(1)).length, 0, 'a wake before the cooldown keeps the budget spent')
+  const claim = (await inbox.claim(1, { includeBlocked: true }))[0]!
+  await inbox.finish(claim, { text: 'Budget spent', wait })
+  now += 3 * 60 * 60_000
+  assert.equal(await inbox.wake((await inbox.get(repository, 7))!, 'cooldown'), true)
+  const [retried] = await inbox.claim(1)
+  assert.ok(retried, 'the cooldown gives the head one more pass')
+  assert.equal(retried.snapshot.progressBudget?.resetReason, 'cooldown')
+  await inbox.finish(retried, { text: 'Still no progress', progress: { kind: 'no-progress' }, wait })
+  const again = (await inbox.get(repository, 7))!
+  assert.equal(again.progressBudget?.exhausted, true)
+  assert.equal(again.wait?.retryAt, now + 3 * 60 * 60_000)
 })
 
 async function exhaust(inbox: PullRequestInbox) {
@@ -444,6 +477,35 @@ test('counts each review-driven push once and shows the count in the summary', a
   // After the budget is spent, a model pass on the head someone else pushed handles that head once.
   await pass(5, { kind: 'no-progress' })
   assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 2, heads: ['b', 'c', 'd', 'a'] })
+})
+
+test('settles automated review after minorReviewRounds heads in a row with nothing above P2', async t => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 3, reviewPushes: 3, minorReviewRounds: 2 } })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const pass = async (id: number, head: string, automatedReview: 'P1' | 'P2' | 'none') => {
+    await inbox.seed(repository, pr(head))
+    await wake(inbox, id)
+    const [claim] = await inbox.claim(1)
+    assert.ok(claim)
+    claim.automatedReview = automatedReview
+    assert.ok(await inbox.finish(claim, { text: 'done', progress: { kind: 'no-progress' } }))
+  }
+  await pass(1, 'a', 'P2')
+  // A P0 or P1 starts the count again.
+  await pass(2, 'b', 'P1')
+  await pass(3, 'c', 'none')
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 0, heads: [], minorHeads: ['c'] })
+  // The same head assessed again is not a second round.
+  await pass(4, 'c', 'P2')
+  assert.equal((await inbox.get(repository, 7))?.reviewPushBudget?.count, 0)
+  await pass(5, 'd', 'P2')
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 3, heads: ['d'], minorHeads: ['c', 'd'] })
+  // A later push keeps the record.
+  await wake(inbox, 6)
+  const [claim] = await inbox.claim(1)
+  assert.ok(await inbox.finish(claim!, { text: 'done', progress: { kind: 'verified', evidence: 'push:e', reviewDriven: true } }))
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 4, heads: ['d', 'e'], minorHeads: ['c', 'd'] })
 })
 
 test('records no review pushes when the budget is disabled', async t => {

@@ -7,6 +7,8 @@
 
 `@vite-hub/web-container` runs a ViteHub app in the reader's browser tab, inside a [StackBlitz WebContainer](https://webcontainers.io). Docs tutorials and playgrounds use it to install, start, and preview an app without a server of ours.
 
+Read the [WebContainer docs](https://vitehub.dev/docs/web-container) for a tutorial, snapshots, and the API reference.
+
 Install this owner package directly, or import the same API from `vite-hub/web-container` when your app already uses the `vite-hub` framework distribution.
 
 ```sh
