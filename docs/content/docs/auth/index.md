@@ -18,8 +18,8 @@ icon: i-lucide-shield-check
     appName: 'Acme',
     emailAndPassword: { enabled: true },
     access: {
-      // Users must sign in to open these pages
-      routes: ['/admin/**'],
+      // Requests to these APIs need a session
+      routes: ['/api/admin/**'],
     },
   })
   ```
@@ -96,6 +96,10 @@ icon: i-lucide-shield-check
 
   :::product-feature-item{title="Protect a route" icon="i-lucide-lock" to="/docs/auth/server-api#use-it-at-runtime"}
   Wrap a handler in `withAuth()` so only signed-in users reach it.
+  :::
+
+  :::product-feature-item{title="Protect a Nuxt page" icon="i-lucide-file-lock" to="/docs/auth/protect-pages"}
+  Add `definePageMeta({ auth: 'user' })`, and visitors without a session go to the login page.
   :::
 
   :::product-feature-item{title="Decide who gets in" icon="i-lucide-shield-check" to="/docs/auth/server-api#authorize-access-routes"}
