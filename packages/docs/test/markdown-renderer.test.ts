@@ -143,3 +143,75 @@ describe("DocsMarkdown", () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 })
+
+describe("diagrams", () => {
+  const page = readFileSync(resolve(import.meta.dirname, "fixtures/diagrams.md"), "utf8")
+  const disabled = [
+    { name: "default options", options: undefined },
+    { name: "diagrams: false", options: { comarkUi: { diagrams: false } } },
+    { name: "diagrams: { draw: false }", options: { comarkUi: { diagrams: { draw: false } } } },
+  ] as const
+
+  it.each(disabled)("rejects authored diagram SVG with $name", async ({ options }) => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+    try {
+      const document = await createDocsParser(options)(`::diagram
+---
+svg: '<svg xmlns="http://www.w3.org/2000/svg" onload="globalThis.__diagramOnload=1"><script>globalThis.__diagramScript=1</script></svg>'
+---
+::`)
+      const html = await renderToString(vue.createSSRApp(renderer(), { document }))
+      expect(html).not.toContain("__diagram")
+      expect(html).not.toContain("<svg")
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "diagram")?.[1]).not.toHaveProperty("svg")
+      expect(fetch).not.toHaveBeenCalled()
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
+  it("draws a Mermaid fence as an SVG on the server, without a network request", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+    try {
+      const document = await parseMarkdown(page)
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "pele")).toEqual(["pele", { language: "mermaid", content: expect.stringContaining("Router --> Handler") }])
+
+      const html = await renderToString(vue.createSSRApp(renderer(), { document }))
+      const diagram = html.slice(html.indexOf('class="cmm"'))
+      expect(diagram).toMatch(/^class="cmm" data-source="graph LR[^"]*"><div class="[^"]*" data-diagram="flowchart"[^>]*><svg/)
+      expect(diagram).toContain(">Handler<")
+      expect(fetch).not.toHaveBeenCalled()
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
+  it.each(disabled)("keeps a D2 fence as code without a request with $name", async ({ options }) => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+    try {
+      const document = await createDocsParser(options)(page)
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "pre")?.[1]).toMatchObject({ language: "d2" })
+      expect(fetch).not.toHaveBeenCalled()
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
+  it.each([
+    { name: "kroki.io", diagrams: true, server: "https://kroki.io" },
+    { name: "a custom server", diagrams: { server: "https://kroki.example.com" }, server: "https://kroki.example.com" },
+  ])("sends a D2 fence to $name when a site opts in", async ({ diagrams, server }) => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('<svg viewBox="0 0 10 10"><text>server</text></svg>'))
+    try {
+      const document = await createDocsParser({ comarkUi: { diagrams } })(page)
+      expect(fetch).toHaveBeenCalledWith(`${server}/d2/svg`, expect.objectContaining({ method: "POST" }))
+      expect(document.nodes.find(node => typeof node !== "string" && node[0] === "diagram")?.[1]).toMatchObject({ type: "d2", svg: expect.stringContaining("<svg") })
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+})
