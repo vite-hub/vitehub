@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -13,6 +14,7 @@ export { discoverRealtimeDefinitions } from "./discovery.ts"
 import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
@@ -48,7 +50,7 @@ export interface RealtimeVitePluginOptions extends RealtimeOptions {
   contribute?: (context: RealtimeContributionContext) => Promise<RealtimeContribution | undefined> | RealtimeContribution | undefined
 }
 
-export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata }
 
 export interface RealtimeInspectionOptions {
   /** Resolved room authority. Defaults to `auto`. */
@@ -125,6 +127,10 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
     vitehub: {
+      // Without a room authority the build fails or Realtime is unavailable, so there is no state to report.
+      durability: () => hasRoomAuthority
+        ? [{ export: "realtimeDurability", input: { authority: inspectionAuthority }, module: durabilityModuleFile(import.meta.url), primitive: "realtime" }]
+        : [],
       inspect: () => ({
         definitions: [{
           kind: "realtime",

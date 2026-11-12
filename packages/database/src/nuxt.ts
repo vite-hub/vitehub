@@ -18,7 +18,7 @@ import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
-import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
+import { pgliteDatabases, renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
@@ -293,6 +293,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             provisionRoot,
             serverDirs,
           })
+          // Production output has no PGlite.
+          const pglite = building && runtime ? pgliteDatabases(runtime) : []
+          if (pglite.length) throw databaseErrorDiagnostics.DATABASE_PGLITE_IN_BUILD({ databases: pglite })
           if (building && provider === "cloudflare") {
             assertDistinctNuxtD1Bindings(runtime, d1, config)
             // Without a D1 resource, the Vite build removes the hosted runtime and Nitro cannot load the
@@ -546,7 +549,7 @@ async function installNitroLocalDatabaseRuntime(
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     runtime.databases[definition.name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`, `relations_${index}`)},`
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`, `relations_${index}`, dev)},`
       : `    db: createDefinitionRuntime({ ...definition_${index}, ${merged(index) ? `schema: schema_${index}, ` : ""}relations: relations_${index} }, definitionDefaults),`,
     `    relations: relations_${index},`,
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
@@ -563,7 +566,11 @@ async function installNitroLocalDatabaseRuntime(
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
       `import { mergeDatabaseRelations } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "relations.js")).href)}`,
-      ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
+      ...(usesPostgres(runtime)
+        ? [dev
+            ? `import { createDevPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "pglite.js")).href)}`
+            : `import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`]
+        : []),
       ...imports,
       "",
       `const definitionDefaults = ${definitionDefaults}`,

@@ -12,7 +12,14 @@ import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunAttempt
 interface ExecuteScheduleOptions {
   /** Return the persisted failed run when the handler throws. Guards still throw. */
   captureHandlerFailure?: boolean
+  /**
+   * The caller holds the claim on this occurrence, so a run that is still pending or running belongs to a process that
+   * stopped. Such a run gets a new attempt, and its unfinished attempts are marked as failed.
+   */
+  claimed?: boolean
   definition: ScheduleDefinition
+  /** Signals that the handler can start, or an existing run already consumed this occurrence. */
+  onExecution?: () => void
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
@@ -23,9 +30,11 @@ interface ExecuteScheduleOptions {
 }
 
 interface ExecuteStaticScheduleOptions {
+  claimed?: boolean
   cron: string
   definition: ScheduleDefinition
   name: string
+  onExecution?: () => void
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
@@ -178,6 +187,19 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
   }))
 }
 
+const stoppedAttemptError: ScheduleRunError = {
+  message: "The process that ran this attempt stopped before the attempt finished.",
+  name: "ScheduleAttemptStopped",
+}
+
+async function failStoppedAttempts(run: ScheduleRunRecord, store: ScheduleRunStore): Promise<void> {
+  const now = new Date()
+  for (const attempt of await store.listAttempts(run.id)) {
+    if (attempt.status !== "running") continue
+    await store.updateAttempt(attempt.id, { completedAt: now, error: stoppedAttemptError, status: "failed", updatedAt: now })
+  }
+}
+
 export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition" | "waitUntil">): Promise<ScheduleRunRecord> {
   const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   return (await createOrGetRun({ ...options, scheduledAt })).run
@@ -187,14 +209,19 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   const { created, run } = await createOrGetRun({ ...options, scheduledAt })
 
-  // v1 policy is intentionally fixed: the deterministic run id dedupes repeated
-  // delivery for one scheduled occurrence, and an existing run never overlaps or retries.
+  // The deterministic run id dedupes repeated delivery for one scheduled occurrence. A finished run never runs again.
+  // A claimed run that did not finish lost its process, so it runs again.
+  const runStore = options.runStore ?? getScheduleRunStore()
   if (!created) {
-    return run
+    if (!options.claimed || run.status === "succeeded" || run.status === "failed") {
+      options.onExecution?.()
+      return run
+    }
+    await failStoppedAttempts(run, runStore)
   }
 
-  const runStore = options.runStore ?? getScheduleRunStore()
   const attempt = await startAttempt(run, runStore)
+  options.onExecution?.()
   try {
     const value = await runWithScheduleWaitUntil(
       waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
@@ -212,7 +239,9 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {
   return await executeSchedule({
+    ...(options.claimed ? { claimed: true } : {}),
     definition: options.definition,
+    onExecution: options.onExecution,
     scheduleId: options.name,
     source: "static",
     scheduledAt: options.scheduledAt,

@@ -6,6 +6,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
+import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
 import { resolveAuthViteConfig } from "./config.ts"
 import { authAbilitiesCandidates, discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
@@ -35,10 +36,16 @@ const envServerModuleId = "#vitehub/env/server"
 const envVitePluginName = "@vite-hub/env/vite"
 const generatedAuthAccessMiddlewareHandler = ".vitehub/auth/access-middleware.ts"
 const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
+const cachedAccessRouteGuardName = "vite-hub/auth-cached-access-route-guard"
 const mergeNoExternal = createNoExternalAddition(authPackageName)
 
 type NitroConfig = Record<string, unknown>
 type NitroHandler = { handler: string; lazy?: boolean; method?: string; middleware?: boolean; route: string }
+type NitroBuild = {
+  hooks: { hook: (name: "build:before" | "build:config" | "build:reload", callback: () => Promise<void>) => void }
+  logger: { warn: (error: unknown) => void }
+  options: { baseURL?: string, builder?: string | false, routeRules: Parameters<typeof assertNoCachedAccessRoutes>[1] }
+}
 
 export interface AuthVitePluginAPI {
   getConfig: () => ResolvedAuthViteConfig | undefined
@@ -292,7 +299,24 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 
   for (const handler of authHandlers) kit.addHandler(handler)
   // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
-  return kit.config as NitroConfig
+  const merged = kit.config as NitroConfig
+  if (config.access.routes.length > 0) {
+    const { routes } = config.access
+    const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => Reflect.get(Object(module), "name") !== cachedAccessRouteGuardName)
+    merged.modules = [...modules, {
+      name: cachedAccessRouteGuardName,
+      setup(nitro: NitroBuild) {
+        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
+        // A bundler calls `build:config` after every `build:before` hook, such as Nuxt's `nitro:build:before`, and before
+        // it builds or prerenders. Without a builder, Nitro calls only `build:before`.
+        nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", check)
+        // In development, `nitro.updateConfig()` replaces the route rules and calls only `build:reload`. The development
+        // server keeps the new rules and logs the error as a warning.
+        nitro.hooks.hook("build:reload", () => check().catch((error: unknown) => nitro.logger.warn(error)))
+      },
+    }]
+  }
+  return merged
 }
 
 export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
