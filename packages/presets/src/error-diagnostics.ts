@@ -19,6 +19,14 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "GitHub returned an invalid review comment cursor.",
       fix: "Retry the operation to read the thread again. If the cursor is still missing or repeated, check the GitHub API response before resolving the thread.",
     },
+    PRESETS_BABYSITTER_OPTION_INVALID: {
+      why: ({ option, expected }: { option: string; expected: string }) => `Babysitter ${option} must be ${expected}.`,
+      fix: ({ option, expected }: { option: string; expected: string }) => `Set ${option} to ${expected} in the Babysitter options, or leave it out to keep the default.`,
+    },
+    PRESETS_BABYSITTER_STACK_REPAIR_NEEDS_DIRECT_MERGE: {
+      why: 'Babysitter repairStackChildren requires merge: "direct": only a direct merge stops a stack child from merging into its parent\'s branch.',
+      fix: 'Set merge to "direct" or { strategy: "direct" }, or set repairStackChildren to false.',
+    },
     PRESETS_REVIEW_COMMENT_MISSING: {
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",

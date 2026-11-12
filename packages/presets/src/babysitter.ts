@@ -11,6 +11,7 @@ import type { AgentSandboxDefinition, BuiltInAgentDriverName } from "@vite-hub/a
 import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
@@ -366,7 +367,7 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
     }
     if (!hasRuntimeType(repairStackChildren, "boolean")) {
-      throw new TypeError("[vitehub] Babysitter repairStackChildren must be a boolean.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "repairStackChildren", expected: "a boolean" });
     }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
@@ -383,7 +384,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
     if (resolveBabysitterMerge(merge).mode !== "direct" && repairStackChildren) {
-      throw new TypeError('[vitehub] Babysitter repairStackChildren requires merge: "direct".');
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STACK_REPAIR_NEEDS_DIRECT_MERGE();
     }
     const definition = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
