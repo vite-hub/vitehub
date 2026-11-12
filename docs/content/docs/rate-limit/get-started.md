@@ -25,7 +25,7 @@ pnpm add vite-hub @vite-hub/rate-limit nitro h3
 pnpm add -D vite
 ```
 
-Add `rateLimit: true` to `vitehub()` in `vite.config.ts`. Keep the other plugins of your app.
+Add `rateLimit: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other plugins of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}

@@ -59,7 +59,7 @@ it("starts a KV app with the Console from the Node output", async () => {
       // The built server refuses an unsigned call. plugin-order-build.test.ts checks a signed call on a Node build.
       const unsigned = await fetch(`http://127.0.0.1:${port}/_vitehub/rpc`, { body: "{}", headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
       expect(unsigned.status).toBe(401)
-      // Without the Auth section, its Console route is absent. Apps no longer serve a Console page or a Schedule run route.
+      // Apps serve no Console page, Schedule run route, or Auth management route.
       for (const path of ["/_vitehub/schedules/run", "/_vitehub/auth/manage"]) {
         const post = await fetch(`http://127.0.0.1:${port}${path}`, { body: "{}", headers: { "content-type": "application/json" }, method: "POST" })
         expect(post.status, path).toBe(404)

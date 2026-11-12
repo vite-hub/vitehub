@@ -18,7 +18,7 @@ server/schedules/<name>.ts
 server/workflows/<name>/index.ts
 ```
 
-Pass stable run identity, actor/context, input, wait-until behavior, timeouts, and persistence explicitly where the installed helper requires them. Design retries around idempotent steps or a durable completion fingerprint; never treat “started” as terminal success.
+Pass stable run identity, invoker/context, input, wait-until behavior, timeouts, and persistence explicitly where the installed helper requires them. Design retries around idempotent steps or a durable completion fingerprint; never treat “started” as terminal success.
 
 ## Proof
 

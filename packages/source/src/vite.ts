@@ -64,6 +64,8 @@ export interface GeneratedSourcePlugin {
   handler: string
   method?: never
   plugin: true
+  /** Install request interception before an async plugin can let the server accept requests. */
+  position?: "start" | "end"
   route?: never
 }
 
@@ -243,7 +245,7 @@ export function mergeGeneratedSourceNitroConfig(
 
   for (const handler of generatedHandlers) {
     if (handler.plugin) {
-      kit.addPlugin(handler.handler)
+      kit.addPlugin(handler.handler, handler.position)
       continue
     }
     const exact = handlers.some(candidate =>
@@ -677,7 +679,7 @@ async function writeContentArtifact(
       `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default))`,
       "",
     ].join("\n"))
-    handlers.push({ handler: previewRoutes, plugin: true })
+    handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
   }
   else await rm(previewRoutes, { force: true })
   // `defineContent({ seo: { sitemap, robots, markdown, rss } })` adds the site-wide SEO routes. Markdown copies sit at
@@ -747,7 +749,7 @@ function generatedSourceNitroContribution(
   const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
   const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
   const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
-  const plugins = merged.plugins?.slice(Array.isArray(existing.plugins) ? existing.plugins.length : 0)
+  const plugins = merged.plugins?.filter(plugin => !existing.plugins?.includes(plugin))
   if (!handlers?.length && !modules?.length && !plugins?.length) return
   const contribution: NitroGeneratedConfig = {}
   if (handlers?.length) contribution.handlers = handlers

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { channelAdapter, discord, teams, telegram } from "../src/channels.ts"
-import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgentTrigger } from "../src/index.ts"
+import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { createAgentInspectionMetadata, resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -433,7 +434,6 @@ describe("Channel instructions", () => {
 
     // SAFETY: The test supplies every invocation field read by the adapter path under test.
     await adapter.generate({
-      actor: invoker,
       context: createAgentInvocationContextStore({
         "agent.channelInstructions": "Injected Channel instructions.",
       }),
@@ -469,7 +469,6 @@ describe("Channel instructions", () => {
       const invoker = { id: "budget-test", kind: "user" }
 
       const request = {
-        actor: invoker,
         context: createAgentInvocationContextStore(),
         input: {},
         invoker,
@@ -507,7 +506,6 @@ describe("Channel instructions", () => {
 
     // SAFETY: The test supplies every invocation field read by the auxiliary adapter path.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext({
-      actor: invoker,
       context,
       input: {},
       invoker,

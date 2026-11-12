@@ -61,7 +61,7 @@ import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/op
 interface OperationContext {
   access: OperationAccess // the checked Console access of the call
   user: OperationUser | null // the signed-in user
-  actor?: OperationActor // the Agent Actor, when an agent calls for `user`
+  actor?: OperationActor // the Agent Invoker, when an agent calls for `user`
   surface: 'console' | 'cli' | 'mcp' | 'agent'
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
@@ -170,7 +170,7 @@ Each operation becomes a tool with dots as underscores: `reports.list` is `repor
 
 `approve` sets which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as a read never waits.
 
-The agent acts for the Auth user its Actor stands for (`auth.user(actor)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
+The agent acts for the Auth user its Invoker stands for (`auth.user(invoker)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
 
 ::warning
 Without `console.authorize`, nothing filters by section, and `include` is the only gate. List only what the agent may do.
@@ -214,7 +214,7 @@ Core error codes:
 
 The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, and takes only [signed requests](/docs/development/console#sign-console-requests).
 
-In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature.
+In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature. `console: false` turns this RPC off.
 
 ::warning
 A dev RPC without signed calls (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth`, so it takes only signed calls.
