@@ -1,11 +1,9 @@
 ---
 title: Agent presets
-description: Start from a reusable Agent Definition and configure it for your application.
+description: Start from a ready-made Agent Definition, such as Babysitter or the Workspace preset, and configure it for your application.
 navigation.title: Overview
-navigation.order: 90
-navigation.group: Presets
+navigation.order: 1
 icon: i-lucide-copy
-navigation.kind: Guides
 ---
 
 An Agent preset is a ready Agent Definition with defaults, instructions, and behavior. You pick a preset and add your model, credentials, and project settings.
@@ -16,8 +14,9 @@ Import ready presets from `vite-hub/presets/<name>` (package `@vite-hub/presets`
 
 | Preset | Use it for | Host requirements |
 | --- | --- | --- |
-| [Babysitter](/docs/agents/babysitter) | Fix pull requests, answer reviews, wait for checks, and optionally merge. | A persistent Node process, SQL Agent State, Git, a GitHub App, and Codex or Claude Code. |
-| [Workspace](/docs/agents/workspace-preset) | Read mounted Sources and cite files at their resolved GitHub revision. | A configured Workspace and the Codex Driver. |
+| [Babysitter](/docs/presets/babysitter) | Fix pull requests, answer reviews, wait for checks, and optionally merge. | A persistent Node process, SQL Agent State, Git, a GitHub App, and Codex or Claude Code. |
+| [Workspace](/docs/presets/workspace) | Read mounted Sources and cite files at their resolved GitHub revision. | A configured Workspace and the Codex Driver. |
+| [Gmail Labeller](/docs/presets/labeller) | Label Gmail messages with ordered rules, and let Jev pick a label when no rule matches. | A [Gmail Channel](/docs/agents/gmail) and a Jev provider. |
 
 The deployment `preset` in `vitehub({ preset: 'node' })` is different. It picks the server host, not an Agent workflow.
 
@@ -43,7 +42,7 @@ export default defineAgent({
 })
 ```
 
-An Agent file alone is not enough. Babysitter also needs [GitHub setup](/docs/agents/babysitter#configure-github), [deployment](/docs/agents/babysitter#deploy), and [label controls](/docs/agents/babysitter#control-work-with-labels).
+An Agent file alone is not enough. Babysitter also needs [GitHub setup](/docs/presets/babysitter#configure-github), [deployment](/docs/presets/babysitter#deploy), and [label controls](/docs/presets/babysitter#control-work-with-labels).
 
 You can also pick one parent with `extends: babysitter`. Use `extends` or `preset`, not both. Preset names are local to the definition. ViteHub does not load packages by name and has no global preset registry.
 

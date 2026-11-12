@@ -45,6 +45,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | [Markdown templates](/docs/markdown-template): Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/mcp` | [MCP server](/docs/mcp): app MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |
+| `@vite-hub/presets` | [Agent presets](/docs/presets): ready-made Agents such as Babysitter, the Workspace preset, and the Gmail Labeller | `@vite-hub/presets/babysitter`, `@vite-hub/presets/labeller`, `@vite-hub/presets/workspace` |
 | `@vite-hub/queue` | Queue Definitions, dispatch helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
@@ -86,5 +87,3 @@ Capabilities, and other app APIs come from feature subpaths.
 - [Config options](/docs/reference/config-options)
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-
-- `@vite-hub/presets`

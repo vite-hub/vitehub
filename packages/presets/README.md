@@ -9,7 +9,7 @@
 primitives. Each preset is a subpath. The package depends on
 [`@vite-hub/agent`](../agent/README.md); the Agent package does not know these presets.
 
-Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution.
+Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution. User docs: [Agent presets](https://vitehub.dev/docs/presets).
 
 | Import | Preset |
 | --- | --- |
@@ -35,7 +35,7 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
 import { labeller } from "@vite-hub/presets/labeller"
 ```
 
-See the [Labeller docs](https://vitehub.dev/docs/agents/labeller).
+See the [Labeller docs](https://vitehub.dev/docs/presets/labeller).
 
 ## Workspace preset
 
@@ -43,7 +43,7 @@ See the [Labeller docs](https://vitehub.dev/docs/agents/labeller).
 import workspace from "@vite-hub/presets/workspace"
 ```
 
-See the [workspace preset docs](https://vitehub.dev/docs/agents/workspace-preset).
+See the [workspace preset docs](https://vitehub.dev/docs/presets/workspace).
 
 ## Babysitter
 

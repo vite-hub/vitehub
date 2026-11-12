@@ -1,8 +1,8 @@
 ---
 title: Babysitter
 description: Run an Agent that fixes your pull requests, waits for checks, and merges the ready ones.
-navigation.group: Presets
-navigation.order: 91
+navigation.order: 2
+icon: i-lucide-git-pull-request
 navigation.kind: Guides
 ---
 
