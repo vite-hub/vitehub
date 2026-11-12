@@ -72,7 +72,7 @@ Vercel Blob keeps file bytes and JSON attributes in separate objects. In one pro
 This adapter has no distributed transactions. When processes or hosts share a Workspace, coordinate their access yourself. For atomic publication across replicas, use the Blob + Database Store.
 ::
 
-A [GitHub Store](#github-store) reads its token from `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
+A [GitHub Store](#github-store) signs in with a GitHub App when `VITEHUB_GITHUB_APP_ID` is set, else with the token in `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
 
 In one isolate, GitHub Stores and history views cache blob bytes by sha, across repositories:
 
@@ -193,9 +193,11 @@ export default defineWorkspace({
 | `repository`, `repo` | `string` | `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` | The repository, as `owner/name`. |
 | `branch` | `string` | `VITEHUB_WORKSPACE_GITHUB_BRANCH`, else `main` | The branch of the Workspace files. |
 | `root` | `string` | `VITEHUB_WORKSPACE_GITHUB_ROOT`, else `.vitehub/workspaces/<workspace>` | The folder in the repository. An empty string is the repository root. |
-| `token` | `string` | `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
+| `token` | `string` | A GitHub App from `VITEHUB_GITHUB_APP_ID`, then `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
 | `refs` | `{ published?: string, draft?: string }` | none | Branches for the history refs `published` and `draft`. |
 | `database` | `unknown` | none | A value the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store ignores it. |
+
+A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` saves the lookup of the installation. The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
 
 The Store reads the repository and token at the first request, not at creation. A missing one throws `WORKSPACE_R0072` then, so a build that loads the Workspace Definition needs no token.
 

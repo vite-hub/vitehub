@@ -626,6 +626,9 @@ catalogs:
     pathe:
       specifier: ^2.0.3
       version: 2.0.3
+    srvx:
+      specifier: ^1.0.8
+      version: 1.0.8
     unimport:
       specifier: ^6.5.0
       version: 6.5.0
@@ -1236,6 +1239,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      rou3:
+        specifier: ^1.0.0
+        version: 1.0.0
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -2649,6 +2655,9 @@ importers:
       sharp:
         specifier: 0.35.5
         version: 0.35.5(@types/node@24.19.1)
+      srvx:
+        specifier: catalog:unjs
+        version: 1.0.8
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
@@ -3235,6 +3244,9 @@ importers:
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:../kv
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3299,9 +3311,6 @@ importers:
       ocache:
         specifier: catalog:unjs
         version: 0.3.1
-      ofetch:
-        specifier: catalog:unjs
-        version: 1.5.1
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -4066,9 +4075,6 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
-      ofetch:
-        specifier: catalog:unjs
-        version: 1.5.1
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -4155,6 +4161,36 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@vite-hub/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../../packages/blob
+      '@vite-hub/cms':
+        specifier: workspace:*
+        version: link:../../packages/cms
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../../packages/comments
+      '@vite-hub/content':
+        specifier: workspace:*
+        version: link:../../packages/content
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../../packages/kv
+      '@vite-hub/realtime':
+        specifier: workspace:*
+        version: link:../../packages/realtime
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../../packages/schedule
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))

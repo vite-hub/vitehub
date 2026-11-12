@@ -122,6 +122,7 @@ async function signRequest(client: FilesInstance, driver: string, pathname: stri
   }
   if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
   if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.maxSize !== undefined) throw unsupportedSign(driver, "the provider cannot bind `maxSize`")
   if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
   const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
   if (upload.method !== "PUT") throw unsupportedSign(driver, "the provider signs uploads as a POST form")

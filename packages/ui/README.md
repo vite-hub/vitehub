@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
 
 ## Run an app in the browser
 
-The workspace entries render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. They run the app in a WebContainer through [`@vite-hub/web-container`](../web-container/README.md). The page that boots it must be cross-origin isolated, as that README shows.
+The workspace entries render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. They run the app in a WebContainer through [`@vite-hub/web-container`](../web-container/README.md). The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
 
 | Import | Exports |
 | --- | --- |
