@@ -15,6 +15,11 @@ declare module "#vitehub/database/databases" {
   export default databases
 }
 
+declare module "#vitehub/database/migrations" {
+  const migrations: import("./runtime/migrate-on-start.js").ShippedMigrations
+  export default migrations
+}
+
 declare module "#vitehub/database/definition-defaults" {
   const defaults: {
     cloudflare?: import("./index.js").CloudflareD1BindingConfig
