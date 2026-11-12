@@ -79,6 +79,9 @@ export default defineConfig({
 | `blob: { serve: true }` | Adds a Nitro route at `/api/_vitehub/blob/**` that serves the default store. |
 | `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Adds a Nitro route. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
+> [!WARNING]
+> The serve route sends each file from the app origin with the content type that the uploader sent. It serves HTML, SVG, XML, and multipart types in a CSP sandbox, so they run no script. A middleware `Content-Security-Policy` does not remove the sandbox. When users who are not fully trusted can upload, set `publicBaseUrl` to an origin that has no app cookies, and limit [`ensure.types`](/docs/blob/server-api#ensureblobblob-options) to the types that your app needs. Read [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
+
 ### Use the real store in development
 
 `vite dev` keeps Blob local by default. When ViteHub infers Vercel Blob for a store without a `driver`, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
@@ -457,6 +460,107 @@ A driver is the storage service a store uses. `driver` selects which options app
 > [!WARNING]
 > Keep credentials in Server Env or provider secrets. The tables show every config field, but do not commit secrets to Vite config.
 
+### Credentials
+
+ViteHub writes the resolved Blob config into the server bundle. It never writes a credential there. A credential is an option such as `secretAccessKey`, `token`, `accountKey`, `connectionString`, `sasToken`, `key`, or `credentials.private_key`, and also the access key id that goes with a secret key. ViteHub also treats these values as credentials:
+
+- A URL option with a user name, password, or query, such as an Azure `endpoint` with a SAS token.
+- An option that the driver tables below do not show, such as Google OAuth fields in `credentials` or `oauth`.
+
+Give a credential in one of two ways:
+
+- Leave the option out, and set the env variable that the driver reads at runtime. For example, `s3` uses the AWS SDK credential chain, which reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+- Set the option to an env variable with `process.env`. ViteHub finds the variable that holds the value at build time, writes only its name into the output, and reads it again when the store starts. Set the variable for the build and for the server. On Cloudflare Workers, ViteHub reads the Worker env first, so a Worker secret works without `process.env`.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      stores: {
+        default: { driver: 'fs' },
+        media: {
+          driver: 's3',
+          bucket: 'media',
+          region: 'eu-west-1',
+          credentials: {
+            accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!,
+          },
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        stores: {
+          default: { driver: 'fs' },
+          media: {
+            driver: 's3',
+            bucket: 'media',
+            region: 'eu-west-1',
+            credentials: {
+              accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!,
+              secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!,
+            },
+          },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        stores: {
+          default: { driver: 'fs' },
+          media: {
+            driver: 's3',
+            bucket: 'media',
+            region: 'eu-west-1',
+            credentials: {
+              accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!,
+              secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!,
+            },
+          },
+        },
+      },
+    }),
+  ],
+})
+```
+
+:::
+::
+
+A literal credential, or a value that no env variable holds, fails `vite dev` and the build with [`BLOB_C0019`](/docs/blob/diagnostics/blob_c0019). At build time, ViteHub looks only in `process.env`. A value that `loadEnv()` reads from a `.env` file is not there, so set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` first. A variable that the build used but the server does not have fails when the store starts, with [`BLOB_R0044`](/docs/blob/diagnostics/blob_r0044). ViteHub reads the variable as it is: a value that the config changes, such as a private key with `\n` replaced by line breaks, does not match. Put the final value in the variable, or use `keyFilename` for Google Cloud Storage.
+
+The value must be in exactly one env variable at build time. When two variables hold the same value, ViteHub cannot tell which one the config reads, and `vite dev` and the build fail with [`BLOB_C0020`](/docs/blob/diagnostics/blob_c0020). This also applies when two options, such as a MinIO user and password, have the same value. Give each variable a different value, or remove the other variable from the build environment.
+
 ### Local filesystem
 
 | Option | Type | Default | Description |
@@ -482,7 +586,7 @@ Use filesystem storage on one machine with one process. On a serverless host, it
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | None | Public or CDN base URL for objects, instead of signed URLs when supported. |
 
-The runtime binding takes precedence. HTTP credentials are used when no active binding exists. In `vite dev`, a store that the Cloudflare preset infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
+The runtime binding takes precedence. HTTP credentials are used when no active binding exists. ViteHub reads them only for HTTP access and signed URLs, so a server with the binding does not need the HTTP credential variables. In `vite dev`, a store that the Cloudflare preset infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
 
 ### Vercel Blob
 
@@ -494,7 +598,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |
 | `token` | `string` | OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN` | Vercel Blob read-write token. Without it, ViteHub uses Vercel OIDC when `BLOB_STORE_ID` is set, else `BLOB_READ_WRITE_TOKEN`. |
 
-A configured token that matches `BLOB_READ_WRITE_TOKEN` is hidden at build time and read from that variable at runtime. A configured token always wins over OIDC. Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
+A configured token that matches `BLOB_READ_WRITE_TOKEN` is hidden at build time and read from that variable at runtime. A configured token from another env variable is read from that variable. A configured token always wins over OIDC. See [Credentials](#credentials). Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
 
 ### Netlify Blobs
 
@@ -533,7 +637,7 @@ The `s3`, `akamai`, `digitalocean-spaces`, `hetzner`, `storj`, and `minio` drive
 | `accessKeyId` | Provider-specific drivers and `minio` | `string` | Access key. |
 | `secretAccessKey` | Provider-specific drivers and `minio` | `string` | Secret key. |
 
-MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. Other S3-compatible drivers also read their provider or SDK credential sources.
+MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. Other S3-compatible drivers also read their provider or SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
 
 ### Google Cloud Storage
 

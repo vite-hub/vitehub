@@ -6,10 +6,11 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
-import { normalizeBlobOptions } from "../src/config.ts"
+import { normalizeBlobOptions, resolveRuntimeBlobSecrets } from "../src/config.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import {
+  blobRuntimeEnv,
   clearActiveCloudflareEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
@@ -28,6 +29,23 @@ it("forwards response options through the runtime Blob helper", async () => {
   const options = { cacheControl: "public, max-age=300", transform: { key: "v1", run: (original: Blob) => original } }
   expect(await blob.serve(request, "original", options)).toBe(response)
   expect(storage.serve).toHaveBeenCalledWith(request, "original", options)
+})
+
+it("reads store credentials from the Worker env before process.env", () => {
+  onTestFinished(() => {
+    vi.unstubAllEnvs()
+  })
+  vi.stubEnv("VITEHUB_TEST_BLOB_TOKEN", "process-token")
+  vi.stubEnv("VITEHUB_TEST_PROCESS_ONLY", "process-only")
+  const store = { access: "public", driver: "vercel-blob", secretEnv: { token: "VITEHUB_TEST_BLOB_TOKEN" }, token: "********" } as const
+
+  expect(resolveRuntimeBlobSecrets(store, blobRuntimeEnv())).toEqual({ access: "public", driver: "vercel-blob", token: "process-token" })
+  runWithActiveCloudflareEnv({ BLOB: {}, VITEHUB_TEST_BLOB_TOKEN: "worker-token" }, () => {
+    const env = blobRuntimeEnv()
+    expect(resolveRuntimeBlobSecrets(store, env)).toEqual({ access: "public", driver: "vercel-blob", token: "worker-token" })
+    expect(env.VITEHUB_TEST_PROCESS_ONLY).toBe("process-only")
+    expect(env).not.toHaveProperty("BLOB")
+  })
 })
 
 /** Runs one request the way the Nitro Cloudflare middleware does: the request env is active for the whole handler. */
@@ -701,7 +719,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("missing").get("notes/missing.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"missing\".",
+      message: "Unknown Blob store \"missing\". Configured stores: \"default\".",
     })
   })
 
@@ -752,7 +770,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("inherited").get("notes/inherited.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"inherited\".",
+      message: "Unknown Blob store \"inherited\". Configured stores: \"default\".",
     })
     expect(vercelBlobMock.get).not.toHaveBeenCalled()
   })
@@ -1286,6 +1304,21 @@ describe("blob runtime", () => {
     })
   })
 
+  it("uses the R2 binding without the HTTP credential env variables that the config names", async () => {
+    // Test values only. The binding does not use the HTTP credentials, so the server can leave them out.
+    const config = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare-r2", secretAccessKey: "test-secret" }, {
+      env: { TEST_MEDIA_KEY: "test-key", TEST_MEDIA_SECRET: "test-secret" },
+    })
+    if (!config) throw new Error("Expected a store.")
+    const env = { MEDIA: createMemoryBucket() }
+    await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.put("notes/worker.txt", "hello")))
+    expect(await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.list()))).toMatchObject({ blobs: [{ pathname: "notes/worker.txt" }] })
+    expect(await cloudflareRequest(config, env, async () => blob.sign("notes/worker.txt", { expiresIn: 60, method: "GET" })))
+      .toMatchObject([expect.objectContaining({ cause: expect.objectContaining({ code: "BLOB_R0044", message: expect.stringContaining("`TEST_MEDIA_KEY`") }) }), undefined])
+    const signed = await cloudflareRequest(config, { ...env, R2_ACCOUNT_ID: "account", TEST_MEDIA_KEY: "worker-key", TEST_MEDIA_SECRET: "worker-secret" }, async () => expectBlobSuccess(await blob.sign("notes/worker.txt", { expiresIn: 60, method: "GET" })))
+    expect(signed.url).toContain("worker-key")
+  })
+
   it("rehydrates R2 HTTP fallback secrets from the Cloudflare request env", async () => {
     const config: ResolvedBlobModuleOptions = {
       store: {
@@ -1475,6 +1508,20 @@ describe("ensureBlob", () => {
     expect(() => ensureBlob(new Blob(["hello"], { type: "text/plain" }), {
       types: ["image"],
     })).toThrow("File type is invalid")
+  })
+
+  it("accepts a type that a browser opens as a page only when the app lists it exactly", () => {
+    const svg = new Blob(["content"], { type: "image/svg+xml" })
+    expect(() => ensureBlob(svg, { types: ["image"] })).toThrow("File type is invalid, must be: image")
+    expect(() => ensureBlob(svg, { types: ["image/svg+xml"] })).not.toThrow()
+    expect(() => ensureBlob(new Blob(["content"], { type: "image/png" }), { types: ["image"] })).not.toThrow()
+    for (const type of ["image/png,image/svg+xml", "image/png, text/html", "image/png,multipart/mixed;boundary=b"]) {
+      expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["image"] })).toThrow("File type is invalid, must be: image")
+    }
+    for (const type of ["text/html", "text/html;charset=utf-8", "text/xml", "text/html extra"]) {
+      expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["text"] })).toThrow("File type is invalid, must be: text")
+    }
+    expect(() => ensureBlob(new Blob(["content"], { type: "text/html" }), { types: ["text/html"] })).not.toThrow()
   })
 
   it("rejects fractional max sizes instead of truncating them", () => {
