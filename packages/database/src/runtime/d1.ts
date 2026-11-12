@@ -1,6 +1,7 @@
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import { runtimeConfig } from "./definition-config.ts"
 
+import type { AnyRelations } from "drizzle-orm"
 import type { DatabaseDefinition, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 export { resolveDevRemoteConfig, resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
@@ -10,15 +11,15 @@ const options = {
   requireRemoteUrl: true,
 }
 
-export function createHostedDrizzleDb<TSchema extends Record<string, unknown>>(
+export function createHostedDrizzleDb<TRelations extends AnyRelations>(
   config: RuntimeDrizzleDatabaseConfig,
-  schema: TSchema,
+  relations: TRelations,
 ) {
-  return createDrizzleSqliteAdapter(config, schema, options)
+  return createDrizzleSqliteAdapter<Record<string, unknown>, TRelations>(config, relations, options)
 }
 
-export function createDefinitionRuntime<TSchema extends Record<string, unknown>>(
-  definition: DatabaseDefinition<TSchema>,
+export function createDefinitionRuntime<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+  definition: DatabaseDefinition<TSchema, TRelations>,
 ) {
-  return createHostedDrizzleDb(runtimeConfig(definition), definition.schema)
+  return createDrizzleSqliteAdapter<TSchema, TRelations>(runtimeConfig(definition), definition.relations, options)
 }

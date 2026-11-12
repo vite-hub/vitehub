@@ -257,7 +257,7 @@ For a self-hosted Node process, `createProcessAgentCapacity()` adjusts new admis
 
 ```ts
 // server/agent-capacity.ts
-import { createProcessAgentCapacity } from "@vite-hub/agent/runtime/process"
+import { createProcessAgentCapacity } from "@vite-hub/agent/process"
 
 export const agentCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -311,7 +311,7 @@ Pass `--json` for the structured inspection contract.
 - `usage()` requests provider usage metadata, estimates missing cost from Models.dev, and exposes the normalized Agent Usage Record through its typed Finish Extension. Its `metadata.pricing` flag is false when `pricing: false` disables estimation.
 - `skills()`, `access()`, `memory()`, and `fetch()` cover prompt skills, workspace scope, durable notes, and HTTP reads.
 
-```ts
+```ts fragment
 import { openapi } from "@vite-hub/agent/capabilities";
 
 // The application sets this Invocation context value for each tenant.
@@ -420,7 +420,7 @@ Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel 
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `provider: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or explicit provider options because ViteHub cannot infer a durable filesystem there.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there.
 
 ```ts
 // vite.config.ts
@@ -431,7 +431,7 @@ export default defineConfig({
   plugins: [hubAgent({
     providers: {
       state: {
-        provider: "sqlite",
+        driver: "sqlite",
         url: process.env.VITEHUB_AGENT_STATE_URL,
       },
     },
@@ -439,7 +439,7 @@ export default defineConfig({
 });
 ```
 
-`provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
+`driver: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
 
 Built-in persistent `file:` connections use SQLite WAL so queue commits can complete while another connection retains a read snapshot. WAL requires a local filesystem with shared-memory support. For NFS, EFS, or another network-backed volume, set `agent.providers.state.journalMode: "delete"` to use rollback journaling. The low-level `createLibsqlAgentState()` accepts the same `journalMode` option. Keep the database and its journal files on the same persistent volume. Supplied clients and remote connections keep their own connection policy. Agent State operations on the same local file share an in-process queue across adapters, including equivalent encoded or relative file URLs. Adapters with one supplied client share a queue by client identity. Owned in-memory clients serialize their own operations without blocking independent memory databases. Owned clients using `file::memory:?cache=shared` share one database queue, including equivalent encoded and mixed-case scheme URLs. This coordination does not replace SQLite locks across processes or coordinate SQL issued directly outside Agent State.
 
@@ -466,7 +466,7 @@ You can also wire the adapter manually when `chat({ state })` should own the sta
 
 ```ts
 import { chat } from "@vite-hub/agent/capabilities"
-import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite";
+import { createLibsqlAgentState } from "@vite-hub/agent/state";
 
 chat({
   state: () =>
@@ -506,19 +506,21 @@ Channels with `history: { collection, key, thread?, invocationItem? }` export Co
 
 For GitHub Channels, `activity: true` links pull request webhook activity to its ViteHub Console invocation when `vitehub({ publicUrl })` is set. `activity: { publicUrl }` overrides the origin for one Channel. Without a public URL, the application supplies its own links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
 
+`pullRequest.ci` sets how a pull request run treats hosted CI after it pushes. With `"report"`, the default, the prompt tells the Agent to run local checks, push, report pending hosted checks, and finish without waiting. With `"wait"`, the prompt tells the Agent to wait for hosted CI and fix failures until all checks pass. GitLab and Forgejo Channels accept the same option. See [Hosted CI](../../docs/content/docs/agents/channels.md#hosted-ci).
+
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
 
 ## Default invocation journal
 
-`@vite-hub/agent/invocations/default` exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
+The private `@vite-hub/agent/internal/default-invocations` entry exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
 
 A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
 
-`@vite-hub/agent/invocations/default-core` exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/invocations/default-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
+The private `@vite-hub/agent/internal/default-invocations-core` entry exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/internal/default-invocations-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
 
 ## D1 invocation storage
 
-`@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
+`@vite-hub/agent/invocations` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
 
 
 D1 batches and conditional writes preserve concurrent journal updates across Workers. Claims use the database clock. Terminal records use the same 30-day and 10,000-record retention defaults as the libSQL store. Both adapters apply the record count on about 1 in `ceil(maxRecords / 100)` creates and terminal transitions, because that limit reads about `maxRecords` rows. The count can exceed the limit by about 1% between runs. Pending and running records are retained. Retention takes an `AgentRetentionPolicy`: `maxAge` is a duration such as `'14d'` or a number of milliseconds, `maxRecords` is a count, and `maxSize` is a size such as `'500MB'`, a number of bytes, or a percent of the volume such as `'30%'`. `false` disables a limit. Only the SQLite store supports `maxSize`, for a local file; it deletes the oldest terminal records until the live data of the file fits. The D1 store rejects it. `invocations.delete(id)` and `invocations.prune({ olderThanMs, dryRun })` remove terminal records on demand in both adapters; `vitehub agent invocations delete|prune` does the same for a SQLite or libSQL journal. `vitehub agent invocations compact` rebuilds a local SQLite journal file with `VACUUM` and sets `auto_vacuum = INCREMENTAL`, so a file created before that mode shrinks to its live data. An update rejects after 32 concurrent write conflicts. Use the journal's `redact` hook to remove sensitive values before any store receives them.
@@ -590,23 +592,22 @@ const changelogAgent = agentWithSkills(
 
 Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
 
-### Named presets
+### Presets from a package
 
-Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 
 ```ts fragment
 import { defineAgent } from "@vite-hub/agent"
 import { notetaker } from "@example/agents"
 
 export default defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   name: "meeting-notes",
   driver: { model: "gpt-5.6-sol" },
 })
 ```
 
-`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+A preset is an ordinary parent: `extends` applies child overrides and creates a fresh runtime. Importing a preset does not register a global name or load other packages, and the preset name never becomes model instructions.
 
 Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
 
@@ -627,8 +628,7 @@ Consumers select the definition and override only the options they need:
 
 ```ts fragment
 const notes = defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   options: { format: "detailed", labels: [] },
   driver: { model: "gpt-5.4" },
 })
@@ -644,7 +644,7 @@ A folder Agent, such as `server/agents/review/agent.ts`, owns a Workspace only w
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook. Option callbacks are values and are also replaced, never invoked by merging.
 
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+Publish the exported definition on npm, import it, and pass it as `extends`. There is no second preset factory or global package loader.
 
 ### Build an Agent from another Agent in code
 
@@ -679,7 +679,7 @@ GitHub Channels with `activity: true` keep one managed comment per pull request.
 ### Process-owned agents
 
 For a single Node process that discovers background work, `createProcessAgentHost`
-from `@vite-hub/agent/runtime/process` combines capacity, invocation storage and
+from `@vite-hub/agent/process` combines capacity, invocation storage and
 recovery, provider-session storage, and a draining reconciler. Its data directory
 must belong exclusively to this host. It is not a distributed lease.
 
@@ -861,7 +861,7 @@ Without a template, extending instructions replaces the inherited document.
 ### Process hosts
 
 A preset can attach a long-running Node host to an Agent Definition. Import
-`withAgentProcessHost()` from `@vite-hub/agent/process-host` and return the
+`withAgentProcessHost()` from `@vite-hub/agent/process` and return the
 definition with a `create(context)` function. ViteHub calls it once per
 discovered Agent on the Node server preset, with the Agent name, the definition,
 an Agent State extension, and a private data directory.

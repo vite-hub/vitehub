@@ -32,8 +32,11 @@ export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
 }
 
+/** The Console reads each database with `db` and lists its tables from `schema`. */
+export type ConsoleDatabaseEntry = Pick<RuntimeDatabaseEntry<Record<string, unknown>>, "db" | "schema">
+
 export interface ConsoleDatabaseInspection {
-  databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+  databases: Record<string, ConsoleDatabaseEntry>
   names: readonly string[]
 }
 

@@ -40,7 +40,7 @@ Start with the Blob + Database store. One option changes the store, and the coll
 
 ::product-features
   :::product-feature-item{title="One line selects the preset" icon="i-lucide-file-code-2" to="/docs/cms/get-started"}
-  Add `extends: cms` to `server/content.ts`. `vitehub()` needs no settings for it.
+  Add `extends: cms` to `server/content.ts`. ViteHub needs no settings for it.
   :::
 
   :::product-feature-item{title="No wiring to write" icon="i-lucide-blocks" to="/docs/cms/configure#what-the-preset-adds"}
