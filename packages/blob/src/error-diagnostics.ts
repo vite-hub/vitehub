@@ -45,7 +45,7 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/blob/diagnostics",
   codes: {
-    BLOB_R0027: withFix("Use a key of `blob.stores` in the Vite config as the store name, or add the store there, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
+    BLOB_R0027: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_C0001: withFix("Set `blob.driver` to a supported driver, for example `\"fs\"`, `\"cloudflare-r2\"`, `\"vercel-blob\"`, `\"netlify-blobs\"`, `\"minio\"`, or `\"s3\"`. Check the spelling."),
     BLOB_C0002: withFix("Set `blob.serve.headers` to an object of header names and string values, for example `{ \"Cache-Control\": \"public, max-age=300\" }`."),
     BLOB_C0003: withFix("Make each value in `blob.serve.headers` a string, for example `\"public, max-age=300\"`. Write a number as a string."),
@@ -67,7 +67,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0019: withFix("Put the credential in an env variable, and set the option to `process.env.<NAME>`, for example `secretAccessKey: process.env.S3_SECRET_ACCESS_KEY`. ViteHub writes only the variable name into the build output and reads the value at runtime, so set the variable for the build and for the server. A value that `loadEnv()` reads from a `.env` file is not in `process.env`: set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` before the config uses it. Or remove the option when the driver reads its own env variable, such as `AWS_SECRET_ACCESS_KEY` for `s3`."),
     BLOB_C0020: withFix("Give the credential a value that no other env variable has in the build environment, for example remove the other variable from the build environment. Or remove the option when the driver reads its own env variable, such as `AWS_SECRET_ACCESS_KEY` for `s3`, or `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` for `minio`."),
     BLOB_B0001: withFix("Set `blob.serve.authorize: true` so that the serve route calls the `authorize` export of `server/blob.ts`. Or remove the `authorize` export."),
-    BLOB_B0002: withFix("Add `hubAuth()` from `@vite-hub/auth/vite` to the Vite plugins and create `server/auth.ts`. Or remove `blob.serve.authorize`."),
+    BLOB_B0002: withFix("Set `auth: true` in `vitehub()` and create `server/auth.ts`. With `@vite-hub/blob` alone, add `hubAuth()` from `@vite-hub/auth/vite` to the Vite plugins. Or remove `blob.serve.authorize`."),
     BLOB_B0003: withFix("Keep one `server/blob` file. Delete or merge the other files that the message lists."),
     BLOB_B0004: withFix("Install the packages that the message names with the command in the message. Or set another `driver` on the store."),
     BLOB_B0005: withFix("Install sharp with `pnpm add sharp`. Or set `blob.images.transformer` to `\"auto\"`, `\"photon\"`, or `\"passthrough\"`."),
@@ -98,7 +98,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0024: withFix("Pass `expiresIn` in seconds as a positive integer, for example `blob.sign(pathname, { method: \"GET\", expiresIn: 300 })`."),
     BLOB_R0025: withFix("Use a driver that can sign this request, for example `cloudflare-r2`, or `s3` without `createOnly`. For a `PUT` with `createOnly: true`, use `cloudflare-r2`. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
     BLOB_R0026: withFix("Call `store()` on the `blob` export, for example `blob.store(\"media\")`, not on a handle that `blob.store()` returned."),
-    BLOB_R0028: withFix("Use a key of `blob.stores` in the Vite config as the store name, or add the store there, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
+    BLOB_R0028: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_R0029: withFix("Change the command as the message says. `vitehub blob <command> --help` lists the arguments and options."),
     BLOB_R0030: withFix("Use the `fs`, `cloudflare-r2`, or `vercel-blob` driver for multipart uploads. On `cloudflare-r2`, run with the R2 binding, because the R2 HTTP API has no multipart support. Or upload the file with one `blob.put()`."),
     BLOB_R0031: withFix("Pass a `partNumber` from 1 to 10000 to `uploadPart()`. Number the parts from 1 in upload order."),

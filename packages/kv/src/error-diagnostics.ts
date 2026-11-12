@@ -74,7 +74,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     KV_DISABLED: {
       why: "KV is not configured in this runtime.",
-      fix: "Add `hubKv()` to the Vite config and do not set `kv: false`.",
+      fix: "Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKv()` to the Vite plugins and do not pass `false` to it.",
     },
     KV_INVALID_CONFIG: {
       why: ({ path }: { path: "kv" | "kv.stores" }) => `\`${path}\` must be a plain object.`,
