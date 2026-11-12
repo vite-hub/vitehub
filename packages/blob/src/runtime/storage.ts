@@ -1,6 +1,6 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
-import { blobResult } from "../errors.ts"
+import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
@@ -149,7 +149,7 @@ function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, nam
   if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
   const stores = config.stores || { default: config.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  if (!store) throw new UnknownBlobStoreError(unknownBlobStoreMessage(name, stores))
   return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
 }
 

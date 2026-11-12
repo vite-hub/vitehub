@@ -131,7 +131,9 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass.
+other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
+PR from an author without write access only after a reviewer with write access
+approves its current head and no such reviewer's latest review requests changes.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
@@ -280,6 +282,11 @@ metadata updates and thread resolution. Unless `merge` is `"auto"`, the worker
 has no merge tool and the host rejects auto-merge operations. With `"auto"`, it
 requests GitHub native auto-merge subject to current PR admission and repository
 checks and reviews. Workers never merge directly or delete branches.
+
+CI logs reach the worker without color codes or fetch branch listings, capped at
+the last 4 MB of each failed job. Preloaded evidence and `readCheckLogs` return a
+failure-focused excerpt; `readCheckLogs` also takes `tailLines` or
+`startLine`/`endLine` for up to 1,000 lines the excerpt omitted.
 
 Before a repair push, the host durably associates the exact candidate commit with
 its active claim. Check and status webhooks for that commit are retained even when

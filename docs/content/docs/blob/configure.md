@@ -79,6 +79,9 @@ export default defineConfig({
 | `blob: { serve: true }` | Adds a Nitro route at `/api/_vitehub/blob/**` that serves the default store. |
 | `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Adds a Nitro route. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
+> [!WARNING]
+> The serve route sends each file from the app origin with the content type that the uploader sent. It serves HTML, SVG, XML, and multipart types in a CSP sandbox, so they run no script. A middleware `Content-Security-Policy` does not remove the sandbox. When users who are not fully trusted can upload, set `publicBaseUrl` to an origin that has no app cookies, and limit [`ensure.types`](/docs/blob/server-api#ensureblobblob-options) to the types that your app needs. Read [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
+
 ### Use the real store in development
 
 `vite dev` keeps Blob local by default. When ViteHub infers Vercel Blob for a store without a `driver`, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
