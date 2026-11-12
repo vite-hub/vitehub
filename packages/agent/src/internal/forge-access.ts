@@ -22,6 +22,8 @@ export interface ForgeAccessScope {
   /** `owner/name` of the repository that the token must reach. */
   repository: string
   signal?: AbortSignal
+  /** Milliseconds the token must stay valid. A cached token that expires sooner is replaced. */
+  minLifetime?: number
 }
 
 /** Resolves a repository-scoped GitHub token. A github() Channel with an `app` supplies one to its Agent. */
@@ -174,6 +176,12 @@ export function forgeGitScope(
   return repositories.length ? { repositories } : undefined
 }
 
+/**
+ * GitHub App installation tokens last one hour. `git` and `gh` keep the token for the whole run,
+ * so a run gets a token that stays valid for most of that hour, not a cached one about to expire.
+ */
+const forgeGitTokenLifetime = 55 * 60_000
+
 /** `GIT_CONFIG_*` entries that send the token only to this repository, with and without the `.git` suffix. */
 function gitAuthEntries(repository: string, token: string, baseUrl?: string): { key: string, value: string }[] {
   const header = forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository, token, baseUrl }))
@@ -198,7 +206,7 @@ export async function forgeGitEnvironment(
 ): Promise<Record<string, string>> {
   const access = readForgeAccess(runtimeContext)
   if (!access || !scope) return {}
-  const request = (repository: string) => access(context, signal ? { repository, signal } : { repository })
+  const request = (repository: string) => access(context, { repository, minLifetime: forgeGitTokenLifetime, ...(signal ? { signal } : {}) })
   const entries: { key: string, value: string }[] = []
   let primary: ForgeAccessResult | undefined
   if (scope.repository) {
