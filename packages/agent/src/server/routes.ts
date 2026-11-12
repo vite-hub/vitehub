@@ -1917,7 +1917,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           replayMatch.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
+          { verifyWebhook: false, queuedInvocation: invocation && { ...invocation, acceptedAt: delivery.enqueuedAt }, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })

@@ -8,6 +8,7 @@ export { messageChannelReplyBody, messageChannelDeliveredReplyBody } from "./int
 import type { ForgeTarget } from "./internal/forge-channel.ts"
 import { forgeChannelFetch, forgeActivityComments, forgeDeliveryEffects, forgeIdentity, forgePullRequest, forgePullRequestMetadata, forgeThreadRef, forgeChannelRequest, forgeChannelRead, forgeChannelWrite } from "./internal/forge-channel.ts"
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
+import { cancelReconcileRuns, pullRequestBranchEvent, pullRequestBranchEventsSince, pullRequestBranchMovedNotice, recordPullRequestBranchEvent, trackReconcileRun } from "./internal/github-reconcile-branch.ts"
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
@@ -557,6 +558,13 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
     }
     triggers?: readonly GitHubPullRequestTrigger[]
     events?: readonly ("opened" | "ready_for_review" | "reopened" | "synchronize" | (string & {}))[]
+    /**
+     * What happens to this pull request's reconcile runs when someone other than a bot pushes to its branch.
+     * `"notify"` (default): a queued run starts on the new head with a notice in its prompt. A running run continues.
+     * `"cancel"`: a queued run is dropped and a running run in this server process is cancelled.
+     * Closing the pull request always drops queued runs and cancels running ones.
+     */
+    headMoves?: "notify" | "cancel"
     mentions?: readonly string[]
     prompt?: string
   }
@@ -1109,6 +1117,12 @@ function githubPullRequestReconcileConcurrencyLimit(
 ): number {
   if (!reconcile || reconcile === true) return 1
   return reconcile.concurrencyLimit ?? 1
+}
+
+function githubPullRequestHeadMoves(
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+): "notify" | "cancel" {
+  return reconcile && reconcile !== true && reconcile.headMoves === "cancel" ? "cancel" : "notify"
 }
 
 function githubPullRequestReconcileDebounce(
@@ -3423,6 +3437,20 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           ? forgeCommandForTrigger(accepted?.input.context?.forge || accepted?.input.context?.codeHost)
           : accepted?.input.context?.github)
         if (accepted && acceptedPullRequest && acceptedCommand?.deliveryId) {
+          const pullRequestKey = `${acceptedCommand.repository}#${acceptedCommand.issueNumber}`
+          const ownership = {
+            concurrencyGroup: pullRequestKey,
+            concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
+            deliveryId: acceptedCommand.deliveryId,
+          }
+          const branch = options.reconcile && !services ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, accepted.acceptedAt) : {}
+          const dropped = branch.closed
+            ? "pull_request_closed"
+            : branch.push && githubPullRequestHeadMoves(options.reconcile) === "cancel" ? "head_moved" : undefined
+          if (dropped) {
+            const response = options.ignored?.(dropped) || ignored(dropped)
+            return { ...accepted, webhook: { ...ownership, rehydrate: () => response } }
+          }
           const metadata = await githubPullRequestMetadata(app, context, acceptedCommand, options, undefined, services)
           const refreshed = {
             ...acceptedPullRequest,
@@ -3436,22 +3464,26 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               ...metadata,
             },
           }
-          const ownership = {
-            concurrencyGroup: `${acceptedCommand.repository}#${acceptedCommand.issueNumber}`,
-            concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
-            deliveryId: acceptedCommand.deliveryId,
-          }
+          const commandInput = pullRequestCommandInput(acceptedCommand, refreshed)
           const invocation: AgentTriggerRunInvokeResult = {
             ...accepted,
             delivery: { finishEffects: githubPullRequestCommentFinishEffects(options) },
             input: {
               ...accepted.input,
-              ...pullRequestCommandInput(acceptedCommand, refreshed),
+              ...commandInput,
+              ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
               context: { ...accepted.input.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
             },
             webhook: {
               ...ownership,
-              rehydrate: () => ({ ...invocation, webhook: ownership }),
+              rehydrate: () => ({
+                ...invocation,
+                // A branch event can cancel the run while it runs in this process.
+                input: options.reconcile && !services
+                  ? { ...invocation.input, abortSignal: trackReconcileRun(pullRequestKey, accepted.run?.runId ?? ownership.deliveryId, ownership.concurrencyLimit) }
+                  : invocation.input,
+                webhook: ownership,
+              }),
             },
           }
           return invocation
@@ -3488,6 +3520,21 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           if (!options.reconcile) return ignored("activity_queued")
         }
         if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
+        // GitHub only: Forge payloads do not mark the Agent's own pushes as bot pushes.
+        const branchEvent = options.reconcile && !services
+          ? pullRequestBranchEvent(maybeString(inputGithubFacts(input)?.event) || (isRecord(payload?.pull_request) ? "pull_request" : undefined), payload)
+          : undefined
+        const branchRepository = maybeString(payload?.repository?.full_name)
+        const branchNumber = maybeNumber(payload?.number) ?? maybeNumber(payload?.pull_request?.number)
+        if (branchEvent && branchRepository && branchNumber) {
+          const pullRequestKey = `${branchRepository}#${branchNumber}`
+          await recordPullRequestBranchEvent(context.channelState, pullRequestKey, branchEvent)
+          if (branchEvent.kind === "closed" || (branchEvent.kind === "push" && githubPullRequestHeadMoves(options.reconcile) === "cancel")) {
+            const { agentInvocationId } = await import("./invocations.ts")
+            const agentName = context.agentName || context.agentIdentity?.name
+            await cancelReconcileRuns(pullRequestKey, runId => agentInvocationId(runId, agentName))
+          }
+        }
         const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
         const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context, services)
         const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
