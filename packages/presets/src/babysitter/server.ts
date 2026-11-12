@@ -100,6 +100,11 @@ export interface BabysitterRuntimeOptions {
   admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
 }
 
+/** How long an external blocker waits before another pass. */
+const externalRetryMs = 2 * 60 * 60_000;
+/** How long a head may wait for GitHub to compute its mergeability before its pass runs anyway. */
+const unknownMergeabilityLimitMs = 10 * 60_000;
+
 /** The `status` of GitHub's merge result that a merge rejection carries in its response excerpt. */
 function mergeResultStatus(error: MergeBlockedError): string | undefined {
   try {
@@ -748,13 +753,26 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const { provider, repo } = await forge(wake.repository);
     return checksDependencyEvidence(await provider.checks.list(repo, wake.headSha));
   }
+  /**
+   * Only a wait for another pull request ends by itself, when it merges or closes. Every other external
+   * blocker gets a fresh pass after two hours: on 2026-10-19 about 45 PRs sat in external waits for
+   * 13 hours or more, 30 of them on an install error the host had already fixed, and one waited on the
+   * checks of a main commit 90 commits back, which never change. A host defect is the exception: only a
+   * new worker release fixes it, and that release wakes the wait.
+   */
   async function externalWait(observed: Snapshot, wake: PullRequestWake | undefined, reason: string) {
-    if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
-    if (!wake) return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
+    const retryAt = Date.now() + externalRetryMs;
+    if (!wake) {
+      await statusRecovery.recordWorkerBlocker(observed, reason);
+      const wait = { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
+      return isWorkerBlocker({ lastResult: observed.lastResult, wait }) ? wait : { ...wait, retryAt };
+    }
     if (!options.repositories.includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
     const evidence = await dependencyEvidence(wake);
     await pullRequestInbox.setMeta(`dependency:${observed.repository}#${observed.number}`, evidence);
-    return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake };
+    const otherPullRequest = wake.kind === "pull-request"
+      && !(wake.repository.toLowerCase() === observed.repository.toLowerCase() && wake.number === observed.number);
+    return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake, ...otherPullRequest ? {} : { retryAt } };
   }
 
   async function recoverFailedCiWaits() {
@@ -762,6 +780,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (snapshot.generation > snapshot.handled || isWorkerBlocker(snapshot) || !hasFailedActions(snapshot)) continue;
       const head = snapshot.pr?.head?.sha;
       if (!head) continue;
+      // A spent same-head budget refuses model work until its cooldown retry, so a recovery pass would only
+      // park again. On 2026-10-31 three PRs did that every ten minutes.
+      if (snapshot.progressBudget?.exhausted && snapshot.progressBudget.head === head && (snapshot.wait?.retryAt ?? 0) > Date.now()) continue;
       const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
       if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
       await pullRequestInbox.setMeta(recoveryKey, Date.now() + 10 * 60_000);
@@ -771,12 +792,35 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
   }
 
+  /**
+   * A parked PR on another PR's branch gets no event when that parent merges, so read its parents every
+   * ten minutes. On 2026-10-31 a child sat parked on its parent's branch two days after the parent merged.
+   */
+  async function stackParentMerged(snapshot: Snapshot): Promise<boolean> {
+    const target = snapshot.pr && !snapshot.wait?.wake ? nonDefaultBase(snapshot.pr) : undefined;
+    if (!snapshot.pr || !target) return false;
+    const nextReadKey = `stack-parent-next:${snapshot.repository}#${snapshot.number}`;
+    if (((await pullRequestInbox.metaNumber(nextReadKey)) ?? 0) > Date.now()) return false;
+    await pullRequestInbox.setMeta(nextReadKey, Date.now() + 10 * 60_000);
+    try {
+      const parents = await readPulls(snapshot.repository, { state: "all", head: `${target.owner}:${target.base}`, limit: 10 });
+      return stackRetargetBase(snapshot.pr, parents) !== undefined;
+    } catch (error) {
+      await noteForgeQuota(error, "stack-parent");
+      return false;
+    }
+  }
+
   /** Wakes a parked PR only when its new events need a model pass or a direct merge. */
   async function evaluateWaits() {
-    for (const snapshot of await pullRequestInbox.waitsToEvaluate(true)) {
-      if (snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
+    // Idle waits too: a parked stack child has no event, wake or retryAt that would list it.
+    for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, true)) {
+      const parentMerged = await stackParentMerged(snapshot);
+      if (!parentMerged && snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
       const checks = await requiredCheckState(snapshot);
       let reasons = wakeReasons(snapshot, checks, waitPolicy);
+      if (parentMerged) reasons.push("stack-parent-merged");
+      if (snapshot.wait?.reason === "non-default-base" && snapshot.pr && !nonDefaultBase(snapshot.pr)) reasons.push("base-retargeted");
       if (reasons.includes("ready-to-merge") && !(await directMergeWakeAllowed(snapshot, checks))) {
         reasons = reasons.filter(reason => reason !== "ready-to-merge");
       }
@@ -1185,6 +1229,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               && inboxClaim.snapshot.threads.every(thread => thread.isResolved === true)
               && inboxClaim.snapshot.pr?.mergeable !== false
               && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
+              // A direct merge lands only on the default branch, and never merges a draft, so retrying either
+              // every two minutes changes nothing. On 2026-10-31 a PR on a branch without a parent PR retried
+              // for two days, and on 2026-11-01 a draft reached generation 1929. Retargeting the PR or marking
+              // it ready for review wakes it.
+              const lockedBase = inboxClaim.snapshot.pr ? nonDefaultBase(inboxClaim.snapshot.pr) : undefined;
+              const draft = inboxClaim.snapshot.pr?.draft === true;
+              if ((lockedBase || draft) && await requiredCheckState(inboxClaim.snapshot) !== "failed") {
+                const reason = lockedBase ? "non-default-base" : "draft";
+                await pullRequestInbox.finish(inboxClaim, {
+                  text: lockedBase
+                    ? `Ready, but its base ${lockedBase.base} is not the default branch and no pull request merges it there. The Babysitter merges only into the default branch: merge this PR by hand or retarget it.`
+                    : inboxClaim.snapshot.lastResult || "Reviewed, but the pull request is a draft. It merges once it is marked ready for review.",
+                  wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason },
+                });
+                schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason });
+                return;
+              }
               await pullRequestInbox.finish(inboxClaim, {
                 text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
                 wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
@@ -1279,11 +1340,24 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             return;
           }
           if (inboxClaim.snapshot.pr?.mergeable === null || inboxClaim.snapshot.pr?.mergeable_state === "unknown") {
-            const reason = "GitHub is still calculating mergeability for this PR head.";
-            await pullRequestInbox.finish(inboxClaim, { text: reason,
-              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason, retryAt: Date.now() + 30_000 } });
-            schedulerEvent("babysitter.mergeability.waiting", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha });
-            return;
+            // GitHub sometimes never finishes: on 2026-10-21 15 stack PRs stayed unknown for hours although each
+            // merged cleanly. Wait at most 10 minutes per head, then run the pass; a merge re-reads mergeability.
+            // Every recheck re-reads the snapshot, so a 30-second recheck on those PRs spent the GitHub App's
+            // hourly quota in five minutes.
+            const head = inboxClaim.snapshot.pr?.head?.sha;
+            const unknownKey = `mergeability-unknown:${repository}#${number}`;
+            const saved = await pullRequestInbox.meta(unknownKey);
+            const recorded = isRuntimeRecord(saved) && saved.head === head && hasRuntimeType(saved.at, "number") ? saved.at : undefined;
+            const since = recorded ?? Date.now();
+            if (recorded === undefined) await pullRequestInbox.setMeta(unknownKey, { head, at: since });
+            if (Date.now() - since < unknownMergeabilityLimitMs) {
+              const reason = "GitHub is still calculating mergeability for this PR head.";
+              await pullRequestInbox.finish(inboxClaim, { text: reason,
+                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason, retryAt: Date.now() + 120_000 } });
+              schedulerEvent("babysitter.mergeability.waiting", { ...owner, head_sha: head });
+              return;
+            }
+            schedulerEvent("babysitter.mergeability.unknown_proceeding", { ...owner, head_sha: head, since });
           }
           if (await parkBlockedModelWork()) return;
           if (ciRecovery?.state === "blocked" && ciRecovery.permission) {
@@ -1797,7 +1871,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const current = await pullRequestInbox.get(repository, number);
           // Checks and bot reviews often arrive during a pass and move the claim revision. A review of the
           // unchanged head stays valid: its evidence key comes from the claim, so newer evidence still needs a pass.
-          const assessed = passResult?.wait?.kind !== "external" && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
+          // With direct merges, a reviewed head stays assessed when the pass parks on an external reason such as
+          // a failing approval check: on 2026-10-19 one PR reported no P0 or P1 three times and never merged.
+          // Required checks, conflicts and the merge gate still decide the merge.
+          const assessed = (passResult?.wait?.kind !== "external" || merge.mode === "direct") && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
             && current?.pr?.head?.sha === pullRequest.headRefOid && await pullRequestInbox.holdsClaimedHead(inboxClaim);
           if (assessed) await recordAssessment(inboxClaim.snapshot, { head: pullRequest.headRefOid, evidenceKey: mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy) });
           // A push alone proves nothing, but a pass that reports its own pushed head as reviewed inspected the
@@ -1811,7 +1888,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           } else if (pushedHead) {
             outcome = "waiting";
             recorded = await parkOnPushedHead(inboxClaim, resultText, pushedHead, [...verifiedPushHeads], passResult?.wait, reviewDrivenPush());
-          } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && passResult?.wait?.kind === "external") {
+          } else if (!assessed && disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && passResult?.wait?.kind === "external") {
             outcome = "waiting";
             await pullRequestInbox.setMeta(`review-assessment:${repository}#${number}`, null);
             // A blocker named without a push is not progress. New bot feedback can wake

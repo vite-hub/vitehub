@@ -893,8 +893,106 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("does not retain a merge assessment for an external wait", async () => {
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
+  it("merges a reviewed head whose pass parked on an external reason once the merge gate opens", async () => {
+    // 2026-10-19: a PR reported no P0 or P1 three times, parked on a failing approval check each time, and never merged.
+    let ready = false;
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => ready || "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
+    try {
+      await f.reconcile();
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ version: 2, head: "a".repeat(40) });
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait?.retryAt).toBeTypeOf("number");
+      ready = true;
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([
+    ["no wake", undefined, true],
+    ["checks of a commit that never changes", { kind: "checks", repository: "acme/app", headSha: "e".repeat(40) }, true],
+    ["its own pull request", { kind: "pull-request", repository: "acme/app", number: 12 }, true],
+    ["another pull request", { kind: "pull-request", repository: "acme/app", number: 13 }, false],
+  ] as const)("retries an external wait on %s after two hours unless it waits for another PR", async (_name, wake, retried) => {
+    // 2026-10-19: about 45 PRs sat in external waits for 13 hours or more, one on checks of a main commit 90 commits back.
+    const reason = "Needs a maintainer";
+    const f = await fixture(false, false, { result: { disposition: "park", text: reason, wait: { kind: "external", reason, ...wake ? { wake } : {} } } });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason });
+      if (!retried) {
+        expect(waiting?.wait?.retryAt).toBeUndefined();
+        return;
+      }
+      expect(waiting?.wait?.retryAt).toBeGreaterThanOrEqual(started + 2 * 60 * 60_000);
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a reviewed draft until it is marked ready for review, then merges it", async () => {
+    // 2026-11-01: a reviewed draft retried its refused merge every two minutes up to generation 1929.
+    let draft = true;
+    const f = await fixture(false, false, { merge: "direct", result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const result = await command(args, request);
+      if (!draft || !args.includes("repos/acme/app/pulls/12") || args.includes("-X")) return result;
+      return { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), draft: true }) };
+    });
+    try {
+      await f.reconcile();
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      const now = vi.spyOn(Date, "now").mockReturnValue(reviewed!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait).toMatchObject({ kind: "external", reason: "draft" });
+      expect(parked?.wait?.retryAt).toBeUndefined();
+      draft = false;
+      await f.runtime.inbox.ingest("ready-for-review", "pull_request", { repository: { full_name: "acme/app" }, action: "ready_for_review", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a reviewed PR whose base is not the default branch, and wakes it when that branch's PR merges", async () => {
+    // 2026-10-31: a PR on a branch without a parent PR retried its refused merge every two minutes for two days,
+    // and a parked child stayed on its parent's branch two days after the parent merged.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const parents: unknown[] = [];
+    const f = await fixture(false, false, { base: "pilot/comments", parents, merge: "direct", result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      vi.setSystemTime(reviewed!.wait!.retryAt! + 1);
+      await f.reconcile();
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait).toMatchObject({ kind: "external", reason: "non-default-base" });
+      expect(parked?.wait?.retryAt).toBeUndefined();
+      expect(parked?.lastResult).toMatch(/pilot\/comments is not the default branch/);
+      vi.setSystemTime(started + 6 * 60 * 60_000);
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
+      parents.push({ state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { ref: "pilot/comments", repo: { owner: { login: "acme" } } }, base: { ref: "main" } });
+      vi.setSystemTime(started + 7 * 60 * 60_000);
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=main"]));
+      expect(f.passes).toHaveLength(1);
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
+  it("does not retain a merge assessment for an external wait without direct merges", async () => {
+    const f = await fixture(false, false, { merge: false, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
     try {
       await f.reconcile();
       expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeNull();
@@ -1196,9 +1294,36 @@ describe("Babysitter preset runtime", () => {
       expect(current?.wait?.retryAt).toBeGreaterThan(Date.now());
       expect(current?.lastResult).toMatch(/mergeability/i);
       uncertain = false;
-      vi.setSystemTime(Date.now() + 31_000);
+      vi.setSystemTime(Date.now() + 121_000);
       await f.reconcile();
       expect(createProviderRuntime.mock.calls.length).toBeGreaterThan(0);
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
+  it("runs the pass after GitHub leaves mergeability unknown for 10 minutes", async () => {
+    // 2026-10-21: 15 stack PRs stayed unknown for hours although each merged cleanly, and rechecked every 30 seconds without a pass.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture();
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const result = await command(args, request);
+      if (args.includes("repos/acme/app/pulls/12")) return { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), mergeable: null, mergeable_state: "unknown" }) };
+      return result;
+    });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait?.retryAt).toBe(started + 120_000);
+      for (let minutes = 2; minutes < 10; minutes += 2) {
+        vi.setSystemTime(started + minutes * 60_000 + 1);
+        await f.reconcile();
+        expect(createProviderRuntime).not.toHaveBeenCalled();
+      }
+      vi.setSystemTime(started + 10 * 60_000 + 1);
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.mergeability.unknown_proceeding")).toBe(true);
     } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
 
