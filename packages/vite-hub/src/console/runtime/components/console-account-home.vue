@@ -3,7 +3,7 @@ import { computed, onMounted, ref, shallowRef, watch } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
-import { accountProjectPath, canManageConsoleProjects, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
@@ -87,7 +87,7 @@ onMounted(async () => {
 });
 
 function name(app: ConsoleAccountProject): string {
-  return app.label || consoleProjectHost(app);
+  return consoleProjectDisplayName(app);
 }
 
 function stepLabel(index: number, done: boolean): string {
@@ -133,7 +133,7 @@ async function link(): Promise<void> {
             <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
             <span class="grid min-w-0 flex-1 text-start">
               <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
-              <span v-if="app.label" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
+              <span v-if="name(app) !== consoleProjectHost(app)" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
             </span>
             <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
             <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />

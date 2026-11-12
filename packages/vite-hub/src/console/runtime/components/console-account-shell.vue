@@ -6,8 +6,7 @@ import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/a
 import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { accountAppStatusLabels, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
-import { accountProjectPath, canManageConsoleProjects, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
-import { consoleProjectHost } from "../client/projects";
+import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
@@ -58,8 +57,8 @@ const title = computed(() => {
   return "Home";
 });
 
-function appName(app: { label?: string | null, url: string }): string {
-  return app.label || consoleProjectHost(app);
+function appName(app: { id: string, label?: string | null, url: string }): string {
+  return consoleProjectDisplayName(app);
 }
 
 function pagePath(target: ConsoleAccountPage): string {

@@ -4,7 +4,7 @@ import type { Ref, ShallowRef } from "vue"
 
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
-import { consoleProjectHost, consoleProjectName, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "./projects"
+import { consoleProjectHost, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "./projects"
 
 import type { ConsoleAccount, ConsoleAccountProject } from "./account"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
@@ -290,8 +290,8 @@ function rememberProjectName(id: string, name: string | undefined): void {
  * The name that the Console shows for a project: the name that the app reports in `project.get`, else the label of the
  * link, else the host.
  */
-export function consoleProjectDisplayName(project: Pick<ConsoleLinkedProject, "id" | "label" | "url">): string {
-  return useState().names.value[project.id] || consoleProjectName(project)
+export function consoleProjectDisplayName(project: { id: string, label?: string | null, url: string }): string {
+  return useState().names.value[project.id] || project.label || consoleProjectHost(project)
 }
 
 /** Only owners and admins of a team link and unlink its apps. */
