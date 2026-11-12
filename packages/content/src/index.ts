@@ -91,8 +91,9 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
-export { registerContentKV } from "./source-heads.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeads, ContentSourceView } from "./source-heads.ts"
+export { registerContentKV } from "./kv.ts"
+export type { ContentKV } from "./kv.ts"
+export type { ContentSourceHead, ContentSourceHeads, ContentSourceView } from "./source-heads.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"

@@ -594,7 +594,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   const definitionSections = installed.flatMap((section) => {
     const details = resolveConsoleSectionDetails(installedNavigation.value, section)
     const catalog = section === "databases"
-      || installedNavigation.value?.contributions[section]?.view.kind === "definition-catalog"
+      || ["definition-catalog", "workspace-browser"].includes(installedNavigation.value?.contributions[section]?.view.kind ?? "")
     return details && catalog ? [{ details, section }] : []
   })
   const catalogs = await Promise.all(definitionSections.map(async ({ details, section }) => ({
