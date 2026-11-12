@@ -13,16 +13,15 @@ A Rate Limit stops a client that sends too many requests. You set how many reque
 In this tutorial, you let a route accept two requests per minute. The third request gets the HTTP status `429 Too Many Requests`.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands from the root of the app. You need no account and no API key. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for a shared count.
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account and no API key. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for a shared count.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install ViteHub. Nitro is the server that runs your API routes.
+Install the Rate Limit package:
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/rate-limit nitro h3
-pnpm add -D vite
+pnpm add @vite-hub/rate-limit
 ```
 
 Add `rateLimit: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other plugins of your app.
@@ -97,27 +96,35 @@ On the Node preset, each window starts at second 0 of each clock minute. [Rate l
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Keep the server running. Open a second terminal. Send three requests in less than one minute. `-i` shows the HTTP status of each response.
+Keep the server running. Open a second terminal. Send three requests in less than one minute. Each command prints the HTTP status of its response.
 
 ```bash [commands/request]
-curl -i -X POST http://localhost:5173/api/image-upload
-curl -i -X POST http://localhost:5173/api/image-upload
-curl -i -X POST http://localhost:5173/api/image-upload
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/api/image-upload
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/api/image-upload
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/api/image-upload
 ```
 
-The first two responses are `200` with `{ "ok": true, "message": "accepted" }`. The third response is `429`.
+You get:
+
+```text [output/request.txt]
+200
+200
+429
+```
+
+The first two responses are `200` with `{ "ok": true, "message": "accepted" }`. The third response is `429`. If a new clock minute starts between two requests, the count starts again, and the last requests can use the limit of the new minute. In that case, wait for the next clock minute. Then send the three requests again.
 
 When a request is over the limit, `requireRateLimit()` throws a standard H3 `HTTPError`. The route stops there.
 
 By default, `requireRateLimit()` counts per client IP address. To count per user, account, tenant, or API client, pass that id as `key`, for example `key: authenticatedUser.id`.
 
-To see the limits that the build found, build the app and list them:
+To see the limits that the build found, stop the dev server. Then build the app and list them:
 
 ```bash [commands/inspect]
-pnpm vite build
+pnpm build
 pnpm vitehub inspect definitions --kind rate-limit
 ```
 
