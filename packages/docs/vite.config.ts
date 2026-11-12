@@ -9,7 +9,7 @@ export default defineConfig({
     copy: [{ from: "runtime/app", to: "dist/runtime" }, { from: "runtime/theme", to: "dist/runtime" }],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\//, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "h3", /^nitro(\/|$)/, "defu", "nuxt-agent-discovery", "nuxt-llms"],
+      neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\//, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "h3", /^nitro(\/|$)/, "defu", "nuxt-agent-discovery"],
       onlyBundle: false,
     },
     // virtual.d.ts types the Nitro virtual modules for this package only. Shipped, it would add a `#imports` overload to the app.
@@ -24,14 +24,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-  }, {
-    // @nuxtjs/mcp-toolkit gives the MCP tools to Nitro by path. Nitro does not compile TypeScript in node_modules, so
-    // the tools ship as JavaScript, with every import left for Nitro to resolve.
-    clean: false,
-    deps: { neverBundle: [/./], onlyBundle: false },
-    dts: false,
-    entry: { "runtime/mcp/get-page": "runtime/mcp/get-page.ts", "runtime/mcp/list-pages": "runtime/mcp/list-pages.ts" },
-    outExtensions: () => ({ js: ".js" }),
-    tsconfig: "tsconfig.build.json",
   }],
 })

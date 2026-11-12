@@ -501,6 +501,20 @@ Coding agents read the same pages without HTML. These routes need no setup:
 
 Each page header has **Copy page**, **View as Markdown**, **Open in ChatGPT**, **Open in Claude**, and links that add the MCP server to Cursor or VS Code. `mcp: { name, guide }` sets the server name and a page on connecting other tools. `mcp: false` turns the server off.
 
+[Content](/docs/content/seo#markdown-for-agents) serves these files from the same pages as the site, so a new page shows in each of them. `llms` adds text to `/llms.txt`: `details` goes under the site description, and `sections` adds sections of links before the page sections.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: {
+    llms: {
+      details: 'Rules for coding agents: read the installed types before you write code.',
+      sections: [{ title: 'Machine resources', links: [{ title: 'OpenAPI document', href: 'https://docs.example.com/openapi.json' }] }],
+    },
+  },
+})
+```
+
 ### Content only for agents
 
 ```md [content/docs/guide/ci.md]
@@ -513,7 +527,7 @@ The site renders nothing for `::agent-only`, and search skips it. The Markdown c
 
 ### Rewrite the agent copy
 
-When a page uses a component with no Markdown form, `rawMarkdown` rewrites the page before its copy is written. It gets the Markdown and the page, and runs at build time, before the built-in rewrites. This one turns a `::demo-video{src="..."}` block into a link:
+When a page uses a component with no Markdown form, `rawMarkdown` rewrites the page before its copy is made. It gets the Markdown and the page, and runs at build time, before the built-in rewrites. The server keeps each page that it changed. This one turns a `::demo-video{src="..."}` block into a link:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({

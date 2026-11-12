@@ -43,6 +43,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `github` | `{ repo, branch?, dir? }` or `false` | `false` | The repository of the site. The shell links to `https://github.com/<repo>`. `branch` (default `main`) and `dir` (default the `dir` option) are in `useDocsConfig().github` for your own components. |
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
+| `llms` | `{ details?, sections? }` | None | More text for `/llms.txt`: `details` under the site description, and `sections` of links, `[{ title, description?, links }]`, before the page sections. |
 | `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
 | `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
@@ -97,17 +98,17 @@ A `.navigation.yml` in a section folder, validated by `docsSectionSchema`.
 | Every page path | The catch-all page | The rendered page. Skipped when an app catch-all page, such as `pages/[...slug].vue`, answers every docs page. |
 | `/api/_docs/page/<page>.json` | The module | The parsed page, its section, and the previous and next pages. `/api/_docs/page/index.json` is the home page. |
 | `/api/_docs/search.json` | The module | The search index: one entry per `h2` and `h3`. |
-| `/raw/<page>.md` | The module | The agent copy of a page. `/raw/index.md` is the home page. |
-| `/sitemap.xml` | The module | Every page and the `sitemap` paths. |
-| `/llms.txt`, `/llms-full.txt` | `nuxt-llms` | The page index and every page in one file. |
-| `/sitemap.md`, `/.well-known/api-catalog`, `/robots.txt` | `nuxt-agent-discovery` | The Markdown sitemap, the API catalog, and the AI crawler policy. |
+| `/raw/<page>.md` | Content | The agent copy of a page. `/raw/index.md` is the home page. `<page>.md` and `Accept: text/markdown` return it too. |
+| `/sitemap.xml` | Content | Every indexed page and the `sitemap` paths. |
+| `/llms.txt`, `/llms-full.txt`, `/sitemap.md` | Content | The page index, every page in one file, and the Markdown sitemap. |
+| `/.well-known/api-catalog`, `/robots.txt` | `nuxt-agent-discovery` | The API catalog and the AI crawler policy. |
 | `/.well-known/skills/index.json`, `/.well-known/skills/<name>/SKILL.md` | `nuxt-agent-discovery` | Agent Skills from the `skills/` folder, if the app has one. |
-| `/mcp` | `@nuxtjs/mcp-toolkit` | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
+| `/mcp` | Content | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
 | `/.well-known/mcp/server-card.json` | `nuxt-agent-discovery` | The MCP server card. Not added with `mcp: false`. |
 | `/api/_vitehub/agents/<agent>/chat` | `vite-hub/nuxt` | The assistant chat, with `assistant` on. |
 | `/api/_vitehub/comments/**`, `/_vitehub/page/session` | `vite-hub/nuxt` | The Comments API and the page tools session, unless `comments: false`. |
 
-A production build prerenders every page, its page JSON, the search index, `/sitemap.xml`, and `/sitemap.md`, and follows links between pages.
+A production build prerenders every page, its page JSON and agent copy, the search index, `/sitemap.xml`, `/sitemap.md`, `/llms.txt`, and `/llms-full.txt`, and follows links between pages.
 
 ## App aliases
 

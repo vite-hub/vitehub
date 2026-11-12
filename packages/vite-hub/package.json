@@ -347,6 +347,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/markdown": {
+      "types": "./dist/content/markdown.d.ts",
+      "import": "./dist/content/markdown.js",
+      "default": "./dist/content/markdown.js"
+    },
     "./content/preview": {
       "types": "./dist/content/preview.d.ts",
       "import": "./dist/content/preview.js",

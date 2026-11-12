@@ -6,13 +6,19 @@ import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { AnyContentCollection } from "./collections-types.ts"
+import { titleCase } from "./title-case.ts"
 import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
 import type { ContentDocumentUrl } from "./documents.ts"
 import type { ContentMcpOptions } from "./mcp.ts"
+import type { ContentSourceSeo } from "./content-source.ts"
+import type { ContentLlmsSection } from "./llms.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
-  /** Public origin, such as `https://example.com`. Defaults to the origin of each sitemap or robots.txt request. */
+  /**
+   * Public origin, such as `https://example.com`, or the URL where the app is mounted, such as `https://example.com/docs`.
+   * Defaults to the origin of each request.
+   */
   site?: string
   /** Serve `/sitemap.xml` with the published documents of every collection, and the documents of every Source, that has a `url`. */
   sitemap?: boolean
@@ -20,9 +26,10 @@ export interface DefineContentSeoOptions {
   robots?: boolean | { disallow?: readonly string[] }
   /**
    * Serve each published Markdown document with a URL as Markdown at that URL plus `.md`, such as `/blog/hello.md`
-   * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat.
+   * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat. `prefix`
+   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there.
    */
-  markdown?: boolean
+  markdown?: boolean | ContentMarkdownOptions
   /**
    * Serve `/rss.xml`, an RSS 2.0 feed of the published Markdown pages that the sitemap lists, newest first by the date
    * of their latest `content.history()` entry. `title` defaults to the host name, `limit` to 20 items, at most 500.
@@ -33,6 +40,12 @@ export interface DefineContentSeoOptions {
    * the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
    */
   mcp?: boolean | ContentMcpOptions
+  /**
+   * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from the published Markdown documents with a URL. Their links
+   * point at the `.md` copies, so this also turns on `markdown`. `title` and `description` head `llms.txt`; the title
+   * defaults to the site host name.
+   */
+  llms?: boolean | DefineContentLlmsOptions
   /**
    * Atomic leases for Source date refreshes across server instances. Use a shared LeaseStore, such as
    * `createSqlLeaseStore()` from `@vite-hub/runtime`. Without it, work is shared only within this Content instance.
@@ -49,6 +62,24 @@ export interface ContentRssOptions {
   description?: string
   /** The newest pages to list, default 20, at most 500. */
   limit?: number
+}
+
+/** `defineContent({ seo: { markdown } })`. */
+export interface ContentMarkdownOptions {
+  /** A folder that also serves each copy, such as `/raw` for `/raw/blog/hello.md`. The llms files link there. */
+  prefix?: string
+}
+
+/** `defineContent({ seo: { llms } })`. */
+export interface DefineContentLlmsOptions {
+  /** The heading of `llms.txt` and `sitemap.md`, such as `ViteHub`. Defaults to the host name of the site. */
+  title?: string
+  /** The summary under the `llms.txt` heading. */
+  description?: string
+  /** Text under the summary, such as rules for agents. The `llms-full.txt` link keeps the summary only. */
+  details?: string
+  /** More sections, after the `llms-full.txt` link and before the sections of pages. */
+  sections?: readonly ContentLlmsSection[]
 }
 
 export interface ContentSitemapEntry {
@@ -81,10 +112,26 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots, markdown, rss, mcp, dateLeases } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
+  if (llms !== undefined && llms !== true && llms !== false) {
+    if (llms === null || Object(llms) !== llms || Array.isArray(llms)) throw invalid("llms must be true, false, or { title, description, details, sections }.")
+    for (const key of ["title", "description", "details"]) {
+      const value: unknown = Reflect.get(llms, key)
+      if (value !== undefined && String(value) !== value) throw invalid(`llms.${key} must be text.`)
+    }
+    const sections: unknown = Reflect.get(llms, "sections")
+    if (sections !== undefined && (!Array.isArray(sections) || !sections.every(isLlmsSection))) {
+      throw invalid("llms.sections must be a list of { title, description?, links: [{ title, href, description? }] }.")
+    }
+  }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
-  if (markdown !== undefined && markdown !== true && markdown !== false) throw invalid("markdown must be true or false.")
+  if (markdown !== undefined && markdown !== true && markdown !== false) {
+    const shape = "markdown must be true, false, or { prefix: '/raw' }."
+    if (markdown === null || Object(markdown) !== markdown || Array.isArray(markdown)) throw invalid(shape)
+    const prefix: unknown = Reflect.get(markdown, "prefix")
+    if (prefix !== undefined && (String(prefix) !== prefix || !/^\/[^/?#\s]+(?:\/[^/?#\s]+)*$/.test(prefix))) throw invalid(`${shape} The prefix starts with / and does not end with one.`)
+  }
   if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
     throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")
   }
@@ -108,14 +155,34 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
       throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     }
   }
-  return options as DefineContentSeoOptions
+  const normalized = options as DefineContentSeoOptions
+  if (llms === undefined || llms === false) return normalized
+  // The llms files link to the `.md` copies of each page.
+  if (markdown === false) throw invalid("llms links to the .md copy of each page. Remove markdown: false, or set llms: false.")
+  return { ...normalized, markdown: normalized.markdown ?? true }
 }
 
-/** The origin of a site URL, such as `https://example.com`, without a trailing slash. */
+function isText(value: unknown): value is string {
+  return String(value) === value
+}
+
+function isLlmsSection(value: unknown): boolean {
+  if (value === null || Object(value) !== value) return false
+  const { title, description, links } = value as Record<string, unknown>
+  return isText(title) && (description === undefined || isText(description)) && Array.isArray(links) && links.every((link: unknown) => {
+    if (link === null || Object(link) !== link) return false
+    const fields = link as Record<string, unknown>
+    return isText(fields.title) && isText(fields.href) && (fields.description === undefined || isText(fields.description))
+  })
+}
+
+/** The origin of a site URL, such as `https://example.com`, with the path of a mounted app and no trailing slash. */
 export function siteOrigin(site: unknown, invalid: (message: string) => Error = message => contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] ${message}` })): string {
   if (String(site) !== site || !/^https?:\/\//i.test(site)) throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
   try {
-    return new URL(site).origin
+    // A site mounted below a path keeps it, such as `https://example.com/docs`, so every URL carries it.
+    const url = new URL(site)
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
   }
   catch {
     throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
@@ -131,6 +198,8 @@ function absolute(path: string, site: string | undefined): string {
 export interface ContentSitemapSource {
   name: string
   url: ContentDocumentUrl
+  /** The SEO values of a document, from `contentSource(input, { seo })`. Defaults to `data.seo`. */
+  seo?: (document: { id: string, key?: string, data: Record<string, unknown> }) => ContentSourceSeo | undefined
   list(): Promise<ReadonlyArray<{ path: string, data: Record<string, unknown>, meta?: { key?: string, extension?: string } }>>
 }
 
@@ -156,9 +225,9 @@ function dateField(data: Record<string, unknown>): string | undefined {
  * The published pages of every routable collection: published documents with a URL, without `noindex` and without a
  * canonical URL that points elsewhere. A collection with locales lists each published translation, but not the pages
  * that show the source locale as a fallback. Singletons with a `url` are included. Then the documents of every Source
- * with a `url`.
+ * with a `url`. `all` keeps `noindex` pages and pages whose canonical URL points elsewhere: they have a Markdown copy too.
  */
-export async function contentRoutedPages(collections: readonly AnyContentCollection[], site: string | undefined, sources: readonly ContentSitemapSource[] = []): Promise<ContentRoutedPage[]> {
+export async function contentRoutedPages(collections: readonly AnyContentCollection[], site: string | undefined, sources: readonly ContentSitemapSource[] = [], options: { all?: boolean } = {}): Promise<ContentRoutedPage[]> {
   const pages: ContentRoutedPage[] = []
   const seen = new Set<string>()
   for (const collection of collections) {
@@ -172,10 +241,10 @@ export async function contentRoutedPages(collections: readonly AnyContentCollect
           if (document.fallback || String(document.url) !== document.url) continue
           const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
           const noindex = seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true
-          if (noindex) continue
+          if (noindex && !options.all) continue
           const loc = absolute(document.url, site)
           const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
-          if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
+          if (String(canonical) === canonical && absolute(canonical, site) !== loc && !options.all) continue
           if (seen.has(loc)) continue
           seen.add(loc)
           const entry: ContentRoutedPage = { collection: collection.name, id: document.id, loc, markdown: collection.format === "markdown" }
@@ -194,21 +263,22 @@ export async function contentRoutedPages(collections: readonly AnyContentCollect
   for (const source of sources) {
     for (const document of await source.list()) {
       const id = document.path.replace(/^\/+/, "")
-      const url = contentDocumentUrl(source.url, { id, data: document.data })
+      // Comark keys a file as `<source>/<Source key>`.
+      const fileKey = document.meta?.key
+      const key = fileKey?.startsWith(`${source.name}/`) ? fileKey.slice(source.name.length + 1) : fileKey
+      const url = contentDocumentUrl(source.url, { id, data: document.data, ...key === undefined ? {} : { key } })
       if (url === null) continue
       const loc = absolute(url, site)
-      const seo: unknown = document.data.seo
-      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true) continue
+      const seo: unknown = source.seo ? source.seo({ id, data: document.data, ...key === undefined ? {} : { key } }) : document.data.seo
+      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true && !options.all) continue
       const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
-      if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
+      if (String(canonical) === canonical && absolute(canonical, site) !== loc && !options.all) continue
       if (seen.has(loc)) continue
       seen.add(loc)
       const entry: ContentRoutedPage = { collection: source.name, id, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }
-      const key = document.meta?.key
-      // Comark keys a file as `<source>/<Source key>`.
-      if (key) entry.key = key.startsWith(`${source.name}/`) ? key.slice(source.name.length + 1) : key
-      const title = stringField(document.data, "title")
-      const description = stringField(document.data, "description")
+      if (key) entry.key = key
+      const title = stringField(seo, "title") ?? stringField(document.data, "title")
+      const description = stringField(seo, "description") ?? stringField(document.data, "description")
       const date = dateField(document.data)
       if (title) entry.title = title
       if (description) entry.description = description
@@ -250,11 +320,26 @@ export function renderContentRobots(options: { site?: string, sitemap?: boolean,
   return `${lines.join("\n")}\n`
 }
 
-/** The page that a Markdown copy stands for: `/blog/hello.md` is `/blog/hello`, and `/index.md` is `/`. */
-function markdownCopyPage(path: string): string | undefined {
-  const pathname = path.split(/[?#]/, 1)[0]!
+/**
+ * The page that a Markdown copy stands for: `/blog/hello.md` is `/blog/hello`, and `/index.md` is `/`. With the
+ * `seo.markdown` prefix, such as `/raw`, `/raw/blog/hello.md` is `/blog/hello` too.
+ */
+export function contentMarkdownCopyPage(path: string, prefix = ""): string | undefined {
+  let pathname = path.split(/[?#]/, 1)[0]!
   if (!pathname.endsWith(".md")) return
+  if (prefix && pathname.startsWith(`${prefix}/`)) pathname = pathname.slice(prefix.length)
   return pathname === "/index.md" ? "/" : pathname.slice(0, -3)
+}
+
+/** The folder of the Markdown copies from `seo: { markdown: { prefix } }`, such as `/raw`, or an empty string. */
+export function markdownPrefix(seo: Pick<DefineContentSeoOptions, "markdown"> | undefined): string {
+  const markdown = seo?.markdown
+  return markdown !== null && typeof markdown === "object" ? markdown.prefix ?? "" : ""
+}
+
+/** The label of a Source without `contentSource(input, { label })`: its name in title case, such as `Docs`. */
+export function contentLabel(name: string): string {
+  return titleCase(name)
 }
 
 function stringField(data: unknown, field: string | undefined): string | undefined {
@@ -313,7 +398,7 @@ async function routedMarkdown(collections: Iterable<AnyContentCollection>, page:
  * title, unless the body has its own, and its description as a quote.
  */
 export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined): Promise<string | null> {
-  const page = markdownCopyPage(path)
+  const page = contentMarkdownCopyPage(path)
   if (page === undefined) return null
   let resolved = await runtime.resolve(page, { ref: "published" })
   const matchedCollection = resolved ? runtime.collection(resolved.collection) : undefined
