@@ -131,7 +131,16 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass.
+other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
+PR from an author without write access only after a reviewer with write access
+approves its current head and no such reviewer's latest review requests changes.
+
+A PR that is only `behind` a base requiring up-to-date branches, or whose base
+changed its files after its checks ran, gets a branch update instead of a merge
+or a model pass. A head that already contains the base tip needs no update. When
+GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
+the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
+after checking that the head did not move.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
@@ -184,7 +193,10 @@ workspaces from an earlier process when its temporary directory is inside the
 service directory. Claims take reviewed heads first, then heads whose checks all
 passed, then stack parents. A restart releases the claims of the previous process.
 A stacked PR whose parent merged into the default branch is retargeted to the
-default branch. A provider rate limit is retried three times; after that, model
+default branch; until then the child waits. With `merge: "direct"`,
+`repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
+and feedback alongside its open parent. The child never merges into the parent's
+branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried three times; after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.
@@ -280,6 +292,11 @@ metadata updates and thread resolution. Unless `merge` is `"auto"`, the worker
 has no merge tool and the host rejects auto-merge operations. With `"auto"`, it
 requests GitHub native auto-merge subject to current PR admission and repository
 checks and reviews. Workers never merge directly or delete branches.
+
+CI logs reach the worker without color codes or fetch branch listings, capped at
+the last 4 MB of each failed job. Preloaded evidence and `readCheckLogs` return a
+failure-focused excerpt; `readCheckLogs` also takes `tailLines` or
+`startLine`/`endLine` for up to 1,000 lines the excerpt omitted.
 
 Before a repair push, the host durably associates the exact candidate commit with
 its active claim. Check and status webhooks for that commit are retained even when

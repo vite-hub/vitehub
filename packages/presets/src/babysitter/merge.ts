@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../github/index.ts";
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
@@ -22,12 +23,17 @@ export type BabysitterMergeReady = (input: BabysitterMergeReadinessInput) => tru
  * - `false`: never merge.
  * - `"auto"`: the worker may request GitHub native auto-merge.
  * - `"direct"`: the host merges a ready PR before any model pass.
+ * - `{ strategy: "direct", ready }`: a direct merge with an extra gate. `ready` is a
+ *   {@link BabysitterMergeReady} callback or `"approved-if-outside"`: a PR whose author is not an
+ *   owner, member or collaborator of the repository merges only after a reviewer with write access
+ *   approves its current head, and while no such reviewer's latest review requests changes.
+ *   A push after the approval needs a new one.
  */
 export type BabysitterMerge =
   | false
   | "auto"
   | "direct"
-  | { strategy: "direct"; method?: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | { strategy: "direct"; method?: BabysitterMergeMethod; ready?: BabysitterMergeReady | "approved-if-outside" };
 
 export type ResolvedBabysitterMerge =
   | { mode: "off" }
@@ -157,6 +163,33 @@ export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy 
     createHash("sha256").update(JSON.stringify([target, kind, value.id, value.body, value.state])).digest("hex").slice(0, 32)));
 }
 
+/** Author and reviewer associations that GitHub gives to people with write access to the repository. */
+const writeAccess = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+const hasWriteAccess = (association: unknown) => writeAccess.has(String(association ?? "").toUpperCase());
+
+/**
+ * The `"approved-if-outside"` merge gate. Each write-access reviewer's latest APPROVED or
+ * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing.
+ */
+export function approvedIfOutside({ head, snapshot }: BabysitterMergeReadinessInput): true | string {
+  const pr = snapshot.pr;
+  if (hasWriteAccess(pr?.author_association ?? pr?.authorAssociation)) return true;
+  const latest = new Map<string, GitHubEvidence>();
+  const decisive = Object.values(snapshot.reviews)
+    .filter(review => !review.deleted && hasWriteAccess(review.author_association ?? review.authorAssociation)
+      && ["APPROVED", "CHANGES_REQUESTED"].includes(String(review.state ?? "").toUpperCase()))
+    .sort((a, b) => String(a.submitted_at ?? a.submittedAt ?? "").localeCompare(String(b.submitted_at ?? b.submittedAt ?? "")));
+  for (const review of decisive) {
+    const reviewer = feedbackAuthor(review);
+    if (reviewer) latest.set(reviewer, review);
+  }
+  const short = head.slice(0, 7);
+  const blocking = [...latest].filter(([, review]) => String(review.state).toUpperCase() === "CHANGES_REQUESTED").map(([reviewer]) => reviewer);
+  if (blocking.length) return `a maintainer's approval of ${short}: ${blocking.join(", ")} requested changes`;
+  const approved = [...latest.values()].some(review => (review.commit_id ?? review.commit?.oid) === head);
+  return approved || `a maintainer's approval of ${short}`;
+}
+
 export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {
   if (merge === false) return { mode: "off" };
   if (merge === "auto") return { mode: "auto" };
@@ -166,11 +199,11 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     if (method !== "squash" && method !== "merge" && method !== "rebase") {
       throw new TypeError('[vitehub] Babysitter merge.method must be "squash", "merge", or "rebase".');
     }
-    if (merge.ready !== undefined && !hasRuntimeType(merge.ready, "function")) {
-      throw new TypeError("[vitehub] Babysitter merge.ready must be a function.");
+    if (merge.ready !== undefined && merge.ready !== "approved-if-outside" && !hasRuntimeType(merge.ready, "function")) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.ready", expected: 'a function or "approved-if-outside"' });
     }
-    // SAFETY: the guard above proves ready is either undefined or a function with the documented contract.
-    const ready = merge.ready as BabysitterMergeReady | undefined;
+    // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
+    const ready = merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
     return ready ? { mode: "direct", method, ready } : { mode: "direct", method };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');

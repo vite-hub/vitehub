@@ -39,8 +39,13 @@ export interface ViteHubConsoleOperationColumn {
   /** Dot path into each item of the result, such as `author.name` or `messages.0.body`. */
   key: string
   label: string
-  /** `datetime` shows a time in milliseconds since the epoch as a date. `excerpt` cuts a long text. */
-  format?: "datetime" | "excerpt"
+  /**
+   * `datetime` shows a time in milliseconds since the epoch as a relative date, such as `5m ago`. `excerpt` cuts a long
+   * text. `status` shows the value as a status with a colored dot, such as `Open`. `tones` picks the color of each value.
+   */
+  format?: "datetime" | "excerpt" | "status"
+  /** The color of each value of a `status` column, such as `{ open: "info", resolved: "success" }`. Other values are neutral. */
+  tones?: Readonly<Record<string, "error" | "info" | "neutral" | "success" | "warning">>
 }
 
 /** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
