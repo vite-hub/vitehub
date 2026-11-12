@@ -136,9 +136,9 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
-Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
+Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
 
-With `folded: true`, files-sdk drivers whose provider has folders (S3 and S3-compatible stores, R2, GCS, Azure, Google Drive, Dropbox, Box, OneDrive, and Supabase) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together. UploadThing has no folders, so ViteHub reads every key under `prefix` and folds them itself.
+With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
 

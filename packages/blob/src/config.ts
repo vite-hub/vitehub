@@ -61,44 +61,22 @@ interface BlobDriverOptions {
  * value must come from an env variable.
  */
 const BLOB_DRIVER_OPTIONS: Record<BlobStoreConfig["driver"], BlobDriverOptions> = {
-  akamai: S3_COMPATIBLE_OPTIONS("AKAMAI"),
   azure: {
     options: ["accountName", "container", "endpoint", "publicBaseUrl"],
     secrets: { accountKey: "AZURE_STORAGE_KEY", connectionString: "AZURE_STORAGE_CONNECTION_STRING", sasToken: "AZURE_STORAGE_SAS_TOKEN" },
   },
-  box: {
-    options: ["ccg.clientId", "ccg.enterpriseId", "ccg.userId", "jwt.configFilePath", "oauth.clientId", "publicBaseUrl", "rootFolderId"],
-    secrets: { "ccg.clientSecret": "BOX_CLIENT_SECRET", developerToken: "BOX_DEVELOPER_TOKEN", "jwt.configJsonString": "BOX_JWT_CONFIG", "oauth.clientSecret": "BOX_CLIENT_SECRET", "oauth.refreshToken": "BOX_REFRESH_TOKEN" },
-  },
   "cloudflare-r2": { ...S3_COMPATIBLE_OPTIONS("R2"), options: ["accountId", "binding", "bucketName", "jurisdiction", "publicBaseUrl"] },
-  "digitalocean-spaces": S3_COMPATIBLE_OPTIONS("SPACES"),
-  dropbox: {
-    options: ["appKey", "publicBaseUrl", "rootFolderPath"],
-    secrets: { accessToken: "DROPBOX_ACCESS_TOKEN", appSecret: "DROPBOX_APP_SECRET", refreshToken: "DROPBOX_REFRESH_TOKEN" },
-  },
   fs: { options: ["base", "urlBaseUrl"], secrets: {} },
   gcs: {
     options: ["bucket", "credentials.client_email", "keyFilename", "projectId", "publicBaseUrl"],
     secrets: { "credentials.private_key": "GCS_PRIVATE_KEY" },
   },
-  "google-drive": {
-    options: ["credentials.client_email", "driveId", "keyFilename", "rootFolderId", "subject"],
-    secrets: { "credentials.private_key": "GOOGLE_DRIVE_PRIVATE_KEY" },
-  },
-  hetzner: S3_COMPATIBLE_OPTIONS("HETZNER"),
   minio: S3_COMPATIBLE_OPTIONS("MINIO"),
   "netlify-blobs": { options: ["consistency", "name", "siteID"], secrets: { token: "NETLIFY_AUTH_TOKEN" } },
-  onedrive: {
-    options: ["clientCredentials.clientId", "clientCredentials.tenantId", "driveId", "oauth.clientId", "oauth.tenantId", "rootFolderPath", "siteId", "userId"],
-    secrets: { accessToken: "ONEDRIVE_ACCESS_TOKEN", "clientCredentials.clientSecret": "ONEDRIVE_CLIENT_SECRET", "oauth.clientSecret": "ONEDRIVE_CLIENT_SECRET", "oauth.refreshToken": "ONEDRIVE_REFRESH_TOKEN" },
-  },
   s3: {
     options: ["bucket", "endpoint", "publicBaseUrl", "region"],
     secrets: { "credentials.accessKeyId": "AWS_ACCESS_KEY_ID", "credentials.secretAccessKey": "AWS_SECRET_ACCESS_KEY", "credentials.sessionToken": "AWS_SESSION_TOKEN" },
   },
-  storj: S3_COMPATIBLE_OPTIONS("STORJ"),
-  supabase: { options: ["bucket", "publicBaseUrl", "url"], secrets: { key: "SUPABASE_SERVICE_ROLE_KEY" } },
-  uploadthing: { options: ["acl", "region", "slug"], secrets: { token: "UPLOADTHING_TOKEN" } },
   "vercel-blob": { options: ["access"], secrets: { token: "BLOB_READ_WRITE_TOKEN" } },
 }
 
@@ -312,19 +290,9 @@ function resolveExplicitStore(
       return resolveNetlifyStore(store)
     case "vercel-blob":
       return resolveVercelStore(store, env)
-    case "akamai":
     case "azure":
-    case "box":
-    case "digitalocean-spaces":
-    case "dropbox":
     case "gcs":
-    case "google-drive":
-    case "hetzner":
-    case "onedrive":
     case "s3":
-    case "storj":
-    case "supabase":
-    case "uploadthing":
       return store
     default:
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
