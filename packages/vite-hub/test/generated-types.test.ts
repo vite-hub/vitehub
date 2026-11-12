@@ -863,12 +863,14 @@ export default defineContent(${options})
 
     const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
     expect(handlers.filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
-      { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, route: "/**" },
+      { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" },
     ])
     // A route or a server middleware at /** does not conflict with it.
     expect(mergeGeneratedSourceNitroConfig({ handlers: [{ handler: "app.mjs", route: "/**" }] }, handlers).handlers).toContainEqual(
-      expect.objectContaining({ handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, route: "/**" }),
+      expect.objectContaining({ handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" }),
     )
+    // It loads when the server starts, so it imports only the light Markdown entry and loads server/content.ts on demand.
+    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).resolves.toMatch(/^import \{ defineContentMarkdownHandler \} from "vite-hub\/content\/markdown"\n\nexport default defineContentMarkdownHandler\(\(\) => import\(/)
     const module: unknown = await import(`${pathToFileURL(join(root, ".vitehub/content/markdown.mjs")).href}?t=${Date.now()}`)
     const middleware = Reflect.get(Object(module), "default")
     if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
@@ -878,6 +880,29 @@ export default defineContent(${options})
     await write(`{ markdown: false }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).some((handler: { route?: string }) => handler.route === "/**")).toBe(false)
     await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("generates the llms routes and the Markdown middleware when defineContent() sets seo.llms", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
+      `import { defineContent } from "vite-hub/content"`,
+      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      ``,
+    ].join("\n"))
+    await write(`{ llms: { title: "Docs" } }`)
+    const llms = join(root, ".vitehub/content/llms.mjs")
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
+      { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" },
+      { handler: llms, method: "get", route: "/llms-full.txt" },
+      { handler: llms, method: "get", route: "/llms.txt" },
+      { handler: llms, method: "get", route: "/sitemap.md" },
+    ])
+    await expect(readFile(llms, "utf8")).resolves.toContain("export default defineContentLlmsHandler(content)")
+
+    await write(`{ llms: false }`)
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual([])
+    await expect(readFile(llms, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {

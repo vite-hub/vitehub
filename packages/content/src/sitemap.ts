@@ -34,6 +34,12 @@ export interface DefineContentSeoOptions {
    */
   mcp?: boolean | ContentMcpOptions
   /**
+   * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from the published Markdown documents with a URL. Their links
+   * point at the `.md` copies, so this also turns on `markdown`. `title` and `description` head `llms.txt`; the title
+   * defaults to the site host name.
+   */
+  llms?: boolean | DefineContentLlmsOptions
+  /**
    * Atomic leases for Source date refreshes across server instances. Use a shared LeaseStore, such as
    * `createSqlLeaseStore()` from `@vite-hub/runtime`. Without it, work is shared only within this Content instance.
    * Cloudflare KV cannot provide these leases. A held lease serves cached dates until a later read sees the new set.
@@ -49,6 +55,14 @@ export interface ContentRssOptions {
   description?: string
   /** The newest pages to list, default 20, at most 500. */
   limit?: number
+}
+
+/** `defineContent({ seo: { llms } })`. */
+export interface DefineContentLlmsOptions {
+  /** The heading of `llms.txt` and `sitemap.md`, such as `ViteHub`. Defaults to the host name of the site. */
+  title?: string
+  /** The summary under the `llms.txt` heading. */
+  description?: string
 }
 
 export interface ContentSitemapEntry {
@@ -81,8 +95,15 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots, markdown, rss, mcp, dateLeases } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
+  if (llms !== undefined && llms !== true && llms !== false) {
+    if (llms === null || Object(llms) !== llms || Array.isArray(llms)) throw invalid("llms must be true, false, or { title, description }.")
+    for (const key of ["title", "description"]) {
+      const value: unknown = Reflect.get(llms, key)
+      if (value !== undefined && String(value) !== value) throw invalid(`llms.${key} must be text.`)
+    }
+  }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) throw invalid("markdown must be true or false.")
   if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
@@ -108,7 +129,11 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
       throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     }
   }
-  return options as DefineContentSeoOptions
+  const normalized = options as DefineContentSeoOptions
+  if (llms === undefined || llms === false) return normalized
+  // The llms files link to the `.md` copies of each page.
+  if (markdown === false) throw invalid("llms links to the .md copy of each page. Remove markdown: false, or set llms: false.")
+  return { ...normalized, markdown: true }
 }
 
 /** The origin of a site URL, such as `https://example.com`, without a trailing slash. */
