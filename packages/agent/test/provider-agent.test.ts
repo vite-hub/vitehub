@@ -565,6 +565,28 @@ describe("Provider Agent Driver", () => {
     })
   })
 
+  it("gives the Driver the forge access commit identity before its own environment", async () => {
+    const threadId = "thread-github-identity"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const access = vi.fn(async () => ({ token: "installation-token", identity: { login: "bot[bot]", email: "1+bot[bot]@users.noreply.github.com" } }))
+    const base = context(threadId)
+    base.context.set("pullRequest", {
+      pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    await createProviderAgentAdapter({
+      env: { GIT_AUTHOR_EMAIL: "user@example.com" },
+      provider: "codex",
+    }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
+
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GIT_AUTHOR_NAME: "bot[bot]",
+      GIT_AUTHOR_EMAIL: "user@example.com",
+      GIT_COMMITTER_NAME: "bot[bot]",
+      GIT_COMMITTER_EMAIL: "1+bot[bot]@users.noreply.github.com",
+    })
+  })
+
   it("scopes the Agent forge access environment to the pull request when the managed checkout is disabled", async () => {
     const threadId = "thread-github-environment-no-checkout"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
