@@ -380,7 +380,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const previous = await pullRequestInbox.meta(key);
     if (isRuntimeRecord(previous) && (previous.head === head && previous.base === pr.base.sha || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
     await pullRequestInbox.setMeta(key, { head, base: pr.base.sha, at: Date.now() });
-    if (!await updateBranch(owner, repository, number, head, signal)) return false;
+    if (!await updateBranch(owner, repository, number, head, signal, pr)) return false;
     schedulerEvent("babysitter.branch.retest", { ...owner, cause: "infrastructure" });
     return true;
   }
@@ -402,7 +402,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (isRuntimeRecord(previous) && previous.head === head && Number(previous.at) > Date.now() - 6 * 60 * 60_000) return false;
     await pullRequestInbox.setMeta(key, { head, at: Date.now() });
     const compare = await readOnePage(`repos/${repository}/compare/${head}...${encodeURIComponent(baseRef)}?per_page=1`, signal).catch(() => undefined);
-    if (isRuntimeRecord(compare) && Number(compare.ahead_by) > 0 && await updateBranch(owner, repository, number, head, signal)) {
+    if (isRuntimeRecord(compare) && Number(compare.ahead_by) > 0 && await updateBranch(owner, repository, number, head, signal, pr)) {
       schedulerEvent("babysitter.required_check.retest", { ...owner, missing, via: "update-branch", base_ahead: compare.ahead_by });
       return true;
     }
