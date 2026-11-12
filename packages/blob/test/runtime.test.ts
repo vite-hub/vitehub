@@ -719,7 +719,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("missing").get("notes/missing.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"missing\".",
+      message: "Unknown Blob store \"missing\". Configured stores: \"default\".",
     })
   })
 
@@ -770,7 +770,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("inherited").get("notes/inherited.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"inherited\".",
+      message: "Unknown Blob store \"inherited\". Configured stores: \"default\".",
     })
     expect(vercelBlobMock.get).not.toHaveBeenCalled()
   })
@@ -1508,6 +1508,20 @@ describe("ensureBlob", () => {
     expect(() => ensureBlob(new Blob(["hello"], { type: "text/plain" }), {
       types: ["image"],
     })).toThrow("File type is invalid")
+  })
+
+  it("accepts a type that a browser opens as a page only when the app lists it exactly", () => {
+    const svg = new Blob(["content"], { type: "image/svg+xml" })
+    expect(() => ensureBlob(svg, { types: ["image"] })).toThrow("File type is invalid, must be: image")
+    expect(() => ensureBlob(svg, { types: ["image/svg+xml"] })).not.toThrow()
+    expect(() => ensureBlob(new Blob(["content"], { type: "image/png" }), { types: ["image"] })).not.toThrow()
+    for (const type of ["image/png,image/svg+xml", "image/png, text/html", "image/png,multipart/mixed;boundary=b"]) {
+      expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["image"] })).toThrow("File type is invalid, must be: image")
+    }
+    for (const type of ["text/html", "text/html;charset=utf-8", "text/xml", "text/html extra"]) {
+      expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["text"] })).toThrow("File type is invalid, must be: text")
+    }
+    expect(() => ensureBlob(new Blob(["content"], { type: "text/html" }), { types: ["text/html"] })).not.toThrow()
   })
 
   it("rejects fractional max sizes instead of truncating them", () => {

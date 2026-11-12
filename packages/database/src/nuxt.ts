@@ -113,7 +113,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
   const module = async function viteHubDatabaseNuxtModule(inlineOptions, nuxt) {
     // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the options this integration reads.
     const nuxtOptions = (nuxt as NuxtLike).options
-    const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions, nuxtOptions)
+    const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions)
     if (resolvedOptions === false) {
       return
     }
@@ -572,7 +572,7 @@ async function installNitroLocalDatabaseRuntime(
 
 function resolveNuxtContentModuleDependencies(options: DatabaseNuxtIntegrationOptions, nuxt: unknown): NuxtModuleDependencies {
   const nuxtOptions = (nuxt as NuxtLike).options
-  const resolvedOptions = resolveDatabaseNuxtOptions(options, undefined, nuxtOptions)
+  const resolvedOptions = resolveDatabaseNuxtOptions(options, undefined)
   if (resolvedOptions === false || !hasNuxtContentModule(nuxtOptions.modules)) {
     return {}
   }
@@ -597,16 +597,15 @@ function usesDefinitionResources(options: ResolvedDatabaseNuxtIntegrationOptions
   return Boolean(config && options.binding === undefined && options.databaseId === undefined && options.databaseName === undefined)
 }
 
+/** `vite-hub/nuxt` passes the Database options from its `vitehub` key. A top-level Nuxt `database` key is not read. */
 function resolveDatabaseNuxtOptions(
   options: DatabaseNuxtIntegrationOptions,
   inlineOptions: DatabaseNuxtIntegrationOptions | undefined,
-  nuxtOptions: NuxtLike["options"],
 ): ResolvedDatabaseNuxtIntegrationOptions | false {
-  if (options === false || inlineOptions === false || nuxtOptions.database === false) {
+  if (options === false || inlineOptions === false) {
     return false
   }
   return {
-    ...(isRecord(nuxtOptions.database) ? nuxtOptions.database : {}),
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
