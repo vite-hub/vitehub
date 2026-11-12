@@ -98,6 +98,7 @@ function recordValues(record: Omit<AgentInvocationRecord, "cursor">, recordRow: 
 const recordColumns = ["status", "agent_name", "trace_id", "search", "summary", "capability_ids", "triggered_by", "updated_at", "record"]
 
 function parseRecord(value: unknown, sequence: unknown): AgentInvocationRecord {
+  // Internal invariant: this store writes the record column as text.
   if (typeof value !== "string") throw new TypeError("[vitehub] Postgres Agent Invocation rows must hold the record as text.")
   // SAFETY: The store writes this column from records that applyAgentInvocationStoreUpdate() produced.
   // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The store reads its own serialized AgentInvocationStoreCreateInput from its migrated table.
@@ -106,6 +107,7 @@ function parseRecord(value: unknown, sequence: unknown): AgentInvocationRecord {
 }
 
 function parseSummary(value: unknown, sequence: unknown): AgentInvocationSummary {
+  // Internal invariant: this store writes the summary column as text.
   if (typeof value !== "string") throw new TypeError("[vitehub] Postgres Agent Invocation rows must hold the summary as text.")
   // SAFETY: The store writes summaries together with the full record.
   // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- recordValues() writes the typed record metadata into this column in the same statement as the record.

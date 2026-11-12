@@ -181,6 +181,7 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     database: name,
     client() {
       const client = postgresClient(runtime().$client)
+      // Internal invariant: the driver was Postgres when this store was created.
       if (!client) throw new TypeError(`[vitehub] Database "${name}" changed from Postgres to another driver.`)
       // Count the journal's queries in the request's database stats. One tracked client per pool keeps the table check cached.
       let tracked = trackedClients.get(client)

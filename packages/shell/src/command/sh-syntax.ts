@@ -14,7 +14,11 @@ declare const WebAssembly: {
 let parser: Promise<ShellParser> | undefined
 
 export async function parseShell(text: string, options?: ShOptions): Promise<File> {
-  parser ??= loadParser()
+  // A failed load lets the next parse try again.
+  parser ??= loadParser().catch((error: unknown) => {
+    parser = undefined
+    throw error
+  })
   return (await parser)(text, options)
 }
 

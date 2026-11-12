@@ -39,7 +39,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_DISABLED: {
       why: "Queue is disabled in this runtime.",
-      fix: "Add `hubQueue()` to the Vite config and do not set `queue: false`.",
+      fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host.",
     },
     QUEUE_INVALID_BINDING: {
       why: "The Cloudflare queue binding does not have `send()` and `sendBatch()`.",
@@ -67,7 +67,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
-      fix: "Add `hubQueue()` to the Vite config, build the app, and run the built server.",
+      fix: "Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build the app and run the built server.",
     },
     QUEUE_VERCEL_SDK_INVALID: {
       why: "`@vercel/queue` does not have the client API that ViteHub uses.",

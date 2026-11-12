@@ -32,6 +32,7 @@ import { parseEvidence } from "./inbox/types.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
+import { isBabysitterPlacementCapacityError } from "./placement.ts";
 import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
@@ -968,7 +969,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // placement, installation, or waits for model admission. Keep waiters in
     // this count so concurrent reconciles cannot claim past the owner limit.
     const hostActive = active.size;
-    const remainingCapacity = Math.max(0, claimLimit - hostActive);
+    const placementAdmitted = presetOptions.placement?.admitted ? await presetOptions.placement.admitted() : Number.POSITIVE_INFINITY;
+    // An invalid count claims nothing: claiming past the hosts only turns each PR away at placement.
+    const placementLimit = typeof placementAdmitted === "number" && placementAdmitted >= 0 ? placementAdmitted : 0;
+    const remainingCapacity = Math.max(0, Math.min(claimLimit, placementLimit) - hostActive);
     const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
       only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
       includeBlocked: true,
@@ -1851,6 +1855,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             await pullRequestInbox.finish(inboxClaim, { text: error.message, wait });
             if (error.kind === "capacity") schedulerEvent("babysitter.install.waiting", { ...owner, reason: "install-capacity", retryAt: wait.retryAt });
             else schedulerError("babysitter.install.failed", error, { ...owner, reason: wait.reasonCode });
+            return;
+          }
+          if (!pushedHead && isBabysitterPlacementCapacityError(error)) {
+            outcome = "waiting";
+            const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
+            wait.kind = "external";
+            wait.reason = error.message;
+            wait.reasonCode = "placement-capacity";
+            wait.retryAt = Date.now() + (Number.isFinite(error.retryAfterMs) && error.retryAfterMs > 0 ? error.retryAfterMs : 30_000);
+            await pullRequestInbox.finish(inboxClaim, { text: error.message, wait });
+            schedulerEvent("babysitter.placement.waiting", { ...owner, reason: "placement-capacity", retryAt: wait.retryAt });
             return;
           }
           if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
