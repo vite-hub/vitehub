@@ -427,13 +427,13 @@ describe("Blob Nitro runtime module", () => {
 
     await expect(runtimeModule.blob.store("missing").put("notes/missing.txt", "hello")).rejects.toMatchObject({
       code: "BLOB_R0028",
-      message: "Unknown Blob store \"missing\".",
+      message: "Unknown Blob store \"missing\". Configured stores: \"default\", \"assets\".",
     })
 
     fetchMock.mockClear()
     await expect(runtimeModule.blob.store("constructor").put("notes/constructor.txt", "hello")).rejects.toMatchObject({
       code: "BLOB_R0028",
-      message: "Unknown Blob store \"constructor\".",
+      message: "Unknown Blob store \"constructor\". Configured stores: \"default\", \"assets\".",
     })
     expect(fetchMock).not.toHaveBeenCalled()
 

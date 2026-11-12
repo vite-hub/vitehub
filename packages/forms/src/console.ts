@@ -9,7 +9,7 @@ export const formsConsoleSection: ViteHubConsoleOperationSection = {
   view: {
     columns: [
       { key: "form", label: "Form" },
-      { key: "status", label: "Status" },
+      { key: "status", label: "Status", format: "status", tones: { done: "success", open: "info", spam: "error" } },
       // The long text keys that AutoForm draws as a textarea.
       { key: "data.message|data.feedback|data.details|data.description|data.comment|data.body|data.text|data.notes|data.note|data.workflow", label: "Message", format: "excerpt" },
       { key: "data.email|user.email|user.id", label: "From" },
