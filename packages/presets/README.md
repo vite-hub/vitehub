@@ -283,6 +283,11 @@ has no merge tool and the host rejects auto-merge operations. With `"auto"`, it
 requests GitHub native auto-merge subject to current PR admission and repository
 checks and reviews. Workers never merge directly or delete branches.
 
+CI logs reach the worker without color codes or fetch branch listings, capped at
+the last 4 MB of each failed job. Preloaded evidence and `readCheckLogs` return a
+failure-focused excerpt; `readCheckLogs` also takes `tailLines` or
+`startLine`/`endLine` for up to 1,000 lines the excerpt omitted.
+
 Before a repair push, the host durably associates the exact candidate commit with
 its active claim. Check and status webhooks for that commit are retained even when
 they arrive before the source-push and synchronize webhooks. This association does
