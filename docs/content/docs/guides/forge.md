@@ -56,6 +56,8 @@ export default defineEventHandler(async () => {
 
 A GitHub provider also has `graphql()`. Get a new provider for each job. An installation token expires after one hour, and `useForge()` caches it until one minute before that.
 
+A GitHub provider sends a repeated `GET` with `If-None-Match` and the ETag of the last response. When nothing changed, GitHub answers `304 Not Modified`, which doesn't count against the rate limit, and the provider returns the body it kept. Each page of a list is kept on its own. The bodies live in memory, up to 32 MiB per process, and are kept per App installation, so they outlast the hourly token rotation. Every read still goes to GitHub, so a kept body is never returned unless GitHub says it is current. Turn it off with `useForge({ conditionalRequests: false })`.
+
 ## Give a token to git or gh
 
 `token()` returns the token itself:
