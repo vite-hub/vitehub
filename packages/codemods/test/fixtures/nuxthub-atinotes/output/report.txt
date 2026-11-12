@@ -1,0 +1,23 @@
+nuxthub: moved kv from hub to vitehub with preset "cloudflare", rewrote 3 imports and 3 KV and Blob calls.
+Dry run: no files were written.
+
+Files to change (5):
+  nuxt.config.ts
+  package.json
+  server/api/pages.ts
+  server/api/pages/[slug].get.ts
+  server/api/pages/[slug].put.ts
+
+Manual follow-ups (3):
+  1. wrangler.jsonc:9 The codemod set vitehub.kv to keep this namespace, and ViteHub writes the KV binding itself. Remove this entry from wrangler.jsonc.
+  2. server/routes/assets/[...pathname].get.ts:10 hubBlob() was removed in NuxtHub 0.10. Import blob from "vite-hub/blob" and call its methods; serve() returns a Response, and the other methods return [error, value] tuples. Set blob: true under vitehub too.
+  3. Copy the local KV data for Node development without a Cloudflare binding: `mkdir -p '.vitehub/data/kv-cloudflare/KV' && cp -R .data/kv/. '.vitehub/data/kv-cloudflare/KV'/`. Binding-backed development (for example workerd) reads the binding instead; import the keys into that development namespace with Wrangler. Repeat the copy if you change vitehub.kv.binding.
+
+Notes:
+  - vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.
+  - Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and remove @nuxthub/core.
+  - Run `npx nuxi prepare`, then type-check the app.
+  - Run `pnpm nuxt build` and `pnpm vitehub inspect output --json` to check the resources and bindings.

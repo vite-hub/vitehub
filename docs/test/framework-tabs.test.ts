@@ -35,7 +35,6 @@ const singleFramework: Record<string, string> = {
   "comments/get-started.md vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
   "comments/get-started.md node/vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
   "comments/index.md vite.config.ts": "The landing shows Comments alone, without a ViteHub app.",
-  "queue/configure.md vite.config.ts": "vitehub() takes queue as a boolean, so region, base, and binding need hubQueue().",
   "frameworks-hosts/cloudflare.md vite.config.ts": "The rate-limit example composes hubRateLimit() and nitro() without vitehub().",
 }
 

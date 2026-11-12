@@ -147,6 +147,24 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
+  await t.test("every item of the Comments segment centers on the pill's line, in comment mode too", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
+    try {
+      // Avatars and dividers do not fill the row's height, so they show it first when the alignment is lost.
+      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .divider, .toolbar .people")]
+        .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
+      assert.ok(centers.some(([name]) => name === "divider"), "comment mode shows its dividers")
+      const line = centers[0][1]
+      for (const [name, center] of centers) assert.ok(Math.abs(center - line) <= 0.5, `${name} centers at ${center}, the pill at ${line}`)
+    }
+    finally {
+      await page.keyboard.press("Escape")
+    }
+  })
+
   await t.test("in comment mode a drag comments on an area", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
