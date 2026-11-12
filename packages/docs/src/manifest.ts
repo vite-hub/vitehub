@@ -10,6 +10,7 @@ import { docsManifestPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
+import type { ContentRuntime } from "@vite-hub/content"
 import type { DocsSectionFile } from "./schema.ts"
 import type { z } from "zod"
 import type { DocsAppPage, DocsManifest, DocsPage, DocsSection } from "./types.ts"
@@ -49,9 +50,6 @@ export class DocsContentError extends Error {
   }
 }
 
-/** The Content runtime of the docs: one Source per docs source, named `docs_<index>`. */
-export type DocsContent = ReturnType<typeof createDocsContent>
-
 /** The name of the Content Source of a docs source. Content names allow no `-`, so it is not the page's `docs-<index>`. */
 const contentName = (index: number) => `docs_${index}`
 
@@ -59,7 +57,7 @@ const contentName = (index: number) => `docs_${index}`
  * One `glob()` Source per docs folder, with its Markdown pages and its `.navigation.yml` files as YAML documents. The
  * manifest lists them through Content, so another Source, such as `github()`, gives the same manifest.
  */
-export function createDocsContent(sources: readonly Pick<DocsSource, "dir">[]) {
+export function createDocsContent(sources: readonly Pick<DocsSource, "dir">[]): ContentRuntime {
   return defineContent({
     route: false,
     live: false,
@@ -91,7 +89,7 @@ interface DocsContentFile {
  * URL, so it lists one of two files with the same URL, such as `guide.md` and `guide/index.md`, and no empty file.
  * Those are read from the Source, so the manifest still names both files or the empty one in a `DocsContentError`.
  */
-async function listDocsContent(content: DocsContent, sources: readonly DocsSource[]): Promise<DocsContentFile[]> {
+async function listDocsContent(content: ContentRuntime, sources: readonly DocsSource[]): Promise<DocsContentFile[]> {
   const files: DocsContentFile[] = []
   for (const [index, source] of sources.entries()) {
     const name = contentName(index)
