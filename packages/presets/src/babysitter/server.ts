@@ -1835,7 +1835,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   dependencyRefreshes++;
                   return () => { dependencyRefreshes--; };
                 },
-                readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
+                readFeedback: async input => readBabysitterFeedback(await assertLeaseHeld(), input),
                 readState: async () => {
                   let current = await assertLease();
                   const directory = providerDirectory ?? checkout;
