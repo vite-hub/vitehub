@@ -825,6 +825,7 @@ export function defineContent<
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
     ...documentsApi,
+    get instances() { return previewHub().instances },
     sources: Object.assign(heads.api, previewRoutes),
     history: historyApi.history,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
@@ -869,11 +870,18 @@ export function defineContent<
       },
     },
   }
+  if (hub.media) Object.defineProperty(runtime, "media", { enumerable: true, get: () => previewHub().media })
   setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
-      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, { enumerable: true, value })
+      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, {
+        enumerable: true,
+        get: () => {
+          const view = refScope.getStore()?.view
+          return view?.name === instance.name ? Reflect.get(view, key) : value
+        },
+      })
     }
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.

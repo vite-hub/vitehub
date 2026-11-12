@@ -252,6 +252,20 @@ export function previewCacheControl(route: ContentPreviewRouteKind, reason: Cont
   return "public, max-age=60"
 }
 
+function responseCacheControl(own: string | null, policy: string): string {
+  if (policy === "private, no-store" || own === null) return policy
+  const original = privateCache.test(own) && !/\b(?:private|no-store)\b/i.test(own) ? `private, ${own}` : own
+  const limit = Number(/max-age=(\d+)/.exec(policy)![1])
+  let maxAge = false
+  // Keep application revalidation and extension directives, and cap both browser and shared-cache lifetimes.
+  const bounded = original.replace(/(^|,)(\s*)(max-age|s-maxage)\s*=\s*"?(\d+)"?(?=\s*(?:,|$))/gi, (_match, separator: string, space: string, name: string, age: string) => {
+    if (name.toLowerCase() === "max-age") maxAge = true
+    return `${separator}${space}${name}=${Math.min(Number(age), limit)}`
+  })
+  // A published Source commit does not make an arbitrary application response immutable.
+  return maxAge || /\b(?:no-store|no-cache)\b/i.test(bounded) ? bounded : `${bounded ? `${bounded}, ` : ""}max-age=${limit}`
+}
+
 /**
  * The response of a preview page: `X-Robots-Tag: noindex`, a canonical `Link` header to the production URL, the
  * `Cache-Control` of `previewCacheControl()`, and a same-site redirect kept under the prefix.
@@ -267,13 +281,8 @@ export function previewResponse(response: Response, preview: ContentSourcePrevie
     result.headers.set("x-robots-tag", "noindex")
   }
   result.headers.append("link", `<${preview.url}>; rel="canonical"`)
-  // The preview rule is an upper bound: a page that the app marks private, or that sets a cookie, stays private.
-  const own = result.headers.get("cache-control")
-  if (own !== null && privateCache.test(own)) {
-    if (!/\bprivate\b/i.test(own) && !/\bno-store\b/i.test(own)) result.headers.set("cache-control", `private, ${own}`)
-  }
-  else if (result.headers.has("set-cookie")) result.headers.set("cache-control", "private, no-store")
-  else result.headers.set("cache-control", previewCacheControl(preview.route, reason))
+  const policy = result.headers.has("set-cookie") ? "private, no-store" : previewCacheControl(preview.route, reason)
+  result.headers.set("cache-control", responseCacheControl(result.headers.get("cache-control"), policy))
   const location = result.headers.get("location")
   if (location !== null && result.status >= 300 && result.status < 400) {
     const origin = new URL(requestUrl).origin

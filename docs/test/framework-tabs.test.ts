@@ -16,6 +16,8 @@ const singleFramework: Record<string, string> = {
   "docs-site/configure.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/get-started.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/index.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "docs-site/nuxt-app.md nuxt.config.ts": "The tutorial adds the docs Nuxt module to an existing Nuxt app.",
+  "frameworks-hosts/nuxt-server-auto-imports.md nuxt.config.ts": "The page is about the Nuxt module's server auto-imports.",
   "frameworks-hosts/nuxt.md nuxt.config.ts": "The page is about the Nuxt module.",
   "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
@@ -52,23 +54,27 @@ interface ConfigBlock { label: string, line: number, code: string, tab?: string,
 interface TabsGroup { id: number, line: number, labels: string[], optional?: boolean }
 
 /** The config code blocks of a page, with the framework tab and tabs group each one sits in. */
-function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGroup[] } {
+function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGroup[], unlabeled: number[] } {
   const lines = source.replaceAll("\r\n", "\n").split("\n")
   const blocks: ConfigBlock[] = []
+  const unlabeled: number[] = []
   const groups: TabsGroup[] = []
   const stack: { colons: number, name: string, group?: number, tab?: string }[] = []
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!
-    const fence = /^\s*(`{3,})\S*[^[]*(?:\[([^\]]+)\])?/.exec(line)
+    const fence = /^\s*(`{3,})(\S*)[^[]*(?:\[([^\]]+)\])?/.exec(line)
     if (fence) {
       const close = fence[1]!
       const start = index
       while (++index < lines.length && lines[index]!.trim() !== close);
-      const label = fence[2]
+      const label = fence[3]
+      const code = lines.slice(start + 1, index).join("\n")
+      // A snippet without a file name that calls vitehub() with options or defines a config hides which file it is.
+      if (!label && /^(?:ts|js)$/.test(fence[2]!) && /\bvitehub\(\{|\bdefine(?:Nuxt)?Config\(/.test(code)) unlabeled.push(start + 1)
       if (label && /(?:^|\/)(?:vite|nuxt)\.config\.ts$/.test(label)) {
         const tab = stack.findLast(entry => entry.name === "tabs-item" || entry.name === "framework")?.tab
         const group = tab === undefined ? undefined : stack.findLast(entry => entry.group !== undefined)?.group
-        blocks.push({ label, line: start + 1, code: lines.slice(start + 1, index).join("\n"), tab, group })
+        blocks.push({ label, line: start + 1, code, tab, group })
       }
       continue
     }
@@ -98,7 +104,7 @@ function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGrou
       if (at >= 0) stack.length = at
     }
   }
-  return { blocks, groups }
+  return { blocks, groups, unlabeled }
 }
 
 /** Removes the indent that every line shares, such as the two spaces of a block inside a landing hero. */
@@ -222,6 +228,11 @@ describe("framework tabs", async () => {
     const missing = pages.flatMap(({ page, blocks }) => blocks
       .filter(block => block.group === undefined && !singleFramework[`${page} ${block.label}`])
       .map(block => `${page}:${block.line} ${block.label}`))
+    expect(missing).toEqual([])
+  })
+
+  it("names the config file of every config snippet", () => {
+    const missing = pages.flatMap(({ page, unlabeled }) => unlabeled.map(line => `${page}:${line}`))
     expect(missing).toEqual([])
   })
 

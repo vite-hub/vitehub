@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { promisify } from "node:util"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { eq, sql } from "drizzle-orm"
+import { defineRelations, eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { build } from "esbuild"
@@ -72,7 +72,7 @@ async function createHostedAnalyticsDb(http: true | { authToken: string, url: st
     mode: "named",
     name: "analytics",
     orm: "drizzle",
-  }, analyticsSchema)
+  }, defineRelations(analyticsSchema))
   return { db }
 }
 
@@ -85,6 +85,7 @@ async function createLocalAnalyticsDb(http: true | { authToken: string, url: str
       http,
     },
     name: "analytics",
+    relations: defineRelations(analyticsSchema),
     schema: analyticsSchema,
   })
   return { db }
@@ -429,6 +430,7 @@ describe("database definition runtime", () => {
     const db = createDefinitionRuntime({
       cloudflare: { binding: "ANALYTICS_DB" },
       name: "analytics",
+      relations: defineRelations(analyticsSchema),
       schema: analyticsSchema,
     }, {
       cloudflare: {
@@ -458,6 +460,7 @@ describe("database definition runtime", () => {
       },
       connection: { url: "file:.data/analytics.sqlite" },
       name: "analytics",
+      relations: defineRelations(analyticsSchema),
       schema: analyticsSchema,
     })
 
@@ -485,6 +488,7 @@ describe("database definition runtime", () => {
     const database = createDefinitionRuntime({
       cloudflare: { binding: "DB_ANALYTICS" },
       name: "analytics",
+      relations: defineRelations(analyticsSchema),
       schema: analyticsSchema,
     })
 
@@ -542,7 +546,7 @@ describe("hosted drizzle runtime", () => {
       mode: "default",
       name: "default",
       orm: "drizzle",
-    }, defaultSchema)
+    }, defineRelations(defaultSchema))
 
     expect(() => db.run).toThrow("The database \"default\" has no connection. It needs an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL")
   })
@@ -560,7 +564,7 @@ describe("hosted drizzle runtime", () => {
       mode: "default",
       name: "default",
       orm: "drizzle",
-    }, defaultSchema)
+    }, defineRelations(defaultSchema))
 
     expect(() => db.run).toThrow("The database \"default\" has no connection. It needs an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL")
   })
@@ -583,7 +587,7 @@ describe("hosted drizzle runtime", () => {
       mode: "named",
       name: "analytics",
       orm: "drizzle",
-    }, analyticsSchema)
+    }, defineRelations(analyticsSchema))
 
     expect((db as { $client?: unknown }).$client).toBe(binding)
   })
@@ -659,7 +663,7 @@ describe("hosted drizzle runtime", () => {
       mode: "named",
       name: "analytics",
       orm: "drizzle",
-    }, analyticsSchema)
+    }, defineRelations(analyticsSchema))
 
     expect((db as { $client?: unknown }).$client).toBeDefined()
     expect(fetchMock).not.toHaveBeenCalled()
