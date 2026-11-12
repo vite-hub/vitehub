@@ -354,9 +354,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
     mergeabilityRetryDelayMs: 1,
   });
-  const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string }> = [];
+  const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string; environment?: NodeJS.ProcessEnv }> = [];
   const operationResults: unknown[] = [];
-  let operation: "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
+  let operation: "refreshDependencies" | "checkDependencies" | "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
   let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async (options: { settings?: { launchArgs?: string }; environment?: NodeJS.ProcessEnv }) => {
     let threadId = `pass-${passes.length}`;
@@ -407,6 +407,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             runtimeMode,
             approvalPolicy,
             install: preset.sandbox || placedSandbox ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
+            environment: options.environment,
           });
           if (operation === "commitRepair" && remoteSandbox) {
             await writeFile(join(remoteSandbox.path, "source.ts"), "export const value = 2\n");
@@ -1554,11 +1555,15 @@ describe("Babysitter preset runtime", () => {
     }
     expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget: false } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { deferWhilePending: "yes" as unknown as boolean } })).toThrow(/deferWhilePending must be a boolean/);
-    expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required \}/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required, refreshes \}/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 0 } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { required: "yes" as unknown as boolean } } })).toThrow(/install must be/);
-    expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true } } })).not.toThrow();
+    expect(() => defineAgent({ extends: babysitter, options: { install: { refreshes: 0 } } })).toThrow(/install must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: "direct" } })).not.toThrow();
     for (const modelConcurrency of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);
     }
@@ -1743,6 +1748,78 @@ describe("Babysitter preset runtime", () => {
       expect(f.passes).toHaveLength(0);
       expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ files: ["source.ts"] }));
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("merges the base into a stacked head through the merges API when GitHub refuses update-branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("repos/acme/app/pulls/12/update-branch")) throw new Error("HTTP 403: Cannot update a stacked PR branch");
+      if (args.includes("repos/acme/app/git/ref/heads/fix")) return { stdout: JSON.stringify({ ref: "refs/heads/fix", object: { type: "commit", sha: f.pr().head.sha } }), stderr: "" };
+      return await command(args, request);
+    });
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.includes("repos/acme/app/merges"));
+      expect(merge?.[0]).toEqual(["api", "-X", "POST", "repos/acme/app/merges", "base=fix", "head=main", "commit_message=Merge main into fix"]);
+      expect(f.passes).toHaveLength(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ files: ["source.ts"] }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not merge the base into a head that moved after GitHub refused update-branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("repos/acme/app/pulls/12/update-branch")) throw new Error("HTTP 403: Cannot update a stacked PR branch");
+      if (args.includes("repos/acme/app/git/ref/heads/fix")) return { stdout: JSON.stringify({ ref: "refs/heads/fix", object: { type: "commit", sha: "e".repeat(40) } }), stderr: "" };
+      return await command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/merges"))).toBe(false);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.update_failed", expect.objectContaining({ reason: "merges API fallback: head changed" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("updates a green branch that is only behind a base requiring up-to-date branches", async () => {
+    const f = await fixture(false, false, { merge: "direct", mergeableState: "behind" });
+    try {
+      await f.reconcile();
+      const update = f.command.mock.calls.find(([args]) => args.includes("repos/acme/app/pulls/12/update-branch"));
+      expect(update?.[0]).toEqual(["api", "-X", "PUT", "repos/acme/app/pulls/12/update-branch", `expected_head_sha=${"a".repeat(40)}`]);
+      expect(f.passes).toHaveLength(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ reason: "behind" }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a stack child while its parent is open only with repairStackChildren", async () => {
+    const parents = [{ number: 7, state: "open", head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" } }];
+    const parked = await fixture(false, false, { merge: "direct", base: "feat/parent", parents });
+    try {
+      await parked.reconcile();
+      expect(parked.passes).toHaveLength(0);
+      expect((await parked.runtime.inbox.get("acme/app", 12))?.wait?.reason).toBe("stack-parent");
+    } finally { await parked.runtime.inbox.close(); }
+    const f = await fixture(false, false, { merge: "direct", base: "feat/parent", parents, options: { repairStackChildren: true },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      // Once the reviewed head has nothing left to repair, the child waits for its parent.
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      const child = await f.runtime.inbox.get("acme/app", 12);
+      expect(child?.wait).toMatchObject({ reason: "stack-parent", wake: { kind: "pull-request", repository: "acme/app", number: 7 } });
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1957,6 +2034,30 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it("keeps worker pnpm commands from reinstalling over the host install", async () => {
+    const f = await fixture();
+    try {
+      await f.reconcile();
+      expect(f.passes[0]?.environment?.npm_config_verify_deps_before_run).toBe("false");
+      expect(f.passes[0]?.tools).toContain("checkDependencies");
+      expect(f.passes[0]?.instructions).toContain("Before local validation, call checkDependencies.");
+    } finally {
+      await f.runtime.inbox.close();
+    }
+  });
+
+  it("stops refreshDependencies after the install.refreshes limit of a pass", async () => {
+    // 2026-10-19: one pass called refreshDependencies 16 times against a lockfile it could not fix.
+    const f = await fixture(false, false, { options: { install: { refreshes: 1 } }, operationCount: 2, expectedOperationErrorAt: 1 });
+    f.choose("refreshDependencies");
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[1])).toContain("refreshDependencies already ran 1 time in this pass, the limit.");
+    } finally {
+      await f.runtime.inbox.close();
+    }
+  });
+
   it("hands a lockfile the required install rejects to one local pass on the same head", async () => {
     const bin = await mkdtemp(join(tmpdir(), "vitehub-babysitter-bin-"));
     roots.push(bin);
@@ -1977,6 +2078,8 @@ describe("Babysitter preset runtime", () => {
       expect(f.passes).toHaveLength(1);
       expect(f.passes[0]!.prompt).toContain("<dependency-install-failure>");
       expect(f.passes[0]!.prompt).toContain("ERR_PNPM_OUTDATED_LOCKFILE");
+      // --lockfile-only skips URL tarballs, so a repair must finish with a plain install to keep their integrity.
+      expect(f.passes[0]!.prompt).toContain("finish with a plain `pnpm install --ignore-scripts`");
     } finally {
       vi.unstubAllEnvs();
       await f.runtime.inbox.close();
