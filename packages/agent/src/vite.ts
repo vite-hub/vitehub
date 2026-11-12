@@ -2248,7 +2248,7 @@ async function writeAgentWebhookRouteHandler(
             "  const startedAt = performance.timeOrigin",
             "  // Start one second after the server starts, so the Agent routes do not compile while the server answers its",
             "  // first requests, or at once when a request loads them. Invocations that started before this process are",
-            "  // interrupted unless a queued delivery runs them again.",
+            "  // interrupted unless a queued delivery runs them again or a live run in another process holds their claim.",
             "  // The warm-up builds registrations, secrets, and State before the first delivery needs them.",
             "  // /api/_vitehub/ready starts it at once and answers 503 until it finishes.",
             "  function startNow() {",
