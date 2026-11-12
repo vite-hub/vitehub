@@ -18,9 +18,9 @@ host output.
 | Definition is missing | File path and default export shape | [File conventions](/docs/reference/file-conventions) and `.vitehub/**` |
 | Stable import fails | Vite plugin and generated TypeScript includes | [Generated files](/docs/development/generated-files) |
 | Provider build fails | Provider Selection and required resource ids | [Provider output](/docs/reference/provider-output) |
-| Agent CLI cannot inspect or invoke | A running Vite server and `agent` on in `vitehub()` | [CLI](/docs/development/cli) |
+| Agent CLI cannot inspect or invoke | A running Vite server and `agent` on in `vitehub()` | [CLI](/docs/cli) |
 | Agent changed behaviour | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/agents/evals) |
-| Agent check times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stuck provider/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/agents/evals) |
+| Agent check times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stuck provider/session setup | [CLI](/docs/cli) and [Agent Evals](/docs/agents/evals) |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
 
 ## Discovery failures

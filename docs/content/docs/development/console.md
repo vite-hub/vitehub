@@ -63,7 +63,7 @@ With `console: false`, ViteHub registers no Console RPC route, Console Nitro plu
 
 ### In development
 
-The Console calls each app from its server, so it cannot reach a `vite dev` server on your machine. During development, use the [`vitehub` commands](/docs/development/cli). Without a `console` option, `vite dev` serves the Operations endpoint for them, and answers only this machine. `console: { auth: false }` works the same way. See [Share a development server](#share-a-development-server).
+The Console calls each app from its server, so it cannot reach a `vite dev` server on your machine. During development, use the [`vitehub` commands](/docs/cli). Without a `console` option, `vite dev` serves the Operations endpoint for them, and answers only this machine. `console: { auth: false }` works the same way. See [Share a development server](#share-a-development-server).
 
 ```bash [Terminal]
 pnpm vitehub project info
@@ -699,7 +699,7 @@ To repair a quarantined record:
 
 If you cannot get the original UUIDs, keep the quarantine record. Guessing can delete kept images.
 
-In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not show run or message history, because ViteHub does not yet have provider-independent contracts for that data. Use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run Schedules or list recorded runs, in development or on a deployment with `--url`.
+In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not show run or message history, because ViteHub does not yet have provider-independent contracts for that data. Use [`vitehub schedule`](/docs/cli/primitives#run-and-inspect-schedules) to run Schedules or list recorded runs, in development or on a deployment with `--url`.
 
 A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option replaces the default journal. The Console reads that journal instead. An Agent with `invocations: false` records no sessions. With `agent: { invocations: false }`, the Console lists no sessions. Configure the same journal on every discovered Agent, or set [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent). Distinct journals fail during runtime setup because the Console reads one combined journal.
 

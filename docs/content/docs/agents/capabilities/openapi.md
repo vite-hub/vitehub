@@ -243,4 +243,4 @@ openapi({
 - [Access](/docs/agents/capabilities/access)
 - [Connections](/docs/connections)
 - [Custom capabilities](/docs/agents/capabilities/custom)
-- [CLI](/docs/development/cli)
+- [CLI](/docs/cli)

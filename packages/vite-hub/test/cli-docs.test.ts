@@ -28,7 +28,7 @@ import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
+const cliReference = join(repoRoot, "docs/content/docs/cli/index.md");
 const evalFixtureRoot = join(repoRoot, "packages/agent/test/fixtures");
 
 function stream() {
