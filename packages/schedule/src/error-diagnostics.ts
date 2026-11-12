@@ -48,5 +48,9 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SCHEDULE_B0006: dynamicError,
     SCHEDULE_B0007: dynamicError,
     SCHEDULE_B0008: dynamicError,
+    SCHEDULE_B0009: {
+      ...dynamicError,
+      fix: "Set Schedule `runtime.leaseTtlMs` to a finite number greater than zero, or omit it to use the 60000 ms default.",
+    },
   },
 })

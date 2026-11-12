@@ -567,10 +567,9 @@ The value must be in exactly one env variable at build time. When two variables 
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Local filesystem storage. |
 | `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
-| `defaultUrlExpiresIn` | `number` | Files SDK default | Default URL lifetime in seconds. |
-| `urlBaseUrl` | `string` | None | Base URL that the filesystem adapter returns. |
+| `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`. |
 
-Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared.
+Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 
 ### Cloudflare R2
 

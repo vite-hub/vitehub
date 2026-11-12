@@ -8,7 +8,7 @@ import type { Database, DatabaseDefinition, DatabaseDefinitionOptions, PostgresD
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 const allowedDefinitionKeys = new Set(["cloudflare", "connection", "name", "relations", "remote", "schema"])
-const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect"])
+const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect", "driver"])
 const allowedPostgresKeys = {
   cloudflare: new Set(["binding", "hyperdriveId"]),
   connection: new Set(["url"]),
@@ -80,7 +80,14 @@ export function defineDatabase<TSchema extends Record<string, unknown>, TRelatio
     throw databaseErrorDiagnostics.DATABASE_REMOTE_CONFLICT({ database: name })
   }
 
+  if (options.dialect !== "postgresql" && "driver" in options) {
+    throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ option: "driver" })
+  }
+
   if (options.dialect === "postgresql") {
+    if (options.driver !== undefined && options.driver !== "pglite") {
+      throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({})
+    }
     const unsupported = [
       ...options.remote === undefined ? [] : ["remote"],
       ...Object.keys(options.cloudflare ?? {}).filter(key => !allowedPostgresKeys.cloudflare.has(key)).map(key => `cloudflare.${key}`),
@@ -97,6 +104,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>, TRelatio
     }
     if (options.cloudflare) postgresDefinition.cloudflare = options.cloudflare
     if (options.connection) postgresDefinition.connection = options.connection
+    if (options.driver) postgresDefinition.driver = options.driver
     return postgresDefinition
   }
 
