@@ -3,6 +3,10 @@ import { defineErrors } from "@vite-hub/runtime"
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
+    PRESETS_MERGE_DRAFT_AUTHORS_INVALID: {
+      why: "Babysitter merge.markDraftsReady must be an array of GitHub logins.",
+      fix: "Set merge.markDraftsReady to non-empty GitHub logins, such as [\"octocat\", \"renovate[bot]\"], or remove it.",
+    },
     PRESETS_REVIEW_OUTCOME_INVALID: {
       why: "Review thread outcome must be one of fixed, disproved, declined, pre-existing, duplicate.",
       fix: "Set outcome to fixed, disproved, declined, pre-existing, or duplicate.",

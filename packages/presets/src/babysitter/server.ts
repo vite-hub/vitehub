@@ -299,6 +299,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         && String(pr.head.repo.full_name).toLowerCase() === repository.toLowerCase();
     };
     if (!allowed(snapshot.pr)) return false;
+    let failure: string | undefined;
     try {
       const live = await readPull(repository, number, signal);
       if (!allowed(live) || !hasRuntimeType(live.node_id, "string")) return false;
@@ -307,11 +308,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const query = "mutation BabysitterMarkDraftReady($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}";
       const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMarkDraftReady", variables: { id: live.node_id } }, signal })).data;
       if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length > 0) {
-        throw new Error(response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error)).join("; "));
+        failure = response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error)).join("; ");
       }
     } catch (error) {
       await noteForgeQuota(error, "draft-ready");
-      schedulerEvent("babysitter.draft.ready_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    if (failure !== undefined) {
+      schedulerEvent("babysitter.draft.ready_failed", { ...owner, reason: failure.slice(0, 200) });
       return false;
     }
     schedulerEvent("babysitter.draft.ready", { ...owner, head_sha: snapshot.pr?.head?.sha });

@@ -1475,7 +1475,7 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
     expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
-    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", markDraftsReady: [" "] } } })).toThrow(/merge.markDraftsReady/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", markDraftsReady: [" "] } } })).toThrow(expect.objectContaining({ code: "PRESETS_MERGE_DRAFT_AUTHORS_INVALID" }));
   });
 
   describe("merge.markDraftsReady", () => {

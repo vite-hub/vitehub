@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../github/index.ts";
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
@@ -180,7 +181,7 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     }
     const drafts = merge.markDraftsReady;
     if (drafts !== undefined && (!Array.isArray(drafts) || !drafts.every(login => hasRuntimeType(login, "string") && login.trim()))) {
-      throw new TypeError("[vitehub] Babysitter merge.markDraftsReady must be an array of GitHub logins.");
+      throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
     }
     // SAFETY: the guard above proves ready is either undefined or a function with the documented contract.
     const ready = merge.ready as BabysitterMergeReady | undefined;
