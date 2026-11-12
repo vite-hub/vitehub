@@ -483,19 +483,47 @@ describe("host-owned repair operations", () => {
 
   it("reads bounded failure logs only for a run at the admitted head", async () => {
     const f = await fixture()
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false })
-    f.state.logs = "x".repeat(200_001)
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: `## test\n${"x".repeat(200_000 - 8)}`, truncated: true })
+    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false, totalLines: 2, includedLineRanges: [[1, 2]] })
     f.state.run.head_sha = "b".repeat(40)
     await expect(f.operations.readCheckLogs(123)).rejects.toThrow("does not belong")
-    expect(f.calls.filter(call => call.path === "/repos/acme/app/actions/jobs/7/logs")).toHaveLength(2)
+    expect(f.calls.filter(call => call.path === "/repos/acme/app/actions/jobs/7/logs")).toHaveLength(1)
+  })
+
+  it("returns the failure from a long colored log instead of its first 200,000 characters", async () => {
+    const f = await fixture()
+    const build = Array.from({ length: 20_000 }, (_, n) => `test\tbuild\t2026-11-01T00:00:00Z \u001b[32m✓\u001b[39m built chunk ${n}`)
+    const fetch = "test\tcheckout\t2026-11-01T00:00:00Z  * [new branch]          fix/agent-error -> origin/fix/agent-error"
+    const failure = "test\ttest\t2026-11-01T00:10:00Z \u001b[31mFAIL\u001b[39m TypeCheckError: 'details' does not exist in type"
+    f.state.logs = [fetch, ...build, failure].join("\n")
+    const excerpt = await f.operations.readCheckLogs(123)
+    expect(excerpt.truncated).toBe(true)
+    expect(excerpt.text).toContain("FAIL TypeCheckError: 'details' does not exist in type")
+    expect(excerpt.text).not.toContain("\u001b")
+    expect(excerpt.totalLines).toBe(20_002)
+    expect(excerpt.includedLineRanges.at(-1)).toEqual([19_998, 20_002])
+  })
+
+  it("reads a requested tail or line range from a failed-job log", async () => {
+    const f = await fixture()
+    const lines = Array.from({ length: 7229 }, (_, n) => `docs\tBuild docs\t2026-11-07T06:43:10Z ${n + 1} ${"build output ".repeat(8)}`)
+    lines[7135] = "docs\tBuild docs\tBroken docs links: /docs/getting-started/ai-resources links to /mcp, which has no page or file"
+    f.state.logs = lines.join("\n")
+    const log = ["## test", ...lines]
+    const tail = await f.operations.readCheckLogs(123, { tailLines: 100 })
+    expect(tail).toEqual({ text: log.slice(-100).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7131, 7230]] })
+    expect(tail.text).toContain("Broken docs links")
+    const range = await f.operations.readCheckLogs(123, { startLine: 7134, endLine: 7141 })
+    expect(range).toEqual({ text: log.slice(7133, 7141).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7134, 7141]], nextLine: 7142 })
+    await expect(f.operations.readCheckLogs(123, { startLine: 20, endLine: 10 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("1 to 1000") })
+    await expect(f.operations.readCheckLogs(123, { tailLines: 100, startLine: 1 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("Choose tailLines") })
+    await expect(f.operations.readCheckLogs(123, { startLine: 8000 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_START_PAST_END", why: "startLine 8000 is past the log's 7230 lines." })
   })
 
   it("accepts a synthetic merge workflow run linked to the expected PR head", async () => {
     const f = await fixture()
     f.state.run.head_sha = "b".repeat(40)
     f.state.run.pull_requests = [{ number: 12, head: { sha: head } }]
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false })
+    expect(await f.operations.readCheckLogs(123)).toMatchObject({ text: "## test\nCI failure", truncated: false })
   })
 
   it("rejects thread IDs owned by another PR", async () => {
