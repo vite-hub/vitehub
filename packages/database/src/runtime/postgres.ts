@@ -1,5 +1,4 @@
 import { getActiveCloudflareBinding, getActiveCloudflareRequestScope } from "@vite-hub/internal/runtime/cloudflare-env"
-import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 
@@ -7,6 +6,7 @@ import { resolveConfigValue } from "../config-value.ts"
 import { keepOwnClient, trackPostgresClient } from "./request-stats.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
+import type { AnyRelations } from "drizzle-orm"
 import type { DatabaseConfigValue, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "../types.ts"
 
 /** Build-time values that apply when the evaluated Definition omits them. */
@@ -15,9 +15,9 @@ export interface PostgresDatabaseDefaults {
   url?: DatabaseConfigValue
 }
 
-interface PostgresInstance<TSchema extends Record<string, unknown>> {
+interface PostgresInstance<TSchema extends Record<string, unknown>, TRelations extends AnyRelations> {
   client: ReturnType<typeof postgres>
-  db: RuntimePostgresDatabase<TSchema>
+  db: RuntimePostgresDatabase<TSchema, TRelations>
   key: string
 }
 
@@ -82,15 +82,15 @@ function printPostgresWarning(notice: postgres.Notice) {
  * request, each request gets its own client because Workers cannot reuse a socket across requests.
  * Outside a Cloudflare request, one client pool serves the process.
  */
-export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
-  definition: PostgresDatabaseDefinition<TSchema>,
+export function createPostgresDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+  definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   defaults: PostgresDatabaseDefaults,
-): RuntimePostgresDatabase<TSchema> {
+): RuntimePostgresDatabase<TSchema, TRelations> {
   const bindingName = definition.cloudflare?.binding?.trim() || defaults.binding
-  const requestInstances = new WeakMap<object, PostgresInstance<TSchema>>()
-  let sharedInstance: PostgresInstance<TSchema> | undefined
-  // Each table of the schema, so `db.query.<table>` works. Relations between tables are not supported yet.
-  const relations = defineRelations(definition.schema)
+  const requestInstances = new WeakMap<object, PostgresInstance<TSchema, TRelations>>()
+  let sharedInstance: PostgresInstance<TSchema, TRelations> | undefined
+  // Every table of the schema, with the relations of the Definition, so `db.query.<table>` reads each one.
+  const { relations } = definition
 
   function resolveConnection(requestScoped: boolean): PostgresConnection {
     const hyperdriveUrl = readHyperdriveConnectionString(getActiveCloudflareBinding<unknown>(bindingName))
@@ -106,12 +106,12 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
     throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs })
   }
 
-  function createInstance(connection: PostgresConnection, requestScoped: boolean): PostgresInstance<TSchema> {
+  function createInstance(connection: PostgresConnection, requestScoped: boolean): PostgresInstance<TSchema, TRelations> {
     // Cloudflare limits concurrent connections per request. Hyperdrive pools the origin connections.
     // Type discovery stays on, because array columns need the type metadata that postgres.js reads.
     const options = { onnotice: printPostgresWarning, ...requestScoped ? { max: 5 } : {} }
     const client = connection.url ? postgres(connection.url, options) : postgres(options)
-    const db: RuntimePostgresDatabase<TSchema> = keepOwnClient(drizzle({ client: trackPostgresClient(client), relations }), client)
+    const db: RuntimePostgresDatabase<TSchema, TRelations> = keepOwnClient(drizzle({ client: trackPostgresClient(client), relations }), client)
     return { client, db, key: connection.key }
   }
 
@@ -135,7 +135,7 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
   }
 
   // SAFETY: Every property read forwards to the Drizzle database for the active request or process.
-  return new Proxy({} as RuntimePostgresDatabase<TSchema>, {
+  return new Proxy({} as RuntimePostgresDatabase<TSchema, TRelations>, {
     get(_, property) {
       const instance = getDb()
       const value: unknown = Reflect.get(instance, property)
