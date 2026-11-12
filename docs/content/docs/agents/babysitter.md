@@ -90,8 +90,9 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
-| `install` | `true` | Host install before the model starts. `true` runs a frozen pnpm, npm, or Yarn install from the lockfile. `{ command, args }` replaces the command, `{ cache: { directory, entries } }` sets the pnpm cache, `{ concurrency }` sets parallel installs (default `2`), and `{ required: true }` parks the PR on failure (default `false`). `false` skips it. See [Dependency installation](#dependency-installation). |
+| `install` | `true` | Host install before the model starts. `true` runs a frozen pnpm, npm, or Yarn install from the lockfile. `{ command, args }` replaces the command, `{ cache: { directory, entries } }` sets the pnpm cache, `{ concurrency }` sets parallel installs (default `2`), `{ required: true }` parks the PR on failure (default `false`), and `{ refreshes }` limits `refreshDependencies` calls per pass (default no limit). `false` skips it. See [Dependency installation](#dependency-installation). |
 | `ciRecovery` | `true` | Rerun failed GitHub Actions runs once before a model pass repairs them. |
+| `repairStackChildren` | `false` | Repair a pull request whose base is another open pull request's branch alongside its parent, instead of waiting for the parent to merge. It never merges into the parent's branch. Requires `merge: 'direct'`. |
 | `mentionAllowlist` | `[]` | Exact GitHub logins that the worker can notify with `mentionOnPullRequest`, only for verified blockers that need one person to act. |
 | `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, also uses this limit. |
 | `modelConcurrency` | `concurrency` | Model passes at the same time. Match what your provider accounts can serve. |
@@ -289,7 +290,9 @@ The worker (the provider session of a pass) gets no GitHub tokens, only tools bo
 - `readRepairState` shows the assigned head and base, the verified publication, the installation status, and whether the claim is valid. It does not query GitHub.
 - `pushRepair` returns the verified published `head` with `pushed: true`.
 - `readFeedback` reads a comment, review, or inline review comment from the PR's durable snapshot, by `kind` (`comment`, `review`, or `review-comment`) and `id`. Bodies come in pages of at most 16,000 JavaScript string characters; follow `next.offset` and `next.version` until `complete` is true. An edit invalidates the version, and a stale claim cannot read another head. In this release, the full feedback is also in the first context.
+- `checkDependencies` lists the manifests, lockfiles, patches, and local dependency files that changed since the last host install, with `current: false` until `refreshDependencies` installs them again.
 - `commitRepair` commits with a message and explicit file paths. Workers must use it because the provider sandbox protects Git metadata. Commits use the App's bot identity.
+- `readCheckLogs` reads the failed jobs of a GitHub Actions run on the PR head, without color codes or fetch branch listings and capped at the last 4 MB of each job. By default it returns a failure-focused excerpt of at most 200,000 characters with its `includedLineRanges`. Pass `tailLines` for the end of the log or `startLine` and `endLine` for up to 1,000 complete lines. `readBaseCheckLogs` returns the same excerpt for a run on the exact base.
 
 The host install before the provider starts ([Dependency installation](#dependency-installation)):
 
@@ -325,11 +328,13 @@ Assessed feedback stays assessed on later heads, so a pull request whose push fi
 
 A wait is bound to the head that the pass saw: a new head clears it, and closing the pull request stops work. Wake conditions come from structured evidence about checks, reviews, the base, and mergeability, never the model's text. A wait does not allow a merge. The inbox is private; read it through the health route.
 
-A restart releases the claims of the earlier process. When the parent of a stacked pull request merges into the default branch, the host retargets the child to the default branch. The budgets in the options table also make a pull request wait.
+A restart releases the claims of the earlier process. When the parent of a stacked pull request merges into the default branch, the host retargets the child to the default branch. Until then the child waits for its parent. With `repairStackChildren: true`, the child gets passes for its own checks, conflicts and feedback in parallel, and waits for the parent once its reviewed head has nothing left to repair. The budgets in the options table also make a pull request wait.
+
+The worker gets `npm_config_verify_deps_before_run=false`, so pnpm does not try to reinstall before each script over the host install, which ran without repository hooks. `driver.env` can override it. A pnpm lockfile that records a `pnpmfileChecksum` installs as is: the host drops the checksum only in its private install copy, because the hook does not run there.
 
 The install in each pass workspace gets only the `PATH`, `HOME`, locale, package manager, and `NODE_OPTIONS` variables, never provider or GitHub credentials. Detected installs run without lifecycle scripts. Custom install commands are trusted host configuration. The model finds the result in `.git/vitehub-install.json`.
 
-Two pull requests that change the same file can both pass checks and still break the base together. Before a direct merge, the host compares the changed files with files changed on the base since the checks ran. On overlap, or when the tested base is unknown, it updates the branch through GitHub and waits for checks on the new head instead. Failed checks from an older base get one update and retest every six hours, when the current base tip has no failing check. Neither step starts a model pass.
+Two pull requests that change the same file can both pass checks and still break the base together. Before a direct merge, the host compares the changed files with files changed on the base since the checks ran. On overlap, or when the tested base is unknown, it updates the branch through GitHub and waits for checks on the new head instead. A head that already contains the base tip needs no update. A base that requires up-to-date branches gets the same update when the pull request is only behind it. When GitHub refuses the update, as it does for some stacked pull requests, the host merges the base into a head branch in the same repository through the merges API, after checking that the head did not move. Failed checks from an older base get one update and retest every six hours, when the current base tip has no failing check. Neither step starts a model pass.
 
 The queue claims, in order: a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
 
@@ -364,6 +369,8 @@ The inbox stores the `dailyPassBudget` record `{ passes, human, exemptions }`, w
 Detected installs share `install.concurrency` slots (two by default). A pass waits up to ten minutes for a slot and keeps its checkout meanwhile.
 
 By default, installation is optional. On failure, the pass continues without dependencies, and `.git/vitehub-install.json` records `"status": "failed"` with the reason. The model then repairs the lockfile or manifests when they caused it, or relies on hosted CI and names the failure in its result. After a failed install, `commitRepair` does not check dependencies against the install. An unresolved dependency conflict in a prepared merge still needs `refreshDependencies` before validation.
+
+`install: { refreshes }` limits `refreshDependencies` calls in one pass. A further call returns a tool error that tells the model to commit its dependency fixes and let hosted CI validate them; `commitRepair` then skips the local dependency check. A retryable install failure, such as a network error, does not count. A second call while an install runs waits for that install instead of starting another.
 
 With `install: { required: true }`, a failed install parks the pull request:
 
