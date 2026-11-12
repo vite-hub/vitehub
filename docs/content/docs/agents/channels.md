@@ -10,7 +10,7 @@ navigation.kind: Guides
 
 A Channel connects your Agent to a place where people send messages, such as a web chat, Slack, or GitHub. When a message arrives, the Channel starts an Invocation (one run of the Agent) and sends the reply back to the same place.
 
-A Channel knows the transport, event, thread, message, and reply delivery. It does not prove who the caller is: use [Agent Actors](/docs/agents/actors) for that, and [Input Commands](/docs/agents/capabilities/input-commands) for typed commands.
+Use [Trusted Invokers](/docs/agents/trusted-invokers) for trusted identity and [Input Commands](/docs/agents/capabilities/input-commands) for explicit command handling.
 
 ## Supported channels
 
@@ -324,7 +324,66 @@ Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHe
 
 `secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
-```ts [server/channels/prefect.ts] fragment
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
 import { useServerEnv } from '#vitehub/env/server'
 
@@ -403,10 +462,14 @@ The conversation merges three sources, and no message appears twice:
 A transcript keeps messages after the provider forgets them. With durable Agent State (libSQL or a Cloudflare Durable Object), every chat message in and out goes to the transcript store, so your State holds conversation text for each author. Set `transcripts: false` on a Channel, or `messages: { transcripts: false }` for all, to keep none. Pass a config to set limits:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { telegram } from 'vite-hub/agent/channels'
+
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   channels: {
-    support: telegram({ transcripts: { maxPerUser: 500, retention: '90d' } }),
-    private: telegram({ transcripts: false }),
+    support: telegram({ messages: { transcripts: { maxPerUser: 500, retention: '90d' } } }),
+    private: telegram({ messages: { transcripts: false } }),
   },
 })
 ```
@@ -417,17 +480,13 @@ export default defineAgent({
 
 Conversations are private. Every surface answers `CHANNELS_THREAD_UNKNOWN` (404) for a thread with no Invocation of this Channel and no transcript. The check runs before the provider is asked, so nobody can use the bot token to read another chat. A group thread with a transcript but no Invocation is not found. Admitted-Invocation evidence is kept in State, so group transcripts stay readable without the journal. Rejected messages do not make a group known.
 
-On the Console, CLI, and [MCP](/docs/development/mcp) (where the app serves `/_vitehub/mcp`), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
+On the Console, the CLI, and the [ViteHub MCP](/docs/development/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
 
 ```ts [server/agents/support.ts] fragment
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
 ```
 
-`channels.*` does not match `conversations.export`, so list it too.
-
-- `participant` reads threads where the Actor (the trusted caller) takes part: the Actor id, `actor.meta.authUserId`, or the call's user id must match an author, a transcript user key, or an Invocation starter. Otherwise `CHANNELS_FORBIDDEN`.
-- `all` reads every known thread.
-- An Agent's `conversations.export` waits for approval unless `approve` is `'never'`, and never includes media.
+`channels.*` does not match `conversations.export`, so list it as well. `participant` lets the Agent read the threads where its Invoker takes part. That means the Invoker id, its Auth user id (`invoker.meta.authUserId`), or the user id of the call equals the id of a person in the thread: an author, the user key of a transcript, or the person who started an Invocation. An Invoker without an identity that matches is refused with `CHANNELS_FORBIDDEN`. `all` lets it read every thread that the Channel knows. An Agent's `conversations.export` always waits for approval, unless `approve` is `'never'`, and never includes media.
 
 ### Operations and commands
 
@@ -460,7 +519,7 @@ Errors: `CHANNELS_EXPORT_TOO_LARGE` (413) over 35 MiB, `CHANNELS_ADAPTER_MISSING
 
 ### State
 
-The Console reads conversations with the webhook routes' State and adapters. The generated webhook route module installs the reader at startup for libSQL State (the `vite dev` default, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and Cloudflare Durable Object State (`agent.providers.state: 'cloudflare'`, read in a Worker that starts the route module). With another custom State, the operations answer `CHANNELS_HOST_UNAVAILABLE` and name the State options to use. A Channel with its own `history` collection has no per-thread conversation: use `channels history` and `channels replay`.
+The Console reads conversations with the State and the adapters that the webhook routes use. The generated webhook route module installs the reader when the server starts, for a libSQL State (the default in `vite dev`, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and for a Cloudflare Durable Object State (`agent.providers.state.driver: 'cloudflare'`). On Cloudflare, the reader runs in a Worker that starts the webhook route module. A custom State that the generated code does not install makes the operations answer `CHANNELS_HOST_UNAVAILABLE` with the State options to use. A Channel with its own `history` collection has no per-thread conversation; use `channels history` and `channels replay` for it.
 
 ## Replay Channel history
 
@@ -474,7 +533,30 @@ Replay runs an Agent on messages from before it existed, or again after a change
 
 To join older Invocations without `vitehub.channel.key`, add `history.invocationItem(invocation): TItem | undefined | Promise<TItem | undefined>`. This read-only hook gets the stored `AgentInvocationRecord` and rebuilds an item for `key()` and `thread()`. Existing key annotations win. The journal keeps no raw trigger input or `input.context`, so return `undefined` when observations and annotations cannot identify the item. A throwing hook also leaves the record unjoined.
 
-```ts [server/agents/labeller.ts] fragment
+The Channel reads and labels messages through two helpers of the app, here over a JSON mail API:
+
+```ts [server/lib/mailbox.ts]
+const api = 'https://mail.example.com/api'
+
+export interface Email { id: string, subject: string }
+
+export async function listEmails(query: { after?: string, folder: 'archive' | 'inbox', limit: number }): Promise<Email[]> {
+  const url = new URL(`${api}/messages`)
+  url.searchParams.set('folder', query.folder)
+  url.searchParams.set('limit', String(query.limit))
+  if (query.after) url.searchParams.set('after', query.after)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The mail API answered ${response.status}`)
+  return await response.json() as Email[]
+}
+
+export async function applyLabels(id: string, labels: string[]) {
+  const response = await fetch(`${api}/messages/${id}/labels`, { method: 'POST', body: JSON.stringify(labels) })
+  if (!response.ok) throw new Error(`The mail API answered ${response.status}`)
+}
+```
+
+```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
 import { defineCollection } from 'vite-hub/source'
@@ -879,7 +961,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the hosted Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the hosted Console](/docs/development/console#links-to-the-hosted-console).
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/development/console#links-to-the-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 
@@ -1103,7 +1185,7 @@ export default defineAgent({
 })
 ```
 
-They select abilities, not identity. Resolve the Actor at the route, the trigger, or `access()`.
+Channel-scoped Capabilities select abilities, not identity. Authenticate and resolve the Invoker at the route, trigger, or `access()` boundary.
 
 ## Add instructions to one Channel
 
@@ -1154,7 +1236,7 @@ History export archives inline data, sized adapter-owned `fetchData`, and Blob d
 | Concern | Owner |
 | --- | --- |
 | Origin, event, thread, message, custody, and reply delivery | Channel |
-| Trusted caller identity | Agent Actor |
+| Trusted caller identity | Agent Invoker |
 | User-authored command parsing | Input Commands Capability |
 | Prior conversational messages | Chat History and sessions |
 | Product event to Agent input | Trigger |
@@ -1165,11 +1247,13 @@ A Channel and an Invocation are separate records, so one Agent can run behind se
 
 | | Channel | Agent Invocation |
 | --- | --- | --- |
-| Describes | Message origin and delivery | Actor, Capabilities, execution, and result |
+| Describes | Message origin and delivery | Invoker, Capabilities, execution, and result |
 | Lifetime | Can contain many messages and Invocations | One request |
 | Can exist alone | Yes. A Channel can receive a message without starting an Agent. | Yes. A route or schedule can start an Invocation without a Channel. |
 
-Use verified Channel metadata to identify the Actor, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, has the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together. To send app messages without an Agent, use the [Channels Server Primitive](/docs/channels).
+Use verified Channel metadata to identify the Agent Invoker, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
+
+To send an application message without an Agent, use the [Channels Server Primitive](/docs/channels).
 
 ## Next steps
 

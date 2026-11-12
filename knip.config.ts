@@ -80,7 +80,8 @@ const viteHubAppEntries = [
   "server/modules/*.{ts,mts,js,mjs}",
   "server/modules/*/index.{ts,mts,js,mjs}",
   "server/{agents,browsers,channels,connections,queues,realtime,schedules,workflows,workspaces}/**/*.{ts,mts,js,mjs}",
-  "server/databases/**/config.{ts,mts,js,mjs}",
+  "server/databases/*.{ts,mts,js,mjs}",
+  "server/databases/**/index.{ts,mts,js,mjs}",
   "server/sandbox-tasks/**/index.{ts,mts,js,mjs}",
   "server/{auth,comments,content}.{ts,mts,js,mjs}",
   "server.auth.{ts,mts,js,mjs}",
@@ -102,20 +103,21 @@ const packageEntries = [
 // Packages bundle `@vite-hub/internal` (`alwaysBundle`), so the imports of the internal modules that they use become
 // theirs, and each one declares them. `@valibot/to-json-schema` stays external through the `neverBundle` of internal.
 const bundledInternal: Record<string, string[]> = {
-  agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft"],
-  blob: ["@valibot/to-json-schema"],
-  cli: ["@babel/parser"],
+  agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
+  blob: ["@valibot/to-json-schema", "birpc"],
+  cli: ["@babel/parser", "birpc"],
   codemods: ["@babel/parser"],
-  comments: ["@valibot/to-json-schema"],
-  content: ["@valibot/to-json-schema"],
+  comments: ["@valibot/to-json-schema", "birpc"],
+  content: ["@valibot/to-json-schema", "birpc"],
   database: ["@sqlite.org/sqlite-wasm"],
-  email: ["@valibot/to-json-schema"],
-  kv: ["@valibot/to-json-schema"],
-  "rate-limit": ["@valibot/to-json-schema"],
+  email: ["@valibot/to-json-schema", "birpc"],
+  forms: ["birpc"],
+  kv: ["@valibot/to-json-schema", "birpc"],
+  "rate-limit": ["@valibot/to-json-schema", "birpc"],
   schedule: ["@valibot/to-json-schema"],
-  "vite-hub": ["@valibot/to-json-schema", "semver"],
+  "vite-hub": ["@valibot/to-json-schema", "birpc", "semver"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
-  workspace: ["@valibot/to-json-schema", "@vercel/nft"],
+  workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
@@ -187,10 +189,11 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
   ui: {
     ignoreDependencies: [
+      // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
+      "nuxt-nightly",
       // The bundled `@pierre/diffs` imports these, and `neverBundle` keeps `vega-loader` external for the bundled Vega code.
       "@shikijs/langs",
       "@shikijs/themes",
-      "@pierre/theme",
       "vega-loader",
       // remove when the unused @vite-hub/agent devDependency of ui is fixed
       "@vite-hub/agent",
@@ -249,8 +252,9 @@ const config: KnipConfiguration = {
   },
   // Runtime modules of Cloudflare Workers, such as `cloudflare:workers`. Knip reads them as the npm package `cloudflare`.
   ignoreDependencies: ["cloudflare"],
-  // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, and the docs Nuxt module serves `#docs/*`.
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app"],
+  // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, the docs Nuxt module serves `#docs/*`,
+  // and the Console app's Vite plugin supplies its built account page as `#console-page`.
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app", "#console-page"],
   // A CLI that people install on their own machine. The Sandbox runs it when they choose the Crabbox provider.
   ignoreBinaries: ["crabbox"],
   ignoreIssues: {
@@ -285,8 +289,6 @@ const config: KnipConfiguration = {
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
     },
     ...packageWorkspaces,
-    // Workflows run these binaries by path: `./.github/ci-tools/node_modules/.bin/<name>`.
-    ".github/ci-tools": { ignoreDependencies: ["pkg-pr-new", "wrangler"] },
     docs: {
       entry: [
         // Markdown pages render these components by name.

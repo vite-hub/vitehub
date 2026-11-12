@@ -51,10 +51,10 @@ Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, suc
 Catch a diagnostic by its full `code` when your app can fix or classify that exact defect.
 
 ```ts
-import { getAgentFromRegistry } from 'vite-hub/agent'
+import { loadAgent } from 'vite-hub/agent'
 
 try {
-  await getAgentFromRegistry('triage', {})
+  await loadAgent('triage', {})
 }
 catch (error) {
   if (error instanceof Error && 'code' in error && error.code === 'AGENT_R0001') {
@@ -127,7 +127,6 @@ For ViteHub defects, check the diagnostic code instead of native `TypeError` and
 | `AGENT_TRIGGER_NAME_INVALID` | `AGENT_C0006` |
 | `AGENT_CAPABILITY_MODE_INVALID` | `AGENT_C0007` |
 | `AGENT_CAPABILITIES_INVALID` | `AGENT_C0008` |
-| `AGENT_EXTENSION_NOT_COMPILED` | `AGENT_B0001` |
 | `AGENT_CAPABILITY_DUPLICATE` | `AGENT_C0009` |
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
@@ -177,7 +176,7 @@ Keep the raw error in protected diagnostics. Provider payloads and causes can co
 | `APPROVAL_REQUIRED` | A Capability needs approval to continue. `requestId` names the approval request, if there is one. |
 | `HOST_RESTARTED` | The host restarted during an inline Chat invocation. `details.retry` is `pending` when ViteHub will retry the message, or `exhausted` after a second restart. |
 | `TIMEOUT` | A Chat or queued webhook invocation hit its `timeout`. Chat replies say the Agent ran out of time, not the generic `INTERNAL` text. |
-| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | A known public app or Capability failure. |
+| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `CAPABILITY_*`, `TRANSCRIPTION_*` | A known public app or Capability failure. |
 | `INTERNAL` | No approved public mapping. The message stays generic. |
 
 `PROVIDER_QUOTA_EXHAUSTED` carries the reset time when the provider text says `try again at <time>.` with a timestamp ViteHub can parse.

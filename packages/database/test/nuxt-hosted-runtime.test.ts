@@ -17,7 +17,7 @@ describe("Nuxt hosted Database module preparation", () => {
   ])("creates a resolvable %s runtime for the %s provider and %s definition before Vite builds", async (preset, provider, name) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-nuxt-hosted-runtime-"))
     const projectRoot = join(root, "service")
-    const definition = join(projectRoot, "server/databases", ...(name === "default" ? [] : [name!]), "config.ts")
+    const definition = join(projectRoot, "server/databases", name!, "index.ts")
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await mkdir(dirname(definition), { recursive: true })
@@ -39,7 +39,7 @@ describe("Nuxt hosted Database module preparation", () => {
       expect(runtime).toMatch(/runtime\/d1\.(?:js|ts)"/)
       expect(runtime).toContain(`[${JSON.stringify(name)}]: {`)
       // Generated schema imports must exist when Nitro first resolves the alias.
-      const schemaImport = /import schema_0 from "([^"]+)"/.exec(runtime)?.[1]
+      const schemaImport = /import schema_0, \{ relations as relations_0 \} from "([^"]+)"/.exec(runtime)?.[1]
       expect(schemaImport).toBeTruthy()
       const schema = await readFile(resolve(dirname(runtimeFile), schemaImport!), "utf8")
       expect(schema).toContain("databaseDefinition.schema")

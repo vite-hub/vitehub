@@ -103,9 +103,6 @@ import type { ProviderSandboxRelay, ProviderSandboxSession } from "./internal/pr
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
-import { resolveCodexHome, startCodexHomeRetention } from "./internal/codex-home-retention.ts"
-import type { CodexHomeActivity, CodexHomeRetentionSource } from "./internal/codex-home-retention.ts"
-import type { NormalizedRetention } from "./internal/retention-policy.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export interface ProviderAgentAdapterOptions<
@@ -132,8 +129,6 @@ export interface ProviderAgentAdapterOptions<
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   requirements?: readonly string[]
-  /** Codex home retention, normalized by `defineAgent()`. */
-  retention?: NormalizedRetention
   sessionStorePath?: string
   /** Provision project-pinned Node.js and a package manager for the provider and its commands. */
   toolchain?: SandboxToolchain
@@ -1293,7 +1288,6 @@ function providerMetadataContext<
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
-    actor: context.actor,
     context: context.context,
     fs: context.workspace ? context.workspace.fs : inherited?.fs,
     invoker: context.invoker,
@@ -2967,7 +2961,6 @@ async function* runProvider<
   sessionLocks: Map<string, Promise<void>>,
   cwdLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
-  codexHomeRetention?: CodexHomeRetentionSource,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw agentDiagnostics.AGENT_R0709({ message: `[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.` })
@@ -3088,7 +3081,6 @@ async function* runProvider<
   let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
-  let codexHomeActivity: CodexHomeActivity | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   let chatgptTransport: Awaited<ReturnType<typeof startChatGPTTransport>> | undefined
   const pendingToolEvents: StreamEvent[] = []
@@ -3380,24 +3372,6 @@ async function* runProvider<
     if (pendingResumeCursor === undefined && durableResumeState !== undefined) {
       pendingResumeCursor = durableResumeState.cursor
       resumeInstructions = durableResumeState.instructions
-    }
-    if (codexHomeRetention && !gateway?.chatgpt) {
-      // The home is known only after credentials and driver.env resolve. Retention runs in the background.
-      const home = resolveCodexHome({
-        credentialHome: codexCredentialHome?.homePath,
-        environmentHome: providerEnvironmentOverrides?.CODEX_HOME,
-        providerSettings: options.providerSettings,
-      })
-      codexHomeActivity = await startCodexHomeRetention({
-        home,
-        kind: codexCredentialHome ? (codexCredentialHome.persistent ? "profile" : "temporary") : home ? "configured" : "implicit",
-        launch: options.launch !== undefined,
-        source: codexHomeRetention,
-        threadId: providerNativeThreadId(resumeCursor),
-      }).catch((error: unknown) => {
-        console.warn("[vitehub] Codex home retention could not start.", error)
-        return undefined
-      })
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1026()
@@ -3807,8 +3781,6 @@ async function* runProvider<
     // requested one. Opaque cursors do not identify a thread, so they count as resumed.
     const requestedNativeThreadId = providerNativeThreadId(resumeCursor)
     const startedNativeThreadId = providerNativeThreadId(session.resumeCursor)
-
-    codexHomeActivity?.track(startedNativeThreadId)
 31
     const resumeFailed = requestedNativeThreadId !== undefined && requestedNativeThreadId !== startedNativeThreadId
     const resumed = resumeCursor !== undefined && !resumeFailed
@@ -4272,7 +4244,6 @@ async function* runProvider<
     const releaseLocks = () => {
       releaseCwdLock?.()
       releaseSessionLock?.()
-      codexHomeActivity?.release()
     }
     if (deferredCleanup) void deferredCleanup.then(releaseLocks, releaseLocks)
     else releaseLocks()
@@ -4350,20 +4321,6 @@ export function createProviderAgentAdapter<
   const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
-  const codexHomeRetention: CodexHomeRetentionSource | undefined = options.provider === "codex" && options.retention
-    ? {
-        // Since #2636 the map holds resume states; retention reads the provider cursor in each.
-        cursors: () => [...resumeCursors.values()].map(state => state.cursor),
-        invalidate(threadIds) {
-          for (const [key, state] of resumeCursors) {
-            const threadId = providerNativeThreadId(state.cursor)?.toLowerCase()
-            if (threadId && threadIds.has(threadId)) resumeCursors.delete(key)
-          }
-        },
-        policy: options.retention,
-        ...(options.sessionStorePath ? { sessionStorePath: options.sessionStorePath } : {}),
-      }
-    : undefined
   const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
     // Keep the invocation deadline active across launch retries and their backoff. Each
     // runProvider attempt still gets its own timeout for normal provider work.
@@ -4378,7 +4335,7 @@ export function createProviderAgentAdapter<
       ? copyProviderCallbackMetadata(context, { ...context, input: { ...context.input, abortSignal: retrySignal } })
       : context
     return retryProviderLaunch(
-      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, codexHomeRetention),
+      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext),
       retrySignal,
       providerLaunchRetryDelaysMs,
     )

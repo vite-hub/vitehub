@@ -205,7 +205,7 @@ Pass a store to `defineAgentInvocations()`. The SQLite adapter accepts a local S
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -374,7 +374,7 @@ When the record cannot reproduce its input, the result has `available: false` an
 | `invocation-not-terminal` | The record is pending or running. |
 | `input-not-captured` | The prompt was not retained. |
 | `replay-metadata-unavailable` | Replay metadata is missing or incomplete. |
-| `input-has-invoker` | A direct Actor identity, or a resolver-derived Invoker without a selected Invoker Profile. |
+| `input-has-invoker` | A direct Invoker identity, or a resolver-derived Invoker without a selected Invoker Profile. |
 | `input-has-data` | Structured input. |
 | `input-has-options` | Call options. |
 | `input-has-messages` | A singular Message or prior Messages. |
@@ -405,14 +405,23 @@ A journal keeps only metadata by default.
 `redact` rewrites or drops an observation before the store gets it. `redactError` rewrites a failed record's error:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
-  store,
+  store: createDatabaseAgentInvocationStore(),
   redact(observation) {
     if (observation.name === 'agent.tool.result') return undefined
     const { 'tool.input': _input, ...attributes } = observation.attributes ?? {}
     return { ...observation, attributes }
   },
   redactError: error => ({ message: error.message, name: error.name }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
 })
 ```
 
@@ -452,7 +461,7 @@ const nextPage = page.cursor
 Set limits for long traces with `observations`:
 
 ```ts
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -577,29 +586,34 @@ On Vercel, Agents run through the inline Workflow adapter, because Vercel's dete
 
 ## Store invocations in Cloudflare D1
 
-Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load:
+Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load. `useDatabaseBinding()` returns the D1 binding of a [ViteHub Database](/docs/database/server-api#pass-the-d1-binding-to-other-code):
 
 ```ts [server/invocations.ts]
-import { env } from 'cloudflare:workers'
-import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
+import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
+import { useDatabaseBinding } from 'vite-hub/database/drizzle'
 
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({
-    database: () => env.DB,
+    database: () => useDatabaseBinding('default'),
+    migrate: false,
     maxAge: '30d',
     maxRecords: 10_000,
   }),
 })
 ```
 
-The store creates its table and indexes on each isolate's first use of a binding, with `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation retries on the next operation. To use your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
+With `cloudflare.readReplication`, `useDatabaseBinding()` returns a new D1 session for each request. The store's automatic setup runs once per database object, so leaving it enabled would run schema writes on the primary in every request. The example sets `migrate: false`; apply the schema with your deployment migrations before serving requests.
+
+Print the schema statements with `d1AgentInvocationSchema()` and apply them to the D1 database:
 
 ```ts [scripts/invocation-schema.ts]
-import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
+import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
+
+When using a stable D1 binding without request sessions, you can omit `migrate: false` to create the table and indexes on first use of each binding in a Worker isolate. The statements use `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation is retried on the next operation.
 
 `tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub database generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
 
@@ -685,7 +699,7 @@ When a started Driver does not enforce cancel, the result has `notEnforcedBy`, a
 
 A process that stops mid-run can leave records pending or running. Recovery marks them failed.
 
-For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
+For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
 
 With a libSQL Agent state provider, a persistent Nitro server recovers each Agent journal when it resumes queued webhook deliveries, one second after start or on the first request that loads the Agent routes. It fails pending or running Invocations that started before the process, skips those that a queued delivery reruns under the same run ID, and skips Agents with a durable Workflow runtime. A failed recovery is logged, and the queue still resumes.
 

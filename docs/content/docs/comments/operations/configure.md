@@ -9,15 +9,22 @@ icon: i-lucide-settings
 ## Access: `authorize`
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export default defineComments({
-  authorize: ({ user, actor, action, thread, subject }) => { /* … */ },
+  authorize: ({ user, actor, action, thread, subject }) => {
+    if (action === 'read') return true
+    // Agents and guests may not delete. Editors may resolve any thread of a doc.
+    if (action === 'delete') return !actor && thread?.author.id === user?.id
+    return action !== 'resolve' || (subject?.kind === 'doc' && user?.role === 'editor')
+  },
 })
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `user` | The signed-in user with app fields such as `role`, or `null`. Stored authors and mention suggestions keep only `id`, `name`, and `image`. |
-| `actor` | The Agent Actor when an agent acts for `user`. |
+| `user` | The signed-in user, including application fields such as `role`, or `null`. Stored authors and mention suggestions contain only `id`, `name`, and `image`. |
+| `actor` | The Agent Invoker when an agent acts for `user`. |
 | `action` | `read`, `write`, `resolve`, or `delete`. |
 | `thread` | The thread the action is about. Not set for `create`, `list`, and `users`. |
 | `subject` | The subject of `thread`, of the new thread for `create`, or of the `list` filter. Not set for `users` or an unfiltered `list`. |

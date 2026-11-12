@@ -19,7 +19,7 @@ The host works inside one process only. Its `dataDir` must belong to one running
 Export the host from a server module. The `run` callback finds work and tracks it only while the host accepts work:
 
 ```ts [server/host.ts] fragment
-import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentHost } from 'vite-hub/agent/process'
 
 export default await createProcessAgentHost({
   name: 'reviewer',
@@ -42,16 +42,15 @@ export default await createProcessAgentHost({
 ViteHub does not attach the host to an Agent Definition. Pass the host's journal and provider session store to the Definition, and share its capacity object with the Driver:
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import host from '../host'
 
 export default defineAgent({
   invocations: host.invocations,
-  driver: {
-    model: 'openai/gpt-5.1-mini',
+  driver: codexDriver({
     capacity: host.capacity,
     sessionStorePath: host.providerSessionStorePath,
-  },
+  }),
 })
 ```
 
@@ -66,7 +65,7 @@ The host creates `invocations.sqlite` and `provider-sessions.sqlite` below `data
 `capacity.concurrency` is the hard maximum of concurrent runs. Queue options control what happens when slots are full. `createProcessAgentCapacity()` can admit fewer new runs under pressure:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const sharedCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -249,7 +248,7 @@ The default health route is `/api/health`. Generated routes grant no Console aut
 To test admission independent of machine pressure, use a disposable directory and a custom `sample` function:
 
 ```ts
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 const capacity = createProcessAgentCapacity({
   concurrency: 2,

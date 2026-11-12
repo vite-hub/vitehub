@@ -1,15 +1,23 @@
 import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb, useDatabase as useRuntimeDatabase } from "./runtime/drizzle-runtime.ts"
-import { createAgentDatabase } from "./runtime/agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup } from "./runtime/agent.ts"
 
-import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
+import type { AnyRelations } from "drizzle-orm"
+import type { DatabaseDialect, MergeDatabaseRelations, RuntimeDrizzleDatabase, RuntimePostgresDatabase, SchemaRelations } from "./types.ts"
+import type { DatabaseD1Binding } from "./runtime/agent.ts"
 
-type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
-  ? RuntimePostgresDatabase<TSchema>
-  : RuntimeDrizzleDatabase<TSchema>
+type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect, TRelations extends AnyRelations> = TDialect extends "postgresql"
+  ? RuntimePostgresDatabase<TSchema, TRelations>
+  : RuntimeDrizzleDatabase<TSchema, TRelations>
 
-export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> {
-  db: DrizzleRuntimeDatabase<TSchema, TDialect>
+export interface RuntimeDatabaseEntry<
+  TSchema extends Record<string, unknown>,
+  TDialect extends DatabaseDialect = "sqlite",
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
+  db: DrizzleRuntimeDatabase<TSchema, TDialect, TRelations>
+  /** Every table of the schema, with the relations of the Definition, its Nuxt layers, and contributed tables. */
+  relations: TRelations
   schema: TSchema
 }
 
@@ -23,8 +31,18 @@ type RegisteredDatabaseDialect<Name extends keyof DatabaseRegistry> = DatabaseRe
   dialect: infer TDialect extends DatabaseDialect
 } ? TDialect : "sqlite"
 
+/**
+ * A registry entry sets `relations` to one relations object, or to a list of parts that merge like Nuxt layers, lowest
+ * precedence first. The generated registry lists the parts of contributed tables and of each layer.
+ */
+type RegisteredDatabaseRelations<Name extends keyof DatabaseRegistry> = DatabaseRegistry[Name] extends { relations: infer TRelations }
+  ? TRelations extends readonly unknown[]
+    ? MergeDatabaseRelations<RegisteredDatabaseSchema<Name>, TRelations>
+    : TRelations extends AnyRelations ? TRelations : SchemaRelations<RegisteredDatabaseSchema<Name>>
+  : SchemaRelations<RegisteredDatabaseSchema<Name>>
+
 type RuntimeDatabaseRegistry = {
-  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>>
+  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>, RegisteredDatabaseRelations<Name>>
 }
 
 type DefaultDatabaseEntry = RuntimeDatabaseRegistry extends { default: infer TEntry }
@@ -62,6 +80,17 @@ export function useDatabase(name?: keyof RuntimeDatabaseRegistry): RuntimeDataba
   return useRuntimeDatabase(name) as RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry]
 }
 
+const lookupDatabaseBinding = createDatabaseBindingLookup(databases)
+
+/**
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Exposes the shared
+ * prepare/batch API for consumers such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
+ */
+export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding {
+  return lookupDatabaseBinding(name)
+}
+
 export const agentDb = createAgentDatabase(databases)
 
 // SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
@@ -70,4 +99,5 @@ export const agentDb = createAgentDatabase(databases)
 export const schema = virtualSchema as DefaultDatabaseEntry["schema"]
 export { chunkParameters } from "./runtime/chunk-parameters.ts"
 export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
+export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.ts"
 export * from "#vitehub/database/schema"

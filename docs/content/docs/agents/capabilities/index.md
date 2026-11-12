@@ -65,9 +65,9 @@ To pick Capabilities per run, pass a callback. ViteHub calls it once, after it r
 ```ts [server/agents/support.ts] fragment
 export default defineAgent({
   driver: { model },
-  capabilities: ({ actor }) => [
+  capabilities: ({ invoker }) => [
     workspaceShell({ mode: 'read' }),
-    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+    ...(invoker.meta?.support === true ? [internalDiagnostics] : []),
   ],
 })
 ```
@@ -120,73 +120,6 @@ Put guidance on when to use a Capability in the Driver Instructions or determini
 ViteHub applies Capabilities in list order. It checks duplicate ids and runtime requirements, applies trigger contributions, then runs configure, prepare, bind, input, resolve, and output for each run.
 
 Only `access()` has a fixed position: first, so later Capabilities get the restricted Workspace and tools.
-
-## Use an Eve extension
-
-ViteHub compiles a compatible Eve extension (a tool package for the Eve agent framework) in a static Capability list into a Capability. Install it with its Eve peer and call its mount factory:
-
-```bash
-pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
-```
-
-```ts [server/agents/reviewer.ts] fragment
-import github from '@github-tools/eve-extension'
-import { defineAgent } from 'vite-hub/agent'
-
-export default defineAgent({
-  driver: { model },
-  capabilities: [
-    github({ preset: 'code-review' }),
-  ],
-})
-```
-
-`repositoryHost()` and `repositoryHostContext()` are gone; use this extension for their GitHub tools. GitHub Channel runs still get trusted pull request context from `pullRequest.read(invocation)` in `vite-hub/agent/channels`. For repository tools on GitHub, GitLab, and Forgejo, use [`forge()`](/docs/agents/capabilities/forge).
-
-### Supported versions
-
-The Vite plugin reads the Eve manifest and fails the build on an unsupported contract version. For format 2, the bridge accepts `config@1`, `extension@1`, `tool@20`/`dynamicTool@20` (GitHub Tools 0.7.0), `tool@54`/`dynamicTool@52` (0.8.0), and `tool@76`/`dynamicTool@72` (0.8.1, built with Eve 0.72.1).
-
-Newer contracts, such as Eve 0.80's `tool@92` and `dynamicTool@86`, are rejected until tested. The check does not validate the installed Eve version. Use the tested pair: Eve 0.80.1 (the optional peer) and GitHub Tools 0.8.1.
-
-### Mount rules
-
-One mount per Eve package per Vite app: a direct default import, called with at most one config argument, inside a top-level static Capability list. ViteHub then loads the package's generated `/tools` entry. Calls from a dynamic callback, nested runtime code, or a separate runtime import are unsupported, and the plugin rejects the direct forms it detects.
-
-> [!WARNING]
-> A mount hidden in a helper or another module can escape the build check.
-
-Eve's `defineExtension` belongs to the extension package. ViteHub does not call it; it uses the callable default export and checks the manifest. The `0.8.1` package uses this API and declares the versions above.
-
-### Dynamic handlers
-
-ViteHub supports static tools and one dynamic handler on `session.started`, `turn.started`, or `step.started`. The handler must not need an authoritative session sequence or step index, the effective model or `modelId`, or a real per-step hook. A dynamic tool with several active handlers is rejected. The handler resolves once per run, so `step.started` does not run before every model step. It can read:
-
-| Event | Data |
-| --- | --- |
-| `session.started` | `{}` |
-| `turn.started` | `turnId` |
-| `step.started` | `turnId` |
-
-The session ID is `run.threadId`, else `run.runId` or the invoker ID. The turn ID is `run.runId`, else the session ID.
-
-ViteHub saves no authoritative Eve turn counter, so `session.turn.sequence`, `data.sequence`, a step event's `data.stepIndex` or `data.modelId`, and a step resolver context's `model` throw `AGENT_R0415`. Other preparation resolver contexts give `model: null`. Older resolvers that ignore these fields still work. Eve session objects do not survive process restarts.
-
-### Tools and approvals
-
-The bridge keeps tool input and output schemas, `toModelOutput` with content and file parts, and Eve's `always`, `never`, and `once` approval modes. `endsTurn`, labels, `approvalKey`, and `availableInSubagents` do nothing and are not in CLI inspection.
-
-Approvals can have a `{ request }` callback. A `response` authorizer is rejected: ViteHub has no responder-auth context. The built-in HTTP Chat route stores pending approvals in Chat state, rebuilds the authoritative tool call on the server, and uses each response once under a session lock.
-
-> [!WARNING]
-> Client chat history never approves a tool. Eve `once` approvals come only from Chat state for the current invoker and chat session. Context values, including those from `admission.context` or `mapInput`, cannot approve.
-
-### What the bridge does not support
-
-- Tool and approval contexts throw on `getSandbox()`, `getToken()`, and `requireAuth()`.
-- Older contracts keep a `getSkill()` diagnostic stub. Eve removed it in 0.66.
-- Eve dynamic skill contributions are not mounted. Use ViteHub Workspace Skills where the Driver supports them.
-- Session auth fields stay `null`. Eve auth providers and sandbox access are not connected to ViteHub Connections or the Sandbox primitive.
 
 ## Next steps
 

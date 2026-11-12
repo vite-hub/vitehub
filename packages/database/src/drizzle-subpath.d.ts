@@ -1,19 +1,31 @@
 import "./virtual-module.d.ts"
 
-import type { Table } from "drizzle-orm"
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
+import type { AnyRelations, EmptyRelations, ExtractTablesFromSchema, ExtractTablesWithRelations, Table } from "drizzle-orm"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
+import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import virtualSchema from "#vitehub/database/schema"
-import type { AgentDatabaseHandle } from "./runtime/agent.js"
+import type { MergeDatabaseRelations } from "./index.js"
+import type { AgentDatabaseHandle, DatabaseD1Binding } from "./runtime/agent.js"
+
+export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.js"
 
 type DatabaseDialect = "sqlite" | "postgresql"
 
-type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
-  ? PgDatabase<PgQueryResultHKT, TSchema>
-  : BaseSQLiteDatabase<"async", unknown, TSchema>
+/** Each table of the schema, as `defineRelations(schema)` returns it, so `db.query.<table>` reads one table. */
+type SchemaRelations<TSchema extends Record<string, unknown>> = ExtractTablesWithRelations<EmptyRelations, ExtractTablesFromSchema<TSchema>>
 
-export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> {
-  db: DrizzleRuntimeDatabase<TSchema, TDialect>
+type DrizzleRuntimeDatabase<TDialect extends DatabaseDialect, TRelations extends AnyRelations> = TDialect extends "postgresql"
+  ? PgAsyncDatabase<PgQueryResultHKT, TRelations>
+  : SQLiteAsyncDatabase<"async", unknown, TRelations>
+
+export interface RuntimeDatabaseEntry<
+  TSchema extends Record<string, unknown>,
+  TDialect extends DatabaseDialect = "sqlite",
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
+  db: DrizzleRuntimeDatabase<TDialect, TRelations>
+  /** Every table of the schema, with the relations of the Definition, its Nuxt layers, and contributed tables. */
+  relations: TRelations
   schema: TSchema
 }
 
@@ -27,8 +39,18 @@ type RegisteredDatabaseDialect<Name extends keyof DatabaseRegistry> = DatabaseRe
   dialect: infer TDialect extends DatabaseDialect
 } ? TDialect : "sqlite"
 
+/**
+ * A registry entry sets `relations` to one relations object, or to a list of parts that merge like Nuxt layers, lowest
+ * precedence first. The generated registry lists the parts of contributed tables and of each layer.
+ */
+type RegisteredDatabaseRelations<Name extends keyof DatabaseRegistry> = DatabaseRegistry[Name] extends { relations: infer TRelations }
+  ? TRelations extends readonly unknown[]
+    ? MergeDatabaseRelations<RegisteredDatabaseSchema<Name>, TRelations>
+    : TRelations extends AnyRelations ? TRelations : SchemaRelations<RegisteredDatabaseSchema<Name>>
+  : SchemaRelations<RegisteredDatabaseSchema<Name>>
+
 type RuntimeDatabaseRegistry = {
-  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>>
+  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>, RegisteredDatabaseRelations<Name>>
 }
 
 type DefaultDatabaseEntry = "default" extends keyof RuntimeDatabaseRegistry
@@ -62,6 +84,13 @@ export declare function useDatabase<Name extends DefaultDatabaseName = DefaultDa
   ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
 ): RuntimeDatabaseRegistry[Name]
 export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
+
+/**
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Exposes the shared
+ * prepare/batch API for consumers such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
+ */
+export declare function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding
 
 export declare const db: DefaultDatabaseEntry["db"]
 

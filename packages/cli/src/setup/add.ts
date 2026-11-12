@@ -4,7 +4,6 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
 import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
@@ -92,19 +91,6 @@ function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessE
 const booleanFeatures: readonly FeatureId[] = ["sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
-/** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"] }
-
-/** Match the Auth package's file locations without loading application code. */
-function hasAuthDefinition(project: SetupProject): boolean {
-  const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
-  if (!directories) return false
-  const candidates = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].flatMap(extension => [
-    join(project.root, `server.auth${extension}`),
-    ...directories.map(directory => join(directory, `auth${extension}`)),
-  ])
-  return candidates.filter(file => existsSync(file)).length === 1
-}
 
 /** Keep owner packages on the running CLI's pkg.pr.new preview. */
 function installSpecifiers(packages: readonly string[]): string[] {
@@ -259,18 +245,6 @@ export function setupDiff(path: string, before: string, after: string): string {
     .replace(/^=+\n/u, "")
 }
 
-/** The Database owner rejects any Named Definition beside a Default Definition. */
-function namedDatabaseFiles(project: SetupProject, root: string): string[] {
-  const suffix = /\.database\.(?:c|m)?[jt]s$/i
-  return [
-    ...(project.serverDirs ?? [join(project.root, "server")]).flatMap((serverDir) => {
-      const directory = join(serverDir, "databases")
-      return listMatchingFiles(directory, name => /^config\.(?:c|m)?[jt]s$/i.test(name)).filter(file => dirname(file) !== directory)
-    }),
-    ...listMatchingFiles(root, name => suffix.test(name)).filter(file => normalizeSuffixDefinitionName(root, file, suffix, { stripPrefix: "src/" }) !== "database"),
-  ].map(file => relative(project.root, file))
-}
-
 /**
  * The config value that `add` writes for `id`, `undefined` when the config already turns it on, or `expression` when
  * the key is an expression that only a person can edit.
@@ -342,7 +316,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const value = valueFor(id)
-    if (id === "connections" && isRecord(value) && value.management) requireFeature("console")
     if (id === "observability" && isRecord(value) && value.papercuts) {
       const agent = valueFor("agent")
       if (host === "netlify" || (isRecord(agent) && agent.runtime === "deno")) {
@@ -372,18 +345,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (host === "netlify" && invocations !== undefined && invocations !== false) {
       throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), setupExitCodes.conflict)
     }
-    if (id === "console" && host !== "node" && isRecord(value) && isRecord(value.auth) && "provider" in value.auth && value.auth.provider !== "cloudflare-access") {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), setupExitCodes.conflict)
-    }
-    if (id === "console" && isRecord(value) && value.auth === "app"
-      && ((!args.features.includes("auth") && status.features.find(item => item.id === "auth")?.enabled !== "on") || !hasAuthDefinition(project))) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "console.auth=app requires enabled app Auth and a discovered Auth Definition. Set auth: true and add an Auth Definition in the application server directory, or choose console.auth=false or a Console Auth Definition.", feature: id, host }), setupExitCodes.conflict)
-    }
-    // Setup never evaluates Auth callbacks. Delegate production access to an explicit server file.
-    if (id === "console" && isRecord(value) && value.auth === "app"
-      && (typeof value.authorize !== "string" || !value.authorize.trim() || !existsSync(resolve(project.root, value.authorize)))) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Adding console.auth=app requires console.authorize to name an existing server file. Create a Console authorization file and pass --option console.authorize=server/console-authorize.ts, or configure app Auth access routes and Console by hand.", feature: id, host }), setupExitCodes.conflict)
-    }
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       requireFeature("database")
     }
@@ -412,11 +373,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }
-    }
-    for (const key of requiredOptions[id] ?? []) {
-      if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
-      missing.push({ field: `${id}.${key}` })
-      rerunnable = false
     }
   }
   const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
@@ -474,7 +430,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       const conflicts = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
         ? (project.serverDirs ?? [join(project.root, "server")]).map(directory => relative(project.root, join(directory, relative("server", other))))
         : [relative(project.root, join(definitionRoot, other))])
-      if (id === "database" && args.name === "default") conflicts.push(...namedDatabaseFiles(project, definitionRoot))
       const conflict = conflicts.find(other => existsSync(join(project.root, other)))
       if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
@@ -542,7 +497,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   return { files, install, plan, ...(configFile ? { configFile } : {}) }
 }
 
-async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
+/** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */
+export async function applySetupAdd(project: SetupProject, planned: SetupAddPlanned, args: Pick<SetupAddArgs, "install">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
   const { dev, prod } = planned.install
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
@@ -637,7 +593,7 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
       writePlan(plan, context)
       if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
-    await applyPlan(project, planned, parsed, context)
+    await applySetupAdd(project, planned, parsed, context)
     const applied: SetupAddPlan = { ...plan, status: "applied" }
     if (parsed.json) writeSetupJson(context, applied)
     else writeResult(applied, context)

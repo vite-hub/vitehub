@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { operations } from "../src/capabilities.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
-import type { AgentActor, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
+import type { AgentInvoker, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
 
 const seen: unknown[] = []
 const whoami = defineOperation({
@@ -61,13 +61,13 @@ const registry = createOperationRegistry([{ operations: [whoami, rename, remove,
 
 afterEach(() => installOperationSectionResolver(undefined))
 
-const actor: AgentActor = { id: "user_1", kind: "authUser", meta: { authUserId: "user_1" } }
-const auth = { user: async (value: AgentActor | undefined) => value?.meta?.authUserId === "user_1" ? { id: "user_1", name: "Ada" } : null }
+const actor: AgentInvoker = { id: "user_1", kind: "authUser", meta: { authUserId: "user_1" } }
+const auth = { user: async (value: AgentInvoker | undefined) => value?.meta?.authUserId === "user_1" ? { id: "user_1", name: "Ada" } : null }
 
 async function tools(capability: AgentCapabilityDefinition): Promise<Record<string, AgentToolDefinition>> {
   if (!(capability.tools instanceof Function)) throw new Error("operations() must resolve tools from the Invocation context")
   // SAFETY: The tools read only the fields that this context sets.
-  return await capability.tools({ actor, agentIdentity: { name: "editor" }, capabilities: { auth }, context: new Map() } as never) as Record<string, AgentToolDefinition>
+  return await capability.tools({ invoker: actor, agentIdentity: { name: "editor" }, capabilities: { auth }, context: new Map() } as never) as Record<string, AgentToolDefinition>
 }
 
 describe("operations capability", () => {

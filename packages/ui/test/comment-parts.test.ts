@@ -10,7 +10,7 @@ import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref } from "vue";
+import { defineComponent, h, ref, type Component } from "vue";
 import {
   CommentComposer,
   CommentLayer,
@@ -22,6 +22,7 @@ import {
   type CommentRowSlotScope,
 } from "../src/index.ts";
 import { mentionQuery, rankPeople } from "../src/internal/comment-mentions.ts";
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
 const ben: CommentUser = { id: "ben", name: "Ben Soto" };
@@ -198,6 +199,20 @@ describe("composer mentions", () => {
     await field.trigger("keydown", { key: "Escape" });
     await flushPromises();
     expect(wrapper.emitted("cancel")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("keeps the text while Esc is held down", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    await field.trigger("keydown", { key: "Escape" });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
     await field.trigger("keydown", { key: "Escape" });
     await flushPromises();
     expect(wrapper.emitted("cancel")).toHaveLength(1);
@@ -615,10 +630,10 @@ describe("layer draft uploads", () => {
 });
 
 describe("RPC attachments", () => {
-  it.each([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
+  it.each<Component>([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const { operation, input } = JSON.parse(String(init?.body));
-      return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
+      const { operation, input } = operationRpcRequest(init?.body) as { operation: string, input: { attachments: string[], body: string } };
+      return operationRpcResponse(init?.body, { ok: true, value: operation === "comments.list" ? [] : thread(1, {
         messages: [message("message-1", { attachments: input.attachments, body: input.body })],
       }) });
     });
@@ -645,8 +660,8 @@ describe("RPC attachments", () => {
     expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
   });
 
-  it.each([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
-    const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+  it.each<Component>([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
+    const transport = createRpcTransport({ fetch: async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: [] }) });
     transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });
     const upload = vi.fn(async () => ["uploads/shot.png"]);
@@ -976,5 +991,96 @@ describe("agent messages and replies since resolved", () => {
     expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
     expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
     expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
+});
+
+describe("composer layout", () => {
+  afterEach(() => {
+    document.documentElement.style.fontSize = "";
+  });
+
+  async function draftLayer(width = 288) {
+    // happy-dom has no layout. Supply the measured width, independently of CSS and the root font size.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "comment-layer-popover" ? width : 0;
+    });
+    const comments = client();
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    return { state, wrapper };
+  }
+
+  it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
+    const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
+    expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const comments = client([thread(1)]);
+    const panel = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(panel.get("[data-slot=comment-panel-composer] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const box = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get("[data-slot=comment-composer]").attributes("data-layout");
+    expect(box()).toBe("box");
+    expect(box("row")).toBe("row");
+  });
+
+  it("opens a new comment on the layer as a one-line bubble", async () => {
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+  });
+
+  it.each([
+    { viewport: 375, rem: 16, x: 50, left: 58, flipped: false },
+    { viewport: 375, rem: 16, x: 100, left: 79, flipped: false },
+    { viewport: 375, rem: 16, x: 250, left: 8, flipped: true },
+    { viewport: 375, rem: 16, x: 350, left: 54, flipped: true },
+    { viewport: 1024, rem: 16, x: 700, left: 708, flipped: false },
+    { viewport: 1024, rem: 16, x: 900, left: 604, flipped: true },
+    { viewport: 240, rem: 16, x: 100, left: 8, flipped: false },
+    { viewport: 400, rem: 20, x: 50, left: 30, flipped: false },
+    { viewport: 375, rem: 16, width: 300, x: 100, left: 67, flipped: false },
+    { viewport: 375, rem: 10, width: 300, x: 180, left: 70, flipped: false },
+  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, width = Math.min(18 * rem, viewport - rem), x, left, flipped }) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    document.documentElement.style.fontSize = `${rem}px`;
+    const { state, wrapper } = await draftLayer(width);
+    const target = document.createElement("div");
+    document.body.append(target);
+    state.startDraft(target, { point: { x, y: 100 } });
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
+    expect(Number.parseFloat(item.element.style.left)).toBe(x);
+    expect(x + Number.parseFloat(popover.element.style.left)).toBe(left);
+  });
+
+  it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.left) + 144).toBe(viewport / 2);
+  });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
   });
 });

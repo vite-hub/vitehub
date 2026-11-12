@@ -159,7 +159,7 @@ import { singleton } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     about: singleton({ path: 'about.json', fields: { title: z.string().min(1) } }),
@@ -173,7 +173,7 @@ Return the published title from a route:
 
 ```ts [server/api/about.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   const about = await content.collection('about').get()
@@ -199,7 +199,7 @@ fetch('/api/about')
 <template>
   <main>
     <h1 v-if="title" v-bind="contentField('about', 'title')">{{ title }}</h1>
-    <p v-else>Publish the About title in the Console.</p>
+    <p v-else>Publish the About title with vitehub content.</p>
     <p>Pin comments anywhere on this page.</p>
   </main>
 </template>
@@ -212,7 +212,14 @@ pnpm vitehub database generate
 pnpm vitehub database migrate
 ```
 
-The singleton has no document yet. Open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development). Select **Content**, then **Settings**, then **About**. Type a title and select **Publish**.
+The singleton has no document yet. In a second terminal, save a title as its draft and publish it:
+
+```bash [commands/publish-about]
+echo '{ "title": "About us" }' | pnpm vitehub content edit about --file -
+pnpm vitehub content publish --collection about
+```
+
+`publish` lists the draft and asks you to confirm. In production, editors do this in the Content section of the [Console](/docs/development/console).
 
 Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 

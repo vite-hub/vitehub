@@ -9,12 +9,13 @@ icon: i-lucide-sliders-horizontal
 ## Choose a room authority
 
 A room authority holds a document's live Yjs state, and makes sure that every
-client of a document edits the same state. Set it with `realtime.authority` in
-`vitehub()`, as in [Get started](/docs/realtime/get-started#configure-realtime).
+client of a document edits the same state. Set it with `realtime.authority`
+in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, as in
+[Get started](/docs/realtime/get-started#configure-realtime).
 
 | Authority | Use |
 | --- | --- |
-| `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ preset: 'cloudflare' })`. A Node build picks when the server starts: `postgres` or `redis` when their variable is set, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
+| `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `preset: 'cloudflare'`. A Node server uses Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
 | `redis` | Node only. Each instance holds its rooms in memory and shares them with the other instances through Redis pub/sub. Needs `REDIS_URL` when the server starts. |
 | `postgres` | Node only. Each instance holds its rooms in memory and shares them through Postgres `LISTEN`/`NOTIFY`. Uses the connection of the Default Database, which must be on Postgres. `REALTIME_POSTGRES_URL` overrides it. |
@@ -48,7 +49,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
-    // `server/databases/config.ts` defines the Default Database with `dialect: 'postgresql'`
+    // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
     database: true,
     realtime: true,
   },
@@ -66,7 +67,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      // `server/databases/config.ts` defines the Default Database with `dialect: 'postgresql'`
+      // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
       realtime: true,
     }),
@@ -85,7 +86,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      // `server/databases/config.ts` defines the Default Database with `dialect: 'postgresql'`
+      // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
       realtime: true,
     }),

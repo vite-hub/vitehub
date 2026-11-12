@@ -89,7 +89,7 @@ export async function sync(event: ViteHubContext) {
 
 ## Derive secrets from one root secret
 
-`deriveSecret(purpose)` from `#vitehub/env/server` derives a 32-byte hex secret from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) with HKDF-SHA256, salt `vitehub`. Console Auth and CLI dispatch derive their secrets the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
+`deriveSecret(purpose)` from `#vitehub/env/server` derives a 32-byte hex secret from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) with HKDF-SHA256, salt `vitehub`. Auth derives its secret the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
 
 ## Seal a value
 
@@ -196,7 +196,7 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
 | `typesafeEnv({ model? })` | The Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey` (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`, default `jev-latest`). |
 
-The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
+The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })` uses `typesafe()` when it gets no other gateway, and it reads this group:
 
 ```ts fragment
 env: {

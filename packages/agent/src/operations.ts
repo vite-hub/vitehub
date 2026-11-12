@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import {
@@ -46,7 +46,7 @@ const defaultThreads = 25
 const maximumThreads = 100
 const defaultMessages = 100
 const maximumMessages = 500
-const stateFix = "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state: \"cloudflare\"`). The generated webhook route installs the reader when the server starts."
+const stateFix = "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state.driver: \"cloudflare\"`). The generated webhook route installs the reader when the server starts."
 
 function host(): ChannelsConsoleHost {
   const installed = channelsConsoleHost()
@@ -168,11 +168,6 @@ interface ChannelListEntry extends ChannelTarget {
   simulated: boolean
   /** The path of the chat page of a simulated Channel. */
   simulator?: string
-}
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function formatChannels({ channels }: { channels: readonly ChannelListEntry[] }): string {

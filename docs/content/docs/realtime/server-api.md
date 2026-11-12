@@ -45,21 +45,49 @@ Workspace working tree. To store documents elsewhere, pass an adapter object.
 Realtime calls it with plain snapshots. Your storage stays a copy synced from
 the room.
 
+This adapter stores pages in the `pages` table of the default Database:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    pages: sqliteTable('pages', {
+      id: text('id').primaryKey(),
+      title: text('title').notNull(),
+      body: text('body').notNull(),
+      version: text('version').notNull(),
+      editedBy: text('edited_by'),
+    }),
+  },
+})
+```
+
 ```ts [server/realtime/pages.ts]
+import { and, eq } from 'drizzle-orm'
+import { useDatabase } from 'vite-hub/database/drizzle'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
   document: {
     kind: 'pages',
     async load({ documentId }) {
-      const page = await db.pages.find(documentId)
+      const { db, schema } = useDatabase('default')
+      const [page] = await db.select().from(schema.pages).where(eq(schema.pages.id, documentId))
       if (!page) return { body: '', digest: null }
       return { body: page.body, digest: page.version, fields: { title: page.title } }
     },
     async save({ documentId }, { body, fields }, { ifDigest, user }) {
-      const version = await db.pages.update(documentId, { body, title: fields.title, editedBy: user?.id }, { ifVersion: ifDigest })
-      if (!version) throw new RealtimeDocumentConflict()
-      return { digest: version, issues: fields.title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
+      const { db, schema } = useDatabase('default')
+      const title = String(fields?.title ?? '')
+      const page = { body, title, version: crypto.randomUUID(), editedBy: user?.id ?? null }
+      // `ifDigest: null` saves a page that does not exist yet.
+      const saved = ifDigest === null
+        ? await db.insert(schema.pages).values({ id: documentId, ...page }).onConflictDoNothing().returning()
+        : await db.update(schema.pages).set(page).where(and(eq(schema.pages.id, documentId), eq(schema.pages.version, ifDigest))).returning()
+      if (!saved.length) throw new RealtimeDocumentConflict()
+      return { digest: page.version, issues: title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
     },
   },
 })
@@ -252,7 +280,8 @@ export default defineRealtime({
 
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403, unless `origins` accepts it. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect to a definition with `identify`, such as a script that sites load from your app. Return `true` to accept `origin`. A cross-site handshake carries cookies too, so `identify` must then trust only what the page sends, such as a ticket in `params`. See [From another site](#from-another-site). |
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
@@ -330,6 +359,28 @@ room.onChange(change => reload(change))
 
 > [!WARNING]
 > The definition must check that context against the requested document before it grants access.
+
+### From another site
+
+A script that other sites load from your app, such as a review toolbar, joins rooms on your app with `origin`. Its definition lets those pages in with `origins` and identifies people by a ticket the script got from your app, never by cookies:
+
+```ts fragment
+// On the other site's page
+const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.example.com', params: { ticket } })
+```
+
+```ts fragment
+// server/realtime/presence.ts
+export default defineRealtime({
+  origins: ({ origin }) => allowedSites.has(origin),
+  identify: ({ request }) => readTicket(new URL(request.url).searchParams.get('ticket')),
+  authorize: ({ user, mode }) => Boolean(user) && mode === 'read',
+  document: { kind: 'presence', load: async () => ({ body: '', digest: null }), save: async () => ({ digest: 'presence' }) },
+  persistence: false,
+})
+```
+
+The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
 
 ## Saves, refresh, and resets
 

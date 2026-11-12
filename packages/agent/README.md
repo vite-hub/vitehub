@@ -17,22 +17,14 @@ Keep the three pieces separate:
 ## Install
 
 ```sh
-pnpm add @vite-hub/agent @vite-hub/workspace ai
+pnpm add @vite-hub/agent @vite-hub/env @vite-hub/workspace ai
 ```
 
-`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
+`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()` and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
 
-`driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
+`driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
 
 Add the AI SDK model provider you pass to `model`.
-
-Eve extensions are optional and require Node.js 24 or newer. Install the compatible pair before mounting one in a static Capability list:
-
-```sh
-pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
-```
-
-For the accepted manifest contracts, the bridge supports one `session.started`, `turn.started`, or `step.started` handler per dynamic tool during Invocation preparation. Reading an unavailable session sequence, `stepIndex`, step model, or `modelId` throws `AGENT_R0415`. It does not provide real per-step lifecycle hooks, Eve sandbox, token, auth, or dynamic-skill adapters. Approval definitions may use `{ request }`; response authorizers are rejected. See [Eve extension capabilities](https://vitehub.dev/docs/agents/capabilities#use-an-eve-extension).
 
 The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 provider runtime. Install only the provider packages an Agent uses:
 
@@ -111,7 +103,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` ask one `@vite-hub/decisions` group with `infer: true`. `model`, or the Agent model, answers it. With `gateway`, or on an ask Driver Agent through `typesafe()`, Jev answers it. Their decisions have `confidence` and `probabilities`, and no `reason`.
+See [AI gateways](../../docs/content/docs/agents/ai-gateways.md).
 
 ## Direct invocations
 
@@ -155,6 +147,28 @@ Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, in
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
+The Agent reads the Codex `auth.json` from a Server Env secret:
+
+```ts
+// vite.config.ts
+import { hubAgent } from "@vite-hub/agent/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    hubEnv({
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+      },
+    }),
+    hubWorkspace(),
+    hubAgent(),
+  ],
+});
+```
+
 ```ts
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
@@ -185,8 +199,6 @@ export default defineAgent({
 The resolver remains the external source of truth, but ViteHub does not write Codex refreshes back to it. A persisted profile is a complete Codex Home, including auth, configuration, session state, and logs, so treat the whole volume as sensitive. Give each Kubernetes replica its own persistent volume; profiles do not coordinate a shared multi-writer volume across processes or pods. Agent inspection reports only that a credential source is configured and never resolves, checks, or prints it.
 
 Provider Drivers require a local Node.js host; Cloudflare Agents and Deno fail explicitly. Set `sandbox` on the Agent Definition to start the provider command inside an [`@vite-hub/sandbox`](../sandbox/README.md) session. Each invocation opens a new Sandbox with its checkout, environment, Home files, and requirements resolved for that invocation. ViteHub adds the provider command to the requirements and writes Driver instructions and Skills to the Sandbox Home. The Sandbox runtime must forward process input, and Capability tools need a runtime that shares the ViteHub network. `sandbox` rejects model and custom `run` Drivers, `driver.launch`, `driver.credentials`, `driver.credentialProfile`, and `workspace` when the Agent is defined. Sandbox invocations do not resume provider sessions, fail explicitly on Windows hosts, and fail when the Sandbox session cannot close. Set `driver.cwd` to an existing directory, or a resolver that returns one, to run the provider in an application-owned checkout. ViteHub then materializes Workspace Sources but starts no Workspace session: it does not copy files, create a Git baseline, write changes back, or remove the directory. Title and progress summary runs ignore `cwd`. Cloudflare Worker builds exclude the provider Driver runtime through the `workerd` and `worker` package conditions and fail with `AGENT_B0019` when the Worker output contains a provider Driver. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` for Codex or a literal prompt file for Claude Code, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active. Set `sessionStorePath` to keep opaque provider cursors in SQLite across restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Dedicate each file to one provider Agent Definition on one persistent process host; it does not coordinate concurrent ownership of one thread across workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
-Codex never removes its sessions, logs, or thread history, so its Home grows without a limit. Set `driver.retention: { maxAge, maxRecords, maxSize }` on the Codex Driver, for example `{ maxSize: '45%' }`, to remove the oldest data in the background until every limit holds. `maxSize` counts the Home's files, SQLite live pages, and WAL files; a percent is a share of the volume. Retention runs on the first Codex invocation, then at most every 10 minutes, and never removes a running thread or a file changed in the last 10 minutes. Sessions that a resume cursor references go last; the next invocation of that conversation then sends the full message history. It needs a persistent Home (`credentialProfile`, `providerSettings.homePath`, or `CODEX_HOME`); plain `credentials` without a profile fail with `AGENT_R1006`. `vitehub agent codex-home status|prune --home <path>` measures and prunes a Home with the same rules. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#limit-the-codex-home-size).
-
 When all selected Workspace Sources materialize successfully before the provider session starts, ViteHub appends source evidence for each ready GitHub Source with an immutable commit revision. Direct, inferred shorthand, and resolved GitHub Sources are supported. If session startup must retry materialization, ViteHub omits source evidence because the mounted revision may change. The evidence gives the canonical repository URL, commit revision, configured source root, and Workspace mount so the provider can cite the mounted files without rediscovering their origin. ViteHub omits mutable or unavailable revisions, custom Sources, invalid repository metadata, and Source credentials.
 
 Process hosts can call `failInterruptedAgentInvocations(store, { recover })` at startup. `recover` must identify records owned by the stopped process host. Exclude durable Workflows and other provider-owned work because their active records may not hold a store claim while suspended. Recovery first respects an existing claim, waits up to `recoveryTimeoutMs`, and asks `recover` again before taking over the stopped host's claim. The timeout defaults to `claimLeaseMs`.
@@ -245,7 +257,7 @@ For a self-hosted Node process, `createProcessAgentCapacity()` adjusts new admis
 
 ```ts
 // server/agent-capacity.ts
-import { createProcessAgentCapacity } from "@vite-hub/agent/runtime/process"
+import { createProcessAgentCapacity } from "@vite-hub/agent/process"
 
 export const agentCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -273,17 +285,6 @@ Capability setup and close callbacks emit `agent.capability.<phase>` timing even
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
-```ts
-// vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
-});
-```
-
 ## CLI inspection
 
 With `hubAgent()` active, start the Vite Development Server and run `vitehub agent info --agent <name>`.
@@ -301,19 +302,26 @@ Pass `--json` for the structured inspection contract.
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
-- `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe); `openRouterTranscriptionModel()` provides OpenRouter transcription without consumer-owned HTTP handling.
+- `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe).
 - `createTranscription()` composes remote asynchronous submission and completion through a provider-neutral driver; `elevenLabsScribe()` is the built-in Scribe v2 adapter.
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. A server that fails, including an HTTP error such as an expired credential or a Connection that cannot authorize, is skipped and recorded in `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. A server entry can name a `connection`. Without `transport.url`, it connects to the provider's `mcp` endpoint. `optional: true` skips the server until the Connection is connected, and `tools` limits the exposed tools. A server's `skill://` Skills are installed in the Invocation's Workspace at `.agents/skills/<name>/` for that Invocation only; the Agent's own Skill of the same name wins, and `skills: false` turns this off. In an Agent that `extends` another, a child `mcp()` merges its servers into the parent's by name; `inherit: false` replaces them. Outside an Invocation, `callMcpTool(server, name, args, { retries })` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`. A `connection` entry runs as the `server` actor.
 - `kv()`, `blob()`, `db()`, and `email()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), [`@vite-hub/database`](../database/README.md), and [`@vite-hub/email`](../email/README.md).
 - `channelDelivery({ channel, options })` adds one `send_message` tool that sends through a Channel client from `useChannel()` to an application-selected recipient. Its name must be unique among Capability tools. It limits calls with `maxCalls` (default `1`) and can fail the Invocation with `required: true` when the Agent never sends. `options` can be a function of the Capability context that resolves once per Invocation, before the Driver runs and also in a dry run; a throw fails the Invocation with `CHANNEL_DELIVERY_OPTIONS`. `onDelivered(message, receipt, context)` runs after each successful or dry-run send with a `ChannelDeliveryReceipt` (`{ deliveryId, dryRun, text }`). When it throws, the delivery still counts, the model still receives the receipt, and the Invocation fails with `CHANNEL_DELIVERY_HOOK_FAILED` when it finishes.
 - `sandbox()` runs allowlisted executables through the configured Sandbox primitive. See [`@vite-hub/sandbox`](../sandbox/README.md).
 - `usage()` requests provider usage metadata, estimates missing cost from Models.dev, and exposes the normalized Agent Usage Record through its typed Finish Extension. Its `metadata.pricing` flag is false when `pricing: false` disables estimation.
-- `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, and `llmGate()` cover prompt skills, workspace scope, durable notes, HTTP reads, and pre-run decisions.
+- `skills()`, `access()`, `memory()`, and `fetch()` cover prompt skills, workspace scope, durable notes, and HTTP reads.
 
-```ts
+```ts fragment
 import { openapi } from "@vite-hub/agent/capabilities";
 
-openapi({
+// The application sets this Invocation context value for each tenant.
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    billing: { tenantId: string; token: string };
+  }
+}
+
+export const billing = openapi({
   spec: "https://api.example.com/openapi.json",
   cli: {
     name: "billing",
@@ -328,11 +336,11 @@ openapi({
       handler({ context, request }) {
         request.body = {
           ...(request.body as Record<string, unknown> | undefined),
-          tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+          tenantId: context.get("billing")?.tenantId,
         };
         request.headers.set(
           "authorization",
-          `Bearer ${context.get<{ token: string }>("billing")?.token}`,
+          `Bearer ${context.get("billing")?.token}`,
         );
       },
     },
@@ -412,7 +420,7 @@ Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel 
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `provider: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or explicit provider options because ViteHub cannot infer a durable filesystem there.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there.
 
 ```ts
 // vite.config.ts
@@ -423,7 +431,7 @@ export default defineConfig({
   plugins: [hubAgent({
     providers: {
       state: {
-        provider: "sqlite",
+        driver: "sqlite",
         url: process.env.VITEHUB_AGENT_STATE_URL,
       },
     },
@@ -431,7 +439,7 @@ export default defineConfig({
 });
 ```
 
-`provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
+`driver: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
 
 Built-in persistent `file:` connections use SQLite WAL so queue commits can complete while another connection retains a read snapshot. WAL requires a local filesystem with shared-memory support. For NFS, EFS, or another network-backed volume, set `agent.providers.state.journalMode: "delete"` to use rollback journaling. The low-level `createLibsqlAgentState()` accepts the same `journalMode` option. Keep the database and its journal files on the same persistent volume. Supplied clients and remote connections keep their own connection policy. Agent State operations on the same local file share an in-process queue across adapters, including equivalent encoded or relative file URLs. Adapters with one supplied client share a queue by client identity. Owned in-memory clients serialize their own operations without blocking independent memory databases. Owned clients using `file::memory:?cache=shared` share one database queue, including equivalent encoded and mixed-case scheme URLs. This coordination does not replace SQLite locks across processes or coordinate SQL issued directly outside Agent State.
 
@@ -458,7 +466,7 @@ You can also wire the adapter manually when `chat({ state })` should own the sta
 
 ```ts
 import { chat } from "@vite-hub/agent/capabilities"
-import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite";
+import { createLibsqlAgentState } from "@vite-hub/agent/state";
 
 chat({
   state: () =>
@@ -484,7 +492,7 @@ A store that connects on first use can implement `open()`. The journal calls it 
 
 ## Invocation cancel
 
-`invocations.cancel(id)` records `cancelRequestedAt` on a pending or running Invocation and returns an `AgentInvocationCancelResult`. A run in the same process aborts its Invocation abort signal at once. The `requested` outcome confirms a recorded or locally sent request, not that execution stopped. If the journal record is missing but a local run received the request, the result still reports `requested` with `delivery: "local"` and any Driver warning. Before setup, active runs check the flag. With `enforcement: "strict"`, a rejected or missing read, or a check that exceeds `storeTimeoutMs`, fails startup with `AGENT_R0973`; in best-effort mode the run starts and reads the flag again at the next poll. After startup, active runs read the flag every 10 seconds, including after a lost lease stops claim renewal. Orphaned records remain pending or running until an execution owner recovers and observes the request. Cancellation does not take over expired leases or recover orphaned work. Read the final journal status to confirm cancellation. Model-backed and provider-backed Drivers stop on cancel. Cancellation before Driver dispatch stops startup without a warning. `cancelWarningPending` and its `cancelWarningOwnerId` are persisted when a custom Driver record is created and identifies dispatch that is not yet verified; warning writes retry after dispatch. A remote caller waits up to five seconds to verify a pending state, then throws `AGENT_R0974` if verification fails, while keeping the recorded request. A custom `run` Driver that has started receives the aborted signal but ViteHub cannot stop it, so the result reports `notEnforcedBy: "run"` and the record stays `running`. A terminal journal does not prove every stale local Driver stopped; cancelling it still signals local runs and returns durable or local `notEnforcedBy` warnings without changing the terminal record. Durable warnings describe Driver enforcement and do not prove work is still active. Custom stores keep the new fields through `applyAgentInvocationStoreUpdate()`. `vitehub agent invocations cancel <id>` sends the same request into the Nitro runtime of a Vite + Nitro Development Server, so it reaches the application's own journal and abort handles. Nuxt and plain Vite return `501`. With `--url https://app.example.com`, the command sends the request to the deployed Console instead, with the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#cancel-an-invocation).
+`invocations.cancel(id)` records `cancelRequestedAt` on a pending or running Invocation and returns an `AgentInvocationCancelResult`. A run in the same process aborts its Invocation abort signal at once. The `requested` outcome confirms a recorded or locally sent request, not that execution stopped. If the journal record is missing but a local run received the request, the result still reports `requested` with `delivery: "local"` and any Driver warning. Before setup, active runs check the flag. With `enforcement: "strict"`, a rejected or missing read, or a check that exceeds `storeTimeoutMs`, fails startup with `AGENT_R0973`; in best-effort mode the run starts and reads the flag again at the next poll. After startup, active runs read the flag every 10 seconds, including after a lost lease stops claim renewal. Orphaned records remain pending or running until an execution owner recovers and observes the request. Cancellation does not take over expired leases or recover orphaned work. Read the final journal status to confirm cancellation. Model-backed and provider-backed Drivers stop on cancel. Cancellation before Driver dispatch stops startup without a warning. `cancelWarningPending` and its `cancelWarningOwnerId` are persisted when a custom Driver record is created and identifies dispatch that is not yet verified; warning writes retry after dispatch. A remote caller waits up to five seconds to verify a pending state, then throws `AGENT_R0974` if verification fails, while keeping the recorded request. A custom `run` Driver that has started receives the aborted signal but ViteHub cannot stop it, so the result reports `notEnforcedBy: "run"` and the record stays `running`. A terminal journal does not prove every stale local Driver stopped; cancelling it still signals local runs and returns durable or local `notEnforcedBy` warnings without changing the terminal record. Durable warnings describe Driver enforcement and do not prove work is still active. Custom stores keep the new fields through `applyAgentInvocationStoreUpdate()`. `vitehub agent invocations cancel <id>` sends the same request into the Nitro runtime of a Vite + Nitro Development Server, so it reaches the application's own journal and abort handles. Nuxt and plain Vite return `501`. With `--url https://app.example.com`, the command sends the request to the Console route of the deployment instead, signed with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#cancel-an-invocation).
 
 ## GitHub pull request Workspaces
 
@@ -502,15 +510,15 @@ For GitHub Channels, `activity: true` links pull request webhook activity to its
 
 ## Default invocation journal
 
-`@vite-hub/agent/invocations/default` exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
+The private `@vite-hub/agent/internal/default-invocations` entry exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
 
 A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
 
-`@vite-hub/agent/invocations/default-core` exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/invocations/default-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
+The private `@vite-hub/agent/internal/default-invocations-core` entry exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/internal/default-invocations-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
 
 ## D1 invocation storage
 
-`@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
+`@vite-hub/agent/invocations` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
 
 
 D1 batches and conditional writes preserve concurrent journal updates across Workers. Claims use the database clock. Terminal records use the same 30-day and 10,000-record retention defaults as the libSQL store. Both adapters apply the record count on about 1 in `ceil(maxRecords / 100)` creates and terminal transitions, because that limit reads about `maxRecords` rows. The count can exceed the limit by about 1% between runs. Pending and running records are retained. Retention takes an `AgentRetentionPolicy`: `maxAge` is a duration such as `'14d'` or a number of milliseconds, `maxRecords` is a count, and `maxSize` is a size such as `'500MB'`, a number of bytes, or a percent of the volume such as `'30%'`. `false` disables a limit. Only the SQLite store supports `maxSize`, for a local file; it deletes the oldest terminal records until the live data of the file fits. The D1 store rejects it. `invocations.delete(id)` and `invocations.prune({ olderThanMs, dryRun })` remove terminal records on demand in both adapters; `vitehub agent invocations delete|prune` does the same for a SQLite or libSQL journal. `vitehub agent invocations compact` rebuilds a local SQLite journal file with `VACUUM` and sets `auto_vacuum = INCREMENTAL`, so a file created before that mode shrinks to its live data. An update rejects after 32 concurrent write conflicts. Use the journal's `redact` hook to remove sensitive values before any store receives them.
@@ -582,23 +590,22 @@ const changelogAgent = agentWithSkills(
 
 Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
 
-### Named presets
+### Presets from a package
 
-Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 
 ```ts fragment
 import { defineAgent } from "@vite-hub/agent"
 import { notetaker } from "@example/agents"
 
 export default defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   name: "meeting-notes",
   driver: { model: "gpt-5.6-sol" },
 })
 ```
 
-`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+A preset is an ordinary parent: `extends` applies child overrides and creates a fresh runtime. Importing a preset does not register a global name or load other packages, and the preset name never becomes model instructions.
 
 Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
 
@@ -619,8 +626,7 @@ Consumers select the definition and override only the options they need:
 
 ```ts fragment
 const notes = defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   options: { format: "detailed", labels: [] },
   driver: { model: "gpt-5.4" },
 })
@@ -630,17 +636,13 @@ notes.options.format // "concise" | "detailed"
 
 `options` must be a plain record and uses nested defaults. Built-in instance roots are rejected by the types. Custom class roots are rejected at runtime because TypeScript cannot distinguish their structure from plain records with callbacks. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Nested values with required methods, including class instances, require complete replacements. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
 
-`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Copies of standard built-ins preserve their own property descriptors and nested values. Custom class instances and values such as `WeakMap`, `WeakSet`, and `Error` retain their identity across option copies. Detached buffers and their views retain identity. Resizable or growable buffers and their views also retain identity, preserving resize behavior and fixed-length or length-tracking views. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. For discovered Agents, a Workspace reference object must use a statically known string `name`; `name: undefined` owns a Workspace. Opaque names require an explicit Workspace ownership marker on the configured definition. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
+`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Copies of standard built-ins preserve their own property descriptors and nested values. Custom class instances and values such as `WeakMap`, `WeakSet`, and `Error` retain their identity across option copies. Detached buffers and their views retain identity. Resizable or growable buffers and their views also retain identity, preserving resize behavior and fixed-length or length-tracking views. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
 
-For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks or opaque helper calls returned by `configure`, including computed calls such as `builders["workspace"]()` and asserted calls such as `build!()` or `(build as Factory)()`. Return `defineAgent()` directly, or declare `workspace: {}` for owned storage or a named Workspace reference on the configured Agent. It rejects an imported `configure` callback because it cannot determine the required Workspace setup. Discovery also rejects unresolved computed settings keys, quoted keys with unsupported escapes, compound `void` expressions, dynamic Workspace values such as `options.workspaceName`, opaque settings spreads such as `...importedSettings`, imported Capability options and preset registries (including object spreads), option-derived Capability lists such as `options.caps`, returned Agent members such as `agents.storage`, imported Agent parents, imported Channel maps, Channels imported from packages, local Channel factories and opaque calls such as `makeChannel()`, first-party Channel helper calls with opaque options such as `github(options.github)` or `github({ pullRequest: options.pullRequest })`, Channel options defined by accessors such as `get pullRequest()`, dynamic preset selections, logical Capability expressions such as `false || [storage]`, constructed Capability lists such as `Array.of(storage)` or `[plain].concat(storage)`, imported Capability values, destructured Capability bindings, and local Capability member access or calls such as `values.storage` and `values.storage()`. If these contribute an owned Workspace, add `workspace: {}` to the Agent definition. Otherwise, define the settings, parents, Channels, and Capabilities locally with direct bindings so discovery can inspect them.
-
-Discovery reads first-party Channel helper calls, such as `github({ pullRequest: false })`, without running them. It also follows a Channel imported from a relative module, such as `import portal from '../portal.github.ts'`, and inspects that module's export with the same rules. It follows re-exports from relative modules, such as `export { default } from './inner.ts'` and `export * from './channels.ts'`, and rejects re-exports from packages. `github()` owns a Workspace only when `pullRequest` is enabled and `pullRequest.workspace` is not `false`. `discord()`, `gitlab()`, `forgejo()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()` own a Workspace only through their `capabilities`. An Agent whose Channels own no Workspace stays a stateless Agent; do not add `workspace: {}` to it.
-
-Discovery rejects Channel option bindings that are mutated or passed to opaque calls, including local callbacks and built-in mutators such as `Object.assign`. It does not execute those calls to inspect their effects. Use unmodified local options, or add `workspace: {}` when the Channel owns a Workspace.
+A folder Agent, such as `server/agents/review/agent.ts`, owns a Workspace only when the `defineAgent()` options that its file exports have a `workspace` key. Discovery reads this key without running the module. Write the key in the exported `defineAgent()` call or in a `const` that the call uses; discovery does not set up a Workspace for a key that it cannot read, such as one in options that a function returns. `workspace: 'shared'` and `workspace: { name: 'shared' }` use a shared Workspace, and `workspace: undefined` declares none. When a Capability, Channel, preset, parent, or `configure` callback adds a Workspace, such as `github({ pullRequest: true })`, also add `workspace: {}`. Without it, the Agent fails with `AGENT_R1037` when it loads. An Agent without a Workspace stays stateless.
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook. Option callbacks are values and are also replaced, never invoked by merging.
 
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+Publish the exported definition on npm, import it, and pass it as `extends`. There is no second preset factory or global package loader.
 
 ### Build an Agent from another Agent in code
 
@@ -675,7 +677,7 @@ GitHub Channels with `activity: true` keep one managed comment per pull request.
 ### Process-owned agents
 
 For a single Node process that discovers background work, `createProcessAgentHost`
-from `@vite-hub/agent/runtime/process` combines capacity, invocation storage and
+from `@vite-hub/agent/process` combines capacity, invocation storage and
 recovery, provider-session storage, and a draining reconciler. Its data directory
 must belong exclusively to this host. It is not a distributed lease.
 
@@ -857,7 +859,7 @@ Without a template, extending instructions replaces the inherited document.
 ### Process hosts
 
 A preset can attach a long-running Node host to an Agent Definition. Import
-`withAgentProcessHost()` from `@vite-hub/agent/process-host` and return the
+`withAgentProcessHost()` from `@vite-hub/agent/process` and return the
 definition with a `create(context)` function. ViteHub calls it once per
 discovered Agent on the Node server preset, with the Agent name, the definition,
 an Agent State extension, and a private data directory.

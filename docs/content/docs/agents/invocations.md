@@ -7,14 +7,16 @@ icon: i-lucide-play-circle
 navigation.kind: Guides
 ---
 
-An Invocation is one run of an [Agent Definition](/docs/agents/agent-definitions), the reusable file that describes an Agent. ViteHub prepares the request, runs it, and returns or streams the result. [Build a chat app](/docs/agents/build-a-chat-app) shows a full example.
+An Agent Invocation is one request to an Agent. ViteHub prepares its input, Invoker, Capabilities, Workspace, and Driver, then returns or streams the result.
+
+Start with [Agent Definitions](/docs/agents/agent-definitions). For a complete browser-to-model example, follow [Build a chat app](/docs/agents/build-a-chat-app).
 
 ## What happens during an Invocation
 
 | Stage | What happens |
 | --- | --- |
 | Entry | A route, Channel, schedule, webhook, CLI command, or another caller provides input. |
-| Actor | ViteHub resolves the trusted [Agent Actor](/docs/agents/actors). |
+| Invoker | ViteHub resolves the trusted [Agent Invoker](/docs/agents/trusted-invokers). |
 | Capabilities | The Definition and invocation context select the abilities for this request. |
 | Context | ViteHub prepares tools, policy, context values, and the Workspace Scope. |
 | Execution | The Agent Driver runs the prepared request. |
@@ -60,7 +62,32 @@ The success value is an `AgentRunResult`:
 
 In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
-```ts [server/api/support.post.ts] fragment
+The route reads the signed-in user with a helper of the app:
+
+```ts [server/utils/auth.ts]
+import { createError } from 'h3'
+import { auth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireAuthenticatedUser(event: H3Event) {
+  const session = await auth.api.getSession({ headers: event.req.headers })
+  if (!session) throw createError({ status: 401 })
+  return session.user
+}
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
+```ts [server/api/support.post.ts]
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
@@ -87,7 +114,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`requireAuthenticatedUser` is your own helper in `server/utils/auth.ts`, not a ViteHub export. It must reject requests without a signed-in user and return the trusted `id` and `email`. Always authenticate before you pass identity or access facts to the Agent. `context.invoker` sets the [Agent Actor](/docs/agents/actors), the caller's trusted identity.
+`requireAuthenticatedUser` is an application helper from `server/utils/auth.ts`, omitted here. Implement it with your authentication provider so it rejects unauthenticated requests and returns the trusted user's `id` and `email`. It is not a ViteHub export. Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Invoker](/docs/agents/trusted-invokers).
 
 The option is `runtimeContext`, not `context`, because `input.context` already holds the Invocation context values that instructions and hooks read, such as `context.customInstructions`.
 
@@ -383,7 +410,7 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 
 ### AGENT_RUN_FAILED
 
-The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED` or `LLM_GATE_REJECTED`.
+The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED`.
 
 ### AGENT_RUN_CANCELLED
 

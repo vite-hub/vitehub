@@ -389,7 +389,7 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, annotated screenshots, diffs, quizzes, and comments.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, Mermaid diagrams, file trees, cards, annotated screenshots, diffs, quizzes, and comments.
 
 An example shows the first fenced block inside it, rendered with the page's plugins, and its source behind a Code switch:
 
@@ -404,14 +404,38 @@ An example shows the first fenced block inside it, rendered with the page's plug
 ::
 ````
 
+### Diagrams
+
+A `mermaid` fence becomes a diagram. The server draws it as an SVG with [Pele](https://pele.run), so the page shows the diagram before any script runs, and the source does not leave your server:
+
+````md [content/docs/guide/requests.md]
+```mermaid
+graph LR
+  Browser --> Router
+  Router --> Handler
+  Handler --> Database
+```
+````
+
+```mermaid
+graph LR
+  Browser --> Router
+  Router --> Handler
+  Handler --> Database
+```
+
+D2, PlantUML, and Graphviz fences stay code blocks. comark-ui draws them through a [Kroki](https://kroki.io) server, which receives the source of each diagram. To accept that, set `comarkUi: { diagrams: true }` in the [parser options](#configure-the-parser) for kroki.io, or `comarkUi: { diagrams: { server: 'https://kroki.example.com' } }` for your own Kroki server.
+
 ### Configure the parser
 
 The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. Plugins are functions, so the parser options go in a module that `parser` names, not in `nuxt.config.ts` itself:
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
+import emoji from 'comark/plugins/emoji'
 
 export default {
+  plugins: [emoji()],
   comarkUi: { chips: true },
   examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
 } satisfies DocsParserOptions
@@ -426,7 +450,7 @@ export default defineNuxtConfig({
 
 The page route, search, and Console drafts parse with these options:
 
-- `comarkUi` sets comark-ui's options, merged over the built-in ones: typeset, chips, and badge downloads are off. `{ chips: true }` turns every web link into a chip with its favicon. With `docs.github` set, `#123` in a page links to an issue in that repository.
+- `comarkUi` sets comark-ui's options, merged over the built-in ones: typeset, chips, Kroki diagrams, and badge downloads are off. `{ chips: true }` turns every web link into a chip with its favicon. With `docs.github` set, `#123` in a page links to an issue in that repository.
 - `examples.tags` names the blocks that get a preview, `['example', 'correct', 'incorrect']` by default. `examples.play(source, tag)` returns a playground URL for an example's Markdown, and the example links to it. Return `undefined` for no link.
 - `plugins` adds more Comark plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert` or `comark-tabs`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
 
@@ -520,7 +544,7 @@ import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
 import { docsCollection } from '@vite-hub/docs'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
   collections: { docs: docsCollection() },
 })

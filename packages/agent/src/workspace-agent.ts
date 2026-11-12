@@ -1,6 +1,6 @@
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
-import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
+import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
@@ -35,8 +35,6 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { formatRetentionPercentage } from "./internal/retention-policy.ts"
-import type { NormalizedRetention } from "./internal/retention-policy.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
@@ -65,7 +63,6 @@ import type {
   AgentInvocationContextValues,
   AgentHostIdentity,
   AgentInvoker,
-  AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
   AgentModelResolverContext,
@@ -133,7 +130,7 @@ export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   _Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -150,7 +147,7 @@ export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -256,6 +253,24 @@ export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: str
     configurable: true,
     value: names,
   })
+}
+
+/** Records whether the options of a `defineAgent()` call have a `workspace` value. A parent's value does not count. */
+export function rememberDeclaredAgentWorkspace(agent: object, options: unknown): void {
+  const workspace = isRuntimeRecord(options) ? options.workspace : undefined
+  Object.defineProperty(agent, declaredAgentWorkspace, { configurable: true, value: workspace !== undefined && workspace !== null })
+}
+
+/**
+ * Returns a discovered folder Agent that discovery found no `workspace` key for. The Agent fails here when it owns a
+ * Workspace that a Capability, Channel, preset, parent, or configure callback added. An Agent whose `defineAgent()`
+ * options have the key passes, also when discovery could not read the key.
+ */
+export function withDeclaredAgentWorkspace<Agent>(agent: Agent, name: string): Agent {
+  if (workspaceAgentOwnsWorkspaceDefinition(agent) && Reflect.get(Object(agent), declaredAgentWorkspace) !== true) {
+    throw agentDiagnostics.AGENT_R1037({ name })
+  }
+  return agent
 }
 
 export function markDiscoveredWorkspaceAgentDefinitionRegistered(
@@ -709,7 +724,7 @@ function resolvedDriverExecutionAuthority<
 function agentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS, TInvokerProfile>): AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined {
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return (definition as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> }).__vitehubAgentSettings
@@ -876,16 +891,6 @@ function providerResolverKind(value: unknown): "dynamic" | "static" {
     : "static"
 }
 
-function retentionMetadata(retention: NormalizedRetention): NonNullable<AgentInspectionProviderMetadata["retention"]> {
-  return {
-    ...(retention.maxAgeMs === false ? {} : { maxAge: retention.maxAgeMs }),
-    ...(retention.maxRecords === false ? {} : { maxRecords: retention.maxRecords }),
-    ...(retention.maxSize === false
-      ? {}
-      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${formatRetentionPercentage(retention.maxSize.fraction)}%` }),
-  }
-}
-
 function providerMetadata(driver: {
   credentialProfile?: string
   credentials?: unknown
@@ -900,7 +905,6 @@ function providerMetadata(driver: {
   providerSettings?: Record<string, unknown>
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
-  retention?: NormalizedRetention
   sessionStorePath?: string
   toolchain?: AgentInspectionProviderMetadata["toolchain"]
 }): AgentInspectionProviderMetadata {
@@ -922,7 +926,6 @@ function providerMetadata(driver: {
     ...(providerSettings.length ? { providerSettings } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
-    ...(driver.retention ? { retention: retentionMetadata(driver.retention) } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),
     ...(driver.toolchain !== undefined ? { toolchain: driver.toolchain } : {}),
   }
@@ -931,7 +934,7 @@ function providerMetadata(driver: {
 function staticDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentInspectionDriverMetadata | undefined {
   if (!settings) return { executionAuthority: unknownExecutionAuthority, kind: "unknown" }
   const driver = normalizeAgentDriver(settings)
@@ -962,7 +965,7 @@ async function resolvedDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(
   settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
   context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
@@ -1851,7 +1854,6 @@ async function resolveMetadataCapabilitySelection<
     ...agentInvocationCallbackContextValues(invocationContext),
     ...callbackContext,
     abortSignal: input.abortSignal,
-    actor: invoker,
     context: invocationContext,
     driver: { kind: driverKind },
     input,
@@ -1906,7 +1908,6 @@ async function resolveWorkspaceMetadataCapabilityContext<
       ...agentInvocationCallbackContextValues(invocationContext),
       ...agentCallbackContext(runtime),
       abortSignal: input.abortSignal,
-      actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
       fs: metadataWorkspace.fs,
@@ -1996,7 +1997,6 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       ...agentInvocationCallbackContextValues(selection.invocationContext),
       ...agentCallbackContext(selection.runtime),
       abortSignal: selection.input.abortSignal,
-      actor: selection.invoker,
       context: selection.invocationContext,
       driver: { kind: selection.driverKind },
       input: selection.input,

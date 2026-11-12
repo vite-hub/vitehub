@@ -43,11 +43,17 @@ export default defineAuth({
 Call the Better Auth admin API from server code. Better Auth checks that the session in the headers is an `admin`:
 
 ```ts [server/routes/api/roles.post.ts]
-import { defineHandler } from 'h3'
+import { defineHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { auth } from 'vite-hub/auth/server'
 
+const body = v.object({
+  userId: v.string(),
+  role: v.picklist(['user', 'viewer', 'commenter', 'editor', 'publisher', 'admin']),
+})
+
 export default defineHandler(async (event) => {
-  const { userId, role } = await event.req.json()
+  const { userId, role } = await readValidatedBody(event, body)
   return auth.api.setRole({ body: { userId, role }, headers: event.req.headers })
 })
 ```
@@ -83,7 +89,7 @@ import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { cmsCan } from 'vite-hub/cms/access'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   // Agents may draft, but only people publish.
@@ -118,7 +124,7 @@ import { cmsConsoleAuthorize } from 'vite-hub/cms/access'
 export default defineConsoleAuthorize(cmsConsoleAuthorize)
 ```
 
-Set `console: { auth: 'app', authorize: './server/console-authorize.ts' }` in `vitehub()` so the Console uses the app's signed-in user.
+Set `console: { authorize: './server/console-authorize.ts' }` in `vitehub()`. The Console signs the person who calls, and `authorize` gets that user.
 
 ## Inspect the roles
 

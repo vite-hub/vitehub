@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 import type { SandboxRequirement } from "@vite-hub/sandbox"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, startAgentInvocation, streamAgent, type AgentErrorCode, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, startAgentInvocation, streamAgent, type AgentErrorCode, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
 import type { Result } from "@vite-hub/runtime"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
@@ -15,11 +15,10 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations, defineAgentRu
 import { registerWorkspaceAgent } from "../src/server/workspace.ts"
 import type { AgentDefinition, AgentInvocationContextValues } from "../src/types.ts"
 import type { WorkspaceAgentDefinition } from "../src/workspace-agent.ts"
-import type { AgentInvocationSummary, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
+import type { AgentInvocationSummary, AgentInvocationContextStore, AgentInvoker, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade, type WorkspaceName } from "@vite-hub/workspace"
 import type { AccessChatOptions, AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -44,7 +43,7 @@ describe("agent public types", () => {
     expectTypeOf<AgentCallbackContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
   })
 
-  it("preserves native Capability context inference beside Eve mounts", () => {
+  it("preserves native Capability context inference in static capabilities", () => {
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
       AgentRuntimeConfig,
@@ -52,7 +51,7 @@ describe("agent public types", () => {
       { invocationContext: { native: string } }
     >
     defineAgent({
-      capabilities: [native, githubExtension({ preset: "code-review" })],
+      capabilities: [native],
       driver: { run({ context }) {
         expectTypeOf(context.get("native")).toEqualTypeOf<string | undefined>()
         return "ok"
@@ -143,20 +142,15 @@ describe("agent public types", () => {
     })
   })
 
-  it("types Eve extensions in static capabilities", () => {
+  it("rejects values that are not Capabilities in static capabilities", () => {
     defineAgent({
-      capabilities: [githubExtension({ preset: "code-review" })],
-      driver: { run: () => "ok" },
-    })
-
-    defineAgent({
-      // @ts-expect-error arbitrary objects are neither Capabilities nor extension mounts
+      // @ts-expect-error arbitrary objects are not Capabilities
       capabilities: [{}],
       driver: { run: () => "ok" },
     })
 
     defineAgent({
-      // @ts-expect-error unrelated symbol-bearing objects are not extension mounts
+      // @ts-expect-error symbol-bearing objects are not Capabilities
       capabilities: [{ *[Symbol.iterator]() {} }],
       driver: { run: () => "ok" },
     })
@@ -172,12 +166,6 @@ describe("agent public types", () => {
     defineAgent({
       // @ts-expect-error readonly open arrays still validate every Capability
       capabilities: readonlyArbitraryCapabilities,
-      driver: { run: () => "ok" },
-    })
-
-    const typedExtensionCapabilities: AgentCapabilitiesInput = [githubExtension({ preset: "code-review" })]
-    defineAgent({
-      capabilities: typedExtensionCapabilities,
       driver: { run: () => "ok" },
     })
   })
@@ -656,7 +644,7 @@ describe("agent public types", () => {
     void runAgent(inherited, { data: { count: "2" } })
     // @ts-expect-error Configured layers retain their parent's schema input.
     void runAgent(inherited, { data: { count: 2 } })
-    const selected = defineAgent({ preset: "count", presets: { count: configured } })
+    const selected = defineAgent({ extends: configured })
     expectTypeOf(runAgentInline(selected, {} as AgentRuntimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | { previous: true }>>()
     void runAgent(selected, { data: { count: "2" } })
     // @ts-expect-error Selected presets retain the schema input.
@@ -704,7 +692,7 @@ describe("agent public types", () => {
     void runAgent(directLayer, { data: { count: "2" } })
     // @ts-expect-error Direct layers preserve their parent's input schema.
     void runAgent(directLayer, { data: { count: 2 } })
-    const directPreset = defineAgent({ preset: "base", presets: { base: transformed } })
+    const directPreset = defineAgent({ extends: transformed })
     void runAgent(directPreset, { data: { count: "2" } })
     // @ts-expect-error Direct presets preserve their parent's input schema.
     void runAgent(directPreset, { data: { count: 2 } })
@@ -766,7 +754,7 @@ describe("agent public types", () => {
     expectTypeOf(runAgent(asyncFallthrough, {})).toEqualTypeOf<typeof driverResult>()
 
     const replacedWithFallthrough = defineAgent({ extends: agent, intercept: () => undefined })
-    const replacedWithAsyncFallthrough = defineAgent({ preset: "base", presets: { base: configured }, intercept: async () => undefined })
+    const replacedWithAsyncFallthrough = defineAgent({ extends: configured, intercept: async () => undefined })
     expectTypeOf(runAgentInline(replacedWithFallthrough, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
     expectTypeOf(runAgent(replacedWithFallthrough, {})).toEqualTypeOf<typeof driverResult>()
     expectTypeOf(runAgentInline(replacedWithAsyncFallthrough, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
@@ -819,14 +807,14 @@ describe("agent public types", () => {
     const driver = { output: { schema: schemaFor<ChildOutput, string>() } }
     const intercept = async (): Promise<ReplacedOutput> => ({ replaced: "child" })
     const direct = defineAgent({ extends: parent, driver })
-    const preset = defineAgent({ preset: "base", presets: { base: parent, other: nativeWorkspaceParent }, driver })
+    const preset = defineAgent({ extends: parent, driver })
     const directWorkspace = defineAgent({ extends: workspaceParent, driver })
-    const presetWorkspace = defineAgent({ preset: "base", presets: { base: nativeWorkspaceParent }, driver })
-    const promotedWorkspace = defineAgent({ preset: "base", presets: { base: parent }, driver, workspace: {} })
+    const presetWorkspace = defineAgent({ extends: nativeWorkspaceParent, driver })
+    const promotedWorkspace = defineAgent({ extends: parent, driver, workspace: {} })
     const configuredDirect = defineAgent({ extends: configured, options: { label: "child" }, driver })
-    const configuredPreset = defineAgent({ preset: "base", presets: { base: configured }, driver })
+    const configuredPreset = defineAgent({ extends: configured, driver })
     const configuredWorkspaceDirect = defineAgent({ extends: configuredWorkspace, driver })
-    const configuredWorkspacePreset = defineAgent({ preset: "base", presets: { base: configuredWorkspace }, driver })
+    const configuredWorkspacePreset = defineAgent({ extends: configuredWorkspace, driver })
     const configuredPromoted = defineAgent({ extends: configured, driver, workspace: {} })
     const runtime = {} as AgentRuntimeContext
     expectTypeOf(runAgentInline(direct, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
@@ -841,13 +829,13 @@ describe("agent public types", () => {
     expectTypeOf(runAgentInline(configuredPromoted, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
 
     const replacedDirect = defineAgent({ extends: parent, driver, intercept })
-    const replacedPreset = defineAgent({ preset: "base", presets: { base: parent }, driver, intercept })
+    const replacedPreset = defineAgent({ extends: parent, driver, intercept })
     const replacedWorkspace = defineAgent({ extends: nativeWorkspaceParent, driver, intercept })
-    const replacedWorkspacePreset = defineAgent({ preset: "base", presets: { base: nativeWorkspaceParent }, driver, intercept })
+    const replacedWorkspacePreset = defineAgent({ extends: nativeWorkspaceParent, driver, intercept })
     const replacedConfigured = defineAgent({ extends: configured, driver, intercept })
-    const replacedConfiguredPreset = defineAgent({ preset: "base", presets: { base: configured }, driver, intercept })
+    const replacedConfiguredPreset = defineAgent({ extends: configured, driver, intercept })
     const replacedConfiguredWorkspace = defineAgent({ extends: configuredWorkspace, driver, intercept })
-    const replacedConfiguredWorkspacePreset = defineAgent({ preset: "base", presets: { base: configuredWorkspace }, driver, intercept })
+    const replacedConfiguredWorkspacePreset = defineAgent({ extends: configuredWorkspace, driver, intercept })
     expectTypeOf(runAgentInline(replacedDirect, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
     expectTypeOf(runAgentInline(replacedPreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
     expectTypeOf(runAgentInline(replacedWorkspace, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
@@ -887,7 +875,7 @@ describe("agent public types", () => {
     const configured = defineAgent({ options: {}, configure: () => parent })
     const driver = { output: { schema: schemaFor<ChildOutput | undefined>() } }
     const direct = defineAgent({ extends: parent, driver })
-    const preset = defineAgent({ preset: "base", presets: { base: configured }, driver })
+    const preset = defineAgent({ extends: configured, driver })
     const chained = defineAgent({ extends: preset, driver: { output: { schema: schemaFor<boolean>() } }, workspace: {} })
     const runtime = {} as AgentRuntimeContext
     expectTypeOf(runAgentInline(direct, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ParentOutput | undefined>>()
@@ -917,11 +905,11 @@ describe("agent public types", () => {
     const schema: StandardSchemaV1<unknown, DriverOutput> = {
       "~standard": { validate: () => ({ value: { value: "driver" } }), vendor: "test", version: 1 },
     }
-    const definition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, DriverOutput> = defineAgent({
+    const definition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, DriverOutput> = defineAgent({
       driver: { output: { schema }, run: () => "{}" },
       runtime: false,
     })
-    const workspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput> = defineAgent({
+    const workspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvoker, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput> = defineAgent({
       driver: { output: { schema }, run: () => "{}" },
       runtime: false,
       workspace: {},
@@ -929,12 +917,12 @@ describe("agent public types", () => {
     const runtime = {} as AgentRuntimeContext
     const inherited = defineAgent({ extends: definition })
     const workspaceInherited = defineAgent({ extends: workspaceDefinition })
-    const presetInherited = defineAgent({ preset: "base", presets: { base: definition } })
+    const presetInherited = defineAgent({ extends: definition })
     expectTypeOf(runAgentInline(inherited, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
     expectTypeOf(runAgentInline(workspaceInherited, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
     expectTypeOf(runAgentInline(presetInherited, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
 
-    const interceptedWorkspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput | InterceptOutput, unknown, unknown, DriverOutput, InterceptOutput> = defineAgent({
+    const interceptedWorkspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvoker, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput | InterceptOutput, unknown, unknown, DriverOutput, InterceptOutput> = defineAgent({
       driver: { output: { schema }, run: () => "{}" },
       intercept: (): InterceptOutput => ({ matched: true }),
       runtime: false,
@@ -946,13 +934,13 @@ describe("agent public types", () => {
     const registeredFallthrough = defineAgent({ extends: registeredWorkspace, intercept: () => undefined })
     expectTypeOf(registeredWorkspace).toEqualTypeOf<typeof interceptedWorkspaceDefinition>()
     expectTypeOf(runAgentInline(registeredFallthrough, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
-    const interceptedDefinition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, DriverOutput | InterceptOutput, unknown, DriverOutput, unknown, InterceptOutput> = interceptedWorkspaceDefinition
-    const legacyInterceptedDefinition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, DriverOutput | InterceptOutput> = defineAgent({
+    const interceptedDefinition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, DriverOutput | InterceptOutput, unknown, DriverOutput, unknown, InterceptOutput> = interceptedWorkspaceDefinition
+    const legacyInterceptedDefinition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, DriverOutput | InterceptOutput> = defineAgent({
       driver: { output: { schema }, run: () => "{}" },
       intercept: (): InterceptOutput => ({ matched: true }),
       runtime: false,
     })
-    const legacyInterceptedWorkspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput | InterceptOutput> = defineAgent({
+    const legacyInterceptedWorkspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvoker, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput | InterceptOutput> = defineAgent({
       driver: { output: { schema }, run: () => "{}" },
       intercept: (): InterceptOutput => ({ matched: true }),
       runtime: false,
@@ -1760,7 +1748,7 @@ describe("agent public types", () => {
       accountId: string
       invoker?: SupportInvoker
     }
-    const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
+    const supportProfiles: readonly AgentInvoker<{ audience?: "technical", customer?: "acme" }>[] = [
       { id: "support-customer", kind: "customer", meta: { customer: "acme" } },
       { id: "support-technical", kind: "technical", meta: { audience: "technical" } },
     ]
@@ -1781,19 +1769,19 @@ describe("agent public types", () => {
       AgentRuntimeConfig,
       "support"
     > = {
-      resolve({ actor, input, invoker, run }) {
+      resolve({ input, invoker, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
-        expectTypeOf(actor.email?.address).toEqualTypeOf<string | undefined>()
-        expectTypeOf(actor.email?.domain).toEqualTypeOf<string | undefined>()
-        expectTypeOf(actor.id).toEqualTypeOf<string>()
+        expectTypeOf(invoker.email?.address).toEqualTypeOf<string | undefined>()
+        expectTypeOf(invoker.email?.domain).toEqualTypeOf<string | undefined>()
+        expectTypeOf(invoker.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.email?.address).toEqualTypeOf<string | undefined>()
         expectTypeOf(invoker.email?.domain).toEqualTypeOf<string | undefined>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.meta?.customer).toEqualTypeOf<"acme" | undefined>()
-        return actor.meta?.customer || "customer"
+        return invoker.meta?.customer || "customer"
       },
       scopes: {
         customer: {
@@ -1903,10 +1891,10 @@ describe("agent public types", () => {
           expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
         },
       },
-      driver: { run({ actor, context }) {
+      driver: { run({ invoker, context }) {
           const accessContext = context.get("access")
-          expectTypeOf(actor.id).toEqualTypeOf<string>()
-          expectTypeOf(context.get("actor")).toEqualTypeOf<AgentActor | undefined>()
+          expectTypeOf(invoker.id).toEqualTypeOf<string>()
+          expectTypeOf(context.get("invoker")).toEqualTypeOf<AgentInvoker | undefined>()
           expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
           expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
           expectTypeOf(accessContext?.workspaceScope?.paths).toEqualTypeOf<string[] | undefined>()
@@ -2199,10 +2187,10 @@ describe("agent public types", () => {
       capabilities: [
         access({
           workspace: {
-            resolve({ actor, invoker }) {
-              expectTypeOf(actor.kind).toEqualTypeOf<"anonymous" | "chat" | (string & {}) | undefined>()
+            resolve({ invoker }) {
               expectTypeOf(invoker.kind).toEqualTypeOf<"anonymous" | "chat" | (string & {}) | undefined>()
-              return actor.kind === "quiverTechnical"
+              expectTypeOf(invoker.kind).toEqualTypeOf<"anonymous" | "chat" | (string & {}) | undefined>()
+              return invoker.kind === "quiverTechnical"
                 ? { role: "admin", scope: "quiver" }
                 : { role: "viewer", scope: "acme" }
             },
@@ -2214,11 +2202,11 @@ describe("agent public types", () => {
         }),
         {
           id: "support-audience",
-          prepare({ actor, channel, invoker }) {
+          prepare({ channel, invoker }) {
             expectTypeOf(channel?.meta?.customer).toEqualTypeOf<unknown>()
             expectTypeOf(channel?.run?.origin).toEqualTypeOf<string | undefined>()
             expectTypeOf(channel?.user?.email).toEqualTypeOf<unknown>()
-            expectTypeOf(actor.id).toEqualTypeOf<string>()
+            expectTypeOf(invoker.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
           },
         },
@@ -2231,8 +2219,8 @@ describe("agent public types", () => {
         }),
       ],
       hooks: {
-        "agent:finish"({ actor, invoker }) {
-          expectTypeOf(actor.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
+        "agent:finish"({ invoker }) {
+          expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
           expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
         },
       },

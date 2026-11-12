@@ -372,6 +372,14 @@ The rule reads provider-backed paths from `.vitehub/env/description.mjs`, and do
 
 The examples read this key from a `crm` Env provider:
 
+```ts [server/env/crm.ts]
+import type { EnvProvider } from 'vite-hub/env'
+
+export default {
+  read: async () => ({ 'api-key': process.env.CRM_API_KEY }),
+} satisfies EnvProvider
+```
+
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -380,6 +388,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [vitehub({
     env: {
+      providers: { crm: './server/env/crm.ts' },
       server: {
         crm: { key: env({ secret: true, source: env.provider('crm', 'api-key') }) },
       },
@@ -563,7 +572,7 @@ Read [Blob server API](/docs/blob/server-api#use-with-other-schema-libraries).
 
 A Runtime Helper gets a literal name that matches no discovered Definition. The call fails only when it runs, for example with `QUEUE_DEFINITION_NOT_FOUND`.
 
-The rule checks the first argument of `sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` always passes. The rule skips `runSchedule(name, { registry })`, which reads its own registry, and cannot see Workflows that another file registers with `createWorkflow()`.
+The rule checks the first argument of `sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: agentWorkflow(name)`. `useDatabase('default')` always passes. The rule skips `runSchedule(name, { registry })`, which reads its own registry, and cannot see Workflows that another file registers with `createWorkflow()`.
 
 ```ts [server/utils/signup.ts] fails=TS2345
 import { sendQueue } from 'vite-hub/queue'
@@ -763,7 +772,7 @@ export default defineWorkflow('onboard-user', async (payload: { email: string },
 
 **Use a valid portable cron expression.** Rule `vitehub/valid-schedule-cron`.
 
-`defineSchedule()` only checks that the cron has five fields. The rule checks a literal cron in `defineSchedule({ cron })` or `defineSchedule(cron, handler)`:
+`defineSchedule()` checks only that the cron has five fields. The rule checks a literal cron in `defineSchedule({ cron })`:
 
 - each value is in its range: minute 0-59, hour 0-23, day of month 1-31, month 1-12, day of week 0-7
 - ranges do not run backwards, and steps are positive numbers

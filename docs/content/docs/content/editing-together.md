@@ -14,7 +14,7 @@ Many people and Agents can open one document. Content stores a session per edito
 
 Sessions live in the Workspace history Database, so they work on every host with the Blob + Database Store: libSQL, Turso, and Cloudflare D1. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
 
-```ts [server/databases/content/config.ts]
+```ts [server/databases/content/index.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { contentSessionsSchema } from 'vite-hub/content/database'
 import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
@@ -33,7 +33,7 @@ import { defineContent } from 'vite-hub/content'
 import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -50,7 +50,7 @@ A session is a token you make per tab or client, such as `crypto.randomUUID()`, 
 ```ts [server/api/editor/session.post.ts]
 import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
-import { content } from '../../content'
+import content from '../../content'
 
 const body = v.object({ id: v.string(), session: v.string(), kind: v.picklist(['view', 'edit']), input: v.optional(v.boolean()) })
 
@@ -109,7 +109,7 @@ Report about every 15 seconds while the tab is visible, and every 60 seconds whi
 `save()`, `remove()`, and `restore()` read the lease once before they commit.
 
 ```ts [server/utils/save-post.ts]
-import { content } from '../content'
+import content from '../content'
 
 const input = { data: { title: 'Hello' }, body: '# Hello' }
 
@@ -162,7 +162,7 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 ## Live editing
 
 > [!NOTE]
-> The live editor was part of the Console that the app served, which is removed. The hosted Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
+> The live editor was part of the Console that the app served, which is removed. The Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
 
 With Realtime, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
@@ -173,7 +173,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
-    console: { auth: 'app' },
     realtime: { authority: 'memory' },
   },
 })
@@ -190,7 +189,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      console: { auth: 'app' },
       realtime: { authority: 'memory' },
     }),
     nitro(),
@@ -208,7 +206,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      console: { auth: 'app' },
       realtime: { authority: 'memory' },
     }),
   ],
@@ -234,7 +231,7 @@ The room holds the edit lease as `kind: 'live'` for everyone in it. It holds it 
 
 ### Build your own live editor
 
-ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the Console session when the Console is on, else with the ViteHub Auth session. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
+ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the ViteHub Auth session. With the Console on, rooms check Console access instead, which takes only signed calls, so a browser editor needs the Console off. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
 
 ```ts [app editor]
 import { contentRealtimeEditor } from 'vite-hub/content/editor'

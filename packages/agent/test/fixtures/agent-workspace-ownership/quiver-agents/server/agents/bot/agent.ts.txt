@@ -1,0 +1,122 @@
+import { defineAgent } from 'vite-hub/agent'
+import { teams } from 'vite-hub/agent/channels'
+import { browser, git, inputCommands, mcp, title, usage } from 'vite-hub/agent/capabilities'
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { cliproxy, cloudflareAccess } from 'vite-hub/gateways'
+import { useServerEnv } from '#vitehub/env/server'
+import { sshLaunch } from '@vite-hub/sandbox/ssh'
+import packageJson from '../../../package.json' with { type: 'json' }
+import { createLibsqlAgentState } from 'vite-hub/agent/state'
+import productlaneChannel from '../../channels/productlane'
+import { airtableChatAttachments } from '../../channels/airtable/attachments'
+import { teamsMessageLinks } from '../../channels/teams/links'
+import { githubHost } from '../../channels/github/host'
+import { mcpServers } from '../../mcp/servers'
+import { quiverSources } from '../../workspace/sources'
+import instructions from './instructions.md?raw'
+import teamsInstructions from '../../channels/teams/instructions.md?raw'
+import browserSkill from 'agent-browser/skills/agent-browser/SKILL.md?raw'
+
+const runnerLaunch = process.env.QUIVER_CODEX_RUNNER === 'crabbox'
+  ? sshLaunch({
+      host: process.env.CRABBOX_STATIC_HOST || '127.0.0.1',
+      port: Number(process.env.CRABBOX_STATIC_PORT || process.env.SSH_PORT || '2222'),
+      user: process.env.CRABBOX_STATIC_USER || 'agent',
+      identityFile: process.env.CRABBOX_SSH_KEY || '/ssh/id_ed25519',
+      hostKeyFile: process.env.SSH_HOST_PUBLIC_KEY || '/ssh/ssh_host_ed25519_key.pub',
+    })
+  : undefined
+
+export default defineAgent({
+  name: 'bot',
+  version: packageJson.version,
+  github: githubHost,
+  workspace: {
+    mode: 'write',
+    // A comment inside the Workspace options.
+    materialize: 'none',
+    sources: quiverSources,
+  },
+  driver: {
+    kind: 'codex',
+    instructions,
+    capacity: {
+      concurrency: 4,
+      queue: { maxPending: 12 },
+    },
+    credentials: () => useServerEnv().codex.auth,
+    gateway: cliproxy({ url: 'https://gateway.example.com', headers: cloudflareAccess() }),
+    model: 'model',
+    permissions: 'allow-all',
+    reasoningEffort: 'medium',
+    reasoningSummary: 'auto',
+    launch: runnerLaunch,
+    requirements: ['git', 'gh', 'unzip'],
+  },
+  channels: {
+    productlane: productlaneChannel(),
+    teams: teams({
+      instructions: teamsInstructions,
+      messages: {
+        concurrency: 'steer',
+        lockScope: 'thread',
+        steerFromParticipants: true,
+        allowSilentReply: true,
+        loading: { text: 'Thinking…', intervalMs: 5000, updates: 'commentary' },
+        stream: false,
+        durable: false,
+      },
+      route: true,
+      adapter: { userName: 'Bot' },
+    }),
+  },
+  messages: {
+    timeout: 15 * 60 * 1000,
+    concurrency: 'serial',
+    errorFallbackText: ({ defaultText, publicError }) => {
+      if (publicError.code === 'PROVIDER_QUOTA_EXHAUSTED') {
+        const reset = publicError.details?.resetText
+        return [
+          'I’ve reached the usage limit for this bot.',
+          reset ? `Usage should reset ${reset}.` : 'Usage will reset when the provider quota renews.',
+          'Please try again after the reset time.',
+        ].join(' ')
+      }
+      return publicError.code === 'INTERNAL'
+        ? 'I couldn’t process that request. Please try again.'
+        : defaultText
+    },
+    final: {
+      delivery: 'new-message',
+    },
+    loading: {
+      intervalMs: 5000,
+      text: 'Loading…',
+      updates: 'commentary',
+    },
+    triggerHistory: {
+      maxImages: 4,
+      maxMessages: 50,
+      source: 'thread',
+    },
+    state: () =>
+      createLibsqlAgentState({
+        url: useRuntimeConfig().chatStateDatabaseUrl,
+      }),
+    transcripts: {
+      maxPerUser: false,
+    },
+  },
+  capabilities: [
+    usage(),
+    browser({ skillContent: browserSkill }),
+    git({ mode: 'write' }),
+    title({
+      model: 'model',
+    }),
+    inputCommands({ debug: true }),
+    mcp({ servers: mcpServers, unavailableNotice: true }),
+    airtableChatAttachments,
+    teamsMessageLinks,
+  ],
+})

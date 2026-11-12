@@ -58,15 +58,15 @@ const startGroups = {
 const agentCapabilities = {
   "access": "access",
   "chat": "chat",
-  "chat-summary": "chat-summary",
+  "chat-summary": "official",
   "custom-capabilities": "custom",
   "diagnostics": "diagnostics",
   "fetch": "fetch",
   "git": "git",
   "gmail": "gmail",
   "input-commands": "input-commands",
-  "llm-gate": "llm-gate",
-  "llm-route": "llm-route",
+  "llm-gate": "official",
+  "llm-route": "official",
   "mcp": "mcp",
   "memory": "memory",
   "official-capabilities": "official",
@@ -98,8 +98,12 @@ export const docsPageRedirects = {
   "/blog/build-ai-chatbot": "/docs/agents/build-a-chat-app",
   "/blog/introducing-vitehub": "/docs/getting-started",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
+  "/docs/agents/capabilities/chat-summary": "/docs/agents/capabilities/official",
   "/docs/agents/capabilities/code-host": "/docs/agents/capabilities/forge",
+  "/docs/agents/capabilities/llm-gate": "/docs/agents/capabilities/official",
+  "/docs/agents/capabilities/llm-route": "/docs/agents/capabilities/official",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
+  "/docs/agents/actors": "/docs/agents/trusted-invokers",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
@@ -199,12 +203,12 @@ function rawMarkdownPath(path: string) {
 
 /** Permanent redirects for each removed HTML page, its trailing-slash form, and its raw Markdown copy. */
 export function createDocsRedirectRouteRules(redirects: Record<string, string> = docsPageRedirects) {
-  const routeRules: Record<string, { redirect: { statusCode: 301, to: string } }> = {};
+  const routeRules: Record<string, { redirect: { status: 301, to: string } }> = {};
 
   for (const [from, to] of Object.entries(redirects)) {
-    routeRules[from] = { redirect: { statusCode: 301, to } };
-    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
-    routeRules[rawMarkdownPath(from)] = { redirect: { statusCode: 301, to: rawMarkdownPath(to) } };
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}/`] = { redirect: { status: 301, to } };
+    routeRules[rawMarkdownPath(from)] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
   }
 
   for (const [from, to] of Object.entries({
@@ -213,8 +217,8 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     "/blog": "/learn",
     "/guides": "/learn",
   })) {
-    routeRules[from] = { redirect: { statusCode: 301, to } };
-    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}/`] = { redirect: { status: 301, to } };
   }
 
   return routeRules;

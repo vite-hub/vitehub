@@ -279,17 +279,19 @@ export default defineAgent({
   }),
   database: feature({
     definition: {
-      // A Default Definition also comes from `src/database.ts`, and the owner rejects Default and Named Definitions together.
-      conflicts: name => name === "default"
-        ? [...sourceFiles("server/databases/config").slice(1), "src/database.ts"]
-        : [...sourceFiles(`server/databases/${name}/config`).slice(1), ...sourceFiles(`src/${name}.database`), ...sourceFiles("server/databases/config"), "src/database.ts"],
+      // `src/database.ts` is also the Default Definition, and the owner rejects it beside Named Definitions.
+      conflicts: name => [
+        ...sourceFiles(`server/databases/${name}`).slice(1),
+        ...sourceFiles(`server/databases/${name}/index`),
+        ...(name === "default" ? ["src/database.ts"] : [...sourceFiles(`src/${name}.database`), "src/database.ts"]),
+      ],
       dir: "server/databases",
-      file: name => name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`,
-      template: () => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+      file: name => `server/databases/${name}.ts`,
+      template: name => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { defineDatabase } from "vite-hub/database"
 
 export default defineDatabase({
-  schema: {
+${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     notes: sqliteTable("notes", {
       id: integer("id").primaryKey(),
       title: text("title").notNull(),
@@ -353,7 +355,7 @@ export default defineDatabase({
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
       netlify: explicit("kv.driver", "Upstash", "Configure a remote Upstash store. No Netlify-native KV output is provided."),
-      node: native("fs-lite", "fs-lite / Upstash", "Filesystem-backed KV or remote Upstash Redis.", "single-host"),
+      node: native("fs-lite", "Redis / Postgres / fs-lite", "A table in a Postgres Default Database, else local files. Redis requires kv: { driver: 'redis' }; REDIS_URL supplies its URL on every server. Upstash with REST credentials at build time.", "single-host"),
       vercel: native("upstash", "Upstash", "Upstash Redis with KV REST credentials."),
     },
     id: "kv",
@@ -557,18 +559,13 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
-  if (id === "console") {
-    if (enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
-    const auth = options ? options.auth : "app"
-    if ((isPlainObject(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.includes("auth"))) selected.push(...consoleFeaturePackages.signIn)
-  }
+  if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
 
-/** Additional Console owners selected by its access policy and enabled Agent integration. */
+/** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {
   agents: ["@libsql/client", "drizzle-orm"],
-  signIn: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
 } as const
 
 /** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */

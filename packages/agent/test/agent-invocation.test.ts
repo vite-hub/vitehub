@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { awaitAgentInvocationResult, createBackedAgentInvocationController } from "../src/agent-invocation.ts"
-import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
+import { defineAgent, startAgentInvocation, agentWorkflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
   activeAgentInvocation,
@@ -171,7 +171,7 @@ describe("Agent Invocation controllers", () => {
     const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
     const agent = defineAgent({
       driver: { run: ({ run }) => run?.runId },
-      runtime: workflow("controlled-child"),
+      runtime: agentWorkflow("controlled-child"),
     })
     const controller = await startAgentInvocation(agent, runtime({
       run: { origin: "parent", runId: "parent-run", threadId: "thread-1" },

@@ -7,6 +7,7 @@ import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff"
 import { findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { callOperation } from "@vite-hub/internal/operations"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
@@ -171,8 +172,8 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     "",
     command.description,
     "The command runs the content.* operation of the running app, so it reads and writes the same Workspace Store",
-    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set the credentials in",
-    "VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set",
+    "VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls.",
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
@@ -307,10 +308,6 @@ function requestBody(parsed: ParsedContentArgs): ContentDevRequestOptions {
   if (parsed.status !== undefined) body.status = parsed.status
   if (parsed.site !== undefined) body.site = parsed.site
   return body
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 function writeFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure): number {

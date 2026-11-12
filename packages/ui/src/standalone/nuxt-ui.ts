@@ -18,7 +18,7 @@ export const UIcon = defineComponent({
       const parts = icons[props.name];
       if (!parts) return h("span", { ...attrs, "aria-hidden": "true", "data-slot": "standalone-icon" });
       // Elements, not markup: nothing here parses a string, so a Trusted Types policy has nothing to refuse.
-      return h("svg", { ...attrs, "aria-hidden": "true", "data-slot": "standalone-icon", fill: "currentColor", viewBox: "0 0 256 256" }, parts.map(([tag, shape]) => h(tag, shape)));
+      return h("svg", { ...attrs, "aria-hidden": "true", "data-slot": "standalone-icon", fill: "none", viewBox: "0 0 24 24" }, parts.map(([tag, shape]) => h(tag, shape)));
     };
   },
 });

@@ -23,7 +23,6 @@ describe("libSQL runtime credentials", () => {
         authToken: createRuntimeEnvConfigValue(["VITEHUB_TEST_DATABASE_TOKEN"]),
         url: "libsql://database.example",
       },
-      drizzle: {},
       name: "test",
     }, {}, {
       libsql: { createClient, drizzle },

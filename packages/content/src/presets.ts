@@ -14,6 +14,11 @@ export interface ContentPresetDefaults {
   publish?: "commit" | "pr"
   /** The policy of `content.can()` when `defineContent()` sets no `authorize`. */
   authorize?: ContentAuthorize
+  /**
+   * Branches of `github()` Sources that `content.sources.allow()` never makes public, such as the CMS draft branch. A
+   * request needs the preview cookie or a signed link to read them, or a pull request from them.
+   */
+  privateBranches?: readonly string[]
 }
 
 /**
@@ -89,7 +94,6 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
   if (!isPresetOptionsRecord(defaults)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return an options object from configure().` })
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A preset policy is a callback and may come from another realm.
   if (defaults.authorize !== undefined && typeof defaults.authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return authorize as a function from configure().` })
   }

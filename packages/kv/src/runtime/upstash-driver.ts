@@ -1,9 +1,8 @@
 import createDriver from "unstorage/drivers/upstash"
 
-import type { KVListOptions, KVListPage, ResolvedUpstashKVStoreConfig } from "../types.ts"
+import type { ResolvedUpstashKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
-import { kvErrorDiagnostics } from "../error-diagnostics.ts"
-import { createKVContinuations } from "./continuations.ts"
+import { createRedisKeyLister, redisDeleteIfEqualsScript, redisIncrementResult, redisIncrementScript, redisTTLSeconds } from "./redis-shared.ts"
 
 interface UpstashClient {
   eval: (script: string, keys: string[], args: string[]) => Promise<number>
@@ -13,131 +12,28 @@ interface UpstashClient {
   set: (key: string, value: string, options: { ex?: number; nx: true }) => Promise<"OK" | null>
 }
 
-// Check existence before INCR because an existing zero must keep its current expiry.
-const incrementScript = `
-local existed = redis.call('EXISTS', KEYS[1])
-local current = redis.call('GET', KEYS[1])
-if current then
-  local negative = string.sub(current, 1, 1) == '-'
-  local digits = negative and string.sub(current, 2) or current
-  local boundary = negative and '9007199254740992' or '9007199254740991'
-  local beyond = #digits > #boundary or (#digits == #boundary and digits > boundary)
-  local at_positive_boundary = not negative and digits == boundary
-  if beyond or at_positive_boundary then
-    return redis.error_reply('Atomic KV increment exceeds the JavaScript safe integer range.')
-  end
-end
-local value = redis.call('INCR', KEYS[1])
-if existed == 0 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-end
-return value
-`
-
-function normalizeTTL(ttl: number): number {
-  if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_INVALID_TTL()
-  const seconds = Math.ceil(ttl)
-  if (!Number.isSafeInteger(seconds)) {
-    throw kvErrorDiagnostics.KV_INVALID_TTL()
-  }
-  return seconds
-}
-
-interface UpstashCursor {
-  cursor: string
-}
-
-interface UpstashContinuation extends UpstashCursor {
-  keys: string[]
-}
-
-function decodeCursor(cursor?: string): UpstashCursor {
-  if (!cursor) return { cursor: "0" }
-  try {
-    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The structural checks below validate every cursor member before use.
-    // SAFETY: value remains confined to this parser until its required fields pass the checks below.
-    const value = JSON.parse(decodeURIComponent(cursor)) as UpstashCursor
-    if (typeof value.cursor !== "string" || value.cursor.length === 0) throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
-    return value
-  }
-  catch {
-    throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
-  }
-}
-
-function encodeCursor(cursor: UpstashCursor): string {
-  return encodeURIComponent(JSON.stringify(cursor))
-}
-
-function escapeRedisGlob(value: string): string {
-  return value.replaceAll(/([*?[\\\]])/g, "\\$1")
-}
-
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   // Let unstorage decode reads so typed text reads and GETDEL preserve the stored text, including "null".
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver({ lib: () => import("@upstash/redis"), ...options, automaticDeserialization: false }) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
-  const maximumContinuationBytes = 1024 * 1024
-  const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
-  const continuations = createKVContinuations<UpstashContinuation>({ expired, maximumBytes: maximumContinuationBytes })
+  const lister = createRedisKeyLister("Upstash KV", async (cursor, match, count) => {
+    const [next, keys] = await (await driver.getInstance()).scan(cursor, { count, match })
+    return [String(next), keys]
+  })
   const dispose = driver.dispose
   driver.dispose = async () => {
-    try { await continuations.dispose() }
+    try { await lister.dispose() }
     finally { await dispose?.call(driver) }
   }
 
   driver.getAndDeleteItem = async key => (await driver.getInstance()).getdel(key)
-  driver.incrementItem = async (key, ttl) => {
-    const value = Number(await (await driver.getInstance()).eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
-    if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
-    return value
-  }
+  driver.incrementItem = async (key, ttl) => redisIncrementResult(await (await driver.getInstance()).eval(redisIncrementScript, [key], [String(redisTTLSeconds(ttl))]))
+  driver.deleteIfEqualsItem = async (key, expected) => Number(await (await driver.getInstance()).eval(redisDeleteIfEqualsScript, [key], [expected])) === 1
 
   driver.setIfAbsentItem = async (key, value, ttl) => {
-    const options = ttl === undefined ? { nx: true as const } : { ex: normalizeTTL(ttl), nx: true as const }
+    const options = ttl === undefined ? { nx: true as const } : { ex: redisTTLSeconds(ttl), nx: true as const }
     return await (await driver.getInstance()).set(key, value, options) === "OK"
   }
-
-  function retainContinuation(keys: string[], providerCursor: string): Promise<string> {
-    const encoder = new TextEncoder()
-    const bytes = keys.reduce((total, key) => total + encoder.encode(key).byteLength, 0)
-    if (bytes > maximumContinuationBytes) {
-      throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Upstash KV scan overflow exceeds the continuation size limit." })
-    }
-    return continuations.retain({ cursor: providerCursor, keys }, bytes)
-  }
-
-  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
-    const retained = cursor ? continuations.take(cursor) : undefined
-    if (cursor && !retained && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(cursor)) {
-      throw expired()
-    }
-    let providerCursor: string
-    let keys: string[]
-    if (retained) {
-      providerCursor = retained.cursor
-      keys = retained.keys
-    }
-    else {
-      const state = decodeCursor(cursor)
-      providerCursor = state.cursor
-      const scanned = await (await driver.getInstance()).scan(providerCursor, {
-        count: limit,
-        match: `${escapeRedisGlob(prefix)}*`,
-      })
-      providerCursor = String(scanned[0])
-      if (providerCursor === state.cursor && providerCursor !== "0") {
-        throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Upstash KV scan returned a repeated pagination cursor." })
-      }
-      keys = [...new Set<string>(scanned[1])]
-    }
-    const pageKeys = keys.slice(0, limit)
-    const overflow = keys.slice(limit)
-    if (overflow.length > 0) {
-      return { keys: pageKeys, cursor: await retainContinuation(overflow, providerCursor) }
-    }
-    if (providerCursor === "0") return { keys: pageKeys }
-    return { keys: pageKeys, cursor: encodeCursor({ cursor: providerCursor }) }
-  }
+  driver.listKeys = lister.listKeys
   return driver
 }

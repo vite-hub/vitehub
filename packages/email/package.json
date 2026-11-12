@@ -88,8 +88,8 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:tooling",
-    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
