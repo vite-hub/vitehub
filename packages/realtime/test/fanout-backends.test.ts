@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import postgres from "postgres"
+import * as Y from "yjs"
 
 import type { RealtimeBus } from "../src/bus-protocol.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
@@ -150,6 +151,48 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
 })
 
 describe("the Postgres bus on the Default Database", () => {
+  it.skipIf(!postgresUrl).each([1, 2])("opens and saves concurrent rooms on a borrowed pool with max=%s", async (max) => {
+    const url = new URL(postgresUrl!)
+    url.searchParams.set("max", String(max))
+    const definition = defineDatabase({ connection: { url: url.toString() }, dialect: "postgresql", schema: {} })
+    const db = createPostgresDatabase(definition, { binding: "DB" })
+    const client = Reflect.get(db, "$client")
+    const bus = await createRealtimeNodeBus("auto", { databases: async () => ({ default: { db } }), env: {} })
+    expect(bus?.authority).toBe("postgres")
+    const documents = Array.from({ length: 4 }, () => `small-pool-${crypto.randomUUID()}`)
+    const memory = createMemoryAdapter(Object.fromEntries(documents.map(id => [id, { body: "Start" }])))
+    const server = createTestServer({
+      ...realtimeDefinition({
+        ...memory.adapter,
+        async load(context) {
+          await db.execute("select 1")
+          return await memory.adapter.load(context)
+        },
+        async save(context, snapshot, options) {
+          await db.execute("select 1")
+          return await memory.adapter.save(context, snapshot, options)
+        },
+      }),
+      persistence: false,
+    }, { handler: { bus: () => bus } })
+    try {
+      let complete = false
+      const connecting = Promise.all(documents.map(id => server.connect(id)))
+      connecting.then(() => { complete = true }, () => {})
+      expect(await waitFor(() => complete, 2_000)).toBe(true)
+      const peers = await connecting
+      expect(await waitFor(() => peers.every(peer => paragraphs(peer.doc)[0] === "Start"))).toBe(true)
+      for (const peer of peers) appendParagraph(peer.doc, "Edit")
+      const responses = await Promise.all(peers.map((peer, index) => server.post(documents[index]!, "save", { state: Y.encodeStateAsUpdate(peer.doc) })))
+      expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200])
+      expect([...memory.store.values()].every(document => document.body === "Start\n\nEdit")).toBe(true)
+    }
+    finally {
+      await client.end({ timeout: 1 })
+      await bus?.close()
+    }
+  })
+
   it.skipIf(!postgresUrl)("uses the client of a Database whose URL comes from another variable, and leaves it open", async () => {
     const saved = { DATABASE_URL: process.env.DATABASE_URL, REDIS_URL: process.env.REDIS_URL, REALTIME_POSTGRES_URL: process.env.REALTIME_POSTGRES_URL }
     // An unrelated DATABASE_URL on a closed port: Realtime must not use it.

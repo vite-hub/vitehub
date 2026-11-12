@@ -100,7 +100,6 @@ function dropForeignAwareness<Peer extends object>(
   update: Uint8Array,
   owners: ReadonlyMap<number, Peer>,
   peer: Peer,
-  transferable: (owner: Peer) => boolean,
   awareness: awarenessProtocol.Awareness,
 ): Uint8Array {
   const decoder = decoding.createDecoder(update)
@@ -112,9 +111,8 @@ function dropForeignAwareness<Peer extends object>(
     const clock = decoding.readVarUint(decoder)
     const state = decoding.readVarString(decoder)
     const owner = owners.get(client)
-    // An echo has the same clock. Only a new state (or a client whose remote state was removed) can move ownership.
-    if (!owner || owner === peer || (transferable(owner)
-      && (!awareness.getStates().has(client) || clock > (awareness.meta.get(client)?.clock ?? -1)))) kept.push([client, clock, state])
+    // Neither a newer clock nor a null state proves ownership: a stock client can echo either over BroadcastChannel.
+    if (owner === peer || (!owner && state.trim() !== "null" && clock > (awareness.meta.get(client)?.clock ?? -1))) kept.push([client, clock, state])
   }
   if (kept.length === length) return update
   const encoder = encoding.createEncoder()
@@ -130,8 +128,8 @@ function dropForeignAwareness<Peer extends object>(
 /**
  * Owns peer claims and commits them only after identity binding and quota checks succeed. With several server
  * instances, an object that stands for another instance owns the clients of that instance's peers: `apply()` with
- * `remote: true` records them. A local peer takes over a client from another instance, because the client moved to this
- * one. Another instance cannot take a client from a local peer.
+ * `remote: true` records them. Ownership handoff is explicit through `claim()`, independent of awareness clocks.
+ * Awareness payloads never transfer an existing claim or claim a client from a null echo.
  */
 export function createRealtimeAwarenessOwners<Peer extends object>(options: { maxStateBytes?: number } = {}) {
   const owners = new Map<number, Peer>()
@@ -143,9 +141,22 @@ export function createRealtimeAwarenessOwners<Peer extends object>(options: { ma
     peerClients.get(owner)?.delete(client)
   }
   return {
+    /** A WebSocket declares its own client id at connection time; the bus relays that claim to retire the old socket. */
+    claim(awareness: awarenessProtocol.Awareness, peer: Peer, client: number, identity?: RealtimeIdentity, remote = false): boolean {
+      const state = awareness.getStates().get(client)
+      if (!remote && identity && state && (!isPlainObject(state.user) || state.user.id !== identity.id)) return false
+      if (remote) remoteOwners.add(peer)
+      const owner = owners.get(client)
+      if (owner && owner !== peer) disown(client, owner)
+      claimAwarenessClientIds(owners, peer, [client])
+      const clients = peerClients.get(peer) || new Set<number>()
+      clients.add(client)
+      peerClients.set(peer, clients)
+      return true
+    },
     apply(awareness: awarenessProtocol.Awareness, peer: Peer, input: Uint8Array, identity?: RealtimeIdentity, remote = false): number[] {
       if (remote) remoteOwners.add(peer)
-      const update = dropForeignAwareness(input, owners, peer, transferable, awareness)
+      const update = dropForeignAwareness(input, owners, peer, awareness)
       const clients = readAwarenessClientIds(update)
       if (!clients.length) return []
       const previous = new Map(clients.flatMap(client => {

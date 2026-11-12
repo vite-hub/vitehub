@@ -124,12 +124,12 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
     return value
   }
 
-  async function connect(path: string, init: { doc?: Y.Doc, epoch?: string, headers?: Record<string, string> } = {}): Promise<TestClient> {
+  async function connect(path: string, init: { doc?: Y.Doc, epoch?: string, headers?: Record<string, string>, clientId?: boolean } = {}): Promise<TestClient> {
+    const doc = init.doc ?? new Y.Doc()
     const response = await handler.fetch(request(path, {
       headers: { upgrade: "websocket", ...init.headers },
-      query: init.epoch ? { epoch: init.epoch } : undefined,
+      query: { ...init.epoch ? { epoch: init.epoch } : {}, ...init.clientId ? { clientId: String(doc.clientID) } : {} },
     })) as Response & { crossws?: Hooks }
-    const doc = init.doc ?? new Y.Doc()
     const client: TestClient = {
       awareness: [],
       close: () => {

@@ -44,6 +44,54 @@ function twoInstances(initial: Record<string, { body: string }> = { page: { body
 }
 
 describe("rooms shared across instances", () => {
+  it("repairs a missed reset without persistence or a later save", async () => {
+    const network = createMemoryBusNetwork()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const [busA, busB] = [network.bus(), network.bus()]
+    const [a, b] = [busA, busB].map(bus => createTestServer({ ...definition(memory.adapter), persistence: false }, { handler: { bus: () => bus } }))
+    const onA = await a!.connect("page")
+    const onB = await b!.connect("page")
+    await flush()
+    const publish = busA.publish.bind(busA)
+    vi.spyOn(busA, "publish").mockImplementation(message => message.type === "reset" ? Promise.resolve() : publish(message))
+    memory.write("page", "External")
+    expect((await a!.post("page", "refresh")).status).toBe(200)
+    await flush()
+    expect(onA.closed?.code).toBe(4409)
+    const fresh = await a!.connect("page")
+    await flush()
+    appendParagraph(fresh.doc, "New epoch edit")
+    appendParagraph(onB.doc, "Old epoch edit")
+    await flush(20_000)
+    expect(onB.closed?.code).toBe(4409)
+    const recovered = await b!.connect("page")
+    await flush()
+    expect(paragraphs(recovered.doc)).toEqual(["External", "New epoch edit"])
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])("follows a missed reset after the other instance stops (read-only: %s)", async (readOnly) => {
+    const network = createMemoryBusNetwork()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const busA = network.bus()
+    const a = createTestServer({ ...definition(memory.adapter), persistence: false }, { handler: { bus: () => busA } })
+    const b = createTestServer({ ...definition(memory.adapter), persistence: false, authorize: ({ mode }) => !readOnly || mode === "read" }, { handler: { bus: () => network.bus() } })
+    await a.connect("page")
+    const stale = await b.connect("page")
+    await flush()
+    const publish = busA.publish.bind(busA)
+    vi.spyOn(busA, "publish").mockImplementation(message => message.type === "reset" ? Promise.resolve() : publish(message))
+    memory.write("page", "External")
+    expect((await a.post("page", "refresh")).status).toBe(200)
+    await busA.close()
+    await flush(20_000)
+    expect(stale.closed?.code).toBe(4409)
+    const fresh = await b.connect("page")
+    await flush()
+    expect(paragraphs(fresh.doc)).toEqual(["External"])
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+  })
+
   it("sends an edit on instance A to a client on instance B, and starts B from the same Yjs history", async () => {
     const { a, b, network } = twoInstances()
     const onA = await a.connect("page")
@@ -238,7 +286,7 @@ describe("rooms shared across instances", () => {
     await flush()
 
     // The same Yjs client reconnects to B while A still lists it.
-    const moved = await b.connect("page", { doc: onA.doc })
+    const moved = await b.connect("page", { doc: onA.doc, clientId: true })
     await flush()
     const awareness = new awarenessProtocol.Awareness(onA.doc)
     awareness.setLocalState({ user: { name: "Ada" } })
@@ -252,6 +300,33 @@ describe("rooms shared across instances", () => {
     await flush()
     expect(moved.closed).toBeUndefined()
     expect(presence(watcher).get(onA.doc.clientID)).toEqual({ user: { name: "Ada", moved: true } })
+  })
+
+  it("keeps unchanged-clock presence when a client hands off before its old socket closes", async () => {
+    const { a, b, memory, network } = twoInstances()
+    const c = createTestServer(definition(memory.adapter), { handler: { bus: () => network.bus() } })
+    const onC = await c.connect("page")
+    const onA = await a.connect("page", { clientId: true })
+    const watcher = await b.connect("page")
+    await flush()
+    const ada = createClientAwareness(onA)
+    ada.set({ user: { name: "Ada" }, cursor: 1 })
+    await flush()
+    const moved = await b.connect("page", { doc: onA.doc, clientId: true })
+    const encoder = encoding.createEncoder()
+    encoding.writeVarUint(encoder, messageAwareness)
+    encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(ada.awareness, [onA.doc.clientID]))
+    ;(moved.response as Response & { crossws: { message(peer: object, message: { uint8Array(): Uint8Array }): void } })
+      .crossws.message(moved.peer, { uint8Array: () => encoding.toUint8Array(encoder) })
+    await flush()
+    onA.close()
+    await flush()
+    expect(presence(watcher).get(onA.doc.clientID)).toEqual({ user: { name: "Ada" }, cursor: 1 })
+    expect(presence(onC).get(onA.doc.clientID)).toEqual({ user: { name: "Ada" }, cursor: 1 })
+    moved.close()
+    await flush()
+    expect(presence(watcher).has(onA.doc.clientID)).toBe(false)
+    expect(presence(onC).has(onA.doc.clientID)).toBe(false)
   })
 
   it("ignores updates from another Yjs history", async () => {
@@ -319,6 +394,57 @@ function controllable(adapter: RealtimeDocumentAdapter) {
 }
 
 describe("saves across instances", () => {
+  it("adopts a no-op save's deletion after the saving room closes", async () => {
+    const network = createMemoryBusNetwork()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const busA = network.bus()
+    const [a, b] = [busA, network.bus()].map(bus => createTestServer({ ...definition(memory.adapter), persistence: false }, { handler: { bus: () => bus } }))
+    const onA = await a!.connect("page")
+    const onB = await b!.connect("page")
+    await flush()
+    appendParagraph(onA.doc, "Undone")
+    await flush()
+    const publish = busA.publish.bind(busA)
+    vi.spyOn(busA, "publish").mockImplementation(message => message.type === "update" ? Promise.resolve() : publish(message))
+    onA.doc.getXmlFragment("body").delete(1, 1)
+    await flush()
+    expect((await a!.post("page", "save", { state: Y.encodeStateAsUpdate(onA.doc) })).status).toBe(200)
+    onA.close()
+    await flush()
+    expect((await b!.post("page", "save", { state: Y.encodeStateAsUpdate(onB.doc) })).status).toBe(200)
+    expect(memory.store.get("page")).toMatchObject({ body: "Start", digest: "v1" })
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    expect(paragraphs(onB.doc)).toEqual(["Start"])
+  })
+
+  it.each([false, true])("restores the current status digest for a clean checkpoint (interrupted: %s)", async (interrupted) => {
+    const network = createMemoryBusNetwork()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const checkpoint = vi.fn(async (_context: RealtimeDocumentContext, options: { digest: string }) => {
+      if (options.digest !== memory.store.get("page")!.digest) throw new Error("Stale checkpoint digest")
+      return { id: "checkpoint", createdAt: new Date().toISOString(), entries: {} }
+    })
+    const busA = network.bus()
+    const [a, b] = [busA, network.bus()].map(bus => createTestServer({
+      ...definition({ ...memory.adapter, checkpoint }), history: { checkpoint: true }, persistence: false,
+    }, { handler: { bus: () => bus } }))
+    const onA = await a!.connect("page")
+    await flush()
+    if (interrupted) {
+      const write = busA.writeRoom.bind(busA)
+      vi.spyOn(busA, "writeRoom").mockImplementation((room, record, ifEpoch) => record.digest === "v2" ? Promise.reject(new Error("Record unavailable")) : write(room, record, ifEpoch))
+    }
+    appendParagraph(onA.doc, "Saved")
+    await flush()
+    expect((await a!.post("page", "save", { state: Y.encodeStateAsUpdate(onA.doc) })).status).toBe(interrupted ? 500 : 200)
+    await busA.close()
+    const onB = await b!.connect("page")
+    await flush()
+    const response = await b!.post("page", "checkpoint", { state: Y.encodeStateAsUpdate(onB.doc) })
+    expect(response.status).toBe(200)
+    expect(checkpoint).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ digest: "v2" }))
+  })
+
   function controlledInstances(options: Parameters<typeof createMemoryAdapter>[1] = {}) {
     const network = createMemoryBusNetwork()
     const memory = createMemoryAdapter({ page: { body: "Start" } }, options)

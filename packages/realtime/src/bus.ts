@@ -238,7 +238,7 @@ const postgresChannel = "vitehub_realtime"
 const maxNotifyPayload = 7_900
 /** Large messages stay this long for instances that read them late. */
 const postgresMessageRetentionSeconds = 300
-/** Pool size. A held room lock keeps one connection; the others serve reads, writes, and notifications meanwhile. */
+/** Pool size for room records and notifications. Locks use their own pool so adapter queries cannot wait on them. */
 const postgresConnections = 6
 const postgresLockedSaves = 3
 /** A stable number for `pg_advisory_xact_lock()` while the tables are created: "vhrt" in ASCII. */
@@ -250,10 +250,12 @@ interface PostgresClient {
   begin<T>(task: (transaction: PostgresClient) => Promise<T>): Promise<T>
   listen(channel: string, onnotify: (payload: string) => void, onlisten?: () => void): Promise<{ unlisten(): Promise<void> }>
   end(options?: { timeout?: number }): Promise<void>
+  readonly options: import("postgres").ParsedOptions
 }
 
 function isPostgresClient(value: unknown): value is PostgresClient {
   return typeof value === "function" && ["begin", "end", "listen"].every(name => typeof Reflect.get(value, name) === "function")
+    && typeof Reflect.get(value, "options") === "object" && Reflect.get(value, "options") !== null
 }
 
 function bytes(value: unknown): Uint8Array | undefined {
@@ -285,7 +287,12 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
   }
   else if (isPostgresClient(connection.client)) sql = connection.client
   else throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
+  const { default: postgres } = await import("postgres")
+  // The callback may use the borrowed Database, including a max=1 pool. Reserve locks on an independent pool with
+  // the same resolved connection settings; never occupy the connection that the adapter needs to finish its save.
+  const locks = postgres({ ...sql.options, max: postgresLockedSaves, onnotice: () => {} })
   const end = async () => {
+    await locks.end({ timeout: 5 })
     if (owned) await sql.end({ timeout: 5 })
   }
   try {
@@ -297,6 +304,7 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
     })
   }
   catch (error) {
+    await locks.end({ timeout: 1 }).catch(() => {})
     if (owned) await sql.end({ timeout: 1 }).catch(() => {})
     throw error
   }
@@ -349,7 +357,7 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
       return rows.length === 1
     },
     // A transaction-scoped lock ends with the transaction, and with the connection when the instance stops.
-    withRoomLock: (room, task) => locked(() => sql.begin(async (transaction) => {
+    withRoomLock: (room, task) => locked(() => locks.begin(async (transaction) => {
       await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${namespace}:${room}`}, 0))`
       return await task()
     })),

@@ -5,12 +5,13 @@ import * as encoding from "lib0/encoding"
  * What one instance tells the other instances about a room:
  * - `update`: a Yjs update of the room document.
  * - `awareness`: an awareness update of the room's clients.
+ * - `claim`: the connection-time awareness client id of a peer; retires that client's old socket ownership.
  * - `sync`: an instance opened the room and asks for what it lacks. `data` is its Yjs state vector.
  * - `reset`: the room re-seeded at `epoch`. Instances at another epoch load the room again.
  * - `refresh`: `refreshRealtimeDocument()` ran on an instance.
  * - `frame`: a protocol frame to relay to every peer as it is, such as a Workspace change.
  */
-export const realtimeBusMessageTypes = Object.freeze({ update: 0, awareness: 1, sync: 2, reset: 3, refresh: 4, frame: 5 } as const)
+export const realtimeBusMessageTypes = Object.freeze({ update: 0, awareness: 1, sync: 2, reset: 3, refresh: 4, frame: 5, claim: 6 } as const)
 
 export type RealtimeBusMessageType = keyof typeof realtimeBusMessageTypes
 
@@ -20,7 +21,7 @@ export interface RealtimeBusMessage {
   instance: string
   /** The room key, `realtimeRoomKey()` for documents. */
   room: string
-  /** The room epoch of the sender. Instances at another epoch ignore `update`, `awareness`, and `sync`. */
+  /** The room epoch of the sender. Instances at another epoch ignore document and awareness updates; mismatched `sync` requests repair the epoch. */
   epoch: string
   data: Uint8Array
 }

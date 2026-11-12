@@ -788,6 +788,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   /** One owner object per other instance, for the awareness clients of its peers. */
   const remoteOwners = new Map<string, object>()
   const repairRequestedAt = new WeakMap<Room, number>()
+  const syncing = new WeakSet<Room>()
 
   /** The bus that shares rooms with other instances, connected and subscribed on first use. */
   function sharedBus(): Promise<RealtimeBus | undefined> {
@@ -831,8 +832,27 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   /** Asks the other instances for the document updates and the presence that this room lacks. */
   function requestSync(room: Room): void {
-    if (room.kind === "document" && room.destroyed) return
-    publish(room, "sync", room.kind === "document" ? Y.encodeStateVector(room.document) : new Uint8Array())
+    if (!room.bus) return
+    if (room.kind !== "document") {
+      publish(room, "sync", new Uint8Array())
+      return
+    }
+    if (room.destroyed || syncing.has(room)) return
+    // A newly opened clean room has not attached its first peer yet. Do not queue an operation that could release it.
+    if (!room.peers.size && !room.dirty) {
+      publish(room, "sync", Y.encodeStateVector(room.document))
+      return
+    }
+    syncing.add(room)
+    // The sender of a reset may have stopped. Reconcile with the record even when no other room answers the sync.
+    enqueue(room, async () => {
+      const record = await room.bus?.readRoom(room.key)
+      if (room.destroyed) return
+      if (record && record.epoch !== room.epoch) await reseedRoom(room, "source-changed", undefined, false, true)
+      if (!room.destroyed) publish(room, "sync", Y.encodeStateVector(room.document))
+    }).catch((error: unknown) => {
+      console.error("[vitehub] Realtime could not repair a shared room.", error)
+    }).finally(() => syncing.delete(room))
   }
 
   /** Awareness clients of this instance's peers. */
@@ -885,7 +905,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const room = openRooms.get(message.room)
     if (!room?.bus || (room.kind === "document" && room.destroyed)) return
     // Updates from another Yjs history would duplicate the document.
-    if (message.epoch !== roomEpoch(room)) return
+    if (message.epoch !== roomEpoch(room)) {
+      if (message.type === "sync") requestSync(room)
+      return
+    }
     switch (message.type) {
       case "update":
         if (room.kind === "document") {
@@ -897,6 +920,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           }
         }
         return
+      case "claim": {
+        try {
+          const client = decoding.readVarUint(decoding.createDecoder(message.data))
+          room.awarenessOwners.claim(room.awareness, remoteOwner(message.instance), client, undefined, true)
+        }
+        catch { /* Ignore an invalid claim from another instance. */ }
+        return
+      }
       case "awareness": {
         let clients: number[]
         try {
@@ -1119,6 +1150,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         const document = new Y.Doc()
         try {
           Y.applyUpdate(document, record.state)
+          if (readRealtimeStatus(document).digest !== record.digest) writeRealtimeStatus(document, { digest: record.digest }, serverOrigin)
           return { document, epoch: record.epoch, replaced: false, dirty: record.pending }
         }
         catch (error) {
@@ -1162,7 +1194,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const snapshot = await readRealtimeYDoc(editor, submitted)
       if (keepRealtimeFinalNewline(snapshot.body, loaded.body.endsWith("\n")) !== loaded.body
         || !realtimeJsonEqual(snapshot.fields, loadedFields(loaded))) return record
-      const recovered = { ...record, digest: loaded.digest, pending: false }
+      writeRealtimeStatus(submitted, { digest: loaded.digest, error: null }, serverOrigin)
+      const recovered = { ...record, digest: loaded.digest, state: Y.encodeStateAsUpdate(submitted), pending: false }
       await writeSharedRecord(bus, key, recovered)
       return recovered
     }
@@ -1215,7 +1248,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       }
     }
     room.pendingRecovery = undefined
-    if (record.digest === room.digest && !record.pending) return true
+    const sameStored = record.digest === room.digest && !record.pending
     const saved = new Y.Doc()
     try {
       Y.applyUpdate(saved, record.state)
@@ -1225,6 +1258,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       if (room.destroyed || room.epoch !== record.epoch) return false
       Y.applyUpdate(room.document, record.state, busOrigin)
       room.digest = record.digest
+      if (readRealtimeStatus(room.document).digest !== record.digest) writeRealtimeStatus(room.document, { digest: record.digest }, serverOrigin)
+      if (sameStored) return true
       room.guard = {
         clean: { body: keepRealtimeFinalNewline(stored.body, room.guard.finalNewline), fields: stored.fields },
         finalNewline: room.guard.finalNewline,
@@ -1713,8 +1748,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const { clean } = room.guard
       if (room.digest !== null && document.body === clean.body && realtimeJsonEqual(document.fields, clean.fields)) {
         // The edits cancel out, or only change the codec's own form of the stored document: write nothing.
+        writeRealtimeStatus(submitted, { digest: room.digest, error: null }, serverOrigin)
         await onStored?.(room.digest, Y.encodeStateAsUpdate(submitted))
-        writeRealtimeStatus(room.document, { error: null }, serverOrigin)
+        Y.applyUpdate(room.document, Y.encodeStateAsUpdate(submitted), serverOrigin)
         finishSave()
         return { ...readRealtimeStatus(room.document), document }
       }
@@ -1750,7 +1786,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           Y.applyUpdate(submitted, update, serverOrigin)
         }
       }
-      await onStored?.(result.digest, Y.encodeStateAsUpdate(submitted))
       const status = {
         digest: result.digest,
         error: null,
@@ -1758,7 +1793,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         savedAt: new Date().toISOString(),
         savedBy: user ?? null,
       }
-      writeRealtimeStatus(room.document, status, serverOrigin)
+      writeRealtimeStatus(submitted, status, serverOrigin)
+      await onStored?.(result.digest, Y.encodeStateAsUpdate(submitted))
+      Y.applyUpdate(room.document, Y.encodeStateAsUpdate(submitted), serverOrigin)
       finishSave()
       return { ...status, document: { ...document, ...result.stored, fields: result.stored?.fields ?? document.fields } }
     }
@@ -1917,6 +1954,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       ? await getEventsRoom(request.definitionName)
       : await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
     const clientEpoch = request.searchParams.get("epoch")
+    const clientId = request.searchParams.get("clientId")
+    const awarenessClient = clientId !== null && /^\d+$/.test(clientId) && Number.isSafeInteger(Number(clientId)) ? Number(clientId) : undefined
 
     function leave(peer: WebSocketPeer) {
       if (terminalPeers.has(peer)) clearHeldUpdates(peer)
@@ -2038,6 +2077,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         }
         room.peers.add(peer)
         peer.subscribe(room.channel)
+        if (awarenessClient !== undefined && room.awarenessOwners.claim(room.awareness, peer, awarenessClient, identity)) {
+          const claim = encoding.createEncoder()
+          encoding.writeVarUint(claim, awarenessClient)
+          publish(room, "claim", encoding.toUint8Array(claim))
+        }
         if (room.kind === "document") {
           const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : writable ? undefined : "access"
           peer.send(encodeRealtimeControl(reason

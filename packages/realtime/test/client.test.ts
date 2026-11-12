@@ -36,7 +36,7 @@ describe("prebuilt presence clients", () => {
     try {
       const prefix = baseURL === undefined ? "" : "/portal"
       expect(urls).toHaveLength(2)
-      expect(urls[0]).toBe(`wss://site.test${prefix}/api/_vitehub/realtime/comments/pages/home`)
+      expect(urls[0]).toBe(`wss://site.test${prefix}/api/_vitehub/realtime/comments/pages/home?clientId=${room.clientId}`)
       expect(urls[1]).toContain(`wss://site.test${prefix}/api/_vitehub/realtime/comments/`)
     }
     finally {
@@ -55,8 +55,8 @@ describe("prebuilt presence clients", () => {
     const secure = connectRealtimeRoom("presence", "room", { origin: "https://app.example", params: { ticket: "t" } })
     const local = connectRealtimeRoom("presence", "room", { origin: "http://localhost:3000" })
     try {
-      expect(urls[0]).toBe("wss://app.example/api/_vitehub/realtime/presence/room?ticket=t")
-      expect(urls[1]).toBe("ws://localhost:3000/api/_vitehub/realtime/presence/room")
+      expect(urls[0]).toBe(`wss://app.example/api/_vitehub/realtime/presence/room?ticket=t&clientId=${secure.clientId}`)
+      expect(urls[1]).toBe(`ws://localhost:3000/api/_vitehub/realtime/presence/room?clientId=${local.clientId}`)
     }
     finally {
       secure.destroy()

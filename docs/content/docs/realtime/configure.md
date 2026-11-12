@@ -118,6 +118,14 @@ How it works:
   saves them if this one stops. A save with nothing new writes nothing. A
   conflict means that the stored document changed outside the room. The room
   then re-seeds on every instance, as on one instance.
+- The Vue and room clients declare their Yjs client id in the WebSocket
+  `clientId` query parameter. This lets them reconnect to another instance
+  before the old socket closes. Relayed awareness does not transfer ownership.
+  Custom y-websocket clients can pass `params: { clientId: String(doc.clientID) }`
+  for the same handoff. The server checks the existing user's identity before
+  an authenticated handoff. Without the parameter, a stock client can still
+  connect and relay awareness. It can claim a remote id after the old owner
+  leaves and it sends its next non-null state with a newer clock.
 - A client that leaves removes its presence on every instance. An instance that
   stops removes the presence of its clients from the others. An instance that
   crashes sends nothing, so the other instances drop its clients 30 seconds
@@ -146,6 +154,10 @@ connections, do not support `LISTEN`. Realtime does not probe notification
 delivery at startup. Use `REALTIME_POSTGRES_URL` with a direct or session-mode
 URL when the Default Database uses a transaction pooler. The Default Database
 can keep its pooled URL.
+
+Room locks use a separate pool with the same resolved connection settings.
+A borrowed Database with `max=1` can still serve adapter queries while a save
+holds a lock.
 
 ## Develop locally
 
