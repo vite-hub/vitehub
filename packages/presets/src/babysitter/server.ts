@@ -50,6 +50,7 @@ import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
 import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
+import type { BabysitterRepositories } from "./repositories.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
@@ -82,7 +83,11 @@ export interface BabysitterRuntimeOptions {
   inboxStorage?: PullRequestInboxStorage;
   /** Separates this Agent's inbox in shared storage. Defaults to the Agent name. */
   inboxScope?: string;
-  repositories: string[];
+  /**
+   * Repositories to discover and serve: a fixed list, or a source such as every repository of the
+   * GitHub App installations, which each reconcile reads again.
+   */
+  repositories: readonly string[] | BabysitterRepositories;
   concurrency: number;
   /** Public Console origin. Defaults to `vitehub({ publicUrl })`. */
   publicUrl?: string;
@@ -123,6 +128,8 @@ export function isProviderRateLimit(error: unknown): boolean {
 /** Own one durable PR inbox and its repair passes inside a process host. */
 export interface BabysitterRuntime {
   inbox: PullRequestInbox;
+  /** The repositories this runtime discovers and serves. */
+  repositories: BabysitterRepositories;
   reconcile(
     reason: string,
     context: ProcessReconcilerRunContext,
@@ -152,9 +159,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
+  const repositorySource = fixedOrSource(options.repositories);
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
-    repositories: options.repositories,
+    repositories: () => repositorySource.known(),
     filter,
     activityAuthors,
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
@@ -584,7 +592,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (wait?.kind === "external") {
       await pullRequestInbox.setMeta(`review-assessment:${observed.repository}#${observed.number}`, null);
       // Wake setup is best effort; an unavailable dependency must never remove the blocker.
-      const allowedWake = wait.wake && options.repositories.includes(wait.wake.repository.toLowerCase()) ? wait.wake : undefined;
+      const allowedWake = wait.wake && repositorySource.known().includes(wait.wake.repository.toLowerCase()) ? wait.wake : undefined;
       waiting = { ...waiting, kind: "external", reason: wait.reason, ...(allowedWake ? { wake: allowedWake } : {}) };
       try {
         waiting = await externalWait(observed, wait.wake, wait.reason);
@@ -751,7 +759,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function externalWait(observed: Snapshot, wake: PullRequestWake | undefined, reason: string) {
     if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
     if (!wake) return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
-    if (!options.repositories.includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
+    if (!repositorySource.known().includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
     const evidence = await dependencyEvidence(wake);
     await pullRequestInbox.setMeta(`dependency:${observed.repository}#${observed.number}`, evidence);
     return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake };
@@ -855,7 +863,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       runId: `demand:${startedAt.toISOString()}`,
       scheduledAt: startedAt,
     };
-    const { publicUrl, repositories } = options;
+    const { publicUrl } = options;
     if (!isAccepting()) return;
     // A GitHub rate limit stops every forge request until it resets. The breaker is durable inbox
     // metadata and the forge error paths below renew it.
@@ -884,6 +892,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     const ownerLimit = options.concurrency;
+    // An installation list that cannot be read keeps the last one; work in known repositories continues.
+    const repositories = await repositorySource.current().catch(async (error: unknown) => {
+      await noteForgeQuota(error, "repositories");
+      schedulerError("babysitter.repositories.failed", error, { source: repositorySource.source });
+      return repositorySource.known();
+    });
     // Event-scoped filters cannot be established from the pull-request REST
     // listing alone.  Seeding those entries would admit PRs that have never
     // produced an allowed event (for example, `action: synchronize`).
@@ -1951,7 +1965,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     track(batch);
   }
 
-  return { inbox: pullRequestInbox, reconcile, workload };
+  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload };
+}
+
+function fixedOrSource(repositories: readonly string[] | BabysitterRepositories): BabysitterRepositories {
+  if (!Array.isArray(repositories)) return repositories as BabysitterRepositories;
+  const fixed = repositories.map(repository => repository.toLowerCase());
+  return { source: "allow", known: () => fixed, current: async () => fixed, observe: () => false };
 }
 
 function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAgent {

@@ -3,6 +3,10 @@ import { defineErrors } from "@vite-hub/runtime"
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
+    PRESETS_BABYSITTER_REPOSITORIES_INVALID: {
+      why: 'Babysitter filter.repository.allow lists no "owner/name" repository.',
+      fix: 'List repositories as "owner/name", or remove filter.repository.allow so the Babysitter serves every repository that its GitHub App can access.',
+    },
     PRESETS_REVIEW_OUTCOME_INVALID: {
       why: "Review thread outcome must be one of fixed, disproved, declined, pre-existing, duplicate.",
       fix: "Set outcome to fixed, disproved, declined, pre-existing, or duplicate.",

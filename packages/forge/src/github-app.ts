@@ -19,6 +19,19 @@ export interface GitHubAppCredentials {
   installation(repository: string, signal?: AbortSignal): Promise<number>
   /** GET /app. */
   app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string }>
+  /**
+   * Every repository that the App's installations can access, from `GET /app/installations` and
+   * `GET /installation/repositories`, all pages. Suspended installations are skipped.
+   */
+  repositories(signal?: AbortSignal): Promise<GitHubAppRepository[]>
+}
+
+/** A repository that one App installation can access. */
+export interface GitHubAppRepository {
+  /** `owner/name`, as GitHub spells it. */
+  repository: string
+  installationId: number
+  archived: boolean
 }
 
 export interface GitHubAppInput {
@@ -122,6 +135,18 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       if (!id) throw new ForgeResponseError("GitHub App metadata did not include an ID.")
       if (!slug) throw new ForgeResponseError("GitHub App response did not include a slug.")
       return { id, slug, login: `${slug}[bot]` }
+    },
+    async repositories(signal) {
+      const provider = await withSignal(appProvider(input), signal)
+      const repositories: GitHubAppRepository[] = []
+      for await (const installation of provider.installations.list({ perPage: 100, signal })) {
+        const installationId = positiveId(Number(installation.id))
+        if (!installationId || (isRecord(installation.raw) && installation.raw.suspended_at)) continue
+        for await (const repo of provider.installations.repos(installation, { perPage: 100, signal })) {
+          repositories.push({ repository: `${repo.ref.owner}/${repo.ref.name}`, installationId, archived: repo.isArchived })
+        }
+      }
+      return repositories
     },
   }
 }

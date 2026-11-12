@@ -13,7 +13,7 @@ export { forgeGitAuthHeader, forgeGitCredentials } from "./gaps/git-credentials.
 export type { ForgeGitCredentials, ForgeGitCredentialsInput } from "./gaps/git-credentials.ts"
 export { retargetPullRequest } from "./gaps/retarget.ts"
 export { githubAppCredentials, readGitHubAppPrivateKey } from "./github-app.ts"
-export type { GitHubAppCredentials, GitHubAppInput } from "./github-app.ts"
+export type { GitHubAppCredentials, GitHubAppInput, GitHubAppRepository } from "./github-app.ts"
 export { BranchMovedError } from "forges"
 export { abortError, forgeErrorStatus, forgeProvider, ForgeResponseError, withSignal } from "./provider.ts"
 export type { ForgeConnection, ForgeKind } from "./provider.ts"

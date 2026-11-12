@@ -54,7 +54,11 @@ export interface BabysitterOptions {
    * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
    */
   placement?: BabysitterPlacement;
-  /** Select PRs with the same rules as the GitHub Channel. */
+  /**
+   * Select PRs with the same rules as the GitHub Channel. Without `repository.allow`, the Babysitter
+   * serves every repository that its GitHub App installations can access, except archived ones and
+   * those in `repository.deny`, so installing the App on a repository enrolls it.
+   */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
   lifecycle: BabysitterLifecycleOptions;
