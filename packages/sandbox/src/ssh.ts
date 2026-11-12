@@ -19,6 +19,11 @@ export interface SshLaunchOptions {
   hostKeyFile?: string
   /** Environment names only. Defaults to the launch context environment and required names. Values travel through SSH env requests. */
   forwardEnvironment?: readonly string[]
+  /**
+   * How long, in milliseconds, to connect again while the SSH port refuses connections, for example while a sidecar
+   * starts. Other SSH failures are not retried. Defaults to 30000. Set 0 to fail on the first refused connection.
+   */
+  connectRetryMs?: number
 }
 
 export interface SshLaunchContext {
@@ -48,7 +53,7 @@ try {
     if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) [A-Za-z0-9+/=]+(?: .*)?$/.test(key)) throw new Error("Invalid SSH host public key")
     await writeFile(knownHostsFile, "vitehub-runner " + key + "\n", { mode: 0o600 })
   }
-  const child = spawn("ssh", [
+  const sshArgs = [
     "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
     "-o", "LogLevel=ERROR", "-o", "ServerAliveInterval=30",
     "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=yes",
@@ -58,15 +63,50 @@ try {
     ...config.forwardEnvironment.flatMap(name => ["-o", "SendEnv=" + name]),
     config.user + "@" + config.host,
     "cd " + quote(config.cwd) + " && exec " + [config.command, ...process.argv.slice(2)].map(quote).join(" "),
-  ], { stdio: "inherit" })
-  const handlers = new Map(["SIGINT", "SIGTERM", "SIGHUP"].map(signal => [signal, () => child.kill(signal)]))
+  ]
+  // OpenSSH exits with 255 and prints this line when the TCP connection is refused. The command did not start, so
+  // connecting again is safe. Authentication, host key, and command failures print other text and are not retried.
+  const refused = /^ssh: connect to host \S+ port \d+: Connection refused\r?$/m
+  const deadline = Date.now() + config.connectRetryMs
+  let child
+  let stopped
+  let wake
+  const handlers = new Map(["SIGINT", "SIGTERM", "SIGHUP"].map(signal => [signal, () => {
+    stopped = signal
+    if (child) child.kill(signal)
+    wake?.()
+  }]))
   for (const [signal, handler] of handlers) process.on(signal, handler)
   try {
-    const result = await new Promise((resolve, reject) => {
-      child.once("error", reject)
-      child.once("close", (code, signal) => resolve({ code, signal }))
-    })
-    process.exitCode = result.code ?? 1
+    for (let delay = 250; ; delay = Math.min(delay * 2, 4000)) {
+      child = spawn("ssh", sshArgs, { stdio: ["inherit", "inherit", "pipe"] })
+      let stderr = ""
+      child.stderr.on("data", chunk => {
+        stderr = (stderr + chunk).slice(-4096)
+        if (!process.stderr.write(chunk)) {
+          child.stderr.pause()
+          process.stderr.once("drain", () => child.stderr.resume())
+        }
+      })
+      const result = await new Promise((resolve, reject) => {
+        child.once("error", reject)
+        child.once("close", (code, signal) => resolve({ code, signal }))
+      })
+      const wait = Math.min(delay, deadline - Date.now())
+      if (stopped || result.code !== 255 || !refused.test(stderr) || wait <= 0) {
+        process.exitCode = result.code ?? 1
+        break
+      }
+      await new Promise(resolve => {
+        const timer = setTimeout(resolve, wait)
+        wake = () => { clearTimeout(timer); resolve() }
+      })
+      wake = undefined
+      if (stopped) {
+        process.exitCode = 255
+        break
+      }
+    }
   } finally {
     for (const [signal, handler] of handlers) process.off(signal, handler)
   }
@@ -83,6 +123,8 @@ export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext
   const port = options.port ?? 22
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new TypeError("[vitehub] SSH port must be between 1 and 65535.")
   if (options.hostKeyFile && options.knownHostsFile) throw new TypeError("[vitehub] Select hostKeyFile or knownHostsFile.")
+  const connectRetryMs = options.connectRetryMs ?? 30_000
+  if (!Number.isSafeInteger(connectRetryMs) || connectRetryMs < 0) throw new TypeError("[vitehub] SSH connectRetryMs must be a non-negative integer of milliseconds.")
   const forwardEnvironment = [...new Set(options.forwardEnvironment ?? [])]
   if (forwardEnvironment.some(name => !environmentName.test(name))) throw new TypeError("[vitehub] SSH environment names must be uppercase shell identifiers.")
   return ({ command, cwd, environment, requiredEnvironment }: SshLaunchContext) => {
@@ -92,7 +134,7 @@ export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext
     if (!command || !cwd || command.includes("\0") || cwd.includes("\0")) throw new TypeError("[vitehub] SSH command and cwd are required and cannot contain NUL.")
     return {
       command: process.execPath,
-      args: ["--input-type=module", "-e", launcherSource, JSON.stringify({ ...options, port, forwardEnvironment: forwarded, command, cwd })],
+      args: ["--input-type=module", "-e", launcherSource, JSON.stringify({ ...options, port, connectRetryMs, forwardEnvironment: forwarded, command, cwd })],
     }
   }
 }
