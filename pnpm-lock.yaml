@@ -254,9 +254,6 @@ catalogs:
     chat:
       specifier: 4.44.0
       version: 4.44.0
-    chat-state-cloudflare-do:
-      specifier: ^0.2.0
-      version: 0.2.0
   database:
     '@libsql/client':
       specifier: ^0.18.0
@@ -549,9 +546,6 @@ catalogs:
     oxlint:
       specifier: ^1.86.0
       version: 1.86.0
-    oxlint-tsgolint:
-      specifier: 7.0.2003
-      version: 7.0.2003
     publint:
       specifier: ^0.3.25
       version: 0.3.25
@@ -632,6 +626,9 @@ catalogs:
     pathe:
       specifier: ^2.0.3
       version: 2.0.3
+    srvx:
+      specifier: ^1.0.8
+      version: 1.0.8
     unimport:
       specifier: ^6.5.0
       version: 6.5.0
@@ -775,9 +772,6 @@ importers:
       chat:
         specifier: catalog:chat
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@8.1.1)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@8.1.1))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@8.1.1)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
-      chat-state-cloudflare-do:
-        specifier: catalog:chat
-        version: 0.2.0(chat@4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@8.1.1)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@8.1.1))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@8.1.1)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -796,9 +790,6 @@ importers:
       oxlint:
         specifier: catalog:tooling
         version: 1.86.0(oxlint-tsgolint@7.0.2003)(vite-plus@0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))
-      oxlint-tsgolint:
-        specifier: catalog:tooling
-        version: 7.0.2003
       pkg-pr-new:
         specifier: 0.0.91
         version: 0.0.91
@@ -903,7 +894,7 @@ importers:
         version: 2.9.1
     devDependencies:
       '@better-auth/cimd':
-        specifier: 1.7.15
+        specifier: catalog:auth
         version: 1.7.15(b8d9f995e51af15079e0ea2dcbe76073)
       '@chat-adapter/slack':
         specifier: catalog:chat
@@ -923,9 +914,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
-      comark-chips:
-        specifier: ^0.10.1
-        version: 0.10.1(@comark/html@0.9.0(katex@0.19.1)(shiki@4.5.0))(comark@0.9.0(katex@0.19.1)(shiki@4.5.0))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
@@ -1147,9 +1135,15 @@ importers:
       '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../schedule
+      '@vite-hub/source':
+        specifier: workspace:*
+        version: link:../source
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
+      '@whatwg-node/node-fetch':
+        specifier: 0.8.6
+        version: 0.8.6
       advocaat:
         specifier: catalog:ai
         version: 0.0.6
@@ -1245,6 +1239,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      rou3:
+        specifier: ^1.0.0
+        version: 1.0.0
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -1566,6 +1563,9 @@ importers:
 
   packages/cms:
     dependencies:
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../blob
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content
@@ -1585,9 +1585,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
-      '@vite-hub/blob':
-        specifier: workspace:*
-        version: link:../blob
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
@@ -1868,9 +1865,6 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       nitro:
         specifier: catalog:unjs
         version: 3.0.261103-rc
@@ -1938,6 +1932,9 @@ importers:
       '@vite-hub/blob':
         specifier: workspace:*
         version: link:../blob
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1975,9 +1972,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
-      '@vite-hub/database':
-        specifier: workspace:*
-        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -2212,6 +2206,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       nitro:
         specifier: catalog:unjs
         version: 3.0.261103-rc
@@ -2658,6 +2655,9 @@ importers:
       sharp:
         specifier: 0.35.5
         version: 0.35.5(@types/node@24.19.1)
+      srvx:
+        specifier: catalog:unjs
+        version: 1.0.8
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
@@ -3244,6 +3244,9 @@ importers:
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:../kv
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3308,9 +3311,6 @@ importers:
       ocache:
         specifier: catalog:unjs
         version: 0.3.1
-      ofetch:
-        specifier: catalog:unjs
-        version: 1.5.1
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -3493,9 +3493,6 @@ importers:
       '@types/markdown-it':
         specifier: ^14.2.0
         version: 14.2.0
-      '@vite-hub/agent':
-        specifier: workspace:*
-        version: link:../agent
       '@vite-hub/blob':
         specifier: workspace:*
         version: link:../blob
@@ -4078,9 +4075,6 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
-      ofetch:
-        specifier: catalog:unjs
-        version: 1.5.1
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -4115,15 +4109,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
-      ocache:
-        specifier: catalog:unjs
-        version: 0.3.1
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -4173,12 +4161,39 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@vite-hub/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../../packages/blob
+      '@vite-hub/cms':
+        specifier: workspace:*
+        version: link:../../packages/cms
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../../packages/comments
+      '@vite-hub/content':
+        specifier: workspace:*
+        version: link:../../packages/content
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../../packages/kv
+      '@vite-hub/realtime':
+        specifier: workspace:*
+        version: link:../../packages/realtime
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../../packages/schedule
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
-      comark-content:
-        specifier: catalog:markdown-ui
-        version: 0.5.1(forges@0.3.1)(katex@0.19.1)(shiki@4.5.0)(unstorage@1.17.6(@azure/identity@4.13.3(supports-color@8.1.1))(@azure/storage-blob@12.34.0(supports-color@8.1.1))(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd)(supports-color@8.1.1))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1(supports-color@8.1.1))(uploadthing@7.7.4(express@5.2.1(supports-color@8.1.1))(fastify@5.12.5)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3)))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -4198,9 +4213,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
-      '@vite-hub/cli':
-        specifier: workspace:*
-        version: link:../../packages/cli
       drizzle-kit:
         specifier: catalog:database
         version: 1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))
@@ -12160,11 +12172,6 @@ packages:
 
   character-reference-invalid@2.0.1:
     resolution: {integrity: sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==}
-
-  chat-state-cloudflare-do@0.2.0:
-    resolution: {integrity: sha512-ZBOwJXcj5p0fduzRwgVeiH/I7/QFyXFt2ObffSvdMg492j8ulLa+1dzOaiMJlE8isIfxgY9sJkC3b5hNlvURSA==}
-    peerDependencies:
-      chat: ^4.26.0
 
   chat@4.44.0:
     resolution: {integrity: sha512-DGVc9yV1ifOJFpe8Pz6BAoOBVT7/iI/7kkMuB+ZUrpyQ1iw1ElibxyvYBx7tEo1qPl6w510+Acvt1XSVPSgKjA==}
@@ -30486,10 +30493,6 @@ snapshots:
   character-entities@2.0.2: {}
 
   character-reference-invalid@2.0.1: {}
-
-  chat-state-cloudflare-do@0.2.0(chat@4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@8.1.1)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@8.1.1))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@8.1.1)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)):
-    dependencies:
-      chat: 4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@8.1.1)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@8.1.1))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@8.1.1)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
 
   chat@4.44.0(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7):
     dependencies:
