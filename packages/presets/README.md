@@ -123,7 +123,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, and an optional `ready` hook. |
+| `{ strategy: "direct", method, ready, markDraftsReady }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, and optional draft authors. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -132,6 +132,13 @@ branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
 other result runs a normal repair pass.
+
+`markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
+drafts should merge. Off by default. When a pass has reviewed a draft's head, no
+required check failed, and the head branch is in the repository itself, the host
+marks the draft ready for review. The `ready_for_review` event wakes the PR and
+starts workflows that skip drafts. A fork's draft and an unlisted author's draft
+stay drafts.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when

@@ -27,12 +27,21 @@ export type BabysitterMerge =
   | false
   | "auto"
   | "direct"
-  | { strategy: "direct"; method?: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | {
+    strategy: "direct";
+    method?: BabysitterMergeMethod;
+    ready?: BabysitterMergeReady;
+    /**
+     * Logins whose reviewed drafts the host marks ready for review. Only drafts whose head
+     * branch is in the repository itself qualify, so a fork's draft stays a draft.
+     */
+    markDraftsReady?: readonly string[];
+  };
 
 export type ResolvedBabysitterMerge =
   | { mode: "off" }
   | { mode: "auto" }
-  | { mode: "direct"; method: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | { mode: "direct"; method: BabysitterMergeMethod; ready?: BabysitterMergeReady; markDraftsReady?: ReadonlySet<string> };
 
 export type MergeDecision = { ready: true; head: string } | { ready: false; reason: string };
 
@@ -169,9 +178,14 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     if (merge.ready !== undefined && !hasRuntimeType(merge.ready, "function")) {
       throw new TypeError("[vitehub] Babysitter merge.ready must be a function.");
     }
+    const drafts = merge.markDraftsReady;
+    if (drafts !== undefined && (!Array.isArray(drafts) || !drafts.every(login => hasRuntimeType(login, "string") && login.trim()))) {
+      throw new TypeError("[vitehub] Babysitter merge.markDraftsReady must be an array of GitHub logins.");
+    }
     // SAFETY: the guard above proves ready is either undefined or a function with the documented contract.
     const ready = merge.ready as BabysitterMergeReady | undefined;
-    return ready ? { mode: "direct", method, ready } : { mode: "direct", method };
+    return { mode: "direct", method, ...ready ? { ready } : {},
+      ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {} };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
 }

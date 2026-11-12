@@ -50,7 +50,7 @@ import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
-import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
+import { feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../src/github/pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 import * as githubInstalls from "../src/github/install.ts";
@@ -68,7 +68,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -110,8 +110,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   const extraCheckRuns: Record<string, unknown>[] = [];
   const pr = () => ({
     number: 12,
+    node_id: "PR_12",
     state: "open",
-    draft: false,
+    draft: preset.draft ?? false,
     title: "Fix value",
     body: "Repair the exported value.",
     user: { login: "developer" },
@@ -133,7 +134,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         id: "PR_12",
         number: 12,
         state: "OPEN",
-        isDraft: false,
+        isDraft: preset.draft ?? false,
         headRefOid: head,
         headRefName: "fix",
         baseRefName: "main",
@@ -170,7 +171,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       if (text.includes("BabysitterOpenPullRequests")) {
         const current = pr();
         const node = {
-          number: current.number, title: current.title, isDraft: false, headRefOid: current.head.sha, headRefName: current.head.ref,
+          number: current.number, title: current.title, isDraft: current.draft, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
           authorAssociation: "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
@@ -1474,6 +1475,42 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
     expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", markDraftsReady: [" "] } } })).toThrow(/merge.markDraftsReady/);
+  });
+
+  describe("merge.markDraftsReady", () => {
+    const markReady = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.filter(([args]) => args.join(" ").includes("markPullRequestReadyForReview"));
+    async function reviewedDraft(merge: unknown) {
+      const f = await fixture(false, false, { merge, draft: true });
+      await f.runtime.inbox.ingest("draft-opened", "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: f.pr() });
+      const snapshot = (await f.runtime.inbox.get("acme/app", 12))!;
+      await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(snapshot), feedback: [] });
+      return f;
+    }
+
+    it("marks a listed author's reviewed draft ready instead of waiting on it", async () => {
+      const f = await reviewedDraft({ strategy: "direct", markDraftsReady: ["Developer"] });
+      try {
+        await f.reconcile();
+        expect(markReady(f)).toHaveLength(1);
+        expect(markReady(f)[0]![0]).toContain("id=PR_12");
+        expect(f.passes).toHaveLength(0);
+        expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the reviewed draft ready for review so it can merge." });
+        expect(f.events).toHaveBeenCalledWith("babysitter.draft.ready", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("leaves drafts alone by default and for authors it does not list", async () => {
+      for (const merge of ["direct", { strategy: "direct", markDraftsReady: ["maintainer"] }]) {
+        const f = await reviewedDraft(merge);
+        try {
+          await f.reconcile();
+          expect(markReady(f)).toHaveLength(0);
+          expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Reviewed head is unchanged; waiting for merge gates." });
+        } finally { await f.runtime.inbox.close(); }
+      }
+    });
   });
 
   it("maps lifecycle labels into the shared PR filter", () => {

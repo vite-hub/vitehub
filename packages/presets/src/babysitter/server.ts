@@ -285,6 +285,39 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     page: readOnePage,
   };
 
+  /**
+   * Marks a reviewed draft ready for review when `merge.markDraftsReady` lists its author and its head
+   * branch is in the repository. GitHub's live PR must still be that draft at the reviewed head.
+   */
+  async function markDraftReady(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
+    const authors = merge.mode === "direct" ? merge.markDraftsReady : undefined;
+    if (!authors) return false;
+    const { repository, number } = snapshot;
+    const allowed = (pr: unknown): pr is Record<string, unknown> => {
+      if (!isRuntimeRecord(pr) || pr.draft !== true || !isRuntimeRecord(pr.user) || !isRuntimeRecord(pr.head) || !isRuntimeRecord(pr.head.repo)) return false;
+      return pr.head.sha === snapshot.pr?.head?.sha && hasRuntimeType(pr.user.login, "string") && authors.has(pr.user.login.toLowerCase())
+        && String(pr.head.repo.full_name).toLowerCase() === repository.toLowerCase();
+    };
+    if (!allowed(snapshot.pr)) return false;
+    try {
+      const live = await readPull(repository, number, signal);
+      if (!allowed(live) || !hasRuntimeType(live.node_id, "string")) return false;
+      // forges has no ready-for-review operation, and GitHub's REST API cannot clear the draft flag.
+      const { provider } = await forge(repository, signal);
+      const query = "mutation BabysitterMarkDraftReady($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}";
+      const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMarkDraftReady", variables: { id: live.node_id } }, signal })).data;
+      if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length > 0) {
+        throw new Error(response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error)).join("; "));
+      }
+    } catch (error) {
+      await noteForgeQuota(error, "draft-ready");
+      schedulerEvent("babysitter.draft.ready_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      return false;
+    }
+    schedulerEvent("babysitter.draft.ready", { ...owner, head_sha: snapshot.pr?.head?.sha });
+    return true;
+  }
+
   /** Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses. */
   async function updateBranch(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal): Promise<boolean> {
     try {
@@ -1185,6 +1218,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               && inboxClaim.snapshot.threads.every(thread => thread.isResolved === true)
               && inboxClaim.snapshot.pr?.mergeable !== false
               && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
+              // A reviewed draft never merges. Marking it ready sends ready_for_review, which wakes the PR
+              // and starts workflows that skip drafts.
+              if (inboxClaim.snapshot.pr?.draft === true && await requiredCheckState(inboxClaim.snapshot) !== "failed"
+                && await markDraftReady(inboxClaim.snapshot, owner, passSignal)) {
+                await pullRequestInbox.finish(inboxClaim, {
+                  text: "Marked the reviewed draft ready for review so it can merge.",
+                  wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
+                });
+                return;
+              }
               await pullRequestInbox.finish(inboxClaim, {
                 text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
                 wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
