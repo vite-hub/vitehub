@@ -189,7 +189,7 @@ describe("Nuxt session and page guard", () => {
   it("does not read the session for an SSR page without a page guard or a session composable", async () => {
     await plugin.setup(mocks.app)
 
-    expect(await mocks.middleware?.({ fullPath: "/", meta: {} })).toBeUndefined()
+    expect(await mocks.middleware?.({ path: "/", fullPath: "/", meta: {} })).toBeUndefined()
     expect(await renderPage(0)).toBe("<main></main>")
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.state.value).toBeUndefined()
