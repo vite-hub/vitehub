@@ -90,7 +90,8 @@ export type {
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { registerContentKV } from "./source-heads.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
+export type { ContentKV, ContentSourceHead, ContentSourceHeads, ContentSourceView } from "./source-heads.ts"
+export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export { contentSessionTimeouts } from "./defaults.ts"
@@ -641,7 +642,7 @@ export function defineContent<
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
-      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
+      await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
