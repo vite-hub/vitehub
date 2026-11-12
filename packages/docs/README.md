@@ -275,7 +275,7 @@ Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console 
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `comarkUi` | `{ typeset: false, chips: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
+| `comarkUi` | `{ typeset: false, chips: false, diagrams: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. `mermaid` fences render as SVG on the server with no network request. `diagrams: true` draws D2, PlantUML, and Graphviz fences through kroki.io, which receives their source; `diagrams: { server }` uses your own Kroki server. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
 | `examples.tags` | `["example", "correct", "incorrect"]` | Tags of the blocks that get a preview of their first fenced block, such as `["example", "correct", "incorrect"]`. |
 | `examples.play` | None | `(source, tag) => url`: a playground URL for the block's Markdown, written as its `play`. Return `undefined` for no link. |
 | `plugins` | `[]` | More Comark plugins, after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. A plugin that adds a tag that comark-ui doesn't render needs a component for it in `app/components/content/`. |
