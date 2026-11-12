@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { validateGitHubInstallInputs } from "../src/github/install-inputs.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError } from "../src/github/install.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError, readGitHubDependencyStatus } from "../src/github/install.ts";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -1012,4 +1012,45 @@ it("ignores workspace npmrc files during root npm installs but validates root co
   await expect(assertGitHubDependenciesCurrent(root)).resolves.toBeUndefined();
   await writeFile(join(root, ".npmrc"), "cache=/outside\n");
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/configuration/);
+});
+
+it("installs a hook-checksummed pnpm lockfile without the hook and leaves the checkout lockfile alone", async () => {
+  // pnpm records pnpmfileChecksum when a repository has a .pnpmfile.cjs. The host runs with
+  // --ignore-pnpmfile, so the frozen install rejected every such lockfile as out of date.
+  const root = await fixture();
+  const lockfile = "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpm:\n        version: 10.34.6\n---\nlockfileVersion: '9.0'\npnpmfileChecksum: sha256-abc\nimporters: {}\n";
+  await writeFile(join(root, "pnpm-lock.yaml"), lockfile);
+  await writeFile(join(root, ".pnpmfile.cjs"), "throw new Error('repository hook executed');\n");
+  let installed = "";
+  await installGitHubPullRequestWorkspace(root, undefined, async ({ cwd, command }) => {
+    expect(command).toContain("--ignore-pnpmfile");
+    installed = await readFile(join(cwd, "pnpm-lock.yaml"), "utf8");
+    await mkdir(join(cwd, "node_modules"));
+  });
+  expect(installed).not.toContain("pnpmfileChecksum");
+  expect(installed).toContain("version: 10.34.6");
+  expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe(lockfile);
+  await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(true);
+});
+
+it("names a missing pnpm patch file and does not retry it", async () => {
+  // The manifest names a patch that the PR deleted. Its ENOENT used to retry every five minutes.
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  left-pad@1.3.0: patches/left-pad@1.3.0.patch\n");
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({
+    retryable: false,
+    message: expect.stringContaining("Dependency patch patches/left-pad@1.3.0.patch does not exist in this checkout"),
+  });
+});
+
+it("reports the dependency inputs that changed since the last install", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+  await expect(readGitHubDependencyStatus(root)).resolves.toMatchObject({ current: false, changedInputs: ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"] });
+  await installGitHubPullRequestWorkspace(root);
+  await expect(readGitHubDependencyStatus(root)).resolves.toEqual({ current: true, changedInputs: [] });
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n# changed\n");
+  const status = await readGitHubDependencyStatus(root);
+  expect(status).toMatchObject({ current: false, changedInputs: ["pnpm-workspace.yaml"] });
+  expect(status.reason).toMatch(/Call refreshDependencies before validation/);
 });

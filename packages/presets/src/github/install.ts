@@ -7,7 +7,7 @@ import { createGitHubInstallSnapshot, publishGitHubInstallSnapshot } from "./ins
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import * as v from "valibot";
-import { parse } from "yaml";
+import { parse, parseAllDocuments } from "yaml";
 
 const exec = promisify(execFile);
 const manifest = v.object({ packageManager: v.optional(v.string()) });
@@ -156,7 +156,8 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   try {
     snapshot = await createGitHubInstallSnapshot(target);
     const source = snapshot.directory;
-    const fingerprint = await validateGitHubInstallInputs(source);
+    const inputs: Record<string, string> = {};
+    const fingerprint = await validateGitHubInstallInputs(source, undefined, inputs);
     const { packageManager } = v.parse(manifest, await exists(join(source, "package.json")) ? JSON.parse(await readFile(join(source, "package.json"), "utf8")) : {});
     // Corepack must not execute a PR-supplied URL, devEngines override or yarnPath.
     // Select an official package-manager version and disable repository extensions.
@@ -167,6 +168,11 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
       return match[2]!;
     };
     if (await exists(join(source, "pnpm-lock.yaml"))) {
+      // The frozen graph is already resolved and repository hooks stay off, so the
+      // private snapshot drops the checksum of the hook that does not run.
+      const lockfile = join(source, "pnpm-lock.yaml");
+      const documents = parseAllDocuments(await readFile(lockfile, "utf8"));
+      if (documents.map(document => document.delete("pnpmfileChecksum")).some(Boolean)) await writeFile(lockfile, documents.map(String).join(""));
       command = "corepack";
       args = [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--config.manage-package-manager-versions=false"];
     }
@@ -230,7 +236,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     if (current !== fingerprint) throw new Error("Dependency inputs changed during installation. Call refreshDependencies again before validation.");
     retryable = true;
     await publishGitHubInstallSnapshot(snapshot, signal);
-    await writeFile(record, JSON.stringify({ ...runMetadata, status: "installed", fingerprint, command: command ? [command, ...args] : undefined, at: new Date().toISOString(), scripts: runMetadata?.scripts ?? false }));
+    await writeFile(record, JSON.stringify({ ...runMetadata, status: "installed", fingerprint, inputs, command: command ? [command, ...args] : undefined, at: new Date().toISOString(), scripts: runMetadata?.scripts ?? false }));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     await writeFile(record, JSON.stringify({ status: "failed", command: command ? [command, ...args] : undefined, at: new Date().toISOString(), reason })).catch(() => undefined);
@@ -299,6 +305,34 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs: st
   });
   const record = v.parse(v.object({ status: v.string(), fingerprint: v.optional(v.string()) }), JSON.parse(await readFile(join(target, ".git", "vitehub-install.json"), "utf8")));
   if (record.status !== "installed" || record.fingerprint !== fingerprint) throw new Error("Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.");
+}
+
+export interface GitHubDependencyStatus {
+  /** The last host install succeeded with the current dependency inputs. */
+  current: boolean;
+  /** Input files that differ from the last successful install. */
+  changedInputs: string[];
+  reason?: string;
+}
+
+/** Report dependency drift before validation without changing the checkout or its index. */
+export async function readGitHubDependencyStatus(target: string): Promise<GitHubDependencyStatus> {
+  if (!(await exists(join(target, "package.json"))) && !(await exists(join(target, "pnpm-workspace.yaml")))) return { current: true, changedInputs: [] };
+  const inputs: Record<string, string> = {};
+  let fingerprint: string;
+  try { fingerprint = await validateGitHubInstallInputs(target, undefined, inputs); }
+  catch (error) { return { current: false, changedInputs: [], reason: error instanceof Error ? error.message : String(error) }; }
+  const record: unknown = await readFile(join(target, ".git", "vitehub-install.json"), "utf8").then(JSON.parse, () => ({}));
+  const installed = isRecord(record) ? record : {};
+  if (installed.status === "installed" && installed.fingerprint === fingerprint) return { current: true, changedInputs: [] };
+  const previous = isRecord(installed.inputs) ? installed.inputs : {};
+  const changedInputs = [...new Set([...Object.keys(previous), ...Object.keys(inputs)])].filter(path => previous[path] !== inputs[path]).sort();
+  const reason = installed.status === "failed" && typeof installed.reason === "string"
+    ? installed.reason
+    : changedInputs.length
+      ? `Dependency inputs changed: ${changedInputs.join(", ")}. Call refreshDependencies before validation.`
+      : "No successful install matches the current dependency inputs. Call refreshDependencies before validation.";
+  return { current: false, changedInputs, reason };
 }
 
 /** Return whether the host's frozen install matches current inputs and has published outputs. */

@@ -354,9 +354,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
     mergeabilityRetryDelayMs: 1,
   });
-  const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string }> = [];
+  const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string; environment?: NodeJS.ProcessEnv }> = [];
   const operationResults: unknown[] = [];
-  let operation: "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
+  let operation: "refreshDependencies" | "checkDependencies" | "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
   let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async (options: { settings?: { launchArgs?: string }; environment?: NodeJS.ProcessEnv }) => {
     let threadId = `pass-${passes.length}`;
@@ -407,6 +407,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             runtimeMode,
             approvalPolicy,
             install: preset.sandbox || placedSandbox ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
+            environment: options.environment,
           });
           if (operation === "commitRepair" && remoteSandbox) {
             await writeFile(join(remoteSandbox.path, "source.ts"), "export const value = 2\n");
@@ -1520,10 +1521,11 @@ describe("Babysitter preset runtime", () => {
     }
     expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget: false } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { deferWhilePending: "yes" as unknown as boolean } })).toThrow(/deferWhilePending must be a boolean/);
-    expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required \}/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required, refreshes \}/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 0 } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { required: "yes" as unknown as boolean } } })).toThrow(/install must be/);
-    expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true } } })).not.toThrow();
+    expect(() => defineAgent({ extends: babysitter, options: { install: { refreshes: 0 } } })).toThrow(/install must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
     for (const modelConcurrency of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);
@@ -1890,6 +1892,30 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it("keeps worker pnpm commands from reinstalling over the host install", async () => {
+    const f = await fixture();
+    try {
+      await f.reconcile();
+      expect(f.passes[0]?.environment?.npm_config_verify_deps_before_run).toBe("false");
+      expect(f.passes[0]?.tools).toContain("checkDependencies");
+      expect(f.passes[0]?.instructions).toContain("Before local validation, call checkDependencies.");
+    } finally {
+      await f.runtime.inbox.close();
+    }
+  });
+
+  it("stops refreshDependencies after the install.refreshes limit of a pass", async () => {
+    // 2026-10-19: one pass called refreshDependencies 16 times against a lockfile it could not fix.
+    const f = await fixture(false, false, { options: { install: { refreshes: 1 } }, operationCount: 2, expectedOperationErrorAt: 1 });
+    f.choose("refreshDependencies");
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[1])).toContain("refreshDependencies already ran 1 time in this pass, the limit.");
+    } finally {
+      await f.runtime.inbox.close();
+    }
+  });
+
   it("hands a lockfile the required install rejects to one local pass on the same head", async () => {
     const bin = await mkdtemp(join(tmpdir(), "vitehub-babysitter-bin-"));
     roots.push(bin);
@@ -1910,6 +1936,8 @@ describe("Babysitter preset runtime", () => {
       expect(f.passes).toHaveLength(1);
       expect(f.passes[0]!.prompt).toContain("<dependency-install-failure>");
       expect(f.passes[0]!.prompt).toContain("ERR_PNPM_OUTDATED_LOCKFILE");
+      // --lockfile-only skips URL tarballs, so a repair must finish with a plain install to keep their integrity.
+      expect(f.passes[0]!.prompt).toContain("finish with a plain `pnpm install --ignore-scripts`");
     } finally {
       vi.unstubAllEnvs();
       await f.runtime.inbox.close();

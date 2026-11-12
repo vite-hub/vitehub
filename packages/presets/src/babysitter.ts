@@ -165,6 +165,12 @@ export type BabysitterInstall = boolean | {
    * its inputs change. Defaults to `false`.
    */
   required?: boolean;
+  /**
+   * `refreshDependencies` calls per pass. Further calls return a tool error that tells the model to
+   * commit its dependency fixes and let hosted CI validate them. Retryable install failures do not
+   * count. Defaults to no limit.
+   */
+  refreshes?: number;
 };
 
 export type BabysitterPassWake =
@@ -191,7 +197,8 @@ export const babysitterPassResultSchema: ReturnType<typeof createBabysitterPassR
 function validInstall(install: unknown): boolean {
   if (hasRuntimeType(install, "boolean")) return true;
   if (!isRuntimeRecord(install)) return false;
-  const { command, args, cache, concurrency, required } = install;
+  const { command, args, cache, concurrency, required, refreshes } = install;
+  if (refreshes !== undefined && !(Number.isSafeInteger(refreshes) && Number(refreshes) >= 1)) return false;
   if (command !== undefined && !(hasRuntimeType(command, "string") && command.trim())) return false;
   if (concurrency !== undefined && !(Number.isSafeInteger(concurrency) && Number(concurrency) >= 1)) return false;
   if (required !== undefined && !hasRuntimeType(required, "boolean")) return false;
@@ -352,7 +359,7 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
     }
     if (!validInstall(install)) {
-      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required }.");
+      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required, refreshes }.");
     }
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");

@@ -9,7 +9,7 @@ import * as v from "valibot";
 import { join } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "../github/index.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "../github/index.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
@@ -676,6 +676,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const installOption = baseAgent.install ?? presetOptions.install ?? true;
   const installer = createBabysitterInstaller(installOption);
   const installRequired = isRuntimeRecord(installOption) && installOption.required === true;
+  const refreshLimit = isRuntimeRecord(installOption) ? installOption.refreshes : undefined;
   // A waiting pass keeps its checkout, so it waits longer than the default two minutes.
   const installSlots = createGitHubInstallSlots({ concurrency: (isRuntimeRecord(installOption) ? installOption.concurrency : undefined) ?? 2, queueTimeoutMs: 10 * 60_000 });
 
@@ -1030,6 +1031,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         ]);
         let providerDirectory: string | undefined;
         let placementLease: BabysitterPlacementLease | undefined;
+        let dependencyRefreshes = 0;
         // A pass placed in a Sandbox installs there; the host checkout keeps no dependencies.
         const hostInstall = () => presetOptions.install !== false && !placementLease?.sandbox;
         let modelWorkParked = false;
@@ -1455,6 +1457,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 autoMerge: merge.mode === "auto",
                 eligible: (current) =>
                   pullRequestInbox.eligible(repository, normalizePullRequest(current)),
+                checkDependencies: async () => {
+                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  await assertLease();
+                  if (presetOptions.install === false) return { current: true, changedInputs: [], reason: "Host dependency installation is disabled." };
+                  if (!hostInstall()) return { current: true, changedInputs: [], reason: "The Sandbox installs dependencies. Call refreshDependencies after you change dependency inputs." };
+                  return await readGitHubDependencyStatus(providerDirectory);
+                },
                 refreshDependencies: async () => {
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
@@ -1477,7 +1486,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   // After a failed optional install there is nothing to verify against; hosted CI validates the dependency inputs.
                   // A handed-off lockfile defect is the recovery pass that repairs the
                   // dependency inputs, so the previously failed graph cannot be verified yet.
-                  const verifyDependencies = hostInstall() && !installDefect && (installRequired || !await installFailed(providerDirectory));
+                  // With the refresh limit spent, the model cannot reinstall changed inputs, so hosted CI validates them.
+                  const verifyDependencies = hostInstall() && !installDefect && (installRequired || !await installFailed(providerDirectory))
+                    && (refreshLimit === undefined || dependencyRefreshes < refreshLimit || await hasCurrentGitHubDependencies(providerDirectory));
                   if (verifyDependencies) await assertGitHubDependenciesCurrent(providerDirectory);
                   const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies });
                   await assertLease();
@@ -1597,6 +1608,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
+                admitRefresh: () => {
+                  if (refreshLimit !== undefined && dependencyRefreshes >= refreshLimit) {
+                    throw new Error(`refreshDependencies already ran ${refreshLimit} time${refreshLimit === 1 ? "" : "s"} in this pass, the limit. Do not call it again. Read .git/vitehub-install.json for the last install result, then commit your dependency fixes and let hosted CI validate them, or report the install failure as the blocker.`);
+                  }
+                  dependencyRefreshes++;
+                  return () => { dependencyRefreshes--; };
+                },
                 readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
                 readState: async () => {
                   let current = await assertLease();
@@ -1691,7 +1709,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       workerDriver.env === undefined
                         ? undefined
                         : await resolveRuntimeValue(workerDriver.env, context);
-                    return repairEnvironment(environment, join(checkout, ".vitehub-github-auth"), prepared.env);
+                    // The host owns installs. pnpm must not reinstall before each script because the
+                    // host install used settings, such as disabled hooks, that the checkout does not declare.
+                    return repairEnvironment({ ...(presetOptions.install === false ? {} : { npm_config_verify_deps_before_run: "false" }), ...environment }, join(checkout, ".vitehub-github-auth"), prepared.env);
                   },
                   ...(workerSettings.sandbox ? undefined : { launch: async (context: AgentProviderLaunchContext) => {
                     if (context.purpose !== "inspection") {
@@ -1725,7 +1745,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   } });
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);
-              const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, try \`pnpm install --lockfile-only\` first, then \`pnpm install --lockfile-only --fix-lockfile\`. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
+              const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, then finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a dependency such as a pkg.pr.new build keeps no integrity and the frozen install fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
               const userMessage = `${prompt}\n\n${snapshotContext}${installContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
