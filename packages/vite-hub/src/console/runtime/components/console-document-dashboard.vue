@@ -333,7 +333,8 @@ async function publishAll(): Promise<void> {
               title="No collections you can read"
               description="Ask an admin for read access to a collection."
             />
-            <ul v-else class="divide-y divide-default rounded-lg border border-default">
+            <!-- min-w-0 lets the grid narrow the list, so long names truncate instead of pushing the counts past the column. -->
+            <ul v-else class="min-w-0 divide-y divide-default rounded-lg border border-default">
               <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
                 <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 hover:text-highlighted">
                   <span class="truncate text-sm font-medium text-highlighted">{{ collection.label }}</span>
