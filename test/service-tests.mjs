@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url"
 
 export const serviceVariables = Object.freeze(["VITEHUB_TEST_POSTGRES_URL", "VITEHUB_TEST_REDIS_URL"])
 
-const leadingBuild = /^vp run -t ([@\w./-]+)#build$/
+const leadingBuild = /^vp run (?:--cache )?-t ([@\w./-]+)#build$/
 
 /** Lists the package test files that read a service variable, relative to `root`. */
 export function findServiceTests(root) {

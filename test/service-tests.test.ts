@@ -53,6 +53,8 @@ describe("service tests", () => {
   it("runs the builds that a package test script runs first", () => {
     expect(packageBuilds("vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"))
       .toEqual(["@vite-hub/workflow", "@vite-hub/agent"])
+    expect(packageBuilds("vp run --cache -t @vite-hub/workflow#build && vp run --cache -t @vite-hub/agent#build && vp test"))
+      .toEqual(["@vite-hub/workflow", "@vite-hub/agent"])
     expect(packageBuilds("vp test")).toEqual([])
   })
 })
