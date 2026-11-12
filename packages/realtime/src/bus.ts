@@ -290,7 +290,9 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
   const { default: postgres } = await import("postgres")
   // The callback may use the borrowed Database, including a max=1 pool. Reserve locks on an independent pool with
   // the same resolved connection settings; never occupy the connection that the adapter needs to finish its save.
-  const locks = postgres({ ...sql.options, max: postgresLockedSaves, onnotice: () => {} })
+  // SAFETY: postgres.js accepts its own parsed options through their internal `shared` field, preserving resolved
+  // hosts, credentials and socket hooks. Its constructor types describe only unparsed options.
+  const locks = postgres({ ...sql.options, max: postgresLockedSaves, onnotice: () => {} } as unknown as import("postgres").Options<{}>)
   const end = async () => {
     await locks.end({ timeout: 5 })
     if (owned) await sql.end({ timeout: 5 })
@@ -357,10 +359,14 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
       return rows.length === 1
     },
     // A transaction-scoped lock ends with the transaction, and with the connection when the instance stops.
-    withRoomLock: (room, task) => locked(() => locks.begin(async (transaction) => {
-      await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${namespace}:${room}`}, 0))`
-      return await task()
-    })),
+    withRoomLock: (room, task) => locked(async () => {
+      const result = await locks.begin(async (transaction) => {
+        await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${namespace}:${room}`}, 0))`
+        // Keep the generic result inside an object so the driver's array-return type cannot unwrap it.
+        return { value: await task() }
+      })
+      return result.value
+    }),
     close: () => base.close(async () => {
       await listening?.unlisten().catch(() => {})
       await end()
