@@ -58,18 +58,38 @@ export function createProviderQuota(store: QuotaStore, cooldownMs: number, now: 
   };
 }
 
-/** A GitHub rate limit stops every forge request until it resets. */
+/** A GitHub rate limit stops every forge request for a while. */
 export interface ForgeQuota {
   blockedUntil(): Promise<number>;
+  /** Opens a block, or keeps the one that holds. Returns its end. */
   block(): Promise<number>;
 }
 
+const forgeStrikesKey = "forge-quota-strikes";
+const forgeLastBlockKey = "forge-quota-last-block";
+const firstForgeCooldownMs = 5 * 60_000;
+/** A block that starts this soon after the previous one counts as a repeat. */
+const forgeRepeatMs = 2 * 60 * 60_000;
+const maxForgeStrikes = Math.ceil(Math.log2(maxQuotaCooldownMs / firstForgeCooldownMs)) + 1;
+
+/**
+ * The error does not say when the limit resets, and a secondary limit lifts within minutes. A block
+ * lasts five minutes and doubles while blocks repeat within two hours, up to an hour, so an
+ * exhausted hourly quota still waits out its reset. An error during a block leaves the block as it is.
+ */
 export function createForgeQuota(store: QuotaStore, now: () => number = Date.now): ForgeQuota {
   const blockedUntil = async () => await store.metaNumber(forgeBlockedKey) ?? 0;
   return {
     blockedUntil,
     async block() {
-      const until = Math.max(await blockedUntil(), now() + maxQuotaCooldownMs);
+      const at = now();
+      const current = await blockedUntil();
+      if (current > at) return current;
+      const repeated = at - (await store.metaNumber(forgeLastBlockKey) ?? 0) < forgeRepeatMs;
+      const strikes = repeated ? Math.min((await store.metaNumber(forgeStrikesKey) ?? 0) + 1, maxForgeStrikes) : 1;
+      const until = at + Math.min(firstForgeCooldownMs * 2 ** (strikes - 1), maxQuotaCooldownMs);
+      await store.setMeta(forgeStrikesKey, strikes);
+      await store.setMeta(forgeLastBlockKey, at);
       await store.setMeta(forgeBlockedKey, until);
       return until;
     },
