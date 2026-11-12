@@ -131,7 +131,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, and an optional `ready` hook. |
+| `{ strategy: "direct", method, ready, markDraftsReady }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, and optional draft authors. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -149,6 +149,13 @@ or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
 after checking that the head did not move.
+
+`markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
+drafts should merge. Off by default. When a pass has reviewed a draft's head, no
+required check failed, and the head branch is in the repository itself, the host
+marks the draft ready for review. The `ready_for_review` event wakes the PR and
+starts workflows that skip drafts. A fork's draft and an unlisted author's draft
+stay drafts.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
@@ -178,7 +185,13 @@ merge conflict and without a failing check outside `reviewChecks`. After that
 many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
 person's feedback, another failing check, a conflict or a head that someone else
 pushed still do. The PR then merges on its required checks or parks with the
-reason, which health lists under `queue.parked`. `dailyPassBudget` (default
+reason, which health lists under `queue.parked`. `minorReviewRounds` (default
+`false`) spends that budget once that many heads in a row had no automated
+finding above P2; each pass reports the class in `automatedReview`.
+`reviewConvergencePushes` (default `false`) asks each pass from that many
+review-driven pushes on to fix a recurring finding class at its root.
+`ignoreAssessedBotThreads` (default `false`) stops assessed bot-only review
+threads from blocking a direct merge or waking the PR. `dailyPassBudget` (default
 `16`, `false` disables it) limits the model passes per PR in a rolling 24
 hours. A PR that reached it parks until its oldest pass is 24 hours old, and
 health lists it with `resumeAt`. A person's new feedback, the first failing

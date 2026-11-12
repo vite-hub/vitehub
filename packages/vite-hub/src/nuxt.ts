@@ -1063,6 +1063,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     access: consoleAccess,
     runtimeCapabilityImports,
     development: nuxt.options.dev === true,
+    pageTool: { base: nuxt.options.app?.baseURL || "/" },
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string

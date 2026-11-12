@@ -117,6 +117,24 @@ afterEach(() => {
 })
 
 describe("Console Usage page", () => {
+  it("shows overlapping model session counts without a share percentage or bar", async () => {
+    route.query = { metric: "sessions" }
+    responses.push(summary({
+      totals: totals({ invocations: 1 }),
+      models: ["model-a", "model-b"].map(model => ({ ...totals({ invocations: 1, totalTokens: 10 }), model })),
+    }))
+    const { app, root } = await mount()
+    try {
+      const models = root.querySelector('[data-slot="usage-model-breakdown"]')!
+      expect(models.textContent).toContain("model-a")
+      expect(models.textContent).toContain("model-b")
+      expect(models.textContent).not.toContain("%")
+      expect(models.textContent).not.toContain("Share")
+      expect(root.querySelector('[aria-label="Share by model"]')).toBeNull()
+    }
+    finally { app.unmount() }
+  })
+
   it("names the chart, keeps plotted periods out of the tab order, and lists values in a data table", async () => {
     responses.push(summary({ totals: totals({ costUsd: "0.5", invocations: 1, pricedInvocations: 1, totalTokens: 10 }), buckets: [
       { ...totals(), models: [], start: "2026-10-11T00:00:00.000Z" },
@@ -125,7 +143,7 @@ describe("Console Usage page", () => {
     const { app, root } = await mount()
     try {
       const chart = root.querySelector("svg[role=img]")
-      expect(document.getElementById(chart!.getAttribute("aria-labelledby")!)?.textContent).toBe("Daily cost")
+      expect(document.getElementById(chart!.getAttribute("aria-labelledby")!)?.textContent).toBe("Daily spend")
       expect(document.getElementById(chart!.getAttribute("aria-describedby")!)?.textContent).toContain("Peak $0.50 on Oct 12")
       expect(chart!.parentElement!.querySelectorAll("button, [tabindex]")).toHaveLength(0)
       const rows = [...root.querySelectorAll("[data-slot=usage-chart-data] tbody tr")].map(row => row.textContent)
@@ -141,7 +159,7 @@ describe("Console Usage page", () => {
       expect(root.querySelector("svg[role=img]")).toBeNull()
       const empty = root.querySelector("[data-slot=usage-chart-empty]")
       expect(empty?.getAttribute("data-state")).toBe("unavailable")
-      expect(empty?.textContent).toContain("Cost is unavailable for this period")
+      expect(empty?.textContent).toContain("Spend is unavailable for this period")
       expect(empty?.textContent).not.toContain("$")
       // A day without sessions is a real zero. A day with sessions but no cost evidence is unknown.
       const rows = [...root.querySelectorAll("[data-slot=usage-chart-data] tbody tr")].map(row => row.textContent)
@@ -236,9 +254,9 @@ describe("Console Usage URL state", () => {
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "tokens", search: "deploy", section: undefined } })
       await nextTick()
       // The explicit token choice stays, although the Agents record cost.
-      expect(root.querySelector("h2")?.textContent).toBe("Daily tokens")
-      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-selected=true]")?.textContent).toBe("Day")
-      ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => button.textContent === "Cost")!.click()
+      expect(root.querySelector("[aria-label='Usage metric'] [aria-pressed=true] .usage-headline__label")?.textContent).toBe("Tokens")
+      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Day")
+      ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => /spend/i.test(button.querySelector(".usage-headline__label")?.textContent ?? ""))!.click()
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "cost", search: "deploy" } })
       // A view change does not load the summary again.
       expect(requests).toHaveLength(requestCount)
@@ -251,9 +269,10 @@ describe("Console Usage URL state", () => {
     responses.push(summary({ costSupported: false }))
     const { app, root } = await mount()
     try {
-      expect(root.querySelector("[aria-label='Usage metric']")?.textContent).toBe("Tokens")
-      expect(root.querySelector("h2")?.textContent).toBe("Daily tokens")
-      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-selected=true]")?.textContent).toBe("Model")
+      // Without cost evidence, the page offers no spend and falls back to tokens.
+      expect([...root.querySelectorAll("[aria-label='Usage metric'] .usage-headline__label")].map(label => label.textContent)).toEqual(["Sessions", "Tokens"])
+      expect(root.querySelector("[aria-label='Usage metric'] [aria-pressed=true] .usage-headline__label")?.textContent).toBe("Tokens")
+      expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Model")
     }
     finally { app.unmount() }
   })

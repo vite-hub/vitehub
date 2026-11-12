@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
@@ -40,15 +40,20 @@ async function readPackageJson(file) {
   return JSON.parse(await readFile(file, "utf8"))
 }
 
+// The app imports `@vite-hub/agent` and turns on the `blob` feature of `vite-hub`. Pack only these packages and the
+// packages that they require. An override for an optional peer installs it, and `@vite-hub/docs` needs Nuxt.
+const fixturePackages = ["agent", "blob", "vite-hub"]
+
+function packageName(name) {
+  return name === "vite-hub" ? name : `@vite-hub/${name}`
+}
+
 async function createLocalPackageSpecs(packDir) {
   await mkdir(packDir, { recursive: true })
-  const packagesDir = join(repoRoot, "packages")
+  const { packedWorkspacePackages } = await import("../../packages/internal/test-utils/published-types.ts")
   const specs = {}
-  for (const entry of await readdir(packagesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
-    const packageDir = join(packagesDir, entry.name)
-    const pkg = await readPackageJson(join(packageDir, "package.json"))
-    if (typeof pkg.name !== "string" || (pkg.name !== "vite-hub" && !pkg.name.startsWith("@vite-hub/"))) continue
+  for (const name of await packedWorkspacePackages(repoRoot, fixturePackages)) {
+    const pkg = await readPackageJson(join(repoRoot, "packages", name, "package.json"))
     run("pnpm", ["--filter", pkg.name, "pack", "--pack-destination", packDir], { cwd: repoRoot })
     specs[pkg.name] = `file:${join(packDir, packageTarballName(pkg.name, pkg.version))}`
   }
@@ -202,9 +207,9 @@ async function createProject({ packageSource, preview }) {
     : { "vite-hub": previewSpec("vite-hub", preview) }
   await writeFixtureFiles(overrides, vitePlus.version, vitePlus.dependencies.vitest)
 
-  const packageSpecs = packageSource === "local"
-    ? [overrides["@vite-hub/agent"], overrides["vite-hub"]]
-    : [previewSpec("@vite-hub/agent", preview), previewSpec("vite-hub", preview)]
+  const packageSpecs = fixturePackages.map(packageName).map(name => packageSource === "local"
+    ? overrides[name]
+    : previewSpec(name, preview))
 
   run("pnpm", [
     "add",

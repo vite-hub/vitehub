@@ -40,7 +40,7 @@ import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skill
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
-import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { getAgentTelemetryConfiguration, observeAgentWorkspaceRevision, updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
@@ -2186,7 +2186,7 @@ async function prepareWorkspace(
   root: string,
   inPlace: boolean,
   path: readonly string[],
-): Promise<{ projectRoot?: string, provenance: ProviderSourceProvenance[], pullRequestRoot: boolean, session?: WorkspaceSession } | undefined> {
+): Promise<{ projectRoot?: string, provenance: ProviderSourceProvenance[], pullRequestRoot: boolean, pullRequestCheckout?: boolean, session?: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
@@ -2242,6 +2242,7 @@ async function prepareWorkspace(
     ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
     provenance,
     pullRequestRoot: Boolean(checkoutPullRequest && pullRequest?.mount === ""),
+    pullRequestCheckout: checkoutPullRequest,
     session,
   }
 }
@@ -3560,7 +3561,12 @@ async function* runProvider<
     }
     const inspectedTools = inspectAgentTools(context.tools)
     if (!isAuxiliaryAgentAdapterContext(context)) {
+      const workspace = getAgentTelemetryConfiguration(context.context)?.source.workspace
+      // An in-place cwd or a managed PR checkout is not the retained Workspace tree.
+      const revision = preparedWorkspace?.pullRequestCheckout ? undefined : workspaceSession?.revision
+      const head = revision && context.workspace ? await observeAgentWorkspaceRevision(context.workspace) : undefined
       await updateAgentTelemetryConfiguration(context.context, {
+        ...(workspace && revision ? { workspace: { ...workspace, revision, ...(head?.id === revision ? { ref: head.ref } : {}) } } : {}),
         driver: {
           ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
           provider: options.provider,
