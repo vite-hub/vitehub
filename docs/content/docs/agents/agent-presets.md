@@ -50,8 +50,12 @@ import bot from '../bot/agent'
 
 export default defineAgent({
   extends: bot,
-  // Receives the parent's list. An array replaces it.
-  driver: { requirements: inherited => [...inherited, 'kubectl'] },
+  driver: {
+    // Receives the parent's instruction document. A string replaces it.
+    instructions: { extend: inherited => `${inherited}\n\n## Development\n\nYou run as bot-dev.` },
+    // Receives the parent's list. An array replaces it.
+    requirements: inherited => [...inherited, 'kubectl'],
+  },
   // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
   capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
   // Sets the mode of every Source that does not set its own, including inherited Sources.
@@ -59,13 +63,14 @@ export default defineAgent({
 })
 ```
 
+- `driver.instructions: { extend }` gets the parent's instructions as one string (`''` without a parent) and returns the child's complete document. Read [Extend inherited instructions](/docs/agents/instructions#extend-inherited-instructions).
 - `driver.requirements` can be a function that gets the inherited list (`[]` without a parent).
 - A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` into the parent's `mcp()` by server name. The child's entry for one server wins as a whole, and unset options such as `unavailableNotice` come from the parent. `inherit: false` replaces the parent's `mcp()`.
 - `workspace.materialize` is the default [`materialize` mode](/docs/workspace/configure) for each Source (read-only content inside a Workspace) in `workspace.sources` without its own. Sources that Capabilities add keep their mode.
 
 A discovered child also uses the [Connection access rules](/docs/connections/configure#access-rules) of the Agents it extends; a rule that names the child wins.
 
-`extends` accepts one definition that `defineAgent()` created in the same package instance, and discovers no files in the parent's directory. Share instructions by importing them with `?raw` into `driver.instructions`, and Skills with explicit Sources or a directory link.
+`extends` accepts one definition that `defineAgent()` created in the same package instance, and discovers no files in the parent's directory. Build on the parent's instructions with `driver.instructions: { extend }`, share other instructions by importing them with `?raw` into `driver.instructions`, and share Skills with explicit Sources or a directory link.
 
 An undiscovered definition, such as one created in a Schedule, reads the colocated Skills of the discovered Agent it extends at run time, so import order does not matter. `agentWithSkills()` adds Skills without an Agent folder:
 
