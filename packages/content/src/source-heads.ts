@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import { createSource } from "@vite-hub/source"
-import type { GitHubRef, GitHubRefTarget, Source, SourceItem, SourceRevision } from "@vite-hub/source"
+import type { GitHubPullRequest, GitHubRef, GitHubRefTarget, Source, SourceItem, SourceRevision } from "@vite-hub/source"
 import { contentHub } from "comark-content"
 import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
 import { formatDiagnostic } from "nostics"
@@ -9,10 +9,14 @@ import { formatDiagnostic } from "nostics"
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
 import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentRefGrant, signContentRefToken } from "./preview.ts"
+import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
 import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
+import type { ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+import type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 import type { ContentSourceRef, ParsedContentRef } from "./source-refs.ts"
 
 /**
@@ -73,17 +77,35 @@ export interface ContentSourceHeads {
    * head commit of a pull request. Content resolves the ref to a commit SHA on GitHub and holds that lookup for 30
    * seconds. The commit must pass the same validation as a head.
    *
-   * `at()` does not check access, and Content serves no route for it. Before you return content from a view, decide with
-   * `kind`, `ref`, and `pull` whether the caller may read it. Draft branches and fork pull requests can hold content
-   * that is not public.
+   * `at()` does not check access, and Content serves no route for it. Draft branches and fork pull requests can hold
+   * content that is not public. Call `allow()` first and pass its `target`, so the view reads the commit it allowed.
    */
-  at(ref: string, source?: string): Promise<ContentSourceView>
+  at(ref: string | ContentSourceRef, source?: string): Promise<ContentSourceView>
+  /**
+   * Decide whether a request may read a ref of a `github()` Source, before Content downloads the commit. A ref is public
+   * when the published branch contains its commit, or when the commit is the head of an open or merged pull request from
+   * the same repository, or from a fork with the `preview:enabled` label. Private branches, such as the CMS draft
+   * branch and the `vitehub/publish/*` branches of CMS pull requests, and every other ref need the preview cookie of
+   * `content.preview.enable()` or a link from `sign()`.
+   *
+   * Content holds a decision from GitHub for 10 minutes. An invalid or unknown ref is denied with `missing`, so answer a
+   * plain 404 for every denial. It throws `CONTENT_R0029` or `CONTENT_R0032` when GitHub does not answer.
+   */
+  allow(ref: string | ContentSourceRef, request: Request, source?: string): Promise<ContentSourceAccess>
+  /**
+   * Sign a link token for one ref of a `github()` Source, such as the CMS draft branch. A request with
+   * `?vitehub-content-token=<token>` passes `allow()` for this ref until the token expires. It uses `VITEHUB_CONTENT_KEY`,
+   * like `content.preview`. This is trusted server API: check `content.can()` or Console access before you call it.
+   */
+  sign(ref: string, source?: string, options?: ContentPreviewOptions): Promise<ContentPreviewToken>
 }
 
 /** A `github()` Source definition. */
 type GitHubDefinition = Source<string, unknown, object> & {
   authenticated(): Promise<boolean>
   resolveRef?(ref: GitHubRef, options?: { signal?: AbortSignal }): Promise<GitHubRefTarget | undefined>
+  contains?(sha: string, options?: { signal?: AbortSignal }): Promise<boolean>
+  pullsAt?(sha: string, options?: { signal?: AbortSignal }): Promise<GitHubPullRequest[]>
 }
 
 /** The KV value of a head. */
@@ -154,7 +176,27 @@ const REF_HOLD_MS = 30_000
 const MAX_HELD_REFS = 64
 /** The views of `at()` that one server instance holds open. Each one holds the parsed documents of a whole commit. */
 export const MAX_SOURCE_VIEWS = 8
+/** The access decisions from GitHub that one server instance holds. */
+const MAX_HELD_DECISIONS = 256
 const fullSha = /^[0-9a-f]{40}$/i
+
+/** The `CONTENT_R0031` message for each denial. It names the rule, never what GitHub has. */
+const denyMessages: Record<ContentSourceDenyReason, string> = {
+  missing: "the ref is not valid or does not exist",
+  private: "the ref is a private branch",
+  fork: "the fork pull request has no preview:enabled label",
+  closed: "the pull request was closed without a merge",
+  unpublished: "the published branch does not contain the commit, and no allowed pull request has it as head",
+}
+
+function isAllowReason(reason: ContentSourceAllowReason | ContentSourceDenyReason): reason is ContentSourceAllowReason {
+  return reason === "published" || reason === "pull" || reason === "label" || reason === "console" || reason === "token"
+}
+
+/** Whether an error is the nostics diagnostic `code`. */
+function isDiagnostic(error: unknown, code: string): boolean {
+  return error instanceof Error && Reflect.get(error, "code") === code
+}
 
 /** The KV key of a head, such as `content:head:docs`. `vitehub kv get content:head:docs` shows it. */
 function headKey(name: string): string {
@@ -215,7 +257,7 @@ interface ContentSourceHeadsRuntime {
 }
 
 /** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
-export function createContentSourceHeads(options: ContentOptions, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
+export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[] } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
   const states = new Map<string, HeadState>()
   /** The commits that this server instance holds, by cache key. Each load shares one promise, so one download serves all. */
   const memory = new CommitMemory<Promise<LoadedCommit>>()
@@ -228,6 +270,10 @@ export function createContentSourceHeads(options: ContentOptions, reuseParsed: b
   let disposed = false
   /** The commits that refs resolved to, by `<source>:<ref>`, with when the lookup started. */
   const refs = new CommitMemory<{ at: number, target: Promise<ContentSourceRef> }>(MAX_HELD_REFS)
+  /** Branches that only a preview cookie or a signed link opens, such as the CMS draft branch. */
+  const privateBranches = new Set(access.privateBranches ?? [])
+  /** The public rule decisions, by `<source>:<ref>:<sha>`, with when GitHub answered. */
+  const decisions = new CommitMemory<{ at: number, reason: ContentSourceAllowReason | ContentSourceDenyReason }>(MAX_HELD_DECISIONS)
 
   function stateOf(name = "default"): HeadState {
     const state = states.get(name)
@@ -599,6 +645,34 @@ export function createContentSourceHeads(options: ContentOptions, reuseParsed: b
     }
   }
 
+  /** A ref that a caller passed back from `allow()` or a view. Only its SHA and ref shape are checked. */
+  function givenRef(ref: ContentSourceRef): ContentSourceRef {
+    const parsed = parseContentRef(ref.ref)
+    if (typeof ref.sha !== "string" || !fullSha.test(ref.sha) || parsed.kind !== ref.kind) {
+      throw contentErrorDiagnostics.CONTENT_R0027({ ref: parsed.ref, reason: "pass the target of content.sources.allow() or a view, with a full commit SHA" })
+    }
+    return { source: ref.source, ref: parsed.ref, kind: ref.kind, sha: ref.sha.toLowerCase(), pull: ref.pull ?? null }
+  }
+
+  /** The GitHub facts of the public rule for one commit. A failed request becomes `CONTENT_R0032` and holds no decision. */
+  function publicFacts(state: HeadState, target: ContentSourceRef) {
+    const ask = async <T>(read: (() => Promise<T>) | undefined): Promise<T> => {
+      if (!read) throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} cannot check refs. Update @vite-hub/source.` })
+      try {
+        return await read()
+      }
+      catch (error) {
+        throw contentErrorDiagnostics.CONTENT_R0032({ source: state.name, ref: target.ref, reason: error instanceof Error ? error.message : String(error), cause: error })
+      }
+    }
+    const { definition } = state
+    const { contains, pullsAt } = definition
+    return {
+      published: () => ask(contains && (() => contains.call(definition, target.sha))),
+      pulls: () => ask(pullsAt && (() => pullsAt.call(definition, target.sha))),
+    }
+  }
+
   /** Resolve the head before a serving operation, including reads satisfied by a parsed index. */
   async function sync(state: HeadState): Promise<void> {
     if (!await isLive(state)) return
@@ -663,9 +737,8 @@ export function createContentSourceHeads(options: ContentOptions, reuseParsed: b
     },
     async at(ref, source) {
       assertActive()
-      const parsed = parseContentRef(ref)
-      const state = stateOf(source)
-      const target = await resolveRef(state, parsed)
+      const state = stateOf(typeof ref === "object" && ref ? ref.source : source)
+      const target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
       const loaded = await load(state, { id: target.sha, immutable: true })
       if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
       await openView(state, target.sha)
@@ -678,6 +751,52 @@ export function createContentSourceHeads(options: ContentOptions, reuseParsed: b
         navigation: (names?: Parameters<ContentHub["navigation"]>[0]) => read(hub => hub.navigation(names)),
         search: (query: string, opts?: Parameters<ContentHub["search"]>[1]) => read(hub => hub.search(query, opts)),
       }
+    },
+    async allow(ref, request, source) {
+      const state = stateOf(typeof ref === "object" && ref ? ref.source : source)
+      const shown = typeof ref === "object" && ref ? ref.ref : String(ref).slice(0, 200)
+      const deny = (reason: ContentSourceDenyReason, target?: ContentSourceRef): ContentSourceAccess => ({
+        allowed: false,
+        reason,
+        error: contentErrorDiagnostics.CONTENT_R0031({ source: state.name, ref: target?.ref ?? shown, reason: denyMessages[reason] }),
+      })
+      let target: ContentSourceRef
+      try {
+        target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
+      }
+      catch (error) {
+        if (isDiagnostic(error, "CONTENT_R0027") || isDiagnostic(error, "CONTENT_R0028")) return deny("missing")
+        throw error
+      }
+      const grant = await contentRefGrant(request, state.name, target.ref)
+      if (grant) return { allowed: true, reason: grant, target }
+      const key = `${state.name}:${target.ref}:${target.sha}`
+      const held = decisions.get(key)
+      let reason = held && Date.now() - held.at < ACCESS_HOLD_MS ? held.reason : undefined
+      if (!reason) {
+        // A target or view that a caller kept holds the pull request as it was. The rule reads it from GitHub again, so a
+        // removed label or a closed pull request counts. The pull request makes this commit public only while it is its head.
+        let facts = target
+        if (target.kind === "pull" && typeof ref === "object") {
+          try {
+            const current = await resolveRef(state, parseContentRef(target.ref))
+            facts = { ...target, pull: current.sha === target.sha ? current.pull : null }
+          }
+          catch (error) {
+            if (isDiagnostic(error, "CONTENT_R0028")) return deny("missing", target)
+            throw error
+          }
+        }
+        if (isPrivateRef(facts, privateBranches)) return deny("private", target)
+        reason = await publicRule(facts, publicFacts(state, facts), privateBranches)
+        decisions.set(key, { at: Date.now(), reason })
+      }
+      else if (isPrivateRef(target, privateBranches)) return deny("private", target)
+      return isAllowReason(reason) ? { allowed: true, reason, target } : deny(reason, target)
+    },
+    async sign(ref, source, signOptions) {
+      const state = stateOf(source)
+      return await signContentRefToken(state.name, parseContentRef(ref).ref, signOptions?.maxAge)
     },
   }
 
