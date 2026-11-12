@@ -53,6 +53,19 @@ locale. In the Console, the docs editor switches between `EN` and `ES` next to t
 from server code with `content.collection('docs').save(id, input, { locale: 'es' })`, or with an Agent that has the
 `content()` Capability.
 
+`server/agents/translator.ts` writes the Spanish page. The `write:after` hook in `server/workspaces/site.ts` enqueues the
+`translate` job of `server/queues/translate.ts` when an English page changes on the draft, also after `vitehub push`, and
+the job runs the Agent. Start the server with `AI_GATEWAY_API_KEY` set. To try it from a local folder, sign in, then pass
+the session cookie to the CLI, because the Console uses app Auth:
+
+```bash
+export VITEHUB_CONSOLE_COOKIE='better-auth.session_token=...'
+pnpm vitehub pull site --dir content --ref draft --url http://localhost:5173
+# edit content/docs/en/guide.md
+pnpm vitehub push --message "Edit the guide"
+pnpm vitehub pull   # brings back content/docs/es/guide.md with derivedFrom
+```
+
 `server/comments.ts` turns on Comments. Sign in, then open `/?vitehub` (or the "Comment on this site" link). Press `C`
 and click the page to pin a comment; open the same page as a second user in another browser profile to see their
 pins, avatar, and cursor live. Press `E` and click the site title or a post title, which carry `contentField()`

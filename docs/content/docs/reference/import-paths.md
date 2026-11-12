@@ -87,8 +87,8 @@ the same behavior.
 | `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |
 | `vite-hub/blob/vue` | Vue upload composables: `useUpload()` and `useMultipartUpload()`. |
 | `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, named Browser runs, and Browser Run actions (`runBrowserAction()`, `runBrowserContent()`). |
-| `vite-hub/web-container` | Boot and mount a WebContainer in the browser, run app commands, read preview readiness and status, and export snapshots. Re-exports `@vite-hub/web-container`. |
-| `vite-hub/web-container/connect` | Static connection-provider metadata and credential-to-process environment mapping with `defineConnect()` and `connectEnv()`. Re-exports `@vite-hub/web-container/connect`. |
+| `vite-hub/web-container` | Boot and mount a [WebContainer](/docs/web-container) in the browser, run app commands, read preview readiness and status, and export snapshots. Re-exports `@vite-hub/web-container`. |
+| `vite-hub/web-container/connect` | Static connection-provider metadata and credential-to-process environment mapping with [`defineConnect()` and `connectEnv()`](/docs/web-container/configure#describe-connectable-accounts). Re-exports `@vite-hub/web-container/connect`. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the bundle report of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |

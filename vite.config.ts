@@ -126,6 +126,11 @@ export default defineConfig({
         dependsOn: ["@vite-hub/schedule#build"],
       },
       ...rootTestTasks,
+      // Needs Postgres and Redis. Set VITEHUB_TEST_POSTGRES_URL and VITEHUB_TEST_REDIS_URL.
+      "test:services": {
+        cache: false,
+        command: "node test/service-tests.mjs",
+      },
       typecheck: {
         cache: false,
         command: "node test/typecheck.mjs",
