@@ -176,6 +176,7 @@ type NuxtLike = {
     database?: DatabaseNuxtIntegrationOptions
     dev?: boolean
     experimental?: {
+      extraPageMetaExtractionKeys?: string[]
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{
