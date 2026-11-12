@@ -1,7 +1,7 @@
 import { createRuntimeContext } from "@vite-hub/runtime"
 import { createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
-import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
+import { Response as ForeignResponse } from "@whatwg-node/node-fetch"
 import { defineAgent, runAgent, startAgentInvocation, streamAgent, agentWorkflow } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
