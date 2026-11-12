@@ -154,4 +154,12 @@ describe("Agent forge access", () => {
     expect(env.GH_TOKEN).toBe("installation-token")
     expect(Object.keys(env).filter(key => key.startsWith("GIT_AUTHOR_") || key.startsWith("GIT_COMMITTER_"))).toEqual([])
   })
+
+  it("asks the github() Channel App for a token that lasts most of the hour for git and gh", async () => {
+    const token = tokenSource()
+    const channel = github({ app: { token } })
+    // SAFETY: the test token source does not read the callback context.
+    await forgeGitEnvironment(runtime() as AgentCallbackContext, { [forgeAccessKey]: readForgeAccess(channel) }, { repository: "acme/app" })
+    expect(token).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/app", minLifetime: 55 * 60_000 }))
+  })
 })
