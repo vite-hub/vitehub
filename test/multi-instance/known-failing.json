@@ -1,5 +1,6 @@
 {
   "flaky": {
+    "schedule-once": "Schedule checks and writes its KV run record in separate steps, with a lock local to each process. Shared Redis and Postgres stores can run one occurrence more than once. Remove when Schedule claims each occurrence atomically across processes.",
     "workflow-shared": "OpenWorkflow workers race on their schema setup at cold start, so one, two or all three start. #3839 fixes the race. Move it back to the mode lists, or remove it, when #3839 lands."
   },
   "with-redis": {
