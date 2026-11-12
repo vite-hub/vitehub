@@ -283,7 +283,7 @@ A self-hosted Console takes its origin as the third argument, such as `hostedCon
 
 ## Self-host the Console
 
-The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite or on Cloudflare Workers with D1. Its README shows how to build, configure, and deploy it.
+The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite, on Cloudflare Workers with D1, or on Vercel with hosted libSQL. Its README shows how to build, configure, and deploy it.
 
 ## Protect the Console route
 

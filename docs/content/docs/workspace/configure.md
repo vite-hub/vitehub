@@ -89,8 +89,8 @@ GitHub Stores also keep other answers, so a read asks GitHub only for what chang
 Without a `store`, development uses Local. In production:
 
 - Cloudflare uses Memory.
-- Vercel uses Vercel Blob when `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` exists, else Memory.
-- Other hosts use Local.
+- Other hosts use Vercel Blob when `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` exists at build time.
+- Without these variables, Vercel uses Memory and the other hosts use Local.
 
 You must select Cloudflare Artifacts or GitHub yourself.
 
