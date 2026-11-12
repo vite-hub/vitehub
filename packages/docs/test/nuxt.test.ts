@@ -392,7 +392,7 @@ describe("docs Nuxt setup", () => {
     ]);
   });
 
-  it("copies the pages of a github() Source into the build, where the server and the raw copies read them", async () => {
+  it("copies the pages of a github() Source into the build, where the server reads them", async () => {
     const fake = createFakeGitHub({ owner: "acme", repo: "docs" });
     vi.stubGlobal("fetch", vi.fn(fake.fetch));
     vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token");
@@ -423,7 +423,8 @@ describe("docs Nuxt setup", () => {
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
     for (const hook of hooks.get("build:before") ?? []) await hook();
     expect(readFileSync(join(copied, "guide/start.md"), "utf8")).toContain("From a Source");
-    expect(readFileSync(join(options.buildDir, "docs/raw/remote/guide/start.md"), "utf8")).toContain("From a Source");
+    // Content renders the raw copy on request, so the build writes none.
+    expect(existsSync(join(options.buildDir, "docs/raw"))).toBe(false);
     // A Source has no folder to watch.
     expect(watchContent).not.toHaveBeenCalled();
   });
