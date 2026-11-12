@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDbCliContributor } from "../src/cli.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { hubDb } from "../src/nuxt.ts"
-import { migratePostgres, postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
+import { ensureDatabaseMigrations, migratePostgres, postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
 
 import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -93,8 +93,8 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
   return dir
 }
 
-/** Runs the Nuxt module for a production Node build and bundles a server whose entry imports Nitro's plugins first. */
-async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions) {
+/** Runs the Nuxt module for a production Node build and bundles a server whose entry imports Nitro's plugins first, then runs `before`. */
+async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, before: string[] = []) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
   await hubDb(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
@@ -113,6 +113,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
+    ...before,
     'import { useDatabase } from "@vite-hub/database/drizzle"',
     'const { db, schema } = useDatabase("default")',
     "console.log(JSON.stringify(await db.select().from(schema.users)))",
@@ -200,6 +201,51 @@ async function writeDrizzleKit0xLedger(sql: postgres.Sql) {
 function postgresDatabase(url: string, migrationsDir: string): ResolvedDrizzleDatabaseConfig {
   return { connection: { url }, dialect: "postgresql", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" }
 }
+
+describe.skipIf(!adminUrl)("ensureMigrations on Postgres", () => {
+  it("applies each migration once when four processes call it together, without the start plugin", { timeout: 120_000 }, async () => {
+    const { root } = await createProject([init, seed])
+    const url = await createDatabase()
+    const server = await buildNodeServer(root, { migrateOnStart: false }, [
+      'import { ensureMigrations } from "@vite-hub/database/drizzle"',
+      'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
+      "await ensureMigrations()",
+    ])
+    expect(server.config.plugins).toBeUndefined()
+
+    const runs = await Promise.all(Array.from({ length: 4 }, () => server.start(url)))
+    const lines = runs.flatMap(run => run.stdout.trim().split("\n"))
+    expect(lines.filter(line => line.includes("applied 20231114221320_init"))).toEqual(['[vitehub] Database "default": applied 20231114221320_init.'])
+    expect(lines.filter(line => line.includes("applied 20231114221321_seed"))).toEqual(['[vitehub] Database "default": applied 20231114221321_seed.'])
+    // The seed sleeps under the lock, so the other processes wait for it.
+    expect(lines.filter(line => line.includes("Waiting for it to finish")).length).toBeGreaterThan(0)
+    for (const run of runs) expect(run.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect((await readLedger(connect(url))).map(row => row.name)).toEqual([init.tag, seed.tag])
+  })
+
+  it("applies once for two calls, and forgets a failed run so the next call applies", { timeout: 60_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    const gated = { dataLoss: [], hash: "gated", name: "20231114221320_gated", statements: ["INSERT INTO \"gate\" (\"id\") VALUES (1)"], when: init.when }
+    let loads = 0
+    const context = {
+      databases: { pgRetry: { db: { $client: sql } } },
+      load: async () => {
+        loads++
+        return { allowDataLoss: false, databases: { pgRetry: { dialect: "postgresql" as const, migrations: [gated] } } }
+      },
+    }
+    await expect(ensureDatabaseMigrations(context, ["pgRetry"])).rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", why: expect.stringContaining("gate") })
+
+    await sql`create table gate (id integer)`
+    await Promise.all([ensureDatabaseMigrations(context, ["pgRetry"]), ensureDatabaseMigrations(context)])
+    await ensureDatabaseMigrations(context, ["pgRetry"])
+    // The failed run and one new run: the later calls share the second.
+    expect(loads).toBe(2)
+    expect(await sql`select count(*)::int as count from gate`).toEqual([{ count: 1 }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([gated.name])
+  })
+})
 
 describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
   it("times out blocked DDL, rolls back pending migrations and releases the read queue", { timeout: 30_000 }, async () => {

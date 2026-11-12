@@ -160,9 +160,8 @@ describe("composer mentions", () => {
   it("never suggests the signed-in user", async () => {
     const wrapper = keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false })), { attachTo: document.body, global }));
     await wrapper.get("textarea").setValue("@an");
-    await flushPromises();
-    await flushPromises();
-    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty]").exists()).toBe(true));
+    expect(wrapper.find("[role=option]").exists()).toBe(false);
   });
 
   it("lets a users prop win over the comments state", async () => {
@@ -244,6 +243,64 @@ describe("composer mentions", () => {
     }));
     await wrapper.get("textarea").setValue("@be");
     await vi.waitFor(() => expect(wrapper.findAll("[role=option] b").map(item => item.text())).toEqual(["Ben Soto *", "Sofía Benítez"]));
+  });
+
+  it.each([
+    { failed: true, line: "Could not load people.", users: async () => { throw new Error("401") } },
+    { failed: false, line: "No one by that name can be mentioned here.", users: async () => [ben] },
+  ])("shows a line that is not an option when the lookup has no one to show (failed: $failed)", async ({ failed, line, users }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper: VueWrapper = keep(mount(CommentComposer, {
+      attachTo: document.body,
+      global,
+      props: { autofocus: false, guard: false, users, "onUpdate:modelValue": (value: string) => wrapper.setProps({ modelValue: value }) },
+    }));
+    const field = wrapper.get("textarea");
+    await field.setValue("@zo");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty]").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-composer-mentions]").attributes()).toMatchObject({ "data-state": failed ? "error" : "empty", role: "status" });
+    expect(wrapper.get("[data-slot=comment-composer-mention-empty]").text()).toBe(line);
+    expect(wrapper.find("[role=listbox]").exists()).toBe(false);
+    expect(wrapper.find("[role=option]").exists()).toBe(false);
+    expect(field.attributes("aria-expanded")).toBe("false");
+    expect(field.attributes("aria-controls")).toBeUndefined();
+    expect(field.attributes("aria-activedescendant")).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(failed ? 1 : 0);
+
+    // The arrows and Tab pick nothing, and Enter sends the text as it is.
+    await field.trigger("keydown", { key: "ArrowDown" });
+    await field.trigger("keydown", { key: "Tab" });
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(field.element).toHaveProperty("value", "@zo");
+    expect(wrapper.emitted("update:mentions")).toBeUndefined();
+    expect(wrapper.emitted("submit")).toEqual([[{ body: "@zo", files: [], mentions: [] }]]);
+
+    await field.trigger("keydown", { key: "Escape" });
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+  });
+
+  it.each(["@z", "@zo b"])("keeps the menu closed when %j finds no one, as the text is too short or after a space", async (value) => {
+    const users = vi.fn(async () => []);
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, users } }));
+    await wrapper.get("textarea").setValue(value);
+    await vi.waitFor(() => expect(users).toHaveBeenCalled());
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+  });
+
+  it("renders a mention-empty slot with the query and whether the lookup failed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper = keep(mount(CommentComposer, {
+      attachTo: document.body,
+      global,
+      props: { autofocus: false, guard: false, users: async () => { throw new Error("offline") } },
+      slots: { "mention-empty": ({ query, failed }: { query: string; failed: boolean }) => h("b", `${query} ${failed}`) },
+    }));
+    await wrapper.get("textarea").setValue("@zoe");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty] b").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-composer-mention-empty] b").text()).toBe("zoe true");
   });
 
   it("renders the extra slot above the text field", () => {
@@ -995,6 +1052,27 @@ describe("agent messages and replies since resolved", () => {
 });
 
 describe("composer layout", () => {
+  afterEach(() => {
+    document.documentElement.style.fontSize = "";
+  });
+
+  async function draftLayer(width = 288) {
+    // happy-dom has no layout. Supply the measured width, independently of CSS and the root font size.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "comment-layer-popover" ? width : 0;
+    });
+    const comments = client();
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    return { state, wrapper };
+  }
+
   it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
     const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
     expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
@@ -1010,6 +1088,49 @@ describe("composer layout", () => {
         .get("[data-slot=comment-composer]").attributes("data-layout");
     expect(box()).toBe("box");
     expect(box("row")).toBe("row");
+  });
+
+  it("opens a new comment on the layer as a one-line bubble", async () => {
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+  });
+
+  it.each([
+    { viewport: 375, rem: 16, x: 50, left: 58, flipped: false },
+    { viewport: 375, rem: 16, x: 100, left: 79, flipped: false },
+    { viewport: 375, rem: 16, x: 250, left: 8, flipped: true },
+    { viewport: 375, rem: 16, x: 350, left: 54, flipped: true },
+    { viewport: 1024, rem: 16, x: 700, left: 708, flipped: false },
+    { viewport: 1024, rem: 16, x: 900, left: 604, flipped: true },
+    { viewport: 240, rem: 16, x: 100, left: 8, flipped: false },
+    { viewport: 400, rem: 20, x: 50, left: 30, flipped: false },
+    { viewport: 375, rem: 16, width: 300, x: 100, left: 67, flipped: false },
+    { viewport: 375, rem: 10, width: 300, x: 180, left: 70, flipped: false },
+  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, width = Math.min(18 * rem, viewport - rem), x, left, flipped }) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    document.documentElement.style.fontSize = `${rem}px`;
+    const { state, wrapper } = await draftLayer(width);
+    const target = document.createElement("div");
+    document.body.append(target);
+    state.startDraft(target, { point: { x, y: 100 } });
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
+    expect(Number.parseFloat(item.element.style.left)).toBe(x);
+    expect(x + Number.parseFloat(popover.element.style.left)).toBe(left);
+  });
+
+  it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.left) + 144).toBe(viewport / 2);
   });
 
   it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {

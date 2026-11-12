@@ -19,6 +19,7 @@ import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
 const recoverInterruptedAgentInvocationsSymbol = Symbol.for("vitehub.recoverInterruptedAgentInvocations")
+const agentInvocationClaimStateSymbol = Symbol.for("vitehub.agentInvocationClaimState")
 const agentInvocationsBrand: unique symbol = Symbol.for("vitehub.agentInvocations")
 
 const MAX_ANNOTATIONS = 32
@@ -158,6 +159,17 @@ export interface AgentInvocationListOptions {
   updatedSince?: string
 }
 
+/** Read options of `get()`. The record fields stay the same; only `observations` changes. */
+export interface AgentInvocationGetOptions {
+  /**
+   * Returns only observations with a sequence greater than this value. Pass the sequence of the last observation
+   * that you read to read only new observations. `0` returns all observations. It must be a non-negative safe integer.
+   */
+  afterSequence?: number
+  /** Returns only observations with these exact names. An empty list returns no observations. */
+  observationNames?: readonly string[]
+}
+
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
 
 export interface AgentInvocationListResult {
@@ -219,7 +231,7 @@ export interface AgentInvocationStore {
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
-  get(id: string, options?: { observationNames?: readonly string[] }): MaybePromise<AgentInvocationRecord | undefined>
+  get(id: string, options?: AgentInvocationGetOptions): MaybePromise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
@@ -352,7 +364,7 @@ export interface AgentInvocations {
   readonly supportsDelete: boolean
   /** Deletes a terminal record. Rejects when the store does not implement deletion. */
   delete(id: string): Promise<AgentInvocationDeleteOutcome>
-  get(id: string, options?: { observationNames?: readonly string[] }): Promise<AgentInvocationRecord | undefined>
+  get(id: string, options?: AgentInvocationGetOptions): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): Promise<AgentInvocationSummary | undefined>
@@ -392,7 +404,15 @@ interface BoundAgentInvocations extends AgentInvocations {
     options?: AgentInvocationBindOptions,
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
   [recoverInterruptedAgentInvocationsSymbol](options: Parameters<typeof failInterruptedAgentInvocations>[1]): Promise<number>
+  [agentInvocationClaimStateSymbol](id: string): Promise<AgentInvocationClaimState>
 }
+
+/**
+ * `held`: a live run in this or another process holds the journal claim.
+ * `free`: the claim is absent or expired.
+ * `missing`: the journal has no record with this id.
+ */
+type AgentInvocationClaimState = "free" | "held" | "missing"
 
 export const exclusiveAgentInvocation: unique symbol = Symbol("vitehub.exclusiveAgentInvocation")
 /** Marks a queued attempt and whether earlier/later attempts can reuse this Invocation. */
@@ -1329,6 +1349,20 @@ function assertInvocationId(id: string): void {
   }
 }
 
+// A string from a query string compares as text in SQLite and returns no observations, so reject it before the store reads.
+function assertAfterSequence(afterSequence: unknown): void {
+  if (afterSequence === undefined || (typeof afterSequence === "number" && Number.isSafeInteger(afterSequence) && afterSequence >= 0)) return
+  throw agentDiagnostics.AGENT_R1039({ value: afterSequence })
+}
+
+/** Selects the observations that the read options ask for. Returns undefined when the options select every observation. */
+function observationFilter(options?: AgentInvocationGetOptions): ((observation: TraceEventLogEntry) => boolean) | undefined {
+  const names = options?.observationNames && new Set(options.observationNames)
+  const afterSequence = options?.afterSequence
+  if (!names && afterSequence === undefined) return
+  return observation => (!names || names.has(observation.name)) && (afterSequence === undefined || observation.sequence > afterSequence)
+}
+
 export async function agentInvocationId(runId: string, agentName?: string): Promise<string> {
   assertInvocationId(runId)
   return await boundedIdentity(invocationIdentity(runId, agentName))
@@ -1860,9 +1894,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id, options) {
       const record = records.get(id)
       if (!record) return undefined
-      if (!options?.observationNames) return cloneRecord(record)
-      const names = new Set(options.observationNames)
-      return cloneRecord({ ...record, observations: record.observations.filter(observation => names.has(observation.name)) })
+      const filter = observationFilter(options)
+      if (!filter) return cloneRecord(record)
+      return cloneRecord({ ...record, observations: record.observations.filter(filter) })
     },
     getSummary(id) {
       const record = records.get(id)
@@ -2126,6 +2160,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
       if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
+    },
+    async [agentInvocationClaimStateSymbol](id) {
+      if (!await publicStore(() => store.getSummary(id))) return "missing"
+      // The store gives the claim only when it is absent or expired. A live run renews its claim before it expires.
+      const claimId = `probe_${globalThis.crypto.randomUUID()}`
+      const claimTask = Promise.resolve().then(() => store.claim(id, claimId, CLAIM_LEASE_MS))
+      try {
+        if (!await publicStore(() => claimTask)) return "held"
+      }
+      catch (error) {
+        // Timing out does not cancel the store operation. Release a late claim by its unique probe id.
+        void claimTask.then(owned => owned ? publicStore(() => store.release(id, claimId)) : undefined).catch(() => undefined)
+        throw error
+      }
+      await publicStore(() => store.release(id, claimId))
+      return "free"
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
@@ -3084,9 +3134,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id, options) {
       assertInvocationId(id)
+      assertAfterSequence(options?.afterSequence)
       const record = await publicStore(() => store.get(id, options))
-      if (!record || !options?.observationNames) return record
-      return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
+      // A store may ignore the read options, so filter its result again.
+      const filter = observationFilter(options)
+      if (!record || !filter) return record
+      return { ...record, observations: record.observations.filter(filter) }
     },
     async getByRunId(runId, agentName) {
       const id = await agentInvocationId(runId, agentName)
@@ -3188,6 +3241,19 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
+}
+
+/**
+ * Tells if a live run holds the journal claim of an Invocation. Processes that share one journal use it to tell an
+ * interrupted record from a record that another process runs. The test takes the claim and releases it at once.
+ */
+export async function agentInvocationClaimState(invocations: AgentInvocations, id: string): Promise<AgentInvocationClaimState> {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const read = (invocations as Partial<BoundAgentInvocations>)[agentInvocationClaimStateSymbol]
+  if (typeof read !== "function") {
+    throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
+  }
+  return await read.call(invocations, id)
 }
 
 /** Fails interrupted invocations in a journal created by defineAgentInvocations(). */

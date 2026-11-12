@@ -58,6 +58,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_NAME_REQUIRED`, `DATABASE_NOT_FOUND` | By `useDatabase()`, when the name does not select one Database |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
+| `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
@@ -103,7 +104,7 @@ One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store lar
 
 ### DATABASE_DISABLED
 
-Code imported `@vite-hub/database/drizzle`, but the runtime has no Database config. Add `hubDb()` to the Vite config, and do not set `database: false`.
+Code read the Default Database, but the runtime has none. If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDb()` to the Vite plugins and do not pass `false` to it.
 
 ### DATABASE_INVALID_D1_HTTP_URL
 
@@ -151,7 +152,11 @@ The D1 migration names are invalid, duplicated, or no longer match the names Wra
 
 ### DATABASE_MIGRATION_CHECK_FAILED
 
-ViteHub cannot read which migrations the database has applied. `error.why` has the reason, such as missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, a migrations folder from Drizzle Kit 0.x that needs `npx drizzle-kit up`, or a Drizzle Kit 0.x migrations table with rows that match no migration folder. Make the database reachable with the connection that `vitehub database migrate` uses. To skip the check, run `vitehub database migrate --allow-data-loss`. Missing `migration.sql` files must still be restored.
+ViteHub cannot read which migrations the database has applied. `error.why` has the reason, such as missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, or a Drizzle Kit 0.x migrations table with rows that match no migration folder. Make the database reachable with the connection that `vitehub database migrate` uses. To skip the check, run `vitehub database migrate --allow-data-loss`. Missing `migration.sql` files must still be restored.
+
+### DATABASE_MIGRATIONS_OLD_LAYOUT
+
+A migrations folder has the layout of Drizzle Kit 0.x: flat `.sql` files and `meta/_journal.json`. Drizzle Kit 1.0 and ViteHub read one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder per migration. Run `vitehub database up` once, and commit the new folders. Migrations that the database applied stay applied. See [Upgrade to Drizzle 1.0](/docs/database/configure#upgrade-to-drizzle-10).
 
 ### DATABASE_MIGRATION_DATA_LOSS
 

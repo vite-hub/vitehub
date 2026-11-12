@@ -73,7 +73,7 @@ export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBa
 export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
 export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
-export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
+export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
@@ -90,7 +90,9 @@ export type {
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { registerContentKV } from "./source-heads.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
+export type { ContentKV, ContentSourceHead, ContentSourceHeads, ContentSourceView } from "./source-heads.ts"
+export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
+export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export { contentSessionTimeouts } from "./defaults.ts"
@@ -445,7 +447,7 @@ export function defineContent<
   const snapshotTargets: ContentSnapshotTarget[] = []
   // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
   const reuseParsed = !customPlugins.some(Boolean) && !options.plugins?.some(Boolean)
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, reuseParsed)
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [] }, reuseParsed)
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
@@ -641,7 +643,7 @@ export function defineContent<
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
-      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
+      await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {

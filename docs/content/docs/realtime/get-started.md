@@ -24,7 +24,7 @@ Add Realtime, Workspace, and the TipTap editor for Vue to your app:
 pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3
 ```
 
-Then add `realtime` and `workspace` to `vitehub()` in `vite.config.ts`. Keep the Vue plugin and the other options of your app.
+Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app. In Vite, also keep the Vue plugin.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}

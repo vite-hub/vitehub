@@ -184,7 +184,7 @@ export async function readMigrationPlan(
     return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
   }
   try {
-    const entries = readMigrations(database.migrationsDir)
+    const entries = readMigrations(database.migrationsDir, database.name)
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, options.fetch), database, entries)
       const pending = listD1Migrations(database.migrationsDir)
@@ -227,7 +227,7 @@ export async function migrateD1Http(
   if (target?.kind !== "d1-http") return `The database "${database.name}" does not use D1 HTTP.`
   try {
     const query = createD1Query(target, options.fetch)
-    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir))
+    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir, database.name))
     await applyD1Migrations(query, ledger, database.migrationsDir, onApplied)
   }
   catch (error) {
@@ -237,7 +237,7 @@ export async function migrateD1Http(
 
 /**
  * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
- * runs on start. It holds the same advisory lock, so `vitehub db migrate` and a starting server never migrate at the
+ * runs on start. It holds the same advisory lock, so `vitehub database migrate` and a starting server never migrate at the
  * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
  */
 export async function migratePostgresDatabases(

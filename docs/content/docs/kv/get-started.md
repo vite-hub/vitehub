@@ -24,7 +24,7 @@ Install the KV package in the app:
 pnpm add @vite-hub/kv
 ```
 
-Add `kv: true` to the existing `vitehub()` options in `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
+Add `kv: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -61,8 +61,6 @@ export default defineConfig({
 ```
 ::::
 :::
-
-Did you choose Nuxt in Installation? Then add `kv: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 
 ::
 

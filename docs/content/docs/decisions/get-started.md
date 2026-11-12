@@ -186,7 +186,7 @@ You get a selection. Each group has its own shape:
 
 The browser sends the text to your route and gets a selection back. `useChoices()` handles the typing and the waiting, and it cancels old requests. You write the second bridge: `onSelect` puts the selection into your own state.
 
-Add the Vue plugin to `vite.config.ts`:
+In Vite, add the Vue plugin. Nuxt includes Vue:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}

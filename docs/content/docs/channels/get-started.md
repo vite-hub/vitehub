@@ -24,7 +24,7 @@ Add Channels and the Agent and Workflow packages that receive webhooks:
 pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
 ```
 
-Add `channels: true` and `agent: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `channels: true` and `agent: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
