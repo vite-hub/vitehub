@@ -106,7 +106,7 @@ For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capab
 
 Select authors by their role in the repository with `filter.authorAssociation`, the `author_association` that GitHub reports on each pull request: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, or `NONE`. A bot's association is usually `NONE` or `CONTRIBUTOR`, so add bots by login in `filter.author`:
 
-```ts [server/agents/babysitter/agent.ts]
+```ts fragment
 filter: {
   repository: { allow: ['acme/app'] },
   authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] },
