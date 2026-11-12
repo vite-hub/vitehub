@@ -174,6 +174,8 @@ export default defineConfig({
 
 The default is 0, which stops work at once. Set the host's termination grace period above the budget plus 25 seconds (15 for interrupted work such as a Chat restart notice, 10 for close hooks), such as 90 seconds for a 45-second budget.
 
+The [systemd unit](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-systemd) that the `node` preset writes sets `TimeoutStopSec` from `shutdown.drainMs`.
+
 ViteHub handles stop signals only where the Nitro server does: the `node`, `node-cluster`, `bun`, and `deno` presets. In development, during prerender, on serverless and Cloudflare hosts, and when graceful shutdown is off (srvx turns it off when `CI` or `TEST` is set), the signal keeps its default behavior, and drains run only when Nitro calls its `close` hooks.
 
 - `agent: { shutdown: false }` skips draining inline Chat Invocations.
