@@ -245,6 +245,36 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
     expect((await done)[0]).toBe(0)
   }, 20000)
 
+  it("cancels preparation while the SSH port refuses connections", async () => {
+    const { server, options, cwd } = await fixture()
+    await server.close()
+    const launch = sshLaunch(options)({ command: process.execPath, cwd })
+    const controller = new AbortController()
+    const preparing = launch.prepare({ abortSignal: controller.signal })
+    const aborted = expect(preparing).rejects.toMatchObject({ name: "AbortError" })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    controller.abort()
+    await aborted
+  }, 15000)
+
+  it("does not repeat a remote side effect when a nested ssh connection is refused", async () => {
+    const { server, cwd } = await fixture()
+    const closedPort = server.port
+    await server.close()
+    // Use a second live server for the outer connection and the closed port for the nested command.
+    const outer = await fixture()
+    const result = outer.launch(["-e", `
+      const { appendFileSync } = require("node:fs")
+      const { spawnSync } = require("node:child_process")
+      appendFileSync(${JSON.stringify(join(cwd, "executions"))}, "x")
+      const child = spawnSync("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-p", "${closedPort}", "agent@127.0.0.1", "true"], { stdio: "inherit" })
+      process.exitCode = child.status
+    `], { connectRetryMs: 1800 })
+    result.child.stdin.end()
+    expect(await result.done).toMatchObject({ code: 255, stderr: expect.stringContaining("Connection refused") })
+    expect(await readFile(join(cwd, "executions"), "utf8")).toBe("x")
+  }, 15000)
+
   it("closes TCP clients that have not sent SSH identification", async () => {
     const { server } = await fixture()
     const socket = connect({ host: "127.0.0.1", port: server.port, allowHalfOpen: true })
@@ -288,7 +318,9 @@ const { appendFileSync, readFileSync } = require("node:fs")
 appendFileSync(${JSON.stringify(log)}, "x")
 const attempts = ${JSON.stringify(attempts)}
 const attempt = attempts[Math.min(readFileSync(${JSON.stringify(log)}, "utf8").length, attempts.length) - 1]
-process.stderr.write(attempt.stderr)
+const diagnosticIndex = process.argv.indexOf("-E")
+if (diagnosticIndex === -1) process.stderr.write(attempt.stderr)
+else appendFileSync(process.argv[diagnosticIndex + 1], attempt.stderr)
 process.exitCode = attempt.code
 `, { mode: 0o700 })
     const definition = sshLaunch({ host: "127.0.0.1", user: "agent", identityFile: join(root, "identity"), port: 2222, ...overrides })({ command: "codex", cwd: root })

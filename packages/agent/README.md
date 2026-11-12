@@ -892,6 +892,10 @@ plugin. `registerAgentProcessHostIntake()`
 lets a running host receive verified webhook deliveries for its Agent.
 [`@vite-hub/presets`](../presets/README.md) uses these primitives for the Babysitter.
 
+### Provider transport preparation
+
+A `launch` resolver can return `prepare({ abortSignal })` with its command. ViteHub awaits this host callback before provider inspection or launch, outside the provider's status-probe deadline. Use it to wait for a transport such as a starting SSH sidecar. Honor `abortSignal` to stop I/O when the caller cancels. Existing command-only launchers need no callback.
+
 ### Provider exit evidence
 
 A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.

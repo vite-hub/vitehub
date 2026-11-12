@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:net"
+import { promisify } from "node:util"
 import type { ChildProcess } from "node:child_process"
 import type { Socket } from "node:net"
 import type { Connection } from "ssh2"
@@ -43,18 +44,18 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 const config = JSON.parse(process.argv[1])
 const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'"
-let temporary
+const temporary = await mkdtemp(join(tmpdir(), "vitehub-ssh-"))
 try {
+  const diagnostics = join(temporary, "diagnostics")
   let knownHostsFile = config.knownHostsFile
   if (config.hostKeyFile) {
-    temporary = await mkdtemp(join(tmpdir(), "vitehub-ssh-"))
     knownHostsFile = join(temporary, "known_hosts")
     const key = (await readFile(config.hostKeyFile, "utf8")).trim()
     if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) [A-Za-z0-9+/=]+(?: .*)?$/.test(key)) throw new Error("Invalid SSH host public key")
     await writeFile(knownHostsFile, "vitehub-runner " + key + "\n", { mode: 0o600 })
   }
   const sshArgs = [
-    "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+    "-E", diagnostics, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
     "-o", "LogLevel=ERROR", "-o", "ServerAliveInterval=30",
     "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=yes",
     ...(knownHostsFile ? ["-o", "UserKnownHostsFile=" + knownHostsFile] : []),
@@ -64,8 +65,8 @@ try {
     config.user + "@" + config.host,
     "cd " + quote(config.cwd) + " && exec " + [config.command, ...process.argv.slice(2)].map(quote).join(" "),
   ]
-  // OpenSSH exits with 255 and prints this line when the TCP connection is refused. The command did not start, so
-  // connecting again is safe. Authentication, host key, and command failures print other text and are not retried.
+  // -E separates local OpenSSH diagnostics from remote stderr, which may itself contain an SSH refusal.
+  // Only a local connection refusal establishes that the remote command did not start.
   const refused = /^ssh: connect to host \S+ port \d+: Connection refused\r?$/m
   const deadline = Date.now() + config.connectRetryMs
   let child
@@ -79,10 +80,13 @@ try {
   for (const [signal, handler] of handlers) process.on(signal, handler)
   try {
     for (let delay = 250; ; delay = Math.min(delay * 2, 4000)) {
+      await writeFile(diagnostics, "", { mode: 0o600 })
+      if (stopped) {
+        process.exitCode = 255
+        break
+      }
       child = spawn("ssh", sshArgs, { stdio: ["inherit", "inherit", "pipe"] })
-      let stderr = ""
       child.stderr.on("data", chunk => {
-        stderr = (stderr + chunk).slice(-4096)
         if (!process.stderr.write(chunk)) {
           child.stderr.pause()
           process.stderr.once("drain", () => child.stderr.resume())
@@ -92,8 +96,10 @@ try {
         child.once("error", reject)
         child.once("close", (code, signal) => resolve({ code, signal }))
       })
+      const localDiagnostics = await readFile(diagnostics, "utf8")
+      process.stderr.write(localDiagnostics)
       const wait = Math.min(delay, deadline - Date.now())
-      if (stopped || result.code !== 255 || !refused.test(stderr) || wait <= 0) {
+      if (stopped || result.code !== 255 || !refused.test(localDiagnostics) || wait <= 0) {
         process.exitCode = result.code ?? 1
         break
       }
@@ -116,7 +122,7 @@ try {
 `
 
 /** Launch a command on a trusted SSH host with the same working-directory path. */
-export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext) => { command: string; args: string[] } {
+export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext) => { command: string; args: string[]; prepare: (context: { abortSignal?: AbortSignal }) => Promise<void> } {
   if (!options.host || options.host.startsWith("-") || /[\s\0]/.test(options.host)) throw new TypeError("[vitehub] SSH host is invalid.")
   if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(options.user)) throw new TypeError("[vitehub] SSH user is invalid.")
   if (!options.identityFile || options.identityFile.includes("\0")) throw new TypeError("[vitehub] SSH identityFile is required.")
@@ -132,9 +138,14 @@ export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext
     const forwarded = [...new Set([...names, ...(requiredEnvironment || [])])]
     if (forwarded.some(name => !environmentName.test(name))) throw new TypeError("[vitehub] SSH environment names must be uppercase shell identifiers.")
     if (!command || !cwd || command.includes("\0") || cwd.includes("\0")) throw new TypeError("[vitehub] SSH command and cwd are required and cannot contain NUL.")
+    const args = (command: string, cwd: string) => ["--input-type=module", "-e", launcherSource, JSON.stringify({ ...options, port, connectRetryMs, forwardEnvironment: forwarded, command, cwd })]
     return {
       command: process.execPath,
-      args: ["--input-type=module", "-e", launcherSource, JSON.stringify({ ...options, port, connectRetryMs, forwardEnvironment: forwarded, command, cwd })],
+      args: args(command, cwd),
+      // Agent inspection calls this before the provider starts its own short status-probe deadline.
+      prepare: async ({ abortSignal }) => {
+        await promisify(execFile)(process.execPath, args("/bin/true", "/"), { signal: abortSignal })
+      },
     }
   }
 }

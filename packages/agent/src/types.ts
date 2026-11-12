@@ -1904,6 +1904,8 @@ export interface AgentProviderExitContext {
 }
 
 export interface AgentProviderLaunchCommand {
+  /** Prepare the transport before inspection or launch. Runs outside provider probe deadlines; honor cancellation. */
+  prepare?: (context: { abortSignal?: AbortSignal }) => MaybePromise<void>
   /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection or auxiliary runs. */
   onExit?: (context: AgentProviderExitContext) => MaybePromise<void>
   args?: readonly string[]
