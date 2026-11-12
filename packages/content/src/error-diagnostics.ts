@@ -101,5 +101,18 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the document on the branch or pull request and push a new commit. The next `content.sources.at()` call after 30 seconds reads the new commit.",
       why: ({ source, ref, sha, reason }: { source: string, ref: string, sha: string, reason: string }) => `[vitehub] Commit ${sha} of ref ${JSON.stringify(ref)} in Content source ${JSON.stringify(source)} failed validation: ${reason}`,
     },
+    /**
+     * `content.sources.allow()` denied a ref. A route answers a plain 404 and keeps this message in its logs, so a caller
+     * cannot tell a private ref from a missing one.
+     */
+    CONTENT_R0031: {
+      fix: "A ref renders publicly when the published branch contains its commit, or when it is the head of an open or merged pull request from the same repository, or from a fork with the `preview:enabled` label. Other refs need the preview cookie of `content.preview.enable()` or a link from `content.sources.sign()`.",
+      why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content source ${JSON.stringify(source)} does not serve ref ${JSON.stringify(ref)} to this request: ${reason}.`,
+    },
+    /** GitHub did not answer a check of `content.sources.allow()`, for example because of a rate limit. Content holds no decision. */
+    CONTENT_R0032: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env for a higher GitHub rate limit, then try again. `content.sources.allow()` holds each decision for 10 minutes.",
+      why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content could not check on GitHub whether ref ${JSON.stringify(ref)} of Content source ${JSON.stringify(source)} is public: ${reason}`,
+    },
   },
 })
