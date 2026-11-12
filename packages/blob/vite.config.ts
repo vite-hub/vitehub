@@ -8,25 +8,15 @@ import { normalizePackageExports, packDefaults } from "@vite-hub/internal/packag
 import { filesSdkDriverPeers } from "./src/internal/files-sdk-peers.ts";
 
 const bundledFilesSdkDrivers = new Set([
-  "akamai",
   "azure",
-  "box",
-  "digitalocean-spaces",
-  "dropbox",
   "fs",
   "gcs",
-  "google-drive",
-  "hetzner",
   "minio",
-  "onedrive",
   "s3",
-  "storj",
-  "supabase",
-  "uploadthing",
 ]);
 
 // Generated code imports these modules by path. They are not public API.
-const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./storage"]);
+const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./runtime/signed", "./storage"]);
 
 const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
@@ -71,26 +61,17 @@ export default defineConfig({
       "src/cli.ts",
       "src/client.ts",
       "src/config.ts",
+      "src/durability.ts",
       "src/errors.ts",
       "src/storage.ts",
-      "src/drivers/akamai.ts",
       "src/drivers/azure.ts",
-      "src/drivers/box.ts",
       "src/drivers/cloudflare.ts",
       "src/drivers/cloudflare-native.ts",
-      "src/drivers/digitalocean-spaces.ts",
-      "src/drivers/dropbox.ts",
       "src/drivers/fs.ts",
       "src/drivers/gcs.ts",
-      "src/drivers/google-drive.ts",
-      "src/drivers/hetzner.ts",
       "src/drivers/minio.ts",
       "src/drivers/netlify-blobs.ts",
-      "src/drivers/onedrive.ts",
       "src/drivers/s3.ts",
-      "src/drivers/storj.ts",
-      "src/drivers/supabase.ts",
-      "src/drivers/uploadthing.ts",
       "src/drivers/vercel.ts",
       "src/drivers/vercel-bundled.ts",
       "src/index.ts",
@@ -98,6 +79,7 @@ export default defineConfig({
       "src/media.ts",
       "src/operations.ts",
       "src/vite.ts",
+      "src/runtime/signed.ts",
       "src/runtime/state.ts",
       "src/served.ts",
       "src/virtual.ts",

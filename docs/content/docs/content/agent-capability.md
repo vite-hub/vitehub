@@ -82,6 +82,8 @@ When a collection in scope has [locales](/docs/content/configure#locales), `cont
 
 To translate, the Agent calls `content_list_translations` with `{ collection, locale }`, reads each source document with `content_get_document` and `ref: 'draft'`, and saves the translation with `content_save_draft`, the `locale`, and `sourceDigest`. `content_get_document` returns `source: { path, digest }` in a collection with locales, and `sourceDigest` is that `source.digest` of the read the Agent translated. Set `ifDigest` to `null` for a missing translation, or to the `digest` that `content_get_document` returns for the stale one with `locale` and `ref: 'draft'`. The save records that source version as `derivedFrom`, so the translation is `current` until the source changes again, and `stale` at once when the source changed while the Agent translated. A save with `sourceDigest: null` keeps the `derivedFrom` of an existing translation. Collections without locales keep the same input schemas as before.
 
+To translate each page when its source changes, run the Agent from a Queue job that a Workspace hook starts. See [Translate Content with an Agent](/docs/content/translate-with-an-agent).
+
 ## Field issues
 
 Drafts accept invalid fields, so the Agent can save unfinished work. `content_save_draft` returns `ok: true` with the `document`, the `issues`, and a `hint` that the draft cannot publish until they are fixed. `content_status` counts `issues`. `content_publish` and `content_schedule` refuse the draft with `CONTENT_INVALID` and change nothing.

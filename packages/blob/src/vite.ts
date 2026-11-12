@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
@@ -15,6 +16,7 @@ import { dirname, relative, resolve } from "pathe"
 
 import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { blobSignedRoute } from "./internal/fs-sign.ts"
 import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
@@ -25,6 +27,7 @@ import {
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -35,6 +38,8 @@ import type { Plugin, ResolvedConfig } from "vite"
 // Generated code imports these modules by path, so they need no package export.
 const operationsModule = ownModule(import.meta.url, "operations")
 const runtimeStateModule = ownModule(import.meta.url, "runtime/state")
+const signedRouteModule = ownModule(import.meta.url, "runtime/signed")
+const signedNitroRoute = `${blobSignedRoute}/**`
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
 const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
@@ -60,7 +65,7 @@ interface BlobProvisionContributingPlugin {
   }
 }
 
-export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI, vitehub: { operations: readonly OperationContributionEntry[] } }
+export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI, vitehub: DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 
 interface InternalBlobModuleOptions {
   importBase?: string
@@ -155,8 +160,14 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
     && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${generatedPath}`))
 }
 
+/** True when a store uses the `fs` driver, also as the local store of `vite dev`. Its signed links need the signed route. */
+function hasLocalStore(blob: BlobViteRuntimeConfig["blob"]): boolean {
+  if (!blob) return false
+  return Object.values(blob.stores ?? { default: blob.store }).some(store => store.driver === "fs" || (store.driver === "cloudflare-r2" && Boolean(store.localFallback)))
+}
+
 /** Merges the generated Blob registrations into the Nitro config. */
-function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
+function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string, signedRoute = false): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
@@ -165,11 +176,13 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
     ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedNitroBlobPlugin))
     : []
   nitro.handlers = Array.isArray(nitro.handlers)
-    ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware))
+    ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware) && handler?.route !== signedNitroRoute)
     : []
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(plugin)
   if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
+  // Only an `fs` store signs links to this route. A hosted store signs links to its provider.
+  if (signedRoute) kit.addHandler({ handler: signedRouteModule, route: signedNitroRoute })
   if (!serve) return kit.config
   if (Array.isArray(kit.config.handlers)) {
     const existingHandlers = kit.config.handlers.filter(handler =>
@@ -212,7 +225,7 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
 type ImageModule = "photon" | "sharp"
 
 // Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
-function devServerHost(config: ResolvedConfig) {
+function devServerHost(config: object) {
   return getHostingProvider(resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }))
 }
 
@@ -497,6 +510,12 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
     name: BLOB_VITE_PLUGIN_NAME,
     api: { getConfig },
     vitehub: {
+      durability: () => {
+        const config = getConfig().blob
+        if (!config) return []
+        const stores = Object.fromEntries(Object.entries({ default: config.store, ...config.stores }).map(([name, store]) => [name, { driver: store.driver, ...("base" in store && typeof store.base === "string" ? { base: store.base } : {}) }]))
+        return [{ export: "blobDurability", input: { stores }, module: durabilityModuleFile(import.meta.url), primitive: "blob" }]
+      },
       // The Console, `vitehub blob`, and agents run these.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: operationsModule }],
       cli: async () => {
@@ -525,12 +544,16 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
         blob = getResolvedFeatureOptions<BlobOptions>(config, "blob") ?? blob
         const configuredNitro = (config as { nitro?: unknown }).nitro
         const cloudflare = isNitroCloudflareHost(configuredNitro)
-        const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
+        const development = env.command === "serve"
+        // Nitro copies its handlers in its own `config` hook. Resolve the dev stores here, so that a local store of
+        // `vite dev` registers the signed route before Nitro starts. `configResolved` is too late for its router.
+        const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })
         const nitro = mergeNitroBlobConfig(
           configuredNitro,
           blobConfig.blob ? blobConfig.blob.serve : undefined,
           cloudflare,
           hasNitroConfigContext(config) ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
+          hasLocalStore(blobConfig.blob),
         )
         const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
         ;(config as { nitro?: unknown }).nitro = composedNitro
@@ -552,6 +575,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflare,
         rootDir,
+        hasLocalStore(blobConfig.blob),
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
       runtimeConfig = blobConfig

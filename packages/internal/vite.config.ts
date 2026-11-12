@@ -26,6 +26,7 @@ export default defineConfig({
       "src/dev-endpoint.ts",
       "src/dev-peer.ts",
       "src/dev-token.ts",
+      "src/durability.ts",
       "src/env.ts",
       "src/features.ts",
       "src/http-request.ts",
