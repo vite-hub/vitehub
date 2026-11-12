@@ -468,7 +468,8 @@ export interface ViteHubOptions {
   connections?: boolean | ConnectionsOptions
   /**
    * The Console endpoint, `POST /_vitehub/rpc`, which the ViteHub Console at console.vitehub.dev and the CLI call with
-   * signed requests. Off by default. `true` takes calls signed with a key in `VITEHUB_CONSOLE_KEY_<NAME>`.
+   * signed requests. Off by default, but `vite dev` still serves the operation RPC for the CLI. `false` turns that RPC off too.
+   * `true` takes calls signed with a key in `VITEHUB_CONSOLE_KEY_<NAME>`.
    * `{ auth: false }` takes calls without a signature, for development only.
    */
   console?: boolean | ConsoleOptions
@@ -1169,7 +1170,8 @@ function doctorPlugin(): Plugin {
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   const preset = options.preset ?? detectPreset() ?? "node"
-  options = withConnectionsDatabase(withDataDir({ ...options, preset, console: resolveConsoleOptions(options.console) }))
+  // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
+  options = withConnectionsDatabase(withDataDir({ ...options, preset, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
   const configuredConsole = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(preset)
   // Cloudflare has no durable local filesystem. Treat the shorthand database
@@ -1334,7 +1336,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(setupDevPlugin())
   plugins.push(operationsCheckPlugin())
   // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
-  const devOperationsOnly = configuredConsole === undefined
+  // `console: false` turns the RPC off.
+  const devOperationsOnly = options.console === undefined
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
