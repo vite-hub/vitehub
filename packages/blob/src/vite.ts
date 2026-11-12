@@ -41,6 +41,7 @@ const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
 const generatedNitroBlobRuntime = ".vitehub/nitro/blob/runtime.mjs"
 const generatedNitroBlobMiddleware = ".vitehub/nitro/blob/middleware.ts"
 const generatedBlobServeRouteHandler = ".vitehub/blob/serve-route.ts"
+const generatedBlobTypes = ".vitehub/types/blob.d.ts"
 const blobServeModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 const AUTH_SERVER_ID = "#vitehub/auth/server"
 const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
@@ -300,9 +301,20 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "",
     "async function serveBlob(request: Request): Promise<Response> {",
     "  const response = await serveBlobResponse(request)",
-    "  if (response.status < 400) return response",
-    "  // H3 drops pending middleware headers for error Responses. Keep them, with the Blob headers taking precedence.",
     "  const { res } = (request as Request & { '~standard'?: { res: { headers?: Headers } } })['~standard'] ?? {}",
+    "  if (response.status < 400) {",
+    "    // H3 replaces the Response headers with the headers that middleware set. When Blob sets a CSP, such as the",
+    "    // sandbox of an HTML or SVG file, this route writes the final CSP: the Blob CSP after a non-empty middleware CSP,",
+    "    // as two policies that the browser applies both. A middleware CSP, also an empty one, cannot remove the sandbox.",
+    "    const blobPolicy = response.headers.get('content-security-policy')",
+    "    if (!res?.headers || !blobPolicy) return response",
+    "    const appPolicy = res.headers.get('content-security-policy')",
+    "    res.headers.delete('content-security-policy')",
+    "    const headers = new Headers(response.headers)",
+    "    headers.set('content-security-policy', appPolicy ? `${appPolicy}, ${blobPolicy}` : blobPolicy)",
+    "    return new Response(response.body, { headers, status: response.status, statusText: response.statusText })",
+    "  }",
+    "  // H3 drops pending middleware headers for error Responses. Keep them, with the Blob headers taking precedence.",
     "  const headers = new Headers(res?.headers)",
     "  for (const [name, value] of response.headers) {",
     "    if (name !== 'set-cookie') headers.set(name, value)",
@@ -416,6 +428,8 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
 async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false, requestBodyLimit?: number): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
+  // Editors and type checks read the types after `nuxt prepare` too.
+  await writeFileIfChanged(resolve(root, generatedBlobTypes), renderBlobStoreTypes(blob, importBase))
   // `nuxt prepare` replays the hooks as a build. No type reads these files, and a running dev server loads them.
   if (Reflect.get(config, VITEHUB_PREPARE) !== true) {
     await Promise.all([
@@ -428,6 +442,21 @@ async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, b
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase, authorizeModule))
+}
+
+/** Declares the configured store names, so `blob.store()` rejects an unknown name at compile time. */
+function renderBlobStoreTypes(blob: BlobViteRuntimeConfig["blob"], importBase: string): string {
+  if (!blob) return "export {}\n"
+  return [
+    "export {}",
+    "",
+    `declare module ${JSON.stringify(importBase)} {`,
+    "  interface BlobStoreRegistry {",
+    ...Object.keys(blob.stores ?? { default: blob.store }).map(name => `    ${JSON.stringify(name)}: true`),
+    "  }",
+    "}",
+    "",
+  ].join("\n")
 }
 
 function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCloudflareR2 = false) {

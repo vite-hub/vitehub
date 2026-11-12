@@ -8,7 +8,7 @@ import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
-import { getAuthenticationSession } from "./session.ts"
+import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
@@ -17,10 +17,10 @@ import { checkAbility } from "./ability-check.ts"
 import { AbilityError } from "./ability-error.ts"
 import {
   authForRequest,
-  createAuthenticationProvider,
   createBetterAuthOptions,
   envResolverFor,
   getAuthForDefinition,
+  requestProvider,
   resolveDefaultDefinition,
 } from "./auth-instance.ts"
 
@@ -268,7 +268,8 @@ export function handleAuthRequest(
   const request = unwrapAuthRequest(input)
   // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
-  return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
+  const auth = requestProvider(definition, resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }))
+  return auth.handler(setRequestClientAddress(toRequest(request), address))
 }
 
 /** Return a Web Request itself, or the request in the Standard Context of a request event. */
@@ -414,14 +415,19 @@ async function createSignInResponse(
   return new Response(null, { headers, status: 302 })
 }
 
+// Every guard of one request shares one session lookup. Like reusableAccessChecks, the key is the Request of the
+// Standard Context, so H3 middleware, the Fetchable route, and handler guards of one request share it.
+const sessionReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthenticationSessionSnapshot | null>>>()
+
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-
-
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
-  const auth = createAuthenticationProvider(providerOptions)
-  const session = await getAuthenticationSession(auth, { headers: request.headers })
-  return { auth, options, request, session }
+  const resolved = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
+  const auth = requestProvider(definition, resolved)
+  let reads = sessionReads.get(request)
+  if (!reads) sessionReads.set(request, reads = new WeakMap())
+  let session = reads.get(definition)
+  if (!session) reads.set(definition, session = getAuthenticationSession(auth, { headers: request.headers }))
+  return { auth, options: resolved.options, request, session: await session }
 }
 
 type AuthCheck =
@@ -1027,7 +1033,7 @@ export function getAuthConsoleForRequest(request: Request, event?: ViteHubContex
     env: envResolverFor(definition),
   });
   return createAuthConsole(
-    createAuthenticationProvider(resolved.providerOptions),
+    requestProvider(definition, resolved),
     resolved.options.console as AuthConsoleOptions | undefined,
     resolved.options.events ? resolved.options.events.store : undefined,
     host,

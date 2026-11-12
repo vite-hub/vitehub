@@ -2,7 +2,8 @@ import { it, afterEach } from 'vitest'
 import assert from 'node:assert/strict'
 import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
 import type { GitHubEvidence } from '../src/babysitter/inbox/types.ts'
-import { diagnosticExcerpt, hydrateFailedCiEvidence } from '../src/babysitter/inbox/ci-evidence.ts'
+import { hydrateFailedCiEvidence } from '../src/babysitter/inbox/ci-evidence.ts'
+import { compactCiLog, diagnosticExcerpt } from '../src/github/ci-logs.ts'
 import { rerunFailedActions } from '../src/babysitter/ci-recovery.ts'
 import type { Claim } from '../src/babysitter/inbox/store.ts'
 import { githubError, githubForge, type GitHubTestRequest } from './fixtures/github-forge.ts'
@@ -43,6 +44,21 @@ it('failed current-head job metadata and log are fetched once, cached and attach
  assert.equal(evidence.status, 'available'); assert.equal(evidence.complete, true)
  assert.equal(evidence.excerpt, '##[error] Type mismatch\nsource.ts:2'); assert.equal((evidence.failedSteps as {name:string}[])[0]!.name, 'Typecheck')
  assert.equal(((await inbox.meta(String(evidence.cacheKey))) as { value: { log: string } }).value.log, evidence.excerpt)
+})
+it('the cached job log drops color codes and fetch branch listings', async () => {
+ const { inbox, claim } = await fixture()
+ const log = ['  * [new branch]          fix/agent-error -> origin/fix/agent-error', '\u001b[31mFAIL\u001b[39m test/a.test.ts', '^[[41m^[[1m FAIL ^[[22m^[[49m test/b.test.ts'].join('\n')
+ await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => [job()], readLog: async () => log })
+ const evidence = claim.snapshot.ciEvidence![0]!
+ assert.equal(evidence.excerpt, 'FAIL test/a.test.ts\n FAIL  test/b.test.ts')
+ assert.equal(((await inbox.meta(String(evidence.cacheKey))) as { value: { log: string } }).value.log, evidence.excerpt)
+})
+it('an oversized job log keeps its tail and counts the lines it dropped', () => {
+ const log = `${Array.from({ length: 1000 }, (_, n) => `built chunk ${n}`).join('\n')}\nERR_PNPM_PEER_DEP_ISSUES Unmet peer dependencies`
+ const compact = compactCiLog(log, 2000)
+ assert.ok(compact.length < 2100)
+ assert.match(compact, /^\[\d+ earlier log lines omitted\]\n/)
+ assert.ok(compact.endsWith('ERR_PNPM_PEER_DEP_ISSUES Unmet peer dependencies'))
 })
 it('pending, skipped, success and old-head checks never fetch job metadata or logs', async () => {
  const { inbox, claim } = await fixture([check({ id: 1, status: 'queued', conclusion: null }), check({ id: 2, conclusion: 'success' }), check({ id: 3, conclusion: 'skipped' }), check({ id: 4, head_sha: 'old' })])
