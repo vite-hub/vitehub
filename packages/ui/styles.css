@@ -2319,6 +2319,13 @@
     background: var(--vh-bg-accented);
   }
 
+  /* The line of a mention menu that has no one to show. It is not an option, so it has no hover or pointer. */
+  [data-slot="comment-composer-mention-empty"] {
+    color: var(--vh-muted);
+    margin: 0;
+    padding: 0.375rem 0.5rem;
+  }
+
   [data-slot="comment-composer-error"] {
     color: var(--vh-error);
     font-size: 0.75rem;

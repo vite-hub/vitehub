@@ -40,10 +40,14 @@ export interface ConsoleRecord {
   activity?: readonly ConsoleRecordActivity[]
 }
 
+export type ConsoleOperationTone = "error" | "info" | "neutral" | "success" | "warning"
+
 export interface ConsoleOperationColumn {
-  format?: "datetime" | "excerpt"
+  format?: "datetime" | "excerpt" | "status"
   key: string
   label: string
+  /** The tone of each value of a `status` column. */
+  tones?: Readonly<Record<string, ConsoleOperationTone>>
 }
 
 export interface ConsoleOperationFilter {
@@ -223,12 +227,21 @@ export function parseConsoleDefinitionFields(value: unknown): ConsoleDefinitionF
   })
 }
 
+const operationTones: ReadonlySet<string> = new Set<ConsoleOperationTone>(["error", "info", "neutral", "success", "warning"])
+
 function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperationView | undefined {
   if (!text(view.operation) || !Array.isArray(view.columns) || !text(view.notice)) return undefined
   const columns = view.columns.flatMap((entry): ConsoleOperationColumn[] => {
     const column = record(entry)
     if (!text(column?.key) || !text(column.label)) return []
-    return [{ key: column.key, label: column.label, ...(column.format === "datetime" || column.format === "excerpt" ? { format: column.format } : {}) }]
+    const format = column.format === "datetime" || column.format === "excerpt" || column.format === "status" ? column.format : undefined
+    const tones = format === "status" ? record(column.tones) : undefined
+    return [{
+      key: column.key,
+      label: column.label,
+      ...(format ? { format } : {}),
+      ...(tones ? { tones: Object.fromEntries(Object.entries(tones).filter((entry): entry is [string, ConsoleOperationTone] => operationTones.has(String(entry[1])))) } : {}),
+    }]
   })
   const filters = Array.isArray(view.filters)
     ? view.filters.flatMap((entry): ConsoleOperationFilter[] => {
