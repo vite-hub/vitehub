@@ -201,11 +201,27 @@ function revalidatesPage(request: Request): boolean {
   return acceptsHtml === true && hasPageConditions(request)
 }
 
+/** The headers of the Node.js request that srvx keeps under `runtime.node.req`, when there is one. */
+function nodeRequestHeaders(request: Request): Record<string, unknown> | undefined {
+  const runtime: unknown = Reflect.get(request, "runtime")
+  if (typeof runtime !== "object" || runtime === null) return undefined
+  const node: unknown = Reflect.get(runtime, "node")
+  if (typeof node !== "object" || node === null) return undefined
+  const req: unknown = Reflect.get(node, "req")
+  if (typeof req !== "object" || req === null) return undefined
+  const headers: unknown = Reflect.get(req, "headers")
+  // SAFETY: IncomingMessage headers are a plain object of header names.
+  return typeof headers === "object" && headers !== null ? headers as Record<string, unknown> : undefined
+}
+
 function withoutPageConditions(request: Request): Request {
   try {
     // In place: on Node.js, srvx passes its own request class, which `new Request()` cannot copy, and which carries
     // fields that a copy would lose, such as `ip` and `waitUntil`.
     for (const name of pageConditions) request.headers.delete(name)
+    // srvx keeps a separate header store on the Node request, and Nitro's Node-format routes read that one.
+    const nodeHeaders = nodeRequestHeaders(request)
+    if (nodeHeaders) for (const name of pageConditions) delete nodeHeaders[name]
     return request
   }
   catch {

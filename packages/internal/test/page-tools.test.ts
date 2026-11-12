@@ -371,6 +371,9 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(await page.text()).toBe(`<body>Page${bootstrap}</body>`)
     expect(app.requests).toHaveLength(1)
     expect(app.requests[0]).toBe(request)
+    // Nitro's Node-format routes read the Node.js headers, which srvx stores apart from the Fetch headers.
+    expect(headers).not.toHaveProperty("if-none-match")
+    expect(headers).not.toHaveProperty("if-modified-since")
   })
 
   it("copies a request whose headers cannot change, as on Cloudflare Workers", async () => {
