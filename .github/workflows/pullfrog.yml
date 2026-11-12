@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENAI_COMPATIBLE_BASE_URL: https://ai.onmax.me/v1
-      OPENAI_COMPATIBLE_MODEL: gpt-6.1-sol(xhigh)
+      OPENAI_COMPATIBLE_MODEL: gpt-6.1-sol(medium)
     permissions:
       id-token: write
       contents: read
