@@ -331,7 +331,7 @@ describe("git capability", () => {
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })
 
-    expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "vite-hub/vitehub" })
+    expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "vite-hub/vitehub", minLifetime: 55 * 60_000 })
     const setup = session.exec.mock.calls.find(([command]) => command === "sh")
     expect(setup?.[2]).toMatchObject({
       env: {
@@ -356,8 +356,8 @@ describe("git capability", () => {
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })
 
-    expect(access).toHaveBeenNthCalledWith(1, expect.anything(), { repository: "vite-hub/vitehub" })
-    expect(access).toHaveBeenNthCalledWith(2, expect.anything(), { repository: "contributor/vitehub" })
+    expect(access).toHaveBeenNthCalledWith(1, expect.anything(), { repository: "vite-hub/vitehub", minLifetime: 55 * 60_000 })
+    expect(access).toHaveBeenNthCalledWith(2, expect.anything(), { repository: "contributor/vitehub", minLifetime: 55 * 60_000 })
     const fetch = session.exec.mock.calls.find(([command, args]) => command === "git" && args[0] === "fetch")
     const basic = (token: string) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
     expect(fetch?.[2]).toMatchObject({
