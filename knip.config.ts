@@ -185,6 +185,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
   ui: {
     ignoreDependencies: [
+      // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
+      "nuxt-nightly",
       // The bundled `@pierre/diffs` imports these, and `neverBundle` keeps `vega-loader` external for the bundled Vega code.
       "@shikijs/langs",
       "@shikijs/themes",

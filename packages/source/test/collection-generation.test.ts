@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { inspectCollectionModule, prepareSourceGeneration } from "../src/vite.ts"
+import { inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
 
 async function generatedRoutes(files: Record<string, string>) {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
@@ -196,7 +196,13 @@ it.each([
     expect(handlers.some(handler => handler.plugin && handler.handler === plugin)).toBe(generated)
     // A plugin, so no route of the app can conflict with the preview URLs.
     expect(handlers.flatMap(handler => handler.route ?? [])).toEqual(["/_vitehub/content/github", "/api/content/**"])
-    if (generated) expect(await readFile(plugin, "utf8")).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+    if (generated) {
+      expect(await readFile(plugin, "utf8")).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+      const config = mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers)
+      expect(config.plugins![0]).toBe(plugin)
+      expect(config.plugins).toContain("async.mjs")
+      expect(mergeGeneratedSourceNitroConfig(config, handlers).plugins).toEqual(config.plugins)
+    }
     else await expect(access(plugin)).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {

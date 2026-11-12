@@ -712,7 +712,7 @@ export function defineContent<
   })
   /**
    * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
-   * `github()` Source, so only the first read after a head moves calls GitHub, and then only for the pages that changed.
+   * `github()` Source. Shared atomic date leases can coordinate refreshes across server instances.
    */
   async function routedPages(site: string | undefined, waitUntil: ContentSitemapOptions["waitUntil"]): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
     const pages = await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)
@@ -880,6 +880,7 @@ export function defineContent<
     return served?.locale === undefined ? found : { ...found, locale: served.locale }
   }
   const historyApi = createContentHistory({
+    ...(seo?.dateLeases ? { dateLeases: seo.dateLeases } : {}),
     ...(documentsRuntime ? { resolve: (path: string) => publishedPage(documentsRuntime, path) } : {}),
     revisions: (collection, id, revisionOptions) => requireDocuments().revisions(collection, id, revisionOptions),
     page: async (path) => {
@@ -948,6 +949,7 @@ export function defineContent<
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
     ...documentsApi,
+    get instances() { return previewHub().instances },
     sources: Object.assign(heads.api, previewRoutes),
     history: historyApi.history,
     async check(checkInput = {}) {
@@ -1017,11 +1019,18 @@ export function defineContent<
       },
     },
   }
+  if (hub.media) Object.defineProperty(runtime, "media", { enumerable: true, get: () => previewHub().media })
   setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
-      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, { enumerable: true, value })
+      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, {
+        enumerable: true,
+        get: () => {
+          const view = refScope.getStore()?.view
+          return view?.name === instance.name ? Reflect.get(view, key) : value
+        },
+      })
     }
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.
