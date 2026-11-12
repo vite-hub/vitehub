@@ -626,6 +626,9 @@ catalogs:
     pathe:
       specifier: ^2.0.3
       version: 2.0.3
+    srvx:
+      specifier: ^1.0.8
+      version: 1.0.8
     unimport:
       specifier: ^6.5.0
       version: 6.5.0
@@ -2649,6 +2652,9 @@ importers:
       sharp:
         specifier: 0.35.5
         version: 0.35.5(@types/node@24.19.1)
+      srvx:
+        specifier: catalog:unjs
+        version: 1.0.8
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
