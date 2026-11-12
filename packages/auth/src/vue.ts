@@ -2,6 +2,7 @@ import abilities from "#vitehub/auth/abilities"
 import { computed, defineComponent, getCurrentInstance, getCurrentScope, inject, provide, shallowRef, watch } from "vue"
 
 import { checkAbility } from "./ability-check.ts"
+import { AbilityError } from "./ability-error.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
 
 import type { BetterAuthClientOptions, SessionQueryParams } from "better-auth"
@@ -10,6 +11,7 @@ import type { createAuthClient as createBetterAuthClient, BetterFetchError, VueA
 import type { ComputedRef, DeepReadonly, EffectScope, InjectionKey, Ref, VNode } from "vue"
 import type { AbilityArgs, AbilityName, AbilityRefusal } from "./abilities.ts"
 import type { AbilityCheckRefusal } from "./ability-check.ts"
+import type { AbilityErrorData } from "./ability-error.ts"
 import type { AuthDefinition, AuthFor } from "./types.ts"
 
 export type { VueAuthClient } from "better-auth/vue"
@@ -17,7 +19,7 @@ export type { VueAuthClient } from "better-auth/vue"
 const LOAD = Symbol.for("vitehub.auth.client.load")
 
 type Callable = (...args: unknown[]) => unknown
-type NuxtApp = { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: AuthClientLike }
+type NuxtApp = { runWithContext<T>(run: () => T): T, isHydrating?: boolean, $vitehubAuthClient?: AuthClientLike }
 
 const authClientKey: InjectionKey<AuthClientLike> = Symbol("vitehub.auth.client")
 
@@ -25,7 +27,7 @@ const authClientKey: InjectionKey<AuthClientLike> = Symbol("vitehub.auth.client"
  * The members of a client that the composables read. Every Better Auth Vue client has them. `VueAuthClient<any>`
  * rejects a client with a required additional field, because its `signUp.email()` needs that field.
  */
-type AuthClientLike = Pick<VueAuthClient<{}>, "$fetch"> & {
+type AuthClientLike = Pick<VueAuthClient<{}>, "$fetch" | "getSession"> & {
   $Infer: { Session: { session: object, user: object } }
   signIn: unknown
   signOut: unknown
@@ -33,12 +35,21 @@ type AuthClientLike = Pick<VueAuthClient<{}>, "$fetch"> & {
   useSession: () => unknown
 }
 
+/** What `authorize()` passes to Nuxt's `createError()`: the refusal, as the server sends it, and `fatal`. */
+type NuxtErrorInput = { status: number, statusText: string, message: string, data: AbilityErrorData, fatal: true }
+
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
+let nuxtErrorFactory: ((input: NuxtErrorInput) => Error) | undefined
 let sessionSeedResolver: (() => unknown) | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
   nuxtAppResolver = resolver
+}
+
+/** Internal bridge installed by the Nuxt module: Nuxt's `createError()`, so a refusal of `authorize()` shows the error page. */
+export function setNuxtErrorFactory(factory: ((input: NuxtErrorInput) => Error) | undefined): void {
+  nuxtErrorFactory = factory
 }
 
 /**
@@ -61,7 +72,11 @@ const pendingState = (refetch: Callable) => ({ data: null, error: null, isPendin
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
-  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)))
+  // A failed load, such as a chunk that a flaky network did not deliver, lets the next call try again.
+  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)).catch((error: unknown) => {
+    loaded = undefined
+    throw error
+  }))
 
   function hook(name: string, args: unknown[]) {
     const scope = getCurrentScope()
@@ -258,30 +273,68 @@ export interface Ability {
    * are passed as they are, so load the data before you ask.
    */
   can: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => boolean | undefined
+  /** Whether a rule refuses the visitor: the opposite of `can()`, and `undefined` until the session is known. */
+  cannot: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => boolean | undefined
+  /**
+   * Checks a rule and throws when it refuses, with the status and the `{ code, details }` data that `requireAbility()`
+   * sends. In Nuxt, the error is fatal, so the page shows the error page. In the browser, except while Nuxt hydrates,
+   * it asks Better Auth's `/get-session` for the current session. On the server, a session that the server could not
+   * read counts as signed out.
+   */
+  authorize: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => Promise<void>
   /** `true` once the session is known. */
   ready: ComputedRef<boolean>
 }
 
+type SessionState = { isPending: boolean, data: { user: object } | null }
+
 /** The refusal of a rule for the visitor: `undefined` while the session is unknown, `null` when the rule allows. */
-function abilityRefusal(state: { isPending: boolean, data: { user: object } | null }, name: string, args: unknown[]): AbilityCheckRefusal | null | undefined {
+function abilityRefusal(state: SessionState, name: string, args: unknown[]): AbilityCheckRefusal | null | undefined {
   if (state.isPending) return undefined
   return checkAbility(abilities, state.data?.user ?? null, name, args)
 }
 
 /**
- * Checks the rules of `shared/abilities.ts` in the app, with the same rules the server runs. Read `can()` in a template
- * or a `computed()`, so it follows the session.
+ * The user that `authorize()` checks. The server uses the session it read for the request. While Nuxt hydrates, the
+ * browser uses the same session, so it decides as the server did. Otherwise the browser asks the client of
+ * `useAbility()`, because a sign-in or sign-out in the tab makes the server's session old. In Nuxt, that is the client of
+ * the page guard, at the configured Auth `basePath` below `app.baseURL`.
+ */
+async function authorizedUser(client: Pick<typeof authClient, "getSession">, state: Readonly<Ref<SessionState>>): Promise<object | null> {
+  const known = !state.value.isPending
+  if (!("window" in globalThis) || (known && nuxtAppResolver?.()?.isHydrating)) return state.value.data?.user ?? null
+  const { data } = await client.getSession()
+  return data?.user ?? null
+}
+
+/**
+ * Checks the rules of `shared/abilities.ts` in the app, with the same rules the server runs. Read `can()` and
+ * `cannot()` in a template or a `computed()`, so they follow the session. Call `authorize()` in a page that the visitor
+ * must not see when the rule refuses.
  *
  * @example
- * const { can } = useAbility()
+ * const { can, authorize } = useAbility()
  * const editable = computed(() => post.value && can("posts.edit", post.value))
+ * // In a page, after the post loads:
+ * await authorize("posts.edit", loadedPost)
  */
 export function useAbility(client: AuthClientLike = useAuthClient()): Ability {
   const state = useSession(client)
+  const allows = (name: string, args: unknown[]) => {
+    const refusal = abilityRefusal(state.value, name, args)
+    return refusal === undefined ? undefined : refusal === null
+  }
   return {
-    can: (name, ...args) => {
-      const refusal = abilityRefusal(state.value, name, args)
-      return refusal === undefined ? undefined : refusal === null
+    can: (name, ...args) => allows(name, args),
+    cannot: (name, ...args) => {
+      const allowed = allows(name, args)
+      return allowed === undefined ? undefined : !allowed
+    },
+    authorize: async (name, ...args) => {
+      const refusal = checkAbility(abilities, await authorizedUser(client, state), name, args)
+      if (!refusal) return
+      const error = new AbilityError(refusal)
+      throw nuxtErrorFactory ? nuxtErrorFactory({ ...error.toJSON(), fatal: true }) : error
     },
     ready: computed(() => !state.value.isPending),
   }
@@ -315,6 +368,25 @@ export type CanComponent = <const Name extends AbilityName>(props: CanProps<Name
   __ctx?: { props: CanProps<Name>, slots: CanSlots<Name> }
 }
 
+/** The runtime props of `<Can>` and `<Cannot>`. */
+const abilityProps = {
+  do: { type: String, required: true },
+  with: { type: null, default: undefined },
+  args: { type: Array, default: undefined },
+  pending: { type: Boolean, default: false },
+} as const
+
+/** The refusal of the rule that the props name. It follows the session, and is `undefined` while `pending` is `true`. */
+function usePropsRefusal(props: { do: string, with: unknown, args?: unknown[], pending: boolean }): ComputedRef<AbilityCheckRefusal | null | undefined> {
+  const state = useSession()
+  return computed(() => {
+    if (props.pending) return undefined
+    // `with` is the one argument of the rule. Without it, an optional argument stays absent, as in `can(name)`.
+    const args: unknown[] = props.args ?? (props.with === undefined ? [] : [props.with])
+    return abilityRefusal(state.value, props.do, args)
+  })
+}
+
 /**
  * Shows its content when a rule from `shared/abilities.ts` allows the visitor, the `#denied` slot with the refusal when
  * it refuses, and nothing while the session is unknown or `pending` is `true`.
@@ -329,20 +401,9 @@ export type CanComponent = <const Name extends AbilityName>(props: CanProps<Name
 // SAFETY: the runtime component takes the props of `CanComponent`. The cast gives templates its generic types.
 export const Can: CanComponent = defineComponent({
   name: "Can",
-  props: {
-    do: { type: String, required: true },
-    with: { type: null, default: undefined },
-    args: { type: Array, default: undefined },
-    pending: { type: Boolean, default: false },
-  },
+  props: abilityProps,
   setup(props, { slots }) {
-    const state = useSession()
-    const refusal = computed(() => {
-      if (props.pending) return undefined
-      // `with` is the one argument of the rule. Without it, an optional argument stays absent, as in `can(name)`.
-      const args: unknown[] = props.args ?? (props.with === undefined ? [] : [props.with])
-      return abilityRefusal(state.value, props.do, args)
-    })
+    const refusal = usePropsRefusal(props)
     return () => {
       const value = refusal.value
       if (value === undefined) return null
@@ -351,3 +412,35 @@ export const Can: CanComponent = defineComponent({
     }
   },
 }) as unknown as CanComponent
+
+/** The slot of `<Cannot>`: its content, with the refusal, when the rule refuses. */
+export interface CannotSlots<Name extends AbilityName> {
+  default?: (refusal: AbilityRefusal<Name>) => VNode[]
+}
+
+/** The type that vue-tsc reads for `<Cannot>`: the props of `<Can>`, and the refusal in the default slot. */
+export type CannotComponent = <const Name extends AbilityName>(props: CanProps<Name>) => VNode & {
+  __ctx?: { props: CanProps<Name>, slots: CannotSlots<Name> }
+}
+
+/**
+ * The mirror of `<Can>`: shows its content, with the refusal, only when a rule from `shared/abilities.ts` refuses the
+ * visitor. It shows nothing when the rule allows, while the session is unknown, or while `pending` is `true`.
+ *
+ * @example
+ * <Cannot do="billing.upgrade" v-slot="{ code, details }">
+ *   <UpgradeHint :code="code" :limit="details.limit" />
+ * </Cannot>
+ */
+// SAFETY: the runtime component takes the props of `CannotComponent`. The cast gives templates its generic types.
+export const Cannot: CannotComponent = defineComponent({
+  name: "Cannot",
+  props: abilityProps,
+  setup(props, { slots }) {
+    const refusal = usePropsRefusal(props)
+    return () => {
+      const value = refusal.value
+      return value ? slots.default?.({ code: value.code, details: value.details }) : null
+    }
+  },
+}) as unknown as CannotComponent

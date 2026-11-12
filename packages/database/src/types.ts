@@ -65,6 +65,7 @@ export interface DatabaseIntegrationOptions {
     export?: false
     generate?: false
     migrate?: false
+    up?: false
   }
   /**
    * Applies pending migrations when a Node server build starts, before it handles requests. It uses the ledger and

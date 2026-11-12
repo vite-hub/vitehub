@@ -1,4 +1,4 @@
-import type { CommentsClient, ResolvedAnchor, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
+import type { AnchorPoint, CommentsClient, ResolvedAnchor, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, type PropType, reactive, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
@@ -14,6 +14,17 @@ import { type CommentAttachmentUrl, CommentThread } from "./comment-thread.ts";
 
 const popoverWidth = 360;
 const popoverHeight = 420;
+
+// CSS owns the bubble width. Measure its unscaled box so overlay styles and the entrance animation cannot change placement.
+function placeDraft(point: AnchorPoint, page: boolean, width: number, viewport: number) {
+  const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+  const inset = rem / 2;
+  const x = page ? (viewport - width) / 2 - inset : point.x;
+  // If neither side fits, use the side with more room and shift only the bubble, leaving the pin on its spot.
+  const flipX = x > viewport / 2 && x + inset + width > viewport - inset;
+  const left = Math.max(inset, Math.min(flipX ? x - inset - width : x + inset, viewport - inset - width));
+  return { x, y: point.y, flipX, left: left - x };
+}
 
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
@@ -235,11 +246,14 @@ export const CommentLayer = defineComponent({
     // under the area instead, until the next draft.
     const draftCard = ref<HTMLElement | null>(null);
     const draftBelow = ref(false);
+    const draftWidth = ref(0);
+    const measureDraft = () => { draftWidth.value = draftCard.value?.offsetWidth ?? 0; };
     watch(() => state.draft.value, (next, previous) => {
       if (next !== previous) draftBelow.value = false;
     });
     const fits = typeof ResizeObserver === "function"
       ? new ResizeObserver(() => {
+          measureDraft();
           const card = draftCard.value;
           if (card?.parentElement?.hasAttribute("data-above") && card.getBoundingClientRect().top < 8) draftBelow.value = true;
         })
@@ -247,6 +261,7 @@ export const CommentLayer = defineComponent({
     watch(draftCard, (card, previous) => {
       if (previous) fits?.unobserve(previous);
       if (card) fits?.observe(card);
+      measureDraft();
     });
     onBeforeUnmount(() => fits?.disconnect());
     // `--vh-comment-x` lets the card move back on screen when the screen is narrower than the card.
@@ -267,6 +282,7 @@ export const CommentLayer = defineComponent({
         modelValue: draft.body,
         onCancel: () => state.cancelDraft(),
         files: draftFiles.value,
+        layout: "row",
         onSubmit: async (submit: CommentComposerSubmit) => {
           if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
           uploadingDraft.value = draft;
@@ -297,7 +313,10 @@ export const CommentLayer = defineComponent({
 
     // Margin placement: the width of the screen decides whether there is room for it.
     const screenWidth = ref(typeof window === "undefined" ? 0 : window.innerWidth);
-    const onResize = () => (screenWidth.value = window.innerWidth);
+    const onResize = () => {
+      screenWidth.value = window.innerWidth;
+      measureDraft();
+    };
     onMounted(() => window.addEventListener("resize", onResize, { passive: true }));
     onBeforeUnmount(() => window.removeEventListener("resize", onResize));
     const inMargin = computed(() => props.placement === "margin" && screenWidth.value >= marginMinWidth);
@@ -463,7 +482,7 @@ export const CommentLayer = defineComponent({
 
       const draft = state.draft.value;
       const draftPosition = draft && state.positions.value.get(draftPositionKey);
-      // A comment on the whole page has no spot, so its composer stays where it opened.
+      // A comment on the whole page has no spot. Keep its opening height and center its bubble.
       const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
       const draftInMargin = Boolean(inMargin.value && draft && point && draft.anchor.kind !== "page");
       const margin = inMargin.value ? marginLayout(spots, draftInMargin ? point!.y : undefined) : null;
@@ -493,19 +512,21 @@ export const CommentLayer = defineComponent({
           }, threadView(opened)))
         : null;
 
+      const placement = draft && point ? placeDraft(point, draft.anchor.kind === "page", draftWidth.value, screenWidth.value) : undefined;
       const draftColumn = draftInMargin ? inColumn(draftPositionKey) : undefined;
       const composing =
-        draft && point
+        draft && placement
           ? h(
               "div",
               {
-                ...side(point.x, point.y),
+                ...side(placement.x, placement.y),
+                "data-flip-x": placement.flipX ? "true" : undefined,
                 // A new comment on an area opens above it, so the box stays in view while the person types.
-                ...(draft.anchor.kind === "area" || draft.anchor.kind === "image") && point.y > draftAboveRoom && !draftBelow.value ? { "data-above": "true" } : {},
+                ...(draft.anchor.kind === "area" || draft.anchor.kind === "image") && placement.y > draftAboveRoom && !draftBelow.value ? { "data-above": "true" } : {},
                 "data-draft": "true",
                 "data-kind": draft.anchor.kind,
                 "data-slot": "comment-layer-item",
-                style: place(point),
+                style: place(placement),
               },
               [
                 h(CommentPin, { author: user.value, draft: true }),
@@ -514,6 +535,7 @@ export const CommentLayer = defineComponent({
                   {
                     ...draftColumn,
                     "data-slot": "comment-layer-popover",
+                    style: draftColumn?.style ?? { left: `${placement.left}px`, right: "auto" },
                     ref: (element: unknown) => {
                       draftCard.value = element instanceof HTMLElement ? element : null;
                       if (draftColumn) measured(draftPositionKey)(element);

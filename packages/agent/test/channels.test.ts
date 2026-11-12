@@ -1550,7 +1550,8 @@ describe("agent channels", () => {
       "Follow the scope of the request. For review-only requests, report findings without making changes.",
       "When changes are requested:",
       "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
-      "- Make sure CI is green.",
+      "- Run the project's local checks for your changes before you push.",
+      "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.",
       "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
       "",
       "Request: /review please",
@@ -1575,6 +1576,30 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+  })
+
+  it.each([
+    { ci: undefined, expected: ["- Run the project's local checks for your changes before you push.", "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish."], absent: "wait for hosted CI. Fix failures" },
+    { ci: "report" as const, expected: ["- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish."], absent: "wait for hosted CI. Fix failures" },
+    { ci: "wait" as const, expected: ["- After you push, wait for hosted CI. Fix failures until all checks pass."], absent: "Do not wait for hosted CI" },
+  ])("tells PR runs how to treat hosted CI with ci: $ci", async ({ ci, expected, absent }) => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: { fetch: async () => Response.json({}) },
+      pullRequest: { ...(ci ? { ci } : {}), reply: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    // SAFETY: This fixture supplies the callback fields consumed by the webhook trigger.
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+    for (const line of expected) expect(result.input.prompt).toContain(line)
+    expect(result.input.prompt).not.toContain(absent)
+    expect(result.input.prompt).not.toContain("Make sure CI is green.")
   })
 
   it.each([

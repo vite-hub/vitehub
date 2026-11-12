@@ -9,7 +9,11 @@ import type { GitHubSource, GitHubSourceOptions } from "./types.ts"
 export function github(options: GitHubSourceOptions): GitHubSource {
   const root = normalizeGitHubRoot(options.root || "")
   let loader: Promise<GitHubSource> | undefined
-  const load = () => loader ??= import("./index.ts").then(module => module.github(options))
+  // A failed load lets the next read try again.
+  const load = () => loader ??= import("./index.ts").then(module => module.github(options)).catch((error: unknown) => {
+    loader = undefined
+    throw error
+  })
   return {
     cache: options.cache,
     fingerprint: {
@@ -21,6 +25,9 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     },
     name: "github",
     authenticated: async () => await (await load()).authenticated(),
+    resolveRef: async (ref, refOptions) => await (await load()).resolveRef(ref, refOptions),
+    contains: async (sha, refOptions) => await (await load()).contains(sha, refOptions),
+    pullsAt: async (sha, refOptions) => await (await load()).pullsAt(sha, refOptions),
     resolveRevision: async ctx => await (await load()).resolveRevision(ctx),
     getKeys: async ctx => await (await load()).getKeys(ctx),
     getItems: async ctx => await (await load()).getItems(ctx),

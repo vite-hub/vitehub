@@ -78,7 +78,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     // Config errors. ViteHub throws them when code first uses the database, because the code or the deployment must change.
     DATABASE_DISABLED: {
       why: "Database is not configured in this runtime.",
-      fix: "Add `hubDb()` to the Vite config and do not set `database: false`.",
+      fix: "If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDb()` to the Vite plugins and do not pass `false` to it.",
     },
     DATABASE_INVALID_D1_HTTP_URL: {
       why: ({ database }: { database: string }) => `\`cloudflare.http.url\` of the database "${database}" is not an HTTP or HTTPS URL.`,
@@ -131,8 +131,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Fix the SQL of the migration, or the data that it conflicts with, and apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
     },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node preset and a `file:` or Postgres connection URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment instead.",
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node preset and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
@@ -244,6 +244,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
           : `${subject}, but the merged schema holds another table object for that key. A later Nuxt layer replaced the table.`
       },
       fix: "Pass `defineRelations()` the same table objects that the schema of the database holds. When a layer replaces a table, define the relations of that table in the same layer.",
+    },
+    DATABASE_MIGRATIONS_OLD_LAYOUT: {
+      why: ({ database, dir }: { database?: string, dir: string }) => `${database ? `The migrations of the database "${database}" in ` : ""}${dir} use the layout of Drizzle Kit 0.x, with \`meta/_journal.json\`. Drizzle Kit 1.0 and ViteHub read one \`<timestamp>_<name>/migration.sql\` folder per migration.`,
+      fix: "Run `vitehub database up` once to convert the folder, then commit the new folders. Applied migrations stay applied.",
     },
     DATABASE_RESERVED_SCHEMA_KEY: {
       why: ({ key, owner }: { key: string, owner: string }) => `${owner} uses the reserved schema key "${key}".`,

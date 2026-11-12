@@ -2069,23 +2069,26 @@
     pointer-events: auto;
   }
 
+  /* Drop's pin: the face fills the pin, and a ring of the page color keeps it apart from what is under it. */
   [data-slot="comment-pin"] {
     align-items: center;
     background: var(--vh-primary);
-    border: 2px solid var(--vh-bg);
-    border-radius: 9999px 9999px 9999px 0;
-    box-shadow: var(--vh-shadow-floating, 0 0 0 1px var(--vh-border));
+    border: 0;
+    border-radius: 9999px 9999px 9999px 0.1875rem;
+    box-shadow: 0 1px 4px color-mix(in oklab, var(--vh-highlighted) 30%, transparent), 0 0 0 2px var(--vh-bg);
     color: var(--vh-inverted);
     cursor: pointer;
     display: grid;
-    height: 2rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    height: 1.75rem;
     padding: 0;
     place-items: center;
     position: absolute;
     transform: translateY(-100%);
     transform-origin: bottom left;
     transition: scale 120ms ease;
-    width: 2rem;
+    width: 1.75rem;
   }
 
   [data-slot="comment-pin"]:is(:hover, [data-active="true"]) {
@@ -2093,12 +2096,18 @@
   }
 
   [data-slot="comment-pin"] [data-slot="avatar-stack"] {
-    --vh-avatar-size: 1.625rem;
+    --vh-avatar-size: 1.75rem;
+    border-radius: inherit;
   }
 
+  /* Initials sit on the pin's own color, so they show without the app's theme colors. */
   [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
+    background: none;
     border-radius: inherit;
     box-shadow: none;
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
   }
 
   [data-slot="comment-pin-number"] {
@@ -2119,11 +2128,6 @@
   [data-slot="comment-pin"][data-status="resolved"] {
     filter: grayscale(1);
     opacity: 0.6;
-  }
-
-  [data-slot="comment-pin"][data-draft="true"] {
-    outline: 2px dashed var(--vh-primary);
-    outline-offset: 2px;
   }
 
   /* Floating surfaces take the layered shadow of the theme, which draws their hairline too. Without the theme, the hairline stays. */
@@ -2164,6 +2168,51 @@
     position: fixed;
     right: 1rem;
     top: auto;
+  }
+
+  /* A new comment is one line beside its pin, as in Drop: no card around a field, a hairline and a soft shadow instead
+     of a border, and the corner nearest the pin kept small so the bubble points at it. The 1.4375rem radius is the send
+     button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It pops in from that
+     corner. The bubble is the field, so the field draws no ring of its own while it has the focus. */
+  [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
+    --vh-bubble-radius: 1.4375rem;
+    animation: vh-comment-bubble-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+    border: 0;
+    border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--vh-highlighted) 8%, transparent),
+      0 2px 4px color-mix(in oklab, var(--vh-highlighted) 6%, transparent),
+      0 10px 24px -6px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
+    transform-origin: top left;
+    width: 18rem;
+  }
+
+  [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
+    border-radius: var(--vh-bubble-radius) 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
+    transform-origin: top right;
+  }
+
+  [data-slot="comment-layer-item"][data-draft="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
+    border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
+    transform-origin: bottom left;
+  }
+
+  [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
+    border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
+    transform-origin: bottom right;
+  }
+
+  @keyframes vh-comment-bubble-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
+      animation: none;
+    }
   }
 
   [data-slot="comment-composer"] {
@@ -2252,6 +2301,13 @@
 
   [data-slot="comment-composer-mention"][aria-selected="true"] {
     background: var(--vh-bg-accented);
+  }
+
+  /* The line of a mention menu that has no one to show. It is not an option, so it has no hover or pointer. */
+  [data-slot="comment-composer-mention-empty"] {
+    color: var(--vh-muted);
+    margin: 0;
+    padding: 0.375rem 0.5rem;
   }
 
   [data-slot="comment-composer-error"] {
@@ -2731,6 +2787,14 @@
 
     & [data-slot="prompt-input-toolbar"] > button:last-child {
       order: 2;
+    }
+
+    /* The buttons are as tall as one line of the field, 2rem, whatever size the button component draws. So the
+       placeholder and the first line sit on the buttons' center line. */
+    & [data-slot="prompt-input-toolbar"] > button {
+      height: 2rem;
+      justify-content: center;
+      min-width: 2rem;
     }
   }
 

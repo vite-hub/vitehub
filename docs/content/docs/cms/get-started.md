@@ -24,7 +24,7 @@ pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace 
 pnpm add -D drizzle-kit
 ```
 
-Add `console: { auth: false }` to `vitehub()` in `vite.config.ts`:
+Add `console: { auth: false }` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}

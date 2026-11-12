@@ -2,10 +2,14 @@ import { effectScope, nextTick, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // Better Auth's client, recorded: which options it was created with, and every call it answered.
-const betterAuth = vi.hoisted(() => ({ created: [] as unknown[], calls: [] as unknown[][], session: undefined as unknown }))
+const betterAuth = vi.hoisted(() => ({ created: [] as unknown[], calls: [] as unknown[][], failures: 0, session: undefined as unknown }))
 
 vi.mock("better-auth/vue", () => ({
   createAuthClient(options: unknown) {
+    if (betterAuth.failures > 0) {
+      betterAuth.failures--
+      throw new Error("transient Better Auth load failure")
+    }
     betterAuth.created.push(options)
     return {
       signIn: { social: async (input: unknown) => { betterAuth.calls.push(["signIn.social", input]); return { data: input } } },
@@ -58,6 +62,15 @@ describe("Vue Auth composables", () => {
     await client.signOut()
     expect(betterAuth.created).toEqual([{ basePath: "/auth" }])
     expect(betterAuth.calls).toEqual([["signIn.social", { provider: "github" }], ["signOut"]])
+  })
+
+  it("loads Better Auth's client again on the next call after a failed load", async () => {
+    betterAuth.failures = 1
+    const client = createAuthClient()
+
+    await expect(client.signOut()).rejects.toThrow("transient Better Auth load failure")
+    await expect(client.signOut()).resolves.toEqual({ data: true })
+    expect(betterAuth.created).toHaveLength(1)
   })
 
   it("is not a thenable, so awaiting it gives the client back", async () => {

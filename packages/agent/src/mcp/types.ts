@@ -25,6 +25,12 @@ export interface McpClientConfig extends AiSdkMcpClientConfig {
     timeout?: number
   }
   protocolVersionDiscovery?: boolean
+  /**
+   * Connect the server only for Invocations that one of these Channels starts, by its key in the
+   * Agent's `channels`. Other Invocations, including Invocations without a Channel, leave the server
+   * out without an unavailable notice. Default: every Invocation.
+   */
+  channels?: readonly string[]
   /** Expose only these tools, by their name on the server. Default: every tool. */
   tools?: readonly string[]
   /**
