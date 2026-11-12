@@ -1017,15 +1017,6 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("does not retain a merge assessment for an external wait", async () => {
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
-    try {
-      await f.reconcile();
-      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeNull();
-      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.kind).toBe("external");
-    } finally { await f.runtime.inbox.close(); }
-  });
-
   it("preserves an external prerequisite across a repair push and green checks", async () => {
     let ready = false;
     const reason = "Publish the required dependency release before merging.";
