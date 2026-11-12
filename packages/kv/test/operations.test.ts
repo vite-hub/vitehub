@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
+import { kvErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { kv } from "../src/index.ts"
 import { kvOperations } from "../src/operations.ts"
 import { KVOperationError, listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
@@ -47,7 +48,7 @@ async function handle(body: Record<string, unknown>, stores?: readonly KVDevStor
     }
     catch (error) {
       if (!(error instanceof KVOperationError)) throw error
-      return { json: async () => ({ error: { code: error.code, message: error.message } }), status: error.status }
+      return { json: async () => ({ error: { code: error.code, fix: error.fix, message: error.message } }), status: error.status }
     }
   }
   const result = await runOperation(registry, `kv.${String(operation)}`, input, { access, surface: "cli", user: null })
@@ -274,7 +275,7 @@ describe("kv operations", () => {
   it("reports disabled KV", async () => {
     const response = await handle({ key: "a", operation: "get" }, [])
     expect(response.status).toBe(409)
-    expect(await response.json()).toMatchObject({ error: { code: "KV_DISABLED" } })
+    expect(await response.json()).toMatchObject({ error: { code: "KV_DISABLED", fix: kvErrorDiagnostics.KV_DISABLED().fix } })
   })
 
   it("answers only to a call whose access includes the kv section", async () => {

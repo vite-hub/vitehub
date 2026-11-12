@@ -428,6 +428,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0925",
   "AGENT_R0929",
   "AGENT_R0938",
+  "AGENT_R1039",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -1514,6 +1515,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1037: {
       why: ({ name }: { name: string }) => `[vitehub] Agent "${name}" owns a Workspace, but the defineAgent() options that its file exports have no workspace key. A Capability, Channel, preset, parent, or configure callback added the Workspace. Add workspace: {} to its defineAgent() options.`,
       fix: "Add workspace: {} to the defineAgent() options in the Agent file. ViteHub reads the Workspace of a folder Agent only from this key, without running the module.",
+    },
+    AGENT_R1039: {
+      why: ({ value }: { value: unknown }) => `[vitehub] Agent Invocation afterSequence must be a non-negative safe integer, but it is ${typeof value === "string" ? JSON.stringify(value) : String(value)}.`,
+      fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

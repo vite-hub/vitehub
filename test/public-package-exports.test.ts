@@ -244,6 +244,15 @@ describe("public package export contracts", () => {
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })
 
+  it("keeps Cloudflare Worker declarations out of the vite-hub install", () => {
+    const manifest = readPackageManifest("vite-hub")
+    expect(manifest.dependencies?.["@cloudflare/workers-types"], "vite-hub should not install @cloudflare/workers-types").toBeUndefined()
+    // `cloudflare-types.d.ts` only needs the global Worker declarations, which every 4.x and 5.x release has. npm stops
+    // with ERESOLVE when the app already installs a version that the optional peer range does not accept.
+    expect(manifest.peerDependencies?.["@cloudflare/workers-types"]).toBe(">=4")
+    expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
+  })
+
   it("keeps Blob declarations independent from H3 host declarations", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
     expect(source).not.toMatch(/from ["']h3["']/)
