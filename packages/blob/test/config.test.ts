@@ -55,6 +55,16 @@ describe("blob config", () => {
     })
   })
 
+  it("keeps the urlBaseUrl of an fs store for its signed links", () => {
+    expect(normalizeBlobOptions({ driver: "fs", urlBaseUrl: " https://app.example " })).toEqual({
+      store: {
+        base: ".vitehub/data/blob",
+        driver: "fs",
+        urlBaseUrl: "https://app.example",
+      },
+    })
+  })
+
   it("defaults Cloudflare hosting to an R2 binding", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_BUCKET_NAME: "assets" },
