@@ -229,7 +229,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   }) : undefined
   capability.capabilities = [
     ...(options.resources ? [diagnostics({ resources: options.resources, reporter: reportDiagnostics })] : []),
-    ...(reporter ? [papercuts({ report: reporter.report })] : []),
+    ...(reporter ? [papercuts({ report: reporter.report, dedupe: reporter.index })] : []),
   ]
   const telemetry: AgentEvlog = {
     capability, capture, diagnostics: reportDiagnostics, event, exception,

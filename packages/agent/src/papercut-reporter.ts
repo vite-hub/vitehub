@@ -2,6 +2,7 @@ import * as v from "valibot"
 import { agentInvocationId, type AgentInvocations } from "./invocations.ts"
 import { withExportDeadline } from "./internal/export-deadline.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
+import { createPapercutIndex, type MemoryPapercutIndex } from "./capabilities/papercut-index.ts"
 import type { PapercutReportEvent } from "./capabilities/papercuts.ts"
 
 export interface PapercutDelivery {
@@ -27,9 +28,15 @@ export interface PapercutReporterStatus {
   pending: number
   delivered: number
   failed: number
+  /** Distinct papercuts that `index` knows. */
+  known: number
+  /** Reports that `index` counted as repeats instead of new reports. */
+  repeats: number
 }
 
 export interface PapercutReporter {
+  /** Pass it as `papercuts({ dedupe })`. `index.list()` gives per-papercut counts for a digest. */
+  index: MemoryPapercutIndex
   report(input: PapercutReportEvent | PapercutDelivery): Promise<void>
   start(): void
   status(): PapercutReporterStatus
@@ -53,6 +60,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   let cursor: string | undefined
   let running = false
   const counts = { delivered: 0, failed: 0 }
+  const index = createPapercutIndex()
 
   function reportError(error: unknown) {
     try { options.onError?.(error) }
@@ -146,6 +154,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   }
 
   return {
+    index,
     report(input: PapercutReportEvent | PapercutDelivery) {
       if (closing) return Promise.reject(new Error("[vitehub] Papercut reporter is closed."))
       const task = (async () => persist("papercut" in input ? await createPapercutDelivery(input, options) : input))()
@@ -154,7 +163,10 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
       return task
     },
     start() { if (closing) throw new Error("[vitehub] Papercut reporter is closed."); if (!running) { running = true; schedule(0) } },
-    status: () => ({ running, pending: active.size, ...counts }),
+    status() {
+      const known = index.list()
+      return { running, pending: active.size, ...counts, known: known.length, repeats: known.reduce((total, item) => total + item.count - 1, 0) }
+    },
     async stop() {
       closing = true
       running = false
