@@ -45,7 +45,7 @@ async function run(body: Record<string, unknown>): Promise<{ body: Record<string
   const result = await runOperation(registry, `blob.${String(operation)}`, input, { access, surface: "cli", user: null })
   return result.ok
     ? { body: result.value as Record<string, unknown>, status: 200 }
-    : { body: { error: { code: result.code, message: result.message } }, status: result.status }
+    : { body: { error: { code: result.code, fix: result.fix, message: result.message } }, status: result.status }
 }
 
 const binary = Uint8Array.from([0, 255, 1, 128, 10, 13, 0xef, 0xbb, 0xbf, 0xc3, 0x28])
@@ -300,6 +300,6 @@ describe("blob operations", () => {
 
   it("reports a disabled Blob runtime", async () => {
     setBlobRuntimeConfig(false)
-    await expect(run({ operation: "list" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DISABLED" } }, status: 409 })
+    await expect(run({ operation: "list" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DISABLED", fix: expect.stringContaining("`vitehub()`") } }, status: 409 })
   })
 })
