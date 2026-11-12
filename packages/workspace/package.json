@@ -168,8 +168,6 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
-    "h3": "catalog:unjs",
-    "ocache": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

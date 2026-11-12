@@ -74,6 +74,10 @@ export type {
 
 declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
+/** The first and the longest wait before a reviewed head's merge gates are checked again. */
+const mergeRetryMinMs = 2 * 60_000;
+const mergeRetryMaxMs = 30 * 60_000;
+
 export interface BabysitterRuntimeOptions {
   agent: AgentInput;
   /** Discovered Agent name for per-Agent public URLs. Defaults to the definition name. */
@@ -677,6 +681,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return "merged";
   }
 
+  /**
+   * When to check the merge gates of a reviewed head again. Webhooks and change detection already wake
+   * the PR on new checks, reviews, and pushes, so this timer only covers gates that no event reports.
+   * Each retry on the same head doubles the delay: a fixed two minutes cost 30 passes and their GitHub
+   * requests an hour for every PR that waits on CI or a person.
+   */
+  async function mergeRetryAt(snapshot: Snapshot): Promise<number> {
+    const key = `merge-retry:${snapshot.repository}#${snapshot.number}`;
+    const head = snapshot.pr?.head?.sha;
+    const previous = await pullRequestInbox.meta(key);
+    const delayMs = isRuntimeRecord(previous) && previous.head === head && hasRuntimeType(previous.delayMs, "number")
+      ? Math.min(previous.delayMs * 2, mergeRetryMaxMs)
+      : mergeRetryMinMs;
+    await pullRequestInbox.setMeta(key, { head, delayMs });
+    return Date.now() + delayMs;
+  }
+
   const postPushGraceMs = options.postPushGraceMs ?? 3 * 60_000;
 
   /** The push receipt of a pass. `reviewDriven` comes from the claimed snapshot, never from the model. */
@@ -737,7 +758,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   /** A GitHub rate limit stops every forge request until it resets. Returns whether the error was one. */
   async function noteForgeQuota(error: unknown, operation: string): Promise<boolean> {
     if (!(error instanceof RateLimitedError)) return false;
-    const until = await forgeQuota.block();
+    const until = await forgeQuota.block(error.resetAt?.getTime());
     schedulerEvent("babysitter.forge.quota.blocked", { operation, blocked_until: new Date(until).toISOString(),
       reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
     return true;
@@ -1385,7 +1406,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               }
               await pullRequestInbox.finish(inboxClaim, {
                 text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
-                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
+                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: await mergeRetryAt(inboxClaim.snapshot) },
               });
               schedulerEvent("babysitter.wait.kept", {
                 ...owner,
@@ -1441,7 +1462,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
             outcome = "waiting";
             const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-            if (merge.mode === "direct") wait.retryAt = Date.now() + 120_000;
+            if (merge.mode === "direct") wait.retryAt = await mergeRetryAt(inboxClaim.snapshot);
             await pullRequestInbox.finish(inboxClaim, { text: "Recovered CI is healthy; waiting for merge gate evaluation.", wait });
             return;
           }
@@ -2073,10 +2094,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // Preserve the declared head across check progress. Wait evaluation
             // still wakes new failures or feedback from the observed snapshot.
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" },
-              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : undefined) } });
+              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: await mergeRetryAt(inboxClaim.snapshot) } : undefined) } });
           } else if (assessed) {
             outcome = "waiting";
-            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
+            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: await mergeRetryAt(inboxClaim.snapshot) } : {}) } });
           } else {
             if (disposition === "park") schedulerEvent("babysitter.result.unqualified_park", { ...owner, head_sha: pullRequest.headRefOid });
             // A park that names no external gate still consumed a pass without progress.
