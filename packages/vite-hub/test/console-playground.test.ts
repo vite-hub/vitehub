@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin } from "vite"
 
 import { requestConsole } from "../src/console/runtime/client/request.ts"
+import { operationRpcBody, operationRpcFetch, operationRpcRequest, operationRpcResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // The playground is outside this package's TypeScript project, so load its real module at test time.
 const { callConsoleFixture, consoleMockRPC } = await vi.importActual<{
@@ -19,17 +20,17 @@ afterEach(() => {
 
 it("loads Console data through the playground's stateless RPC endpoint", async () => {
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    if (String(input) === "/_vitehub/rpc/__call") {
-      return Response.json(await callConsoleFixture("http://localhost:5173", JSON.parse(String(init?.body))))
+    if (String(input) === "/_vitehub/rpc") {
+      return Response.json(await callConsoleFixture("http://localhost:5173", operationRpcRequest(init?.body) as { input?: Record<string, unknown>, operation: string }))
     }
     return Response.json({ sections: ["agents"] })
   })
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
 
-  await expect(requestConsole("/api/_vitehub/console/sections"))
+  await expect(requestConsole("/_vitehub/api/sections"))
     .resolves.toEqual({ sections: ["agents"] })
   expect(fetch).toHaveBeenCalledTimes(2)
-  expect(fetch).toHaveBeenLastCalledWith(new URL("http://localhost:5173/api/_vitehub/console/sections"), {
+  expect(fetch).toHaveBeenLastCalledWith(new URL("http://localhost:5173/_vitehub/api/sections"), {
     body: undefined,
     headers: { "content-type": "application/json" },
     method: "GET",
@@ -39,15 +40,15 @@ it("loads Console data through the playground's stateless RPC endpoint", async (
 it("loads bundled Skill files through the playground's operation bridge", async () => {
   const file = { path: ".agents/skills/review/SKILL.md", content: "# Review", size: 8 }
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    if (String(input) === "/_vitehub/rpc/__call") {
-      return Response.json(await callConsoleFixture("http://localhost:5173", JSON.parse(String(init?.body))))
+    if (String(input) === "/_vitehub/rpc") {
+      return Response.json(await callConsoleFixture("http://localhost:5173", operationRpcRequest(init?.body) as { input?: Record<string, unknown>, operation: string }))
     }
     return Response.json(file)
   })
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
 
-  await expect(requestConsole("/api/_vitehub/console/skills", { query: { agent: "reviewer", path: file.path } })).resolves.toEqual(file)
-  const fixture = new URL("http://localhost:5173/api/_vitehub/console/skills")
+  await expect(requestConsole("/_vitehub/api/skills", { query: { agent: "reviewer", path: file.path } })).resolves.toEqual(file)
+  const fixture = new URL("http://localhost:5173/_vitehub/api/skills")
   fixture.searchParams.set("agent", "reviewer")
   fixture.searchParams.set("path", file.path)
   expect(fetch).toHaveBeenCalledTimes(2)
@@ -91,41 +92,65 @@ async function playgroundRequest(endpoint: string, input?: unknown, status = 200
   return JSON.parse(text)
 }
 
+it("lists simulated and real Channels, and serves the chat page of a simulated one", async () => {
+  const listed = await callConsoleFixture("http://localhost:5173", { operation: "channels.list" }) as { value: { channels: Array<{ channel: string, retention: { warning?: string }, simulated: boolean, simulator?: string }> } }
+  expect(listed.value.channels.map(entry => [entry.channel, entry.simulated, entry.simulator])).toEqual([
+    ["slack", true, "/api/_vitehub/agents/release-engineer/webhooks/slack"],
+    ["discord", true, "/api/_vitehub/agents/release-engineer/webhooks/discord"],
+    ["telegram", false, undefined],
+  ])
+  // A simulated Channel has no provider history, so it has no warning about the provider window.
+  expect(listed.value.channels.map(entry => entry.retention.warning)).toEqual([undefined, undefined, undefined])
+
+  const { channelSimulatorPages } = await vi.importActual<{ channelSimulatorPages: () => Plugin }>("../../../playground/console/channels-fixture.ts")
+  type Middleware = (request: Pick<IncomingMessage, "method" | "url">, response: Pick<ServerResponse, "end" | "setHeader">, next: () => void) => void
+  let handler: Middleware | undefined
+  // SAFETY: The playground hook only registers middleware.
+  const configure = channelSimulatorPages().configureServer as (server: { middlewares: { use: (middleware: Middleware) => void } }) => void
+  configure({ middlewares: { use: middleware => { handler = middleware } } })
+  let html = ""
+  const response = { end: (body: string) => { html = body }, setHeader: vi.fn() }
+  // SAFETY: The middleware writes only the headers and the body of this response.
+  handler!({ method: "GET", url: "/api/_vitehub/agents/release-engineer/webhooks/slack" }, response as unknown as ServerResponse, () => {})
+  expect(html).toContain("<span class=\"sim-label\">Unofficial <span class=\"sim-optional\">simulator </span>· not affiliated with Slack</span>")
+  expect(html).toContain("<a href=\"/api/_vitehub/agents/release-engineer/webhooks/discord\">Discord</a>")
+})
+
 it("paginates Blob fixtures when the Console omits a limit", async () => {
-  const first = await playgroundRequest("/api/_vitehub/console/blob")
+  const first = await playgroundRequest("/_vitehub/api/blob")
   expect(first).toMatchObject({ hasMore: true, cursor: "3", limit: 3, blobs: expect.any(Array) })
   expect(first).toHaveProperty("blobs.length", 3)
-  const next = await playgroundRequest("/api/_vitehub/console/blob?cursor=3")
+  const next = await playgroundRequest("/_vitehub/api/blob?cursor=3")
   expect(next).toMatchObject({ hasMore: false, blobs: [
     expect.objectContaining({ pathname: "exports/usage-september.csv" }),
     expect.objectContaining({ pathname: "invoices/inv_2026_09.pdf" }),
   ] })
   expect(next).not.toHaveProperty("cursor")
-  const filtered = await playgroundRequest("/api/_vitehub/console/blob?prefix=screenshots/")
+  const filtered = await playgroundRequest("/_vitehub/api/blob?prefix=screenshots/")
   expect(filtered).toMatchObject({ hasMore: false })
   expect(filtered).toHaveProperty("blobs.length", 2)
 })
 
 it("runs a manual Schedule Definition and lists it as runnable", async () => {
-  await expect(playgroundRequest("/api/_vitehub/console/schedule-run", { name: "nightly-digest" }))
+  await expect(playgroundRequest("/_vitehub/api/schedule-run", { name: "nightly-digest" }))
     .resolves.toMatchObject({ run: { scheduleId: "nightly-digest", status: "succeeded" } })
-  const history = await playgroundRequest("/api/_vitehub/console/definitions?section=schedules")
+  const history = await playgroundRequest("/_vitehub/api/definitions?section=schedules")
   expect(history).toMatchObject({ records: [
     expect.objectContaining({ id: "definition:nightly-digest", runnable: true }),
   ] })
 })
 
 it("rejects unknown Agents without changing the Agent catalog or invocation history", async () => {
-  const agents = await playgroundRequest("/api/_vitehub/console/agents")
-  const invocations = await playgroundRequest("/api/_vitehub/console/invocations")
-  await expect(playgroundRequest("/api/_vitehub/console/agents/unknown/invocations", { prompt: "Hello" }, 404))
+  const agents = await playgroundRequest("/_vitehub/api/agents")
+  const invocations = await playgroundRequest("/_vitehub/api/invocations")
+  await expect(playgroundRequest("/_vitehub/api/agents/unknown/invocations", { prompt: "Hello" }, 404))
     .resolves.toEqual({ error: "Agent invocation is not available." })
-  expect(await playgroundRequest("/api/_vitehub/console/agents")).toEqual(agents)
-  expect(await playgroundRequest("/api/_vitehub/console/invocations")).toEqual(invocations)
+  expect(await playgroundRequest("/_vitehub/api/agents")).toEqual(agents)
+  expect(await playgroundRequest("/_vitehub/api/invocations")).toEqual(invocations)
 })
 
 it("creates distinct IDs for simultaneous new chats", async () => {
-  const endpoint = "/api/_vitehub/console/agents/interface-engineer/invocations"
+  const endpoint = "/_vitehub/api/agents/interface-engineer/invocations"
   const [first, second] = await Promise.all([
     playgroundRequest(endpoint, { prompt: "First" }),
     playgroundRequest(endpoint, { prompt: "Second" }),
@@ -136,22 +161,22 @@ it("creates distinct IDs for simultaneous new chats", async () => {
 })
 
 it.each(["reindex-console", "sched_console_reindex", "unknown-schedule"])("rejects non-runnable Schedule %j", async (name) => {
-  await expect(playgroundRequest("/api/_vitehub/console/schedule-run", { name }, 404))
+  await expect(playgroundRequest("/_vitehub/api/schedule-run", { name }, 404))
     .resolves.toEqual({ message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation." })
 })
 
 it.each([null, {}, { name: "" }, { name: 42 }])("rejects invalid Schedule payload %j", async (input) => {
-  await expect(playgroundRequest("/api/_vitehub/console/schedule-run", input, 400))
+  await expect(playgroundRequest("/_vitehub/api/schedule-run", input, 400))
     .resolves.toEqual({ message: "Schedule run requires a Schedule Definition name." })
 })
 
 it.each(["", "Inspect this screenshot"])("preserves images in a new chat with prompt %j", async (prompt) => {
   const file = { url: "data:image/png;base64,aW1hZ2U=", filename: "screenshot.png" }
-  const created = await playgroundRequest("/api/_vitehub/console/agents/interface-engineer/invocations", { prompt, files: [file] })
+  const created = await playgroundRequest("/_vitehub/api/agents/interface-engineer/invocations", { prompt, files: [file] })
   expect(created).toMatchObject({ id: expect.any(String) })
   // SAFETY: The assertion above verifies the response ID before it is used in a route.
   const { id } = created as { id: string }
-  const detail = await playgroundRequest(`/api/_vitehub/console/invocations/${id}`)
+  const detail = await playgroundRequest(`/_vitehub/api/invocations/${id}`)
   expect(detail).toMatchObject({
     invocation: { status: "running", title: prompt || file.filename },
     observations: expect.arrayContaining([expect.objectContaining({
@@ -169,19 +194,19 @@ it.each(["", "Inspect this screenshot"])("preserves images in a new chat with pr
 })
 
 it("preserves selected invoker profiles in new chats", async () => {
-  const created = await playgroundRequest("/api/_vitehub/console/agents/product-reviewer/invocations", { prompt: "Review this", invokerProfileId: "reviewer" })
+  const created = await playgroundRequest("/_vitehub/api/agents/product-reviewer/invocations", { prompt: "Review this", invokerProfileId: "reviewer" })
   const { id } = created as { id: string }
-  const detail = await playgroundRequest(`/api/_vitehub/console/invocations/${id}`)
+  const detail = await playgroundRequest(`/_vitehub/api/invocations/${id}`)
   expect(detail).toMatchObject({ observations: expect.arrayContaining([expect.objectContaining({
     name: "agent.invocation.start",
     attributes: expect.objectContaining({ "input.invokerProfileId": "reviewer" }),
   })]) })
-  await expect(playgroundRequest("/api/_vitehub/console/agents/product-reviewer/invocations", { prompt: "Review this", invokerProfileId: "unknown" }, 400))
+  await expect(playgroundRequest("/_vitehub/api/agents/product-reviewer/invocations", { prompt: "Review this", invokerProfileId: "unknown" }, 400))
     .resolves.toEqual({ error: "Unknown Agent invocation profile." })
 })
 
 it("rejects empty and malformed image chats", async () => {
-  const endpoint = "/api/_vitehub/console/agents/interface-engineer/invocations"
+  const endpoint = "/_vitehub/api/agents/interface-engineer/invocations"
   await expect(playgroundRequest(endpoint, { prompt: "  ", files: [] }, 400))
     .resolves.toMatchObject({ error: "A prompt or image is required." })
   await expect(playgroundRequest(endpoint, { files: [{ url: "not-an-image" }] }, 400))
@@ -194,14 +219,14 @@ it.each([
   [404, "CONSOLE_NOT_FOUND"],
   [500, "CONSOLE_REQUEST_FAILED"],
 ])("answers a failed %i fixture with the code the server gives it", async (status, code) => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("Playground failure", { status })))
+  vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async () => new Response("Playground failure", { status }))))
   await expect(callConsoleFixture("http://localhost:5173", { operation: "env.get", input: {} }))
     .resolves.toMatchObject({ code, fix: expect.any(String), message: "Playground failure", ok: false, status })
 })
 
 it("forwards failure cookies while translating write operations to fixture requests", async () => {
   const fetch = vi.fn(async () => new Response("Playground failure", { status: 503 }))
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
 
   await expect(callConsoleFixture("http://localhost:5173", {
     operation: "invocations.cancel",
@@ -209,32 +234,29 @@ it("forwards failure cookies while translating write operations to fixture reque
   }, "playground-fail=invocations:503")).resolves.toMatchObject({
     code: "CONSOLE_UNAVAILABLE", message: "Playground failure", ok: false, status: 503,
   })
-  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/invocations/run%2F1"), {
+  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/_vitehub/api/invocations/run%2F1"), {
     body: JSON.stringify({ action: "cancel" }),
     headers: { "content-type": "application/json", cookie: "playground-fail=invocations:503" },
     method: "POST",
   })
 })
 
-it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the shared session", async () => {
+it("serves the MCP client from a stateful fixture, with sign-in and Run as", async () => {
   const origin = "http://localhost:5173"
   type Answer = { ok: boolean, value: Record<string, unknown> & { connections?: Array<Record<string, unknown>> } }
-  const call = async (operation: string, input: Record<string, unknown> = {}, cookie?: string) => await callConsoleFixture(origin, { input, operation }, cookie) as Answer
+  const call = async (operation: string, input: Record<string, unknown> = {}) => await callConsoleFixture(origin, { input, operation }) as Answer
   const overview = await call("mcp-client.list")
   expect(overview.value.sharedSession).toBe(false)
   expect(overview.value.servers).toEqual([
     { authorizationServer: `${origin}/api/auth`, label: "Northwind Ledger", url: `${origin}/mcp` },
-    { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` },
   ])
   expect(overview.value.connections?.map(connection => [connection.label, connection.auth, connection.status])).toEqual([
     ["Maxi García", "oauth", "connected"],
     ["Lucía Romero", "oauth", "connected"],
     ["Lucía (API key)", "bearer", "connected"],
     ["Sam Rivera", "oauth", "signed-out"],
-    ["You", "console", "connected"],
     ["docs.example.com/mcp", "none", "connected"],
   ])
-  expect((await call("mcp-client.list", {}, "playground-mcp=shared")).value.sharedSession).toBe(true)
 
   // Run as: the same call through two accounts sees different private accounts.
   const finances = async (id: string) => JSON.stringify((await call("mcp-client.call", { arguments: { scope: "household" }, id, tool: "get_finances" })).value.result)
@@ -250,24 +272,24 @@ it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the
   const completed = await call("mcp-client.complete", { code: "playground", state: callback.searchParams.get("state") })
   expect(completed.value).toMatchObject({ label: "Sam Rivera", status: "connected" })
   await call("mcp-client.disconnect", { id: completed.value.id })
-  expect((await call("mcp-client.list")).value.connections).toHaveLength(6)
+  expect((await call("mcp-client.list")).value.connections).toHaveLength(5)
 })
 
-async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload: unknown): Promise<unknown> {
+async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload: { input?: unknown, operation: string }): Promise<unknown> {
   type Middleware = (request: IncomingMessage, response: ServerResponse, next: (error?: unknown) => void) => void
   let handler: Middleware | undefined
   // SAFETY: The playground hook only reads resolved URLs and registers middleware.
   const configure = consoleMockRPC().configureServer as (server: { resolvedUrls: { local: string[] }, middlewares: { use: (middleware: Middleware) => void } }) => void
   configure({ resolvedUrls: { local: ["http://localhost:5173/_vitehub/"] }, middlewares: { use: middleware => { handler = middleware } } })
   // SAFETY: The route consumes the body stream, headers, method, and URL from this fixture.
-  const request = Readable.from([JSON.stringify(payload)]) as IncomingMessage
+  const request = Readable.from([operationRpcBody(payload.operation, payload.input)]) as IncomingMessage
   request.method = "POST"
-  request.url = "/_vitehub/rpc/__call"
+  request.url = "/_vitehub/rpc"
   request.headers = headers
   const middleware = handler
   if (!middleware) throw new Error("Expected playground RPC middleware")
   return new Promise((resolve, reject) => {
-    const response = { statusCode: 200, setHeader: vi.fn(), end: (body: string) => { resolve(JSON.parse(body)) } }
+    const response = { statusCode: 200, setHeader: vi.fn(), end: (body: string) => { resolve(operationRpcResult(JSON.parse(body))) } }
     // SAFETY: The middleware only writes the status, headers, and body of this response.
     middleware(request, response as unknown as ServerResponse, error => { reject(error ?? new Error("Unexpected next middleware")) })
   })
@@ -283,7 +305,6 @@ it.each([
   const overview = await playgroundRpcRequest(headers, { operation: "mcp-client.list" })
   expect(overview).toMatchObject({ ok: true, value: { servers: [
     { authorizationServer: `${origin}/api/auth`, url: `${origin}/mcp` },
-    { url: `${origin}/_vitehub/mcp` },
   ] } })
   expect(JSON.stringify(overview)).not.toContain("localhost")
 
@@ -298,7 +319,7 @@ it.each([
   expect(new URL(reconnected.value.authorizationUrl).origin).toBe(origin)
 
   const fetch = vi.fn(async () => Response.json({ sections: ["mcp-client"] }))
-  vi.stubGlobal("fetch", fetch)
+  vi.stubGlobal("fetch", operationRpcFetch(fetch))
   await playgroundRpcRequest(headers, { operation: "sections.list" })
-  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/sections"), expect.any(Object))
+  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/_vitehub/api/sections"), expect.any(Object))
 })

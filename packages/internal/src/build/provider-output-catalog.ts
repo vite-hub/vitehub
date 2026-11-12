@@ -1,4 +1,4 @@
-import { resolveViteHubBundleDefines } from "./esbuild.ts"
+import { resolveViteHubBundleDefines } from "./bundle-options.ts"
 import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 import type { ProviderDeploymentOutputContribution } from "./deployment-output.ts"
 
@@ -156,14 +156,6 @@ export class ProviderOutputCatalog {
     }
     if (owner) this.#runtimeContributions.delete(owner)
     else this.#runtimeContributions.clear()
-  }
-
-  resetRuntimeContribution(product: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration): void {
-    if (!generation) {
-      this.#runtimeContributions.delete(product)
-      return
-    }
-    this.#runtimeContributionsByGeneration.get(generation)?.delete(product)
   }
 
   createDeploymentGeneration(): ProviderDeploymentOutputGeneration {

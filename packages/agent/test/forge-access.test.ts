@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { github } from "../src/channels.ts"
 import { defineCapability } from "../src/capability-runtime.ts"
-import { defineAgent, runAgentInline, streamAgent } from "../src/index.ts"
-import { forgeAccessKey, readForgeAccess } from "../src/internal/forge-access.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
+import { forgeAccessKey, forgeGitEnvironment, readForgeAccess } from "../src/internal/forge-access.ts"
 import type { AgentCallbackContext, AgentRuntimeContext } from "../src/types.ts"
 
 function runtime(): AgentRuntimeContext {
@@ -60,7 +61,7 @@ describe("Agent forge access", () => {
     })
 
     // SAFETY: streamAgent returns an async iterable for a driver that yields text.
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(agent, runtime(), {}) as AsyncIterable<unknown>
     for await (const _event of stream) { /* consume the stream */ }
 
     expect(seen).toHaveLength(2)
@@ -113,5 +114,13 @@ describe("Agent forge access", () => {
     })
 
     expect(await runAgentInline(agent, runtime(), {})).toBeUndefined()
+  })
+
+  it("asks the github() Channel App for a token that lasts most of the hour for git and gh", async () => {
+    const token = tokenSource()
+    const channel = github({ app: { token } })
+    // SAFETY: the test token source does not read the callback context.
+    await forgeGitEnvironment(runtime() as AgentCallbackContext, { [forgeAccessKey]: readForgeAccess(channel) }, { repository: "acme/app" })
+    expect(token).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/app", minLifetime: 55 * 60_000 }))
   })
 })

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { agentInvocationRerunInput } from "@vite-hub/agent"
 import * as v from "valibot"
 
@@ -5,6 +7,7 @@ import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents
 import { getConsoleInvocations } from "./invocations.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -30,18 +33,26 @@ interface ConsoleInvocationDetail {
   observations: readonly TraceEventLogEntry[]
 }
 
-function observationCursor(observations: readonly TraceEventLogEntry[], count = observations.length): string {
-  let fnv = 2_166_136_261
-  let djb = 5_381
-  for (let index = 0; index < count; index++) {
-    const serialized = JSON.stringify(observations[index])
-    for (let offset = 0; offset <= serialized.length; offset++) {
-      const code = offset === serialized.length ? 0 : serialized.charCodeAt(offset)
-      fnv = Math.imul(fnv ^ code, 16_777_619)
-      djb = Math.imul(djb, 33) ^ code
-    }
+function formatObservationCursor(count: number, digest: string): string {
+  return `${count.toString(36)}-${digest}`
+}
+
+const observationCursorBatchSize = 32
+
+function observationCursors(observations: readonly TraceEventLogEntry[], prefixCount?: number): { cursor: string, prefix?: string } {
+  const hash = createHash("sha256").update("[")
+  let prefix = prefixCount === 0 ? formatObservationCursor(0, hash.copy().update("]").digest("hex")) : undefined
+  for (let start = 0; start < observations.length;) {
+    const end = Math.min(start + observationCursorBatchSize, prefixCount !== undefined && prefixCount > start ? prefixCount : observations.length)
+    if (start > 0) hash.update(",")
+    // Hash one JSON array in bounded batches, splitting at the requested prefix.
+    hash.update(JSON.stringify(observations.slice(start, end)).slice(1, -1))
+    if (end === prefixCount && end < observations.length) prefix = formatObservationCursor(end, hash.copy().update("]").digest("hex"))
+    start = end
   }
-  return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`
+  const cursor = formatObservationCursor(observations.length, hash.update("]").digest("hex"))
+  if (prefixCount === observations.length) prefix = cursor
+  return { cursor, prefix }
 }
 
 const cancelActionSchema = v.strictObject({ action: v.literal("cancel") })
@@ -50,14 +61,11 @@ const deleteActionSchema = v.strictObject({ action: v.literal("delete") })
 const terminalStatuses: ReadonlySet<AgentInvocationSummary["status"]> = new Set(["cancelled", "completed", "failed"])
 
 function notFound(): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }), {
-    statusCode: 404,
-    statusMessage: "Invocation not found",
-  })
+  return consoleHttpError(404, viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }))
 }
 
 function actionError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }))
 }
 
 // Console invoke access for the record's Agent allows these actions.
@@ -158,16 +166,17 @@ export async function getConsoleInvocationDetail(event: ConsoleRequestEvent): Pr
   const countValue = requestURL.searchParams.get("observationCount")
   const requestedCursor = requestURL.searchParams.get("observationCursor")
   const observationCount = countValue === null ? undefined : Number(countValue)
-  const canAppend = invocation.observationsTruncated !== true
+  const hasRequestedPrefix = invocation.observationsTruncated !== true
     && requestedCursor !== null
     && observationCount !== undefined
     && Number.isSafeInteger(observationCount)
     && observationCount >= 0
     && observationCount <= observations.length
-    && requestedCursor === observationCursor(observations, observationCount)
+  const cursors = observationCursors(observations, hasRequestedPrefix ? observationCount : undefined)
+  const canAppend = hasRequestedPrefix && requestedCursor === cursors.prefix
   const detail: ConsoleInvocationDetail = {
     invocation: { ...summary, ...(actions ? { actions } : {}), ...(usage ? { usage } : {}) },
-    observationCursor: observationCursor(observations),
+    observationCursor: cursors.cursor,
     observations: canAppend
       ? observations.slice(observationCount)
       : observations,
@@ -179,7 +188,7 @@ export async function getConsoleInvocationDetail(event: ConsoleRequestEvent): Pr
 // The Console `invocation` operation reads one record with GET and changes it with POST.
 const invocationHandler = async (event: ConsoleRequestEvent): Promise<ConsoleInvocationDetail | Awaited<ReturnType<typeof deleteConsoleInvocation>> | AgentInvocationCancelResult> => {
   assertConsoleRequest(event, ["GET", "POST"])
-  if ((event.method ?? event.req?.method ?? event.node?.req?.method) !== "POST") return getConsoleInvocationDetail(event)
+  if (getStandardContext(event).req.method !== "POST") return getConsoleInvocationDetail(event)
   const body = await readInvocationAction(event)
   return v.safeParse(cancelActionSchema, body).success
     ? cancelConsoleInvocationAction(event, body)

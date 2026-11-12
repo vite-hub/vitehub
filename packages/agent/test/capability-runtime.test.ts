@@ -768,7 +768,8 @@ describe("agent capability runtime", () => {
   })
 
   it("passes named invocation context values through capabilities and custom runs", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const observedContext = vi.fn()
 
     const agent = defineAgent({
@@ -804,7 +805,7 @@ describe("agent capability runtime", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: {
         "agent.secret": "internal",
         channel: { user: { email: "user@example.com" } },
@@ -2317,7 +2318,8 @@ describe("agent capability runtime", () => {
   })
 
   it("rejects duplicate invocation context values", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
 
     const agent = defineAgent({
       capabilities: [
@@ -2331,7 +2333,7 @@ describe("agent capability runtime", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { mode: "technical" },
     })).rejects.toThrow('Invocation context value "mode" is already set')
   })
@@ -2379,14 +2381,15 @@ describe("agent capability runtime", () => {
   })
 
   it("closes streamed and Response outputs after consumption", async () => {
-    const { defineAgent, runAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext, streamAgentInline } = await import("../src/internal/agent-run.ts")
     const order: string[] = []
     const capability = {
       close: () => { order.push("close") },
       id: "cleanup",
     }
 
-    const stream = await streamAgent(defineAgent({
+    const stream = await streamAgentInline(defineAgent({
       capabilities: [capability],
       driver: { run: () => (async function* () {
           yield "hello"
@@ -2398,7 +2401,7 @@ describe("agent capability runtime", () => {
     expect(order).toEqual(["stream:done", "close"])
 
     order.length = 0
-    const response = await runAgent(defineAgent({
+    const response = await runAgentWithContext(defineAgent({
       capabilities: [capability],
       driver: { run: () => new Response("ok") },
     }), runtime(), {})
@@ -2643,7 +2646,8 @@ describe("agent capability runtime", () => {
     }))
 
     try {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const order: string[] = []
       const agent = defineAgent({
         capabilities: [{
@@ -2654,7 +2658,7 @@ describe("agent capability runtime", () => {
         driver: { model: {} as never },
       })
 
-      await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
+      await expect(runAgentWithContext(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
       expect(order).toEqual(["configure", "close"])
     }
     finally {
@@ -2676,7 +2680,8 @@ describe("agent capability runtime", () => {
     }))
 
     try {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const close = vi.fn(() => {
         throw new Error("cleanup failed")
       })
@@ -2688,7 +2693,7 @@ describe("agent capability runtime", () => {
         driver: { model: {} as never },
       })
 
-      await expect(runAgent(agent, runtime(), {})).rejects.toThrow("cleanup failed")
+      await expect(runAgentWithContext(agent, runtime(), {})).rejects.toThrow("cleanup failed")
       expect(close).toHaveBeenCalledTimes(1)
     }
     finally {
@@ -2710,7 +2715,8 @@ describe("agent capability runtime", () => {
     }))
 
     try {
-      const { defineAgent, resolveAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const order: string[] = []
       const agent = defineAgent({
         capabilities: [{
@@ -2721,10 +2727,10 @@ describe("agent capability runtime", () => {
         driver: { model: {} as never },
       })
 
-      await resolveAgent(agent, runtime())
+      await agent.resolve(runtime() as never)
       expect(order).toEqual([])
 
-      await runAgent(agent, runtime(), { messages: [createMessage({ role: "user", text: "hello" })] })
+      await runAgentWithContext(agent, runtime(), { messages: [createMessage({ role: "user", text: "hello" })] })
       expect(order).toEqual(["input", "resolve"])
     }
     finally {
@@ -2733,7 +2739,8 @@ describe("agent capability runtime", () => {
   })
 
   it("round-trips Capability CLI exposure through resolved Agent Definitions", async () => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentInline } = await import("../src/internal/agent-run.ts")
     const inventory = defineCapability({
       cli: {
         commands: {

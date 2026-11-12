@@ -37,6 +37,8 @@ export interface ViteHubDevEndpointServer {
 }
 
 export interface ViteHubDevEndpointOptions extends ViteHubDevEndpointGuard {
+  /** Exact browser origins accepted in addition to this server. The owner must handle their CORS preflights. */
+  origins?: readonly string[]
   /**
    * Owner authorization, for example a dev token check. It runs after the guard checks and before `handle`.
    * Return a rejection response to stop the request. `handle` gets the grant only when this check passes.
@@ -180,7 +182,7 @@ export function viteHubDevRequestOrigin(server: Pick<ViteHubDevEndpointServer, "
 export function validateViteHubDevRequest(
   server: Pick<ViteHubDevEndpointServer, "config" | "resolvedUrls">,
   req: IncomingMessage,
-  guard: ViteHubDevEndpointGuard,
+  guard: ViteHubDevEndpointGuard & Pick<ViteHubDevEndpointOptions, "origins">,
 ): ViteHubDevRequestCheck {
   if (!isViteHubDevHostAllowed(server, req)) {
     return rejectDevRequest(new Response(`Forbidden ${guard.label} host.`, { status: 403 }))
@@ -189,7 +191,7 @@ export function validateViteHubDevRequest(
     return rejectDevRequest(new Response(`Forbidden ${guard.label} request.`, { status: 403 }))
   }
   const origin = firstHeader(req.headers.origin)
-  if (origin && origin !== viteHubDevRequestOrigin(server, req)) {
+  if (origin && origin !== viteHubDevRequestOrigin(server, req) && !guard.origins?.includes(origin)) {
     return rejectDevRequest(new Response(`Forbidden ${guard.label} origin.`, { status: 403 }))
   }
   if (req.method === "POST" && !firstHeader(req.headers["content-type"])?.toLowerCase().startsWith("application/json")) {
@@ -515,15 +517,16 @@ export interface ViteHubNitroDevHandlerSource {
   contextModules?: Readonly<Record<string, string>>
   /** Additional serialized string arguments passed after the request. */
   arguments?: readonly string[]
-  /** Named export of `module` that takes a Fetch `Request` and returns a `Response`. */
+  /** Named export of `module` that takes the `Request` and returns a `Response`. */
   export: string
-  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/dev`. */
+  /** Module that exports the owner handler. */
   module: string
 }
 
 /**
- * Renders the source of a dev-only Nitro handler that passes the request to an owner package export. Add the file with
- * `addHandler` only in `serve` mode, so build output never contains it.
+ * Renders the source of a dev-only Nitro route that passes the `Request` to an owner package export. The route is a
+ * Fetchable object, `{ fetch(request) }`. Add the file with `addHandler` only in `serve` mode, so build output never
+ * contains it.
  */
 export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSource): string {
   if (!/^[A-Za-z_$][\w$]*$/.test(source.export)) {
@@ -534,11 +537,12 @@ export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSourc
     ? `{ ...${JSON.stringify(source.context ?? {})}, ${contextModules.map(([field], index) => `${JSON.stringify(field)}: viteHubDevContext${index}`).join(", ")} }`
     : source.context ? JSON.stringify(source.context) : undefined
   return [
-    "import { defineEventHandler } from 'h3'",
     `import { ${source.export} as handleViteHubDevRequest } from ${JSON.stringify(source.module)}`,
     ...contextModules.map(([, module], index) => `import viteHubDevContext${index} from ${JSON.stringify(module)}`),
     "",
-    `export default defineEventHandler(event => handleViteHubDevRequest(${["event.req", ...(context ? [context] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}))`,
+    "export default {",
+    `  fetch: request => handleViteHubDevRequest(${["request", ...(context ? [context] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}),`,
+    "}",
     "",
   ].join("\n")
 }

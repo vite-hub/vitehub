@@ -1,6 +1,6 @@
 ---
 title: Capabilities
-description: Give an Agent tools and behavior without handing it unrestricted server access.
+description: Give an Agent the tools and behavior it needs, without full access to your server.
 navigation.title: Capabilities
 navigation.order: 21
 navigation.group: Instructions and tools
@@ -8,10 +8,9 @@ icon: i-lucide-blocks
 navigation.kind: Concepts
 ---
 
-Capabilities give an Agent a named ability through `defineAgent({ capabilities })`.
-They can add tools, triggers, input processing, output metadata, and checks that run before an invocation.
+A Capability gives an Agent one named ability, such as web search, through `defineAgent({ capabilities })`. It can add tools, triggers, input processing, output metadata, and checks that run before an Invocation (one Agent run).
 
-Server Primitives give trusted app code authority. Capabilities select which operations an Agent Invocation can use. Start with [Instructions](/docs/agents/instructions) for behavior, then attach the tools that behavior needs.
+App code calls Server Primitives with full trust. A Capability picks which operations the Agent can use. Write the behavior in [Instructions](/docs/agents/instructions) first, then attach the tools it needs.
 
 ## Choose a Capability by task
 
@@ -24,11 +23,11 @@ Server Primitives give trusted app code authority. Capabilities select which ope
 | Restrict work | [Access](/docs/agents/capabilities/access), [Budget](/docs/agents/capabilities/budget), and [Rate Limit](/docs/rate-limit/agent-capability) |
 | Inspect cost and results | [Usage](/docs/agents/capabilities/usage), [Diagnostics](/docs/agents/capabilities/diagnostics), and [OTLP](/docs/agents/capabilities/otlp) |
 
-The [official catalog](/docs/agents/capabilities/official) lists the remaining tasks. Use [custom Capabilities](/docs/agents/capabilities/custom) when an application needs its own tools.
+The [official catalog](/docs/agents/capabilities/official) lists more. Write a [custom Capability](/docs/agents/capabilities/custom) for your own tools.
 
 ## Choose the API by its caller
 
-Installing a Server Primitive does not give an Agent access to it. Attach a Capability when the Agent needs that operation.
+Installing a Server Primitive does not give the Agent access. Attach a Capability for that.
 
 | | Server Primitive | Capability |
 | --- | --- | --- |
@@ -37,11 +36,11 @@ Installing a Server Primitive does not give an Agent access to it. Attach a Capa
 | Selection | Application code calls it | The Agent Definition or invocation selects it |
 | Model access | None | Only the operations the Capability contributes |
 
-A Capability does not expose the full Runtime Context or unrestricted host access. Its tools, requirements, policy, and metadata define what the Agent can inspect and use. Application code can still call the same Server Primitives through their server APIs.
+A Capability never gives the full Runtime Context or host access. Its tools, requirements, policy, and metadata set what the Agent can use. App code still calls the primitives through their server APIs.
 
 ## Attach a Capability
 
-Import only the factories the Agent needs from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabilities` in a standalone package:
+Import factories from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabilities` in a standalone package.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -57,44 +56,48 @@ export default defineAgent({
 })
 ```
 
-Create `support.md` in the project root before running this example. Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`. Set `policy: 'require-approval'` or `policy: 'deny'` when a tool needs another runtime check. Modes, scopes, allowlists, requirements, and input validation still restrict the operation before policy runs.
+Create `support.md` in the project root first.
 
-Use a callback when invocation context decides the Agent Definition's Capability list. ViteHub calls it once after resolving the Agent Invoker and before Capability setup; Capabilities contributed by the active Channel still compose normally.
+Tool policy defaults to `allow`. Set `policy: 'require-approval'` or `'deny'` when a tool needs another runtime check. Modes, scopes, allowlists, requirements, and input validation still apply before policy.
 
-```ts [server/agents/support.ts]
+To pick Capabilities per run, pass a callback. ViteHub calls it once, after it resolves the Agent Invoker (who started the run) and before Capability setup. Capabilities from the active Channel still apply.
+
+```ts [server/agents/support.ts] fragment
 export default defineAgent({
   driver: { model },
-  capabilities: ({ actor }) => [
+  capabilities: ({ invoker }) => [
     workspaceShell({ mode: 'read' }),
-    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+    ...(invoker.meta?.support === true ? [internalDiagnostics] : []),
   ],
 })
 ```
 
-Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
+Keep Capabilities that add Agent Triggers, chat admission, or static Workspace Sources in a static list. ViteHub registers those before a run exists.
 
 ## What Capabilities can contribute
 
 | Contribution | What it changes |
 | --- | --- |
-| Requirements | Primitive, Workspace mode, Workspace path, or policy checks that must pass before the Capability applies. |
-| Tools | Model-facing operations exposed only to compatible Agent Drivers. |
+| Requirements | Primitive, Workspace mode, path, or policy checks that must pass first. |
+| Tools | Model operations, for compatible Drivers only. |
 | Provider tools | Provider-native tool requests, such as model web search mode. |
-| Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger API. |
-| Input behavior | Pre-invocation input transforms, transcription, decisions, gates, and rate limits. |
+| Agent Triggers | Events that start runs through the trigger API. |
+| Input behavior | Input transforms, transcription, decisions, gates, and rate limits before the run. |
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
-| Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
+| Metadata | Configuration for diagnostics and CLI inspection. |
 
-Capability metadata appears under the Capability id in Agent inspection output. ViteHub keeps JSON values, sorts object keys and Capability ids, drops unsupported or cyclic values, and redacts keys shaped like auth, API keys, credentials, passwords, secrets, or tokens. Metadata must describe configuration or an explicit check result; it must not include Env values, authentication material, or credentials.
+Agent inspection shows metadata under each Capability id. ViteHub keeps JSON values, sorts keys and ids, drops unsupported or cyclic values, and redacts keys that look like auth, API keys, credentials, passwords, secrets, or tokens.
 
-Use `defineCapability({ finish })` for metadata read by evals, finish hooks, or channel delivery code after an invocation.
-Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
+> [!WARNING]
+> Metadata must describe configuration or a check result. Never put Env values, authentication material, or credentials in it.
+
+For data read after a run by evals, finish hooks, or Channel delivery, use `defineCapability({ finish })`. Agent Evals read it with `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
 
 ## Finish without the Driver
 
-A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types its output as the union of that value and the Driver output.
+A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types `result.output` as the union of that value and the Driver output.
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 export default defineAgent({
   data: email,
   intercept: ({ data }) => data.from.endsWith('@github.com') ? { source: 'rule' as const, label: 'GitHub' } : undefined,
@@ -106,59 +109,17 @@ Read [Finish before the Driver](/docs/agents/agent-definitions#finish-before-the
 
 ## Driver support
 
-A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
-A provider-backed Agent Driver receives Agent tools through the private MCP bridge and scoped Workspace behavior. Provider-backed Drivers do not support model-specific Capability Provider Tool contributions such as `webSearch({ mode: 'model' })`.
-A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
+- **Model-backed** Drivers use model tools and Provider Tools (tools the provider runs, such as model web search).
+- **Provider-backed** Drivers get Agent tools through a private MCP bridge and scoped Workspace behavior. They do not support model-specific Provider Tools such as `webSearch({ mode: 'model' })`.
+- **Custom-run** Drivers get prepared input and run context. `driver.run` decides which Capability outputs to read.
 
-Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.
+Put guidance on when to use a Capability in the Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas stay part of the model's tool contract.
 
 ## Capability lifecycle
 
-ViteHub applies Capabilities in the order listed or returned by the Agent Definition.
-It validates duplicate ids, checks runtime requirements, applies Capability Trigger Contributions, and then runs configure, prepare, bind, input, resolve, and output phases for each invocation.
+ViteHub applies Capabilities in list order. It checks duplicate ids and runtime requirements, applies trigger contributions, then runs configure, prepare, bind, input, resolve, and output for each run.
 
-`access()` is the only official Capability with a fixed position rule.
-Place it first so later Capabilities receive the restricted Workspace and tool access.
-
-## Use an Eve extension
-
-ViteHub detects compatible Eve extension packages in a static Capability list and compiles their tools into a Capability. Install the extension and its Eve peer, then use the extension's mount factory:
-
-```bash
-pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
-```
-
-```ts [server/agents/reviewer.ts]
-import github from '@github-tools/eve-extension'
-import { defineAgent } from 'vite-hub/agent'
-
-export default defineAgent({
-  driver: { model },
-  capabilities: [
-    github({ preset: 'code-review' }),
-  ],
-})
-```
-
-`repositoryHost()` and `repositoryHostContext()` are no longer built in. Replace their GitHub tools with the extension above. GitHub Channel invocations still expose trusted pull request context through `pullRequest.read(invocation)` from `vite-hub/agent/channels`; use [`forge()`](/docs/agents/capabilities/forge) for repository tools on GitHub, GitLab and Forgejo.
-
-The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. For format 2, the bridge accepts `config@1`, `extension@1`, `tool@20`, `tool@54`, or `tool@76`, and `dynamicTool@20`, `dynamicTool@52`, or `dynamicTool@72`. GitHub Tools 0.7.0 uses the first pair, 0.8.0 the second, and 0.8.1 (built with Eve 0.72.1) the third. Newer contracts, such as the `tool@92` and `dynamicTool@86` that Eve 0.80 writes, are rejected until the bridge is tested against them. The manifest check does not validate the installed Eve version. The optional Eve peer is the tested `0.80.1`. Use the tested Eve 0.80.1 and GitHub Tools 0.8.1 pair above.
-
-The bridge accepts one mount per Eve package in a Vite app. The mount must be a direct default import called with at most one config argument inside a top-level static Capability list. ViteHub then loads the package's generated `/tools` entry point. Calls from a dynamic Capability callback, nested runtime code, or a separate runtime import are unsupported. The Vite plugin rejects detected direct mounts in these forms, but mounts hidden in helpers or other modules can escape build validation. Eve's `defineExtension` API belongs to the extension package. ViteHub does not call it as a separate mount API; it consumes the package's callable default export and validates the generated manifest. The `0.8.1` package uses this API and declares the contract versions listed above.
-
-Static tools and one dynamic handler are supported for the accepted manifest contracts. The handler may use `session.started`, `turn.started`, or `step.started`, but it must not require an authoritative session sequence or step index, an effective model or `modelId`, or a real per-step hook. Multiple active handlers on one dynamic tool are rejected. ViteHub resolves the selected handler once while preparing each Agent Invocation, so `step.started` does not run before every model step. The handler can read the following event data:
-
-| Event | Data |
-| --- | --- |
-| `session.started` | `{}` |
-| `turn.started` | `turnId` |
-| `step.started` | `turnId` |
-
-The session ID uses `run.threadId` and falls back to `run.runId` or the invoker ID. The turn ID uses `run.runId` and falls back to the session ID. Reading `session.turn.sequence` or an event's `data.sequence` throws `AGENT_R0415` because ViteHub has no authoritative persisted Eve turn counter. Reading a step event's `data.stepIndex` or `data.modelId`, or a step resolver context's `model`, throws the same diagnostic. Other preparation resolver contexts expose `model: null`. Legacy resolvers that ignore these unavailable fields continue to work. ViteHub does not persist an Eve session object across process restarts.
-
-The bridge preserves tool input and output schemas, `toModelOutput` including content and file parts, and Eve's `always`, `never`, and `once` approval modes. `endsTurn`, labels, `approvalKey`, and `availableInSubagents` have no ViteHub execution semantics and do not appear in current CLI inspection. Approval definitions may provide a `{ request }` callback. A `response` authorizer is rejected because ViteHub has no responder-auth context. The built-in HTTP Chat route stores pending approvals in its configured Chat state, reconstructs the authoritative tool call on the server, and consumes each response once under a session lock. Client-supplied chat history never creates approval authority. Eve `once` approvals come only from Chat state for the current invoker and chat session. Invocation context values, including values set by `admission.context` or `mapInput`, cannot approve a tool.
-
-This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Accepted older contracts retain a `getSkill()` diagnostic stub; Eve removed that accessor in version 0.66. ViteHub does not mount Eve dynamic skill contributions. Session authentication fields remain `null`. Eve auth providers and sandbox access are not connected to ViteHub Connections or the Sandbox primitive. Use ViteHub Workspace Skills where the Agent Driver supports them.
+Only `access()` has a fixed position: first, so later Capabilities get the restricted Workspace and tools.
 
 ## Next steps
 

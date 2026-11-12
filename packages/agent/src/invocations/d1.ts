@@ -2,9 +2,9 @@ import { normalizeAgentInvocationListOptions } from "./list-options.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
 import { countRetentionDue } from "./retention.ts"
-import { normalizeRetention } from "../internal/retention-policy.ts"
+import { d1AgentInvocationRetention } from "./d1-retention.ts"
 import { searchableAgentInvocationText } from "./search.ts"
-import { filteredObservationRecord } from "./observation-projection.ts"
+import { observationRecordProjection } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type { AgentRetentionPolicy } from "../retention.ts"
@@ -136,15 +136,10 @@ function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
 }
 
 /** D1 journal with atomic batches and optimistic updates across Worker isolates. Creates its table on first use unless `migrate` is false. */
-export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOptions): AgentInvocationStore {
+export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOptions): Required<Omit<AgentInvocationStore, "open">> {
   const table = tableName(options.tablePrefix)
   const schema = d1AgentInvocationSchema(options)
-  const { maxAgeMs, maxRecords } = normalizeRetention({ maxAge: options.maxAge, maxRecords: options.maxRecords, maxSize: options.maxSize }, {
-    label: "D1 Agent Invocation",
-    defaults: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 10_000, maxSize: false },
-    size: "none",
-    error: message => agentDiagnostics.AGENT_R0911({ message: `[vitehub] ${message}` }),
-  })
+  const { maxAgeMs, maxRecords } = d1AgentInvocationRetention(options)
   // Workers cannot share pending I/O between requests, so keep only completed bindings.
   const migrated = new WeakSet<AgentInvocationD1Database>()
   const database = async () => {
@@ -216,9 +211,8 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
     },
     async get(id, options) {
       const db = await database()
-      const args = options?.observationNames ? [JSON.stringify(options.observationNames), id] : [id]
-      const projection = options?.observationNames ? filteredObservationRecord : "record"
-      const result = await db.prepare(`SELECT sequence, ${projection} AS record, revision FROM ${table} WHERE id = ?`).bind(...args).all<RecordRow>()
+      const projection = observationRecordProjection(options)
+      const result = await db.prepare(`SELECT sequence, ${projection.sql} AS record, revision FROM ${table} WHERE id = ?`).bind(...projection.args, id).all<RecordRow>()
       return result.results[0] ? record(result.results[0]) : undefined
     },
     async getSummary(id) {

@@ -5,11 +5,11 @@ function renderConfigExpression(value: unknown) {
   return typeof value === "undefined" ? "undefined" : JSON.stringify(value)
 }
 
-function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, drizzle: _drizzle, ...database }: ResolvedDrizzleDatabaseConfig) {
+function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, ...database }: ResolvedDrizzleDatabaseConfig) {
   return JSON.stringify(database, null, 4)
 }
 
-export function renderDatabaseConfigExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string) {
+export function renderDatabaseConfigExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, localLimits?: "d1") {
   const base = config.databases[name]!
   const cloudflare = base.cloudflare ?? config.definitionDefaults.cloudflare
   const cloudflareOptions = { ...config.definitionDefaults.cloudflareProjections?.[name], migrationsDir: base.migrationsDir, name }
@@ -18,21 +18,21 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
     `      ...${serializeDatabaseConfig(base)},`,
     `      cloudflare: resolveRuntimeCloudflareConfig(${renderConfigExpression(cloudflare)}, ${definitionVariable}.cloudflare, ${renderConfigExpression(cloudflareOptions)}),`,
     `      connection: ${definitionVariable}.connection ? { authToken: ${definitionVariable}.connection.authToken ?? ${renderConfigExpression(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${renderConfigExpression(base.connection?.url)} } : ${renderConfigExpression(base.connection)},`,
-    `      drizzle: ${definitionVariable}.drizzle ?? {},`,
+    ...(localLimits ? [`      localLimits: ${JSON.stringify(localLimits)},`] : []),
     "    }",
   ].join("\n")
 }
 
 /**
  * Renders the `createPostgresDatabase()` call for a Postgres Definition in a generated runtime module.
- * `schemaExpression` is the merged schema, because Nuxt layers and contributed tables add tables that the evaluated
- * Definition does not hold.
+ * `schemaExpression` and `relationsExpression` are the merged schema and relations, because Nuxt layers and contributed
+ * tables add tables and relations that the evaluated Definition does not hold.
  */
-export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string) {
+export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, relationsExpression: string) {
   const database = config.databases[name]!
   const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
   if (database.connection?.url !== undefined) defaults.url = database.connection.url
-  return `createPostgresDatabase({ ...${definitionVariable}, schema: ${schemaExpression} }, ${JSON.stringify(defaults)})`
+  return `createPostgresDatabase({ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }, ${JSON.stringify(defaults)})`
 }
 
 export function usesPostgres(config: ResolvedDBViteConfig) {

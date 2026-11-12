@@ -1,8 +1,8 @@
-import { useRuntimeConfig, useStorage } from "#imports"
+import { useKV } from "nitro/kv"
+import { useRuntimeConfig } from "nitro/runtime-config"
 
-import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsManifestPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsAppPath, docsIndexedPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
 
@@ -15,7 +15,7 @@ interface AgentPageEntry {
 
 interface AgentContentSource {
   list: () => AgentPageEntry[]
-  get: (route: string, event?: H3Event) => Promise<{ markdown: string, title?: string, description?: string } | null>
+  get: (route: string) => Promise<{ markdown: string, title?: string, description?: string } | null>
 }
 
 /**
@@ -29,20 +29,21 @@ const source: AgentContentSource = {
     const isDocs = (path: string) => isDocsPath(path, manifest.base)
     // Docs pages come first, then pages outside the base, each in URL order. llms.txt groups them in this order.
     const rank = (path: string) => isDocs(path) ? 0 : 1
-    return docsManifestPages(manifest)
+    // A page with `seo.index: false` keeps its raw copy, but llms.txt does not list it.
+    return docsIndexedPages(manifest)
       // nuxt-agent-discovery lists the home page itself, first.
       .filter(page => page.path !== "/")
       .map(page => ({ route: page.path, title: page.sourceTitle, description: page.description ?? undefined, section: isDocs(page.path) ? "Docs" : "Pages" }))
       .sort((left, right) => rank(left.route) - rank(right.route) || (left.route < right.route ? -1 : left.route > right.route ? 1 : 0))
       .map(page => ({ ...page, route: docsAppPath(page.route, appBase) }))
   },
-  async get(route, event) {
-    const { appBase } = useRuntimeConfig(event).public.docs as DocsPublicConfig
+  async get(route) {
+    const { appBase } = useRuntimeConfig().public.docs as DocsPublicConfig
     const prefix = appBase.replace(/\/+$/, "")
     const path = prefix && (route === prefix || route.startsWith(`${prefix}/`)) ? route.slice(prefix.length) || "/" : route
     const found = findDocsPage(manifest, path)
     if (!found) return null
-    const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
+    const markdown = await useKV("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
     if (markdown === null) return null
     const text = String(markdown)
     const footerIndex = text.lastIndexOf(docsRawSectionLinksMarker)

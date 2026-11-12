@@ -249,7 +249,11 @@ export function createCloudflareSandboxDurableObject(
     }
 
     async deleteFile(path: string) {
-      await (await this.#fileOperations()).remove(path, fileOptions);
+      try {
+        await (await this.#fileOperations()).remove(path, fileOptions);
+      } catch (error) {
+        if (!missing(error)) throw error;
+      }
       return { success: true };
     }
 
@@ -345,7 +349,14 @@ export function createCloudflareSandboxDurableObject(
     }
 
     async #applyConfiguration() {
-      this.#configuration ??= this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {});
+      if (!this.#configuration) {
+        const reading: Promise<CloudflareSandboxConfiguration> = this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {}).catch((error: unknown) => {
+          // A failed storage read lets the next start try again. configure() can store a newer policy meanwhile.
+          if (this.#configuration === reading) this.#configuration = undefined;
+          throw error;
+        });
+        this.#configuration = reading;
+      }
       const configuration = await this.#configuration;
       await this.#container().setInactivityTimeout(
         configuration.keepAlive ? keepAliveTimeout : parseDuration(configuration.sleepAfter) ?? defaultSleepAfter,

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
@@ -456,9 +457,9 @@ describe("Manual Schedule runs", () => {
   it("returns a failed run for an unprintable handler rejection", async () => {
     const run = await runSchedule("sync", {
       registry: {
-        sync: async () => defineSchedule("0 9 * * *", () => {
+        sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
           throw Object.create(null)
-        }, { manual: true }),
+        } }),
       },
     })
     expect(run).toMatchObject({ error: { message: "[unprintable thrown value]" }, status: "failed" })
@@ -469,10 +470,10 @@ describe("Manual Schedule runs", () => {
     const run = await runSchedule("sync", {
       registry: {
         sync: async () => ({
-          default: defineSchedule("*/5 * * * *", (context) => {
+          default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler: (context) => {
             calls.push(context.id)
             return { synced: 3 }
-          }, { manual: true }),
+          } }),
         }),
       },
     })
@@ -488,15 +489,52 @@ describe("Manual Schedule runs", () => {
     expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
   })
 
+  it("runs a manual Definition as if its cron fired at a given Date or ISO 8601 string", async () => {
+    const seen: string[] = []
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler: ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) } }) }
+
+    const fromString = await runSchedule("close", { registry, scheduledAt: "2026-03-01T00:00:00-05:00" })
+    const fromDate = await runSchedule("close", { registry, scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
+
+    expect([fromString.scheduledAt.toISOString(), fromDate.scheduledAt.toISOString()]).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
+    expect(seen).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
+    await expect(runSchedule("close", { registry, scheduledAt: "2027-02-29T00:00:00Z" })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", details: { field: "scheduledAt", valueType: "string" } })
+    await expect(runSchedule("close", { registry, scheduledAt: new Date("bad") })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    expect(seen).toHaveLength(2)
+  })
+
+  it.each([
+    ["2026-01-31T23:59:00.123456Z", "2026-01-31T23:59:00.123Z"],
+    ["2026-01-31T23:59:00.123456789+01:00", "2026-01-31T22:59:00.123Z"],
+  ])("normalizes fractional seconds in %s to milliseconds", async (scheduledAt, expected) => {
+    const handler = vi.fn()
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
+    const run = await runSchedule("close", { registry, scheduledAt })
+    expect(run.scheduledAt.toISOString()).toBe(expected)
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date(expected) }))
+    expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
+  })
+
+  it("accepts a year-zero leap day and rejects invalid calendar days in early years", async () => {
+    const handler = vi.fn()
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
+    const run = await runSchedule("close", { registry, scheduledAt: "0000-02-29T00:00:00Z" })
+    expect(run.scheduledAt.toISOString()).toBe("0000-02-29T00:00:00.000Z")
+    for (const scheduledAt of ["0000-02-30T00:00:00Z", "0001-02-29T00:00:00Z", "0100-02-29T00:00:00Z"]) {
+      await expect(runSchedule("close", { registry, scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
   it("creates distinct runs for concurrent manual invocations in one millisecond", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"))
     let calls = 0
     const registry = {
-      sync: async () => defineSchedule("*/5 * * * *", () => {
+      sync: async () => defineSchedule({ cron: "*/5 * * * *", manual: true, handler: () => {
         calls++
         return { synced: calls }
-      }, { manual: true }),
+      } }),
     }
 
     const runs = await Promise.all([runSchedule("sync", { registry }), runSchedule("sync", { registry })])
@@ -529,7 +567,7 @@ describe("Manual Schedule runs", () => {
 
   it("rejects inherited definitions from the installed runtime registry", async () => {
     const inherited = {
-      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+      default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
     setScheduleRuntimeRegistry({
       inherited: async () => Object.create(inherited),
@@ -541,7 +579,7 @@ describe("Manual Schedule runs", () => {
 
   it("rejects inherited manual schedule definitions", async () => {
     const inherited = {
-      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+      default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
     const registry = {
       inherited: async () => Object.create(inherited),
@@ -553,8 +591,8 @@ describe("Manual Schedule runs", () => {
 
   it("rejects definitions that do not allow manual runs", async () => {
     const registry = {
-      cron: async () => defineSchedule("0 9 * * *", () => {}),
-      disabled: async () => defineSchedule("0 9 * * *", () => {}, { manual: false }),
+      cron: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {} }),
+      disabled: async () => defineSchedule({ cron: "0 9 * * *", manual: false, handler: () => {} }),
       cronless: async () => ({ handler: () => {} }) as unknown as ScheduleDefinition,
     }
 
@@ -570,9 +608,9 @@ describe("Manual Schedule runs", () => {
   it("resolves with the failed run when the handler fails", async () => {
     const run = await runSchedule("sync", {
       registry: {
-        sync: async () => defineSchedule("0 9 * * *", () => {
+        sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
           throw new TypeError("mailbox unavailable")
-        }, { manual: true }),
+        } }),
       },
     })
 
@@ -650,6 +688,58 @@ describe("KV Schedule Run Store", () => {
     expect(get).toHaveBeenCalledTimes(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
+  })
+
+  it.each(["slash", "colon"])("filters run ID prefixes before limiting indexed history with %s keys", async (separator) => {
+    const kvStore = separator === "slash" ? createTestKVStore() : createColonKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    for (let index = 0; index < 1001; index++) {
+      for (const source of ["static", "manual"]) {
+        const scheduledAt = new Date(Date.UTC(2026, 0, source === "static" ? 1 : index % 2 ? 0 : 3, 0, index))
+        await store.createRun({ id: `srun_${source}_opaque/%_${index}`, scheduleId: "reconcile", target: "reconcile",
+          scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+      }
+    }
+    const get = vi.spyOn(kvStore, "get")
+    // Reopen the existing index: no migration or record scan should be needed.
+    const reopened = createKVScheduleRunStore({ kvStore })
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-01-01T16:41:20.000Z"),
+      registry: { reconcile: async () => defineSchedule({ cron: "0 0 * * *", handler: vi.fn() }) },
+      scheduleRunStore: reopened,
+    })
+    await controller.close()
+    expect(get).toHaveBeenCalledTimes(1)
+    get.mockClear()
+    const query = { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 }
+    expect((await reopened.listRuns(query)).map(run => run.id)).toEqual(["srun_static_opaque/%_1000"])
+    expect(get).toHaveBeenCalledTimes(1)
+    get.mockClear()
+    expect(await reopened.listRunsBatch!([query, { ...query, idPrefix: "absent_" }])).toEqual([
+      [expect.objectContaining({ scheduledAt: new Date("2026-01-01T16:40:00.000Z") })], [],
+    ])
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["memory", "kv"])("filters run ID prefixes before applying limits in the %s store", async (kind) => {
+    const kvStore = createTestKVStore()
+    const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore })
+    for (const [id, scheduleId, time] of [
+      ["srun_static_older", "daily", "2026-01-01T00:00:00Z"],
+      ["srun_static_newer", "daily", "2026-01-02T00:00:00Z"],
+      ["srun_manual_future", "daily", "2026-01-03T00:00:00Z"],
+      ["srun_static_other", "other", "2026-01-04T00:00:00Z"],
+    ] as const) {
+      const scheduledAt = new Date(time)
+      await store.createRun({ id, scheduleId, target: "daily", scheduledAt,
+        createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+    }
+    if (kind === "kv") {
+      // The bounded legacy fallback must apply the same filter after backfilling.
+      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index/")) await kvStore.del(key)
+    }
+    expect((await store.listRuns({ scheduleId: "daily", idPrefix: "srun_static_", limit: 1 })).map(run => run.id)).toEqual(["srun_static_newer"])
+    expect((await store.listRuns({ idPrefix: "srun_static_" })).map(run => run.id)).toEqual(["srun_static_other", "srun_static_newer", "srun_static_older"])
   })
 
   it("reads indexed runs and attempts from a KV store that lists keys with colons", async () => {

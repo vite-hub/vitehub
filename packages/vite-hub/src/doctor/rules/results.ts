@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule } from "vite-doctor/extension"
 
-import { callArguments, isFunctionNode, isIdentifier, isNodeType, isRouteHandler, numberValue, objectValue, parentOf, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
+import { isFunctionNode, isIdentifier, isNodeType, isRouteHandler, numberValue, parentOf, resolver, semanticParent, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 
@@ -10,7 +10,7 @@ type HandleKind = "kv" | "blob" | "media" | "email" | "channel" | "queueClient"
 /** Methods that return `[error, value]` for each Runtime Helper handle. */
 const tupleMethods: Record<HandleKind, Set<string>> = {
   kv: new Set(["clear", "del", "get", "getAndDelete", "has", "increment", "keys", "list", "set", "setIfAbsent"]),
-  blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "serve", "sign"]),
+  blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "sign"]),
   media: new Set(["createFolder", "get", "handleUpload", "list", "move", "moveFolder", "put", "remove", "removeFolder", "replaceCrop", "update", "variants"]),
   email: new Set(["send"]),
   channel: new Set(["send"]),
@@ -42,7 +42,7 @@ function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): Hand
   }
   if (isNodeType(target, "AwaitExpression")) {
     const called = r.callee(target.argument)
-    if (called?.module === "queue" && (called.name === "getQueue" && called.path.length === 0 || called.name === "dynamicQueue" && called.path.join(".") === "get")) return "queueClient"
+    if (called?.module === "queue" && (called.name === "useQueue" && called.path.length === 0 || called.name === "dynamicQueue" && called.path.join(".") === "use")) return "queueClient"
   }
   // Follow `const store = kv.store("cache")` to its initializer.
   const binding = r.binding(target)
@@ -60,14 +60,11 @@ function tupleCall(r: Resolver, call: AstNode): string | undefined {
   }
   const reference = r.callee(call)
   if (!reference) return
-  if (reference.module === "queue" && reference.name === "runQueue" && reference.path.length === 0) return "runQueue()"
-  if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "run") return "dynamicQueue.run()"
+  if (reference.module === "queue" && reference.name === "sendQueue" && reference.path.length === 0) return "sendQueue()"
+  if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "send") return "dynamicQueue.send()"
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
-  if (reference.module === "agent" && reference.name === "runAgent" && reference.path.length === 0) {
-    const args = callArguments(call)
-    // With a Runtime Context as the second argument, `runAgent()` returns the value and throws.
-    if (args.length === 2 || args.length === 3 && stringValue(objectValue(args[2], "output")) === "drained") return "runAgent()"
-  }
+  if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "agent" && ["runAgent", "streamAgent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
 }
 
 
@@ -79,7 +76,7 @@ function enclosingFunctionOf(node: AstNode): AstNode | undefined {
   }
 }
 
-type Misuse = "value" | "response"
+type Misuse = "value" | "response" | "dropped"
 
 /** True when a name that holds the tuple is later indexed, such as `result[0]`, or destructured. */
 function readsAsTuple(r: Resolver, target: unknown): boolean {
@@ -102,6 +99,9 @@ function misuseOf(r: Resolver, awaited: AstNode): Misuse | undefined {
   const { parent, child } = semanticParent(awaited)
   if (!parent) return
   switch (parent.type) {
+    // `await kv.set(key, value)` as a statement: nothing reads the error.
+    case "ExpressionStatement":
+      return "dropped"
     case "VariableDeclarator":
       return isNodeType(parent.id, "ArrayPattern") || readsAsTuple(r, parent.id) ? undefined : "value"
     case "AssignmentExpression":
@@ -153,18 +153,23 @@ export const destructureResultTuples: DoctorRule = createRule({
         const name = tupleCall(r, node)
         if (!name) return
         const { parent } = semanticParent(node)
-        // A returned promise resolves to the tuple too, so a route handler responds with it.
-        const awaited = parent?.type === "AwaitExpression" ? parent : parent?.type === "ArrowFunctionExpression" || parent?.type === "ReturnStatement" ? node : undefined
+        // A returned promise resolves to the tuple too, so a route handler responds with it. A call without `await` as a
+        // statement drops the tuple too. `void` marks a result that the code ignores on purpose.
+        const awaited = parent?.type === "AwaitExpression" ? parent : parent?.type === "ArrowFunctionExpression" || parent?.type === "ReturnStatement" || parent?.type === "ExpressionStatement" ? node : undefined
         if (!awaited) return
         const misuse = misuseOf(r, awaited)
         if (!misuse) return
         const why = {
           "value": `\`${name}\` returns an \`[error, value]\` tuple and does not throw on failures. This code uses the tuple as the value. A tuple is always truthy, and the error is lost.`,
           "response": `\`${name}\` returns an \`[error, value]\` tuple. This route handler returns the tuple, so the client receives \`[error, value]\` as JSON and a failure still answers with status 200.`,
+          "dropped": `\`${name}\` returns an \`[error, value]\` tuple and does not throw on failures. This statement drops the tuple, so a failure is silent.`,
         }[misuse]
+        const call = name.replace("()", "(...)")
         ctx.report(diagnostics.VHUB0003({
           why,
-          fix: `Destructure the result and handle the error: \`const [error, value] = await ${name.replace("()", "(...)")}\`, then \`if (error) throw error\`.`,
+          fix: misuse === "dropped"
+            ? `Read the error: \`const [error] = await ${call}\`, then \`if (error) throw error\`. To ignore a failure on purpose, write \`void await ${call}\`.`
+            : `Destructure the result and handle the error: \`const [error, value] = await ${call}\`, then \`if (error) throw error\`.`,
         }), { range: ctx.range(awaited) })
       },
     }

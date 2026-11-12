@@ -1,3 +1,4 @@
+export { detectContentType } from "./content-type.ts"
 export { ensureBlob } from "./ensure.ts"
 export { blob } from "./runtime/storage.ts"
 export { file, image } from "./reference.ts"
@@ -17,7 +18,6 @@ export type {
 export type {
   BlobDriver,
   BlobErrorCode,
-  BlobErrorDetails,
   BlobEnsureOptions,
   BlobListOptions,
   BlobListResult,
@@ -26,7 +26,7 @@ export type {
   BlobMediaListResult,
   BlobMediaPutOptions,
   BlobMediaUploadOptions,
-  BlobModuleOptions,
+  BlobOptions,
   BlobMultipartEvent,
   BlobMultipartHandlerOptions,
   BlobMultipartHandlerResult,
@@ -35,7 +35,6 @@ export type {
   BlobMultipartUpload,
   BlobObject,
   BlobPutOptions,
-  BlobResult,
   BlobSignedRequest,
   BlobSignOptions,
   BlobServeAnonymousAuthorize,
@@ -45,6 +44,9 @@ export type {
   BlobStorage,
   BlobOperation,
   BlobStoreConfig,
+  BlobStoreName,
+  BlobStoreOptions,
+  BlobStoreRegistry,
   BlobType,
   BlobUploadEvent,
   BlobUploadOptions,
@@ -68,6 +70,7 @@ export type {
   ResolvedFsBlobStoreConfig,
   ResolvedMinioBlobStoreConfig,
   ResolvedVercelBlobStoreConfig,
+  ReadonlyBlobStorage,
   S3BlobStoreConfig,
   StorjBlobStoreConfig,
   SupabaseBlobStoreConfig,

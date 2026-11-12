@@ -74,7 +74,6 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
   tempDirs.push(rootDir)
   const resolved = Object.fromEntries(Object.entries(databases).map(([name, database]) => [name, {
     dialect: "sqlite",
-    drizzle: {},
     migrationsDir: join(rootDir, "migrations"),
     name,
     ...database,
@@ -97,7 +96,7 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
   return { rootDir, run }
 }
 
-describe("vitehub db export", () => {
+describe("vitehub database export", () => {
   it("restores positive and negative infinite REAL values", async () => {
     const project = await createProject({ default: { connection: { url: "file:source.db" } } })
     const source = createClient({ url: `file:${join(project.rootDir, "source.db")}` })

@@ -3,7 +3,7 @@ import type {
   ConfiguredAgentDefinition,
   AgentDefinition,
   AgentRuntimeConfig,
-  AgentInvokerProfile,
+  AgentInvoker,
   AgentInvocationContextValues,
 } from "@vite-hub/agent";
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "@vite-hub/agent/channels";
@@ -12,13 +12,15 @@ import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
-import { defineChannel, defineChannelTrigger } from "@vite-hub/agent/channels";
+import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
-import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process-host";
+import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
+export { BabysitterPlacementCapacityError } from "./babysitter/placement.ts";
 
 export interface BabysitterLifecycleLabels {
   /** At least one of these labels must be present for the PR to be eligible. */
@@ -41,14 +43,20 @@ export interface BabysitterPlacementLease {
 
 /** Chooses a host for each pass before the Babysitter installs dependencies on this one. */
 export interface BabysitterPlacement {
+  /** Throw `BabysitterPlacementCapacityError` when no host can take the pass now; the PR waits and is claimed again. */
   place(pullRequest: { repository: string; number: number }): BabysitterPlacementLease | Promise<BabysitterPlacementLease>;
   /** Passes currently placed on other hosts. They hold a concurrency slot but no local memory. */
   remoteActive?(): number;
+  /**
+   * Slots that hosts admit now, counting passes already running. A reconcile claims at most this
+   * many PRs minus the active owners, so it never claims work that `place` must turn away.
+   */
+  admitted?(): number | Promise<number>;
 }
 
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
-  capacity?: Pick<import("@vite-hub/agent/runtime/process").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
+  capacity?: Pick<import("@vite-hub/agent/process").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
   /**
    * Places each pass on this host or in a Sandbox before host dependency installation. Sandbox passes
    * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
@@ -63,6 +71,8 @@ export interface BabysitterOptions {
   /**
    * Merge policy. Defaults to `false`. `"auto"` lets the worker request GitHub native auto-merge.
    * `"direct"` merges a ready PR into its default branch before any model pass.
+   * `{ strategy: "direct", ready: "approved-if-outside" }` also holds a PR from someone without write
+   * access until a reviewer with write access approves its current head.
    */
   merge: BabysitterMerge;
   /**
@@ -214,7 +224,7 @@ function plainSecret(value: unknown): string | undefined {
   return hasRuntimeType(plain, "string") && plain.trim() ? plain.trim() : undefined;
 }
 
-const babysitterIntake = defineChannel("babysitter-github", {
+const babysitterIntake = channelAdapter("babysitter-github", {
   messages: false,
   triggers: {
     delivery: defineChannelTrigger({
@@ -248,7 +258,7 @@ const babysitterIntake = defineChannel("babysitter-github", {
 type BabysitterDefinition = AgentDefinition<
   AgentRuntimeConfig,
   unknown,
-  AgentInvokerProfile,
+  AgentInvoker,
   AgentInvocationContextValues,
   BabysitterPassResult
 > & {
@@ -365,6 +375,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
       throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
+    }
+    if (placement?.admitted !== undefined && typeof placement.admitted !== "function") {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "placement.admitted", expected: "a function that returns the admitted slot count" });
     }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");

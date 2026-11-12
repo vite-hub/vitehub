@@ -1,13 +1,13 @@
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { Diagnostic } from "nostics"
 
 import { consoleRpcHeader } from "../rpc"
+import { projectFetch } from "./project"
 
 import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
-const consoleApiMarker = "/api/_vitehub/console/"
-const consoleRpcCallPath = "/_vitehub/rpc/__call"
-const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
+const consoleApiMarker = "/_vitehub/api/"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -58,18 +58,20 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+/** Whether the project refused a Console request with `401`, such as a signature that it does not accept. */
 export function isConsoleSignInRequired(error: unknown): boolean {
   return error instanceof ConsoleRequestError && error.status === 401
 }
 
 const textField = (value: unknown): string | undefined =>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   typeof value === "string" && value.trim() ? value.slice(0, 1_000) : undefined
 
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
 export function consoleErrorFields(value: unknown): ConsoleErrorFields {
   const body = record(value)
+  // An Auth guard refusal only has the HTTP phrase as its message. The Console code and sentence of the status say more.
+  const authRefusal = record(body?.data)?.code
+  if (body?.code === undefined && (authRefusal === "SIGNED_OUT" || authRefusal === "FORBIDDEN")) return {}
   const nested = record(body?.error)
   const source = nested ?? body
   const docs = textField(source?.docs)
@@ -85,7 +87,6 @@ export function consoleErrorFields(value: unknown): ConsoleErrorFields {
 function consoleFailureFields(value: unknown): { code?: string, details?: Record<string, unknown> } {
   const body = record(value)
   return {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     code: typeof body?.code === "string" ? body.code : undefined,
     details: record(body?.details),
   }
@@ -111,23 +112,6 @@ export async function consoleResponseError(response: Response, fallback: Console
     fix: fields.fix ?? fallback.fix,
     message: fields.message ?? fallback.message,
   }, failure)
-}
-
-/** The media upload route under the application mount of a Console API path. */
-export function consoleRpcUploadURL(path: string): string {
-  const url = new URL(path, "http://vitehub.local")
-  const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleRpcUploadPath}`
-}
-
-function consoleRpcCallURL(path: string): string {
-  const url = new URL(path, "http://vitehub.local")
-  // The application mount may itself contain the Console API marker. The
-  // final marker is the generated route that belongs to this request.
-  const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleRpcCallPath}`
 }
 
 interface ConsoleRoute {
@@ -287,46 +271,45 @@ export async function requestConsole(
     query[key] = Array.isArray(value) ? value.map(String) : String(value)
   }
   const call = consoleOperationCall(path, { body: options.body, method: options.method ?? "GET", query })
-  return requestConsoleOperation(path, call.operation, call.input, options)
+  return requestConsoleOperation(call.operation, call.input, options)
 }
 
-/**
- * Call one named operation over the Console RPC. `path` is any Console API path of the app, such as the definitions
- * route, and only locates the application mount.
- */
+/** Call one named operation over the Console RPC of the project. */
 export async function requestConsoleOperation(
-  path: string,
   operation: string,
   input: Record<string, unknown>,
   options: { keepalive?: boolean, signal?: AbortSignal } = {},
 ): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  // The operation comes first so the server can find large calls within the first bytes.
-  const requestBody = JSON.stringify({ operation, input })
-  let response: Response
-  try {
-    response = await fetch(consoleRpcCallURL(path), {
-      body: requestBody,
-      cache: "no-store",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-      ...(options.keepalive ? { keepalive: true } : {}),
-      method: "POST",
-      signal: options.signal,
-    })
+  const outcome = await callOperationRpc(operation, input, async (body) => {
+    let response: Response
+    try {
+      response = await projectFetch(operationRpcPath, {
+        body,
+        cache: "no-store",
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        ...(options.keepalive ? { keepalive: true } : {}),
+        method: "POST",
+        signal: options.signal,
+      })
+    }
+    catch (error) {
+      // Aborted requests are intentional (for example when a view unmounts); preserve
+      // the original error so callers that ignore AbortError can do so reliably.
+      if (error instanceof Error && error.name === "AbortError") throw error
+      throw new ConsoleNetworkError(error)
+    }
+    // The clone keeps the body readable for the error of an answer that is not a reply.
+    return { body: await response.clone().json().catch(() => undefined), response }
+  })
+  if (outcome.ok) return outcome.value
+  const { response } = outcome.answer
+  if (outcome.error) {
+    // The HTTP status of a failed response wins over the status in the body.
+    const status = !response.ok ? response.status : outcome.error.status >= 400 ? outcome.error.status : 502
+    throw new ConsoleRequestError(status, consoleErrorFields(outcome.error), consoleFailureFields(outcome.error))
   }
-  catch (error) {
-    // Aborted requests are intentional (for example when a view unmounts); preserve
-    // the original error so callers that ignore AbortError can do so reliably.
-    if (error instanceof Error && error.name === "AbortError") throw error
-    throw new ConsoleNetworkError(error)
-  }
-  if (!response.ok) throw await consoleResponseError(response)
-  const result = record(await response.json().catch(() => undefined))
-  if (result?.ok === true) return result.value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
-  throw new ConsoleRequestError(status, consoleErrorFields(result), consoleFailureFields(result))
+  throw await consoleResponseError(response)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
@@ -338,9 +321,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function assertConsolePage(page: Record<string, unknown>): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const message = typeof page.error === "string" ? page.error : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const code = typeof page.errorCode === "string" ? page.errorCode : undefined
   if (!message && !code) return
   const error = viteHubErrorDiagnostics.VITE_HUB_R0041({ message: message ?? `Console request failed with error code ${code}.` })
@@ -369,7 +350,6 @@ export async function loadConsoleKVPages(
     if (!page) break
     assertConsolePage(page)
     pages.push(page)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const cursor = typeof page.cursor === "string" ? page.cursor : undefined
     if (cursor === undefined) {
       hasMore = false

@@ -1,4 +1,4 @@
-import { commentsErrorDiagnostics } from "./client-errors.ts"
+import { commentsClientDiagnostics } from "./client-diagnostics.ts"
 
 import type {
   CommentCreateInput,
@@ -15,7 +15,7 @@ import type {
   CommentUsersInput,
 } from "./client-types.ts"
 
-export { createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
+export { anchorRange, createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
 export type {
   AnchorPoint,
   AnchorPosition,
@@ -26,6 +26,7 @@ export type {
   ResolvedAnchor,
 } from "./client-anchor.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
+export { foldName } from "./fold-name.ts"
 export { commentAttachmentUrl, CommentsRestError, createCommentsRestRequest, createRestTransport } from "./rest-transport.ts"
 export type { CommentsGuest, CommentsRestAnswer, CommentsRestRequest, RestCommentThread, RestTransport, RestTransportOptions } from "./rest-transport.ts"
 export type * from "./client-types.ts"
@@ -164,7 +165,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
         const snapshot = JSON.stringify(list)
         if (snapshot === previousSnapshot) break
         // A busy list must not cause unlimited requests or publish an incomplete cache. Keep the old cache on error.
-        if (scan === 2) throw commentsErrorDiagnostics.COMMENTS_R0015()
+        if (scan === 2) throw commentsClientDiagnostics.COMMENTS_R0015()
         previousSnapshot = snapshot
       }
       // A newer refresh, or a query change, makes this answer stale.

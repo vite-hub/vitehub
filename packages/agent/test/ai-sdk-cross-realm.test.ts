@@ -8,9 +8,14 @@ import { portableAgentWorkflowInput } from "../src/index.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import type { AgentAdapterRunContext } from "../src/types.ts"
 
+// A Blob from another realm keeps its methods on that realm's prototype.
+function foreignBlobPrototype(): object {
+  return Object.create(runInNewContext("Object.prototype"), Object.getOwnPropertyDescriptors(Blob.prototype))
+}
+
 it("rejects cross-realm Blob attachments in synchronous model conversion", () => {
   const foreignBlob = new Blob(["image"])
-  Object.setPrototypeOf(foreignBlob, runInNewContext("Object.prototype"))
+  Object.setPrototypeOf(foreignBlob, foreignBlobPrototype())
 
   expect(() => toAiSdkModelMessages([{
     id: "message-1",
@@ -21,7 +26,7 @@ it("rejects cross-realm Blob attachments in synchronous model conversion", () =>
 
 it("accepts cross-realm Blob attachments in async resolution", async () => {
   const foreignBlob = new Blob(["image"], { type: "image/png" })
-  Object.setPrototypeOf(foreignBlob, runInNewContext("Object.prototype"))
+  Object.setPrototypeOf(foreignBlob, foreignBlobPrototype())
   const direct = { data: foreignBlob, mediaType: "image/png", type: "image" as const }
   const callback = {
     fetchData: () => foreignBlob,
@@ -37,7 +42,7 @@ it("accepts cross-realm Blob attachments in async resolution", async () => {
 for (const source of ["direct", "callback"] as const) {
   it(`materializes ${source} cross-realm Blobs and detects their media type`, async () => {
     const foreignBlob = new Blob(["image"], { type: "image/png" })
-    Object.setPrototypeOf(foreignBlob, runInNewContext("Object.prototype"))
+    Object.setPrototypeOf(foreignBlob, foreignBlobPrototype())
     const reachedModel = new Error("reached model")
     let prompt: unknown
     const doGenerate = vi.fn(async (options: { prompt: unknown }) => {
@@ -56,7 +61,6 @@ for (const source of ["direct", "callback"] as const) {
       },
     })
     const context: AgentAdapterRunContext = {
-      actor: { id: "actor" },
       context: createAgentInvocationContextStore(),
       input: {},
       invoker: { id: "invoker", kind: "user" },
@@ -98,7 +102,7 @@ for (const source of ["direct", "callback"] as const) {
 for (const source of ["direct", "callback"] as const) {
   it(`encodes ${source} cross-realm Blobs in durable workflow inputs`, async () => {
     const foreignBlob = new Blob([new Uint8Array([0, 128, 255])], { type: "image/png" })
-    Object.setPrototypeOf(foreignBlob, runInNewContext("Object.prototype"))
+    Object.setPrototypeOf(foreignBlob, foreignBlobPrototype())
     const message = {
       id: "message-1",
       role: "user" as const,

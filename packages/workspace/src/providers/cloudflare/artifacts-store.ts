@@ -132,6 +132,7 @@ function isNonFastForward(error: unknown) {
   }
   if (value.code === "PushRejectedError" && value.data?.reason === "not-fast-forward") return true
   if (value.code !== "GitPushError") return false
+  // provider-message-match: an isomorphic-git GitPushError keeps the server reason only as text.
   return /non-fast-forward|fetch first|stale info/i.test([
     value.message,
     value.data?.prettyDetails,
@@ -553,7 +554,11 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #ensure(): Promise<void> {
-    this.#ready ||= this.#load()
+    // A failed load, such as a network error, lets the next call try again.
+    this.#ready ||= this.#load().catch((error: unknown) => {
+      this.#ready = undefined
+      throw error
+    })
     await this.#ready
   }
 

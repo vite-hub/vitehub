@@ -2,12 +2,27 @@ import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
-import type { QueueProvider } from "./types.ts"
+import type { QueueEnqueueOptions, QueueProvider } from "./types.ts"
 import { queueErrorDiagnostics, type QueueProviderOperation } from "./error-diagnostics.ts"
 
 export type { QueueProviderOperation }
 
 export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retentionSeconds"] as const
+export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
+
+const unsupportedEnqueueOptions = {
+  cloudflare: cloudflareUnsupportedEnqueueOptions,
+  local: localUnsupportedEnqueueOptions,
+  vercel: ["contentType"],
+} as const
+
+/** Shared pre-dispatch option validation for provider clients and the test backend. */
+export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueProvider, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
+  const unsupported = names.filter(option => options[option] !== undefined)
+  return unsupported.length
+    ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider })
+    : undefined
+}
 
 type QueueCatalogCode = keyof typeof queueErrorDiagnostics
 

@@ -20,15 +20,14 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
 
 ## Primitives that the presets use
 
-- `@vite-hub/agent/process-host`: `withAgentProcessHost()` attaches the Babysitter host.
+- `@vite-hub/agent/process`: `withAgentProcessHost()` attaches the Babysitter host.
   The `vitehub.agent` field of this package.json tells the Vite plugin which subpaths
   attach a process host or select a provider Driver.
 - `@vite-hub/agent/channels`: `channelEnv()` and `channelEnvValue()` read the Server Env of a
   built-in Channel, and `channelMessageContextKey` reads the Channel message in `intercept`.
-- `@vite-hub/agent/server/github`: the GitHub host, pull request operations, dependency
-  installation, and repair helpers.
-- `@vite-hub/agent/server/internal`: the Babysitter worker still reads Agent layer metadata
-  and the active provider Sandbox through this internal entry.
+- `@vite-hub/agent`: the Babysitter worker builds its Agent from the configured one with
+  `agentSettings()`, removes the host GitHub token with `withoutForgeAccess()`, and reaches the
+  provider Sandbox with `activeProviderSandbox()`.
 
 ## Labeller
 
@@ -59,8 +58,7 @@ import { defineAgent } from "@vite-hub/agent"
 import { babysitter } from "@vite-hub/presets/babysitter"
 
 export default defineAgent({
-  preset: "babysitter",
-  presets: { babysitter },
+  extends: babysitter,
   options: {
     filter: { repository: { allow: ["acme/app"] } },
     lifecycle: {
@@ -133,7 +131,9 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass.
+other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
+PR from an author without write access only after a reviewer with write access
+approves its current head and no such reviewer's latest review requests changes.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
@@ -283,6 +283,11 @@ has no merge tool and the host rejects auto-merge operations. With `"auto"`, it
 requests GitHub native auto-merge subject to current PR admission and repository
 checks and reviews. Workers never merge directly or delete branches.
 
+CI logs reach the worker without color codes or fetch branch listings, capped at
+the last 4 MB of each failed job. Preloaded evidence and `readCheckLogs` return a
+failure-focused excerpt; `readCheckLogs` also takes `tailLines` or
+`startLine`/`endLine` for up to 1,000 lines the excerpt omitted.
+
 Before a repair push, the host durably associates the exact candidate commit with
 its active claim. Check and status webhooks for that commit are retained even when
 they arrive before the source-push and synchronize webhooks. This association does
@@ -295,3 +300,25 @@ CI evidence. Later pending candidates and separately verified push receipts rema
 A pass can resolve several addressed review threads without cancelling itself
 when its own resolution webhooks arrive. New comments and external thread reopens
 still revoke further repair operations.
+
+## Babysitter GitHub host
+
+`createGitHubHost()` from `@vite-hub/presets/babysitter/server` is the GitHub host that `createBabysitterRuntime()` takes. Use it to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+
+```ts fragment
+await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
+  await runAgent({ cwd: path, env, signal })
+  await push()
+}, { signal: invocation.abortSignal, timeout: 60_000 })
+```
+
+For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
+
+`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ minLifetime })` mints a new App installation token when the cached one expires within that many milliseconds. `host.channel()` passes it for Provider Driver runs. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
+
+`host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
+A provider `env` resolver can call `host.environment()` inside
+`withPullRequestCheckout()`. The environment binds to that callback's checkout,
+including concurrent callbacks. Await the entire agent run before returning.
+Use `defineAgent({ extends: agent, name, workspace })` to bind the workspace
+without rebuilding driver configuration.

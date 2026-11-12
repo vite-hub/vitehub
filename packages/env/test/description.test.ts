@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { env } from "../src/core/declarations.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { describeServerEnv } from "../src/server.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 describe("Server Env declaration inventory", () => {
   it("describes host, provider and literal declarations without exposing their values or storage keys", () => {
@@ -34,7 +35,7 @@ describe("Server Env declaration inventory", () => {
       nested: { token: env({ source: env.source("NESTED_TOKEN") }) },
       "nested.token": env({ source: env.source("DOTTED_TOKEN") }),
     })
-    const inspection = await inspectServerEnv(registry, { env: { DOTTED_TOKEN: "dotted" } })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ DOTTED_TOKEN: "dotted" }))
     expect(inspection.entries.map(entry => entry.path)).toEqual(describeServerEnv(registry).entries.map(entry => entry.path))
     // A dotted declaration key must not report its status under the nested path.
     expect(inspection.entries).toEqual([
@@ -50,9 +51,7 @@ describe("Server Env declaration inventory", () => {
       region: env(),
       url: env(),
     })
-    const inspection = await inspectServerEnv(registry, {
-      env: { VITEHUB_API_KEY: "canonical-secret", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "eu", REGION: "eu", URL: "https://example.test" },
-    })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "canonical-secret", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "eu", REGION: "eu", URL: "https://example.test" }))
     expect(inspection.entries).toEqual([
       { masked: true, path: "env.server.apiKey", required: true, source: "env", status: "available", via: "canonical", conflict: true },
       { masked: false, path: "env.server.region", required: true, source: "env", status: "available", via: "canonical" },
@@ -66,42 +65,9 @@ describe("Server Env declaration inventory", () => {
     const registry = createRuntimeRegistry({
       channel: env({ source: env.source("CHANNEL_TOKEN", { canonical: false }) }),
     })
-    const inspection = await inspectServerEnv(registry, { env: { CHANNEL_TOKEN: "token" } })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ CHANNEL_TOKEN: "token" }))
     expect(inspection.entries).toEqual([
       { masked: false, path: "env.server.channel", required: true, source: "env", status: "available" },
     ])
   })
-})
-
-it("manages only declared unambiguous provider paths without resolving credentials", async () => {
-  const { createServerEnvManagement } = await import("../src/server.ts")
-  const { createEnvBridge } = await import("../src/bridge.ts")
-  const { vi } = await import("vitest")
-  const inspect = vi.fn(async () => ({ revision: "revision", updatedAt: "now" }))
-  const bridge = createEnvBridge({
-    secrets: { inspect, read: vi.fn(), replace: vi.fn() },
-    access: { append: vi.fn(), activity: vi.fn(), grants: vi.fn(), setGrant: vi.fn(), revokeGrant: vi.fn() },
-    runtimeActor: { kind: "service", id: "runtime" },
-  })
-  const { adminContext } = await import("./helpers.ts")
-  const admin = await adminContext()
-  const authenticate = vi.fn(async () => admin)
-  const read = vi.fn(() => { throw new Error("Inventory must not resolve") })
-  const providers = { vault: { read, management: { bridge, authenticate } } }
-  const registry = createRuntimeRegistry({
-    host: env({ source: env.source("HOST") }),
-    token: env({ source: env.provider("vault", "private-key") }),
-    "nested.token": env({ source: env.provider("vault", "ambiguous") }),
-    "unsafe name": env({ source: env.provider("vault", "other") }),
-  })
-  expect(describeServerEnv(registry).entries[1]).toMatchObject({ source: "provider", provider: "vault" })
-  expect(read).not.toHaveBeenCalled()
-  const handler = createServerEnvManagement(registry, providers)
-  const request = (path: string) => new Request("https://example.com/manage", { method: "POST", headers: { origin: "https://example.com" }, body: JSON.stringify({ action: "inspect", path }) })
-  for (const path of ["env.server.host", "private-key", "env.server.unsafe name", "env.server.nested.token", "env.server.missing"]) expect((await handler(request(path))).status).toBe(404)
-  const req = request("env.server.token")
-  expect((await handler(req)).status).toBe(200)
-  expect(authenticate).toHaveBeenCalledWith(req)
-  expect(inspect).toHaveBeenCalledWith("private-key")
-  expect(read).not.toHaveBeenCalled()
 })

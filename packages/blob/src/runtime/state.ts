@@ -3,16 +3,20 @@ import {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
+  installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"
 
 export { setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
+export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
@@ -39,8 +43,25 @@ export {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
+  installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
+}
+
+/**
+ * The env that holds the store credentials at runtime: the text values of the active Cloudflare Worker env, then
+ * `process.env`. A Worker does not always copy its secrets into `process.env`.
+ */
+export function blobRuntimeEnv(): Record<string, string | undefined> {
+  const processEnv = typeof process === "undefined" ? {} : process.env
+  const worker = getActiveCloudflareEnv()
+  if (!worker) return processEnv
+  return { ...processEnv, ...Object.fromEntries(Object.entries(worker).filter((entry): entry is [string, string] => typeof entry[1] === "string")) }
+}
+
+/** The Cloudflare bindings in the Standard Context of a request event, when the host provides them. */
+export function getRequestCloudflareEnv(event: ViteHubContext): Record<string, unknown> | undefined {
+  return getStandardContext(event).runtime?.cloudflare?.env
 }
 
 export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModuleOptions> {
@@ -63,7 +84,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
         ? "cloudflare"
         : readEnv(env, "VITEHUB_HOSTING")
           || (readEnv(env, "NETLIFY") || readEnv(env, "NETLIFY_DEV") || readEnv(env, "NETLIFY_LOCAL") ? "netlify" : undefined)
-          || (readEnv(env, "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
+          || (readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
       return normalizeBlobOptions(undefined, { env, hosting }) || false
     }
   })()

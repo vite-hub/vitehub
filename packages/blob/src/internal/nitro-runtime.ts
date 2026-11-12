@@ -90,24 +90,37 @@ export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOpt
 
 export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions, provider?: BlobProvider) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
+  // A store with `secretEnv` has env variable names in place of its credentials. They are read when the driver starts.
+  const secrets = stores.some(store => store.secretEnv)
   const nativeCloudflareR2 = stores
     .filter(store => store.driver === "cloudflare-r2")
-    .every(isCloudflareR2StoreWithBucket)
-  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)))]
+    .every(store => isCloudflareR2StoreWithBucket(store) && !store.remote)
+  // Only `vite dev` sets `localFallback`: the R2 store then uses this `fs` store when the dev runner has no R2 binding.
+  const localFallback = stores.some(store => store.driver === "cloudflare-r2" && store.localFallback)
+  const selectedDriverModules = [...new Set([
+    ...stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)),
+    ...(localFallback ? [driverModules.fs] : []),
+  ])]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
-    `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
-    `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
+    `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("index")))}`,
+    `import { ${secrets ? "blobRuntimeEnv, " : ""}setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
-    imports.push(`import { createBlobStorage, handleBlobMultipartUpload, handleBlobUpload } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
+    imports.push(`import { createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload, blobStoreMode, readonlyBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
     imports.push(`import { blobResult, unknownBlobStoreError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
     const driverImport = driverImports[driverModule]
     imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
-  const runtimeStoreResolvers = [...new Set(stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean))]
+  if (localFallback) {
+    imports.push(`import { getOptionalBucket } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("drivers/cloudflare-native")))}`)
+  }
+  const runtimeStoreResolvers = [...new Set([
+    ...stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean),
+    ...(secrets ? ["resolveRuntimeBlobSecrets"] : []),
+  ])]
   if (runtimeStoreResolvers.length > 0) {
     imports.push(`import { ${runtimeStoreResolvers.join(", ")} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
@@ -117,7 +130,11 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     const driverImport = driverImports[driverModule]
     if (!driverImport) return undefined
     const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
-    const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(store, process.env)` : "store"
+    const store = secrets ? "resolveRuntimeBlobSecrets(store, blobRuntimeEnv())" : "store"
+    const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(${store}, process.env)` : store
+    if (driver === "cloudflare-r2" && localFallback) {
+      return `    case ${JSON.stringify(driver)}: return store.localFallback && !getOptionalBucket(store) ? ${driverImports[driverModules.fs]}(store.localFallback) : ${driverImport}(${storeExpression})`
+    }
     return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
   }).filter(Boolean)
 
@@ -156,7 +173,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    ...upload,",
           "    async complete(parts) {",
           "      const [error, object] = await upload.complete(parts)",
-          "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
+          "      return error ? [error, undefined] : [undefined, withServedBlobUrl(name, object)]",
           "    },",
           "  }",
           "}",
@@ -171,10 +188,16 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function resolveBlobStoreConfig(name) {",
           "  const stores = blobConfig.stores || { default: blobConfig.store }",
-          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name)",
+          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name, stores)",
           "  const store = stores[name]",
-          "  if (!store) throw unknownBlobStoreError(name)",
+          "  if (!store) throw unknownBlobStoreError(name, stores)",
           "  return store",
+          "}",
+          "",
+          "function selectGeneratedBlobStore(name, options, createStorage) {",
+          "  const mode = blobStoreMode(options)",
+          "  const storage = createStorage(name)",
+          "  return mode === \"read\" ? readonlyBlobStorage(storage) : storage",
           "}",
           "",
           "function createGeneratedBlobStorage(name = \"default\") {",
@@ -185,27 +208,27 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    ...storage,",
           "    async createMultipartUpload(pathname, options) {",
           "      const [error, upload] = await storage.createMultipartUpload(pathname, options)",
-          "      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]",
+          "      return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]",
           "    },",
           "    handleMultipartUpload: (event, options) => handleBlobMultipartUpload(runtimeStorage, event, options),",
           "    handleUpload: (event, options) => handleBlobUpload(runtimeStorage, event, options),",
           "    async resumeMultipartUpload(pathname, uploadId) {",
           "      const [error, upload] = await storage.resumeMultipartUpload(pathname, uploadId)",
-          "      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]",
+          "      return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]",
           "    },",
           "    async head(pathname) {",
           "      const [error, object] = await storage.head(pathname)",
-          "      return error ? [error, undefined] : [null, object && withServedBlobUrl(name, object)]",
+          "      return error ? [error, undefined] : [undefined, object && withServedBlobUrl(name, object)]",
           "    },",
           "    async list(options) {",
           "      const [error, result] = await storage.list(options)",
-          "      return error ? [error, undefined] : [null, { ...result, blobs: result.blobs.map(object => withServedBlobUrl(name, object)) }]",
+          "      return error ? [error, undefined] : [undefined, { ...result, blobs: result.blobs.map(object => withServedBlobUrl(name, object)) }]",
           "    },",
           "    async put(pathname, body, options) {",
           "      const [error, object] = await storage.put(pathname, body, options)",
-          "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
+          "      return error ? [error, undefined] : [undefined, withServedBlobUrl(name, object)]",
           "    },",
-          "    store: storeName => createGeneratedBlobStorage(storeName),",
+          "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage),",
           "  }",
           "  blobStorages.set(name, runtimeStorage)",
           "  return runtimeStorage",
@@ -218,6 +241,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function createLazyGeneratedBlobStorage(name) {",
           "  return {",
+          "    media: createLazyBlobMedia(() => resolveGeneratedBlobStorage(name, \"media\")),",
           "    async createMultipartUpload(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.createMultipartUpload(pathname, options) },",
           "    async handleMultipartUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.handleMultipartUpload(event, options) },",
           "    async handleUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"upload\"); return error ? [error, undefined] : storage.handleUpload(event, options) },",
@@ -228,8 +252,8 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    async list(options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"list\"); return error ? [error, undefined] : storage.list(options) },",
           "    async put(pathname, body, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"put\"); return error ? [error, undefined] : storage.put(pathname, body, options) },",
           "    async sign(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"sign\"); return error ? [error, undefined] : storage.sign(pathname, options) },",
-          "    async serve(event, pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); return error ? [error, undefined] : storage.serve(event, pathname, options) },",
-          "    store: storeName => createLazyGeneratedBlobStorage(storeName),",
+          "    async serve(request, pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); if (error) throw error; return storage.serve(request, pathname, options) },",
+          "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createLazyGeneratedBlobStorage),",
           "  }",
           "}",
           "",

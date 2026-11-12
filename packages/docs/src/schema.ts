@@ -19,28 +19,46 @@ export type DocsPageNavigation = false | {
   group?: string
   /** Task lane of the page, such as `guide` or `reference`. */
   kind?: string
+  /**
+   * On the `index.md` of a folder inside a section: the folder becomes its own panel. The section sidebar shows one link
+   * to it, and its pages show a sidebar of their own with a link back to the section.
+   */
+  panel?: boolean
 }
 
 /** Frontmatter of a docs page, after dotted keys such as `navigation.order` became nested objects. */
 export interface DocsPageFrontmatter {
   title: string
   description?: string
+  /** Text under the heading, when it differs from `description`, which stays the meta description and the llms.txt entry. */
+  tagline?: string
+  /** A short label above the title, such as the package that the page documents. */
+  eyebrow?: string
+  /** Inline Markdown at the end of the page, such as the projects that a package builds on. */
+  credits?: string
+  /** More words that find the page in search: a list, or one string with commas between them. */
+  keywords?: string | string[]
   icon?: string
   layout?: DocsLayout
   /** Tutorials only. Complete applications sort before shorter quickstarts. */
   tutorial?: "project" | "quickstart"
   /** Tutorials only. Shows the file tree and code of the current step beside the prose. */
   codePanel?: boolean
-  /** `false` hides the navigation sidebar on this page. */
-  sidebar?: boolean
+  /**
+   * `false` hides the navigation sidebar on this page. `"collapsed"` shows a narrow strip instead, with a button that opens
+   * the sidebar, for a page that needs the width, such as a playground. Code panel tutorials start collapsed.
+   */
+  sidebar?: boolean | "collapsed"
   /** `false` hides the "On this page" outline. */
   toc?: boolean
   navigation?: DocsPageNavigation
   /**
    * Search and share fields, when they differ from the page's own. `image` is the share image: a path in `public/` or a
-   * URL, or `false` for none. Without it the build renders one from the title and description.
+   * URL, or `false` for none. Without it the build renders one from the title and description. `index: false` asks
+   * search engines not to index the page and leaves it out of the sitemap, llms.txt, the site search, and the prerender.
+   * The server renders it on request.
    */
-  seo?: { title?: string, description?: string, image?: string | false }
+  seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
 }
 
 /**
@@ -52,9 +70,11 @@ export interface DocsPageFile extends DocsPageFrontmatter {
   "navigation.order"?: number
   "navigation.group"?: string
   "navigation.kind"?: string
+  "navigation.panel"?: boolean
   "seo.title"?: string
   "seo.description"?: string
   "seo.image"?: string | false
+  "seo.index"?: boolean
 }
 
 /** `.navigation.yml` of a section folder. */
@@ -64,6 +84,10 @@ export interface DocsSectionFile {
   order?: number
   /** Catalog group of the section. `categories` in the docs options orders the groups. */
   category?: string
+  /** Rail group of the section: sections of one group share one rail item and one sidebar. */
+  group?: string
+  /** Folds each page group of the sidebar until the reader opens it. The group of the current page opens itself. */
+  fold?: boolean
   /** Ids of sections listed under Related in this section's sidebar. */
   related?: string[]
 }
@@ -75,22 +99,28 @@ const navigationFields: Fields<Exclude<DocsPageNavigation, false>> = {
   order: z.number().optional(),
   group: z.string().optional(),
   kind: z.string().optional(),
+  panel: z.boolean().optional(),
 }
 
 const seoFields: Fields<NonNullable<DocsPageFrontmatter["seo"]>> = {
   title: z.string().optional(),
   description: z.string().optional(),
   image: z.union([z.string(), z.literal(false)]).optional(),
+  index: z.boolean().optional(),
 }
 
 const pageFields: Fields<DocsPageFrontmatter> = {
   title: z.string(),
   description: z.string().optional(),
+  tagline: z.string().optional(),
+  eyebrow: z.string().optional(),
+  credits: z.string().optional(),
+  keywords: z.union([z.string(), z.array(z.string())]).optional(),
   icon: z.string().optional(),
   layout: z.enum(docsLayouts).optional(),
   tutorial: z.enum(["project", "quickstart"]).optional(),
   codePanel: z.boolean().optional(),
-  sidebar: z.boolean().optional(),
+  sidebar: z.union([z.boolean(), z.literal("collapsed")]).optional(),
   toc: z.boolean().optional(),
   navigation: z.union([z.literal(false), z.strictObject(navigationFields)]).optional(),
   seo: z.strictObject(seoFields).optional(),
@@ -107,9 +137,11 @@ export const docsPageFields: Fields<DocsPageFile> = {
   "navigation.order": navigationFields.order,
   "navigation.group": navigationFields.group,
   "navigation.kind": navigationFields.kind,
+  "navigation.panel": navigationFields.panel,
   "seo.title": seoFields.title,
   "seo.description": seoFields.description,
   "seo.image": seoFields.image,
+  "seo.index": seoFields.index,
 }
 
 /** The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. */
@@ -120,6 +152,8 @@ export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.strictObject({
   icon: z.string().optional(),
   order: z.number().optional(),
   category: z.string().optional(),
+  group: z.string().optional(),
+  fold: z.boolean().optional(),
   related: z.array(z.string()).optional(),
 })
 

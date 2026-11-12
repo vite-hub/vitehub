@@ -7,22 +7,28 @@ import { join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { applyD1Migrations, createD1Query, listD1MigrationFiles, readD1Ledger } from "./d1-migrations.ts"
-import { readJournal, readPendingMigration } from "./migration-journal.ts"
+import { migratePostgres } from "../runtime/migrate-on-start.ts"
+import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
+import { readStartMigrations } from "./migrate-on-start.ts"
+import { readMigrations, readPendingMigration } from "./migration-journal.ts"
+import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "./migration-ledger.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1HttpTarget } from "./d1-migrations.ts"
+import type { LedgerRow } from "./migration-ledger.ts"
 import type { PendingMigration } from "./migration-journal.ts"
 
 export type { PendingMigration } from "./migration-journal.ts"
 
 export interface MigrationPlan {
   database: string
-  /** Where `vitehub db migrate` applies migrations, without credentials. */
+  /** Where `vitehub database migrate` applies migrations, without credentials. */
   target: string
+  /** How many migrations of the journal the database already has. */
+  applied: number
   pending: PendingMigration[]
 }
 
@@ -97,35 +103,36 @@ export function withoutCredentials(url: string): string {
   }
 }
 
-/** Reads `created_at` of the last applied migration, the value that Drizzle compares with each journal `when`. */
-async function readLastAppliedMillis(target: Exclude<MigrationTarget, { kind: "d1-http" }>, options: MigrationPlanOptions): Promise<number | undefined> {
+/** Reads Drizzle's ledger. `SELECT *` reads a ledger of Drizzle Kit 0.x too, which has no `name` column. */
+async function readLedgerRows(target: Exclude<MigrationTarget, { kind: "d1-http" }>, options: MigrationPlanOptions): Promise<LedgerRow[]> {
   switch (target.kind) {
     case "local": {
       // A missing file has no applied migrations. Do not let libSQL create it.
-      if (!existsSync(target.path)) return
-      return await readSqliteLastApplied(`file:${target.path}`)
+      if (!existsSync(target.path)) return []
+      return await readSqliteLedger(`file:${target.path}`)
     }
     case "libsql":
-      return await readSqliteLastApplied(target.url, target.authToken)
+      return await readSqliteLedger(target.url, target.authToken)
     case "postgres":
-      return await readPostgresLastApplied(target, options.projectRoot, options.env)
+      return await readPostgresLedger(target, options.projectRoot, options.env)
   }
 }
 
-async function readSqliteLastApplied(url: string, authToken?: string): Promise<number | undefined> {
+async function readSqliteLedger(url: string, authToken?: string): Promise<LedgerRow[]> {
   const client = createClient({ authToken, url })
   try {
     const table = await client.execute({ args: [sqliteMigrationsTable], sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?" })
-    if (!table.rows.length) return
-    const result = await client.execute(`SELECT created_at FROM ${sqliteMigrationsTable} ORDER BY created_at DESC LIMIT 1`)
-    return toMillis(result.rows[0]?.[0])
+    if (!table.rows.length) return []
+    const result = await client.execute(`SELECT * FROM ${sqliteMigrationsTable}`)
+    return result.rows.map(row => toLedgerRow({ ...row }))
   }
   finally {
     client.close()
   }
 }
 
-async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<number | undefined> {
+/** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
+function connectPostgres(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
   let connect: typeof postgres
   try {
     // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.
@@ -144,26 +151,24 @@ async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: 
     port: env.PGPORT ? Number(env.PGPORT) : undefined,
     user: env.PGUSERNAME ?? env.PGUSER,
   }
-  const sql = target.url ? connect(target.url, options) : connect(options)
+  return target.url ? connect(target.url, options) : connect(options)
+}
+
+async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<LedgerRow[]> {
+  const sql = connectPostgres(target, projectRoot, env)
   try {
     const [table] = await sql<Array<{ name: string | null }>>`select to_regclass('drizzle.__drizzle_migrations')::text as name`
-    if (!table?.name) return
-    const [last] = await sql.unsafe<Array<{ created_at: unknown }>>(`select created_at from ${postgresMigrationsTable} order by created_at desc limit 1`)
-    return toMillis(last?.created_at)
+    if (!table?.name) return []
+    const rows = await sql.unsafe<Array<Record<string, unknown>>>(`select * from ${postgresMigrationsTable}`)
+    return rows.map(row => toLedgerRow(row))
   }
   finally {
     await sql.end({ timeout: 5 })
   }
 }
 
-function toMillis(value: unknown): number | undefined {
-  if (value === null || value === undefined) return
-  const millis = Number(value)
-  return Number.isFinite(millis) ? millis : undefined
-}
-
 /**
- * Lists the migrations that `vitehub db migrate` would apply to one database, with their statements that lose data.
+ * Lists the migrations that `vitehub database migrate` would apply to one database, with their statements that lose data.
  * It reads the Drizzle migrations table, or Wrangler's `d1_migrations` table for D1 HTTP, and changes nothing.
  */
 export async function readMigrationPlan(
@@ -179,19 +184,29 @@ export async function readMigrationPlan(
     return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
   }
   try {
-    const entries = readJournal(database.migrationsDir)
+    const entries = readMigrations(database.migrationsDir, database.name)
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, options.fetch), database, entries)
-      const pending = listD1MigrationFiles(database.migrationsDir)
-        .filter(file => !ledger.applied.has(file))
-        .map(file => readPendingMigration(database.migrationsDir, file.slice(0, -".sql".length), entries))
-      return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
+      const pending = listD1Migrations(database.migrationsDir)
+        .filter(file => !ledger.applied.has(file.name))
+        .map(file => readPendingMigration(database.migrationsDir, file.tag, entries))
+      return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
-    const lastApplied = entries.length ? await readLastAppliedMillis(target, options) : undefined
+    // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
+    const match = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
+    const problem = ledgerUpgradeProblem(match)
+    if (problem) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
+    const { applied, unmatched } = match
+    // Drizzle 1.0 adds `name` to a Drizzle Kit 0.x ledger first, and refuses rows that match no migration folder, for
+    // example the rows of another Definition on the same database.
+    if (unmatched.length) {
+      const problem = `Its Drizzle Kit 0.x migrations table has ${unmatched.length} row(s) (id ${unmatched.join(", ")}) that match no migration folder in ${database.migrationsDir}, so Drizzle 1.0 cannot upgrade it. Restore the missing folders, or give each Definition its own database.`
+      return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
+    }
     const pending = entries
-      .filter(entry => lastApplied === undefined || lastApplied < entry.when)
+      .filter(entry => !applied.has(entry.tag))
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
-    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
+    return [undefined, { applied: entries.length - pending.length, database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)
@@ -201,7 +216,7 @@ export async function readMigrationPlan(
 
 /**
  * Applies the pending migrations of a D1 HTTP database with Wrangler's ledger, so `wrangler d1 migrations apply` and
- * `vitehub db migrate` agree on what is applied. Returns the error message when a request fails.
+ * `vitehub database migrate` agree on what is applied. Returns the error message when a request fails.
  */
 export async function migrateD1Http(
   database: ResolvedDrizzleDatabaseConfig,
@@ -212,10 +227,40 @@ export async function migrateD1Http(
   if (target?.kind !== "d1-http") return `The database "${database.name}" does not use D1 HTTP.`
   try {
     const query = createD1Query(target, options.fetch)
-    const ledger = await readD1Ledger(query, database, readJournal(database.migrationsDir))
+    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir, database.name))
     await applyD1Migrations(query, ledger, database.migrationsDir, onApplied)
   }
   catch (error) {
     return error instanceof Error ? error.message : String(error)
+  }
+}
+
+/**
+ * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
+ * runs on start. It holds the same advisory lock, so `vitehub database migrate` and a starting server never migrate at the
+ * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
+ */
+export async function migratePostgresDatabases(
+  databases: ResolvedDrizzleDatabaseConfig[],
+  options: MigrationPlanOptions & { allowDataLoss: boolean },
+  log: (message: string) => void,
+): Promise<unknown> {
+  const clients: postgres.Sql[] = []
+  try {
+    const targets = databases.map((database) => {
+      const target = resolveTarget(database, options)
+      // Internal invariant: the CLI passes only Definitions filtered by their Postgres dialect.
+      if (target?.kind !== "postgres") throw new Error(`The database "${database.name}" is not a Postgres database.`)
+      const client = connectPostgres(target, options.projectRoot, options.env)
+      clients.push(client)
+      return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
+    })
+    await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
+  }
+  catch (error) {
+    return error
+  }
+  finally {
+    await Promise.all(clients.map(client => client.end({ timeout: 5 })))
   }
 }

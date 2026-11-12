@@ -13,7 +13,7 @@ import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, create
 
 const serverMocks = vi.hoisted(() => ({
   resolveWorkspaceStoreTarget: vi.fn(),
-  useWorkspace: vi.fn(),
+  useWorkspaceFiles: vi.fn(),
 }))
 
 vi.mock("@vite-hub/auth/server", () => ({
@@ -22,16 +22,16 @@ vi.mock("@vite-hub/auth/server", () => ({
   }),
 }))
 
-vi.mock("@vite-hub/workspace", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@vite-hub/workspace")>(),
+vi.mock("@vite-hub/workspace/files", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/workspace/files")>(),
   resolveWorkspaceStoreTarget: serverMocks.resolveWorkspaceStoreTarget,
-  useWorkspace: serverMocks.useWorkspace,
+  useWorkspaceFiles: serverMocks.useWorkspaceFiles,
 }))
 
 beforeEach(() => {
   vi.useFakeTimers()
   serverMocks.resolveWorkspaceStoreTarget.mockReset().mockResolvedValue(undefined)
-  serverMocks.useWorkspace.mockReset()
+  serverMocks.useWorkspaceFiles.mockReset()
 })
 
 afterEach(() => {
@@ -478,14 +478,14 @@ describe("identity and authorization", () => {
     })
   }
 
-  it("passes the H3 event of the request to identify() and authorize()", async () => {
+  it("passes the request event with Standard Context to identify() and authorize()", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const events: unknown[] = []
     const server = createTestServer(secured(memory, {
       authorize: ({ event }) => { events.push(event) },
       identify: ({ event, request }) => {
         events.push(event)
-        expect(event.req).toBe(request)
+        expect(event["~standard"].req).toBe(request)
         return { id: "ana" }
       },
     }))
@@ -616,7 +616,7 @@ describe("history checkpoints", () => {
       content = "Remote"
       digest = "remote"
     })
-    serverMocks.useWorkspace.mockReturnValue({
+    serverMocks.useWorkspaceFiles.mockReturnValue({
       capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
       fs: {
         exists: vi.fn().mockResolvedValue(true),
@@ -994,7 +994,7 @@ describe("adapter seams for live documents", () => {
     const server = createTestServer(liveDefinition(memory.adapter, { auth: true, identify: () => null }), { durable: sql })
     const internal = (path: string) => {
       const request = new Request(`https://vitehub.internal/api/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
-      Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql: sql.carrier } } } } })
+      Object.assign(request, { runtime: { cloudflare: { env: {}, context: { storage: { sql: sql.carrier } } } } })
       return server.handler.fetch(request)
     }
     await expect((await internal("page")).json()).resolves.toEqual({ reseeded: false })

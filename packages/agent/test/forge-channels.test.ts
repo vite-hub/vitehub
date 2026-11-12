@@ -11,7 +11,7 @@ import { defineCapability } from "../src/capability-runtime.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { forgeActivityComments, forgeDeliveryEffects } from "../src/internal/forge-channel.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { forgeProvider } from "@vite-hub/forge"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 
@@ -133,6 +133,17 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
     expect(fetcher.calls.every(call => call.authorization === (kind === "gitlab" ? "Bearer token" : "token token"))).toBe(true)
     expect((await send(await request(kind, payload(kind)))).status).toBe(200)
     expect(run).toHaveBeenCalledOnce()
+  })
+
+  it.each(kinds)("tells %s PR runs how to treat hosted CI", async kind => {
+    transport(kind)
+    const report = await harness(kind)
+    expect((await report.send(await request(kind, payload(kind), "report"))).status).toBe(200)
+    expect(report.inputs[0]?.prompt).toContain("- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.")
+    const wait = await harness(kind, { pullRequest: { ci: "wait", reconcile: { mentions: ["@review-bot"] } } })
+    expect((await wait.send(await request(kind, payload(kind), "wait"))).status).toBe(200)
+    expect(wait.inputs[0]?.prompt).toContain("- After you push, wait for hosted CI. Fix failures until all checks pass.")
+    expect(wait.inputs[0]?.prompt).not.toContain("Do not wait for hosted CI")
   })
 
   it("uses the Gitea delivery header for Forgejo deduplication", async () => {
@@ -342,7 +353,7 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
       if (url.pathname === commentsPath && method === "GET") return Response.json(store.comment ? [store.comment] : [])
       if ((url.pathname === commentsPath && method === "POST") || url.pathname === editPath) {
         const parsed: unknown = JSON.parse(String(init?.body))
-        if (!isRuntimeRecord(parsed) || !hasRuntimeType(parsed.body, "string")) throw new Error("Missing comment body.")
+        if (!isRuntimeRecord(parsed) || typeof parsed.body !== "string") throw new Error("Missing comment body.")
         if (parsed.body.startsWith("<!-- vitehub-agent-activity:")) {
           writes.push(method)
           store.comment = { ...fetcher.comment, body: parsed.body }

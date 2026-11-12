@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
 import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -7,7 +7,8 @@ import { tmpdir } from "node:os"
 import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
-import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
+import { agentInvocationId, defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentInline, runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import * as invocationModule from "../src/invocations.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations, byteBoundedObservations, observationLimits } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -95,6 +96,7 @@ describe("Agent Invocations", () => {
     expect(result.observations).toHaveLength(1)
     expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage })
     expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["usage.record"])
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
   })
 
@@ -112,7 +114,38 @@ describe("Agent Invocations", () => {
     expect(result.observations).toHaveLength(1)
     expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage, cost: { usd: "0.01", estimated: true } })
     expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["usage.record"])
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it("names usage removed entirely by the byte budget and preserves existing names", () => {
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: {
+        "usage.record": { cost: { usd: "0." + "1".repeat(1_000) } },
+        "vitehub.observation.truncated": true,
+        "vitehub.observation.truncatedAttributes": ["message.content"],
+      },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.truncated).toBe(true)
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes).not.toHaveProperty("usage.record")
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["message.content", "usage.record"])
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it("keeps earlier unnamed truncation unnamed during byte-budget compaction", () => {
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: {
+        "usage.record": { usage: { totalTokens: 7 }, raw: "x".repeat(10_000) },
+        "vitehub.observation.truncated": true,
+      },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage: { totalTokens: 7 } })
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(result.observations[0]?.attributes).not.toHaveProperty("vitehub.observation.truncatedAttributes")
   })
 
   it.each(["https://example.com", "postgres://alice:hunter2@db.example"])("retains safe URI evidence across intervening events: %s", async (uri) => {
@@ -159,7 +192,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("interleaved-messages"), {})
+    await runAgentWithContext(agent, runtime("interleaved-messages"), {})
     const observations = (await invocations.getByRunId("interleaved-messages"))!.observations
     const beforeTool = observations.slice(0, observations.findIndex(entry => entry.name === "tool.call"))
     expect(beforeTool.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]))
@@ -196,7 +229,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("custom-authorization"), {})
+    await runAgentWithContext(agent, runtime("custom-authorization"), {})
     const observations = (await invocations.getByRunId("custom-authorization"))!.observations
     const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
     expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
@@ -220,7 +253,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("yaml-list"), {})
+    await runAgentWithContext(agent, runtime("yaml-list"), {})
     const observations = (await invocations.getByRunId("yaml-list"))!.observations
     const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
     expect(content).toBe(`${prefix}${key}: "[REDACTED]"\n    status: ok\n`)
@@ -241,7 +274,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("yaml-scalar"), {})
+    await runAgentWithContext(agent, runtime("yaml-scalar"), {})
     const observations = (await invocations.getByRunId("yaml-scalar"))!.observations
     const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
     expect(content).toBe(`config:\n  ${key}:[REDACTED]\n  status: ok\n`)
@@ -273,7 +306,10 @@ describe("Agent Invocations", () => {
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(400)
     expect(result.observations).toContainEqual(expect.objectContaining({
       name: "vitehub.agent.configured",
-      attributes: { "vitehub.agent.configurationTruncated": true },
+      attributes: {
+        "vitehub.agent.configurationTruncated": true,
+        "vitehub.observation.truncatedAttributes": ["vitehub.agent.configuration"],
+      },
     }))
   })
 
@@ -1021,7 +1057,7 @@ describe("Agent Invocations", () => {
     })
     const run = vi.fn(() => "done")
 
-    const invocation = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("stalled-store"), {})
+    const invocation = runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("stalled-store"), {})
 
     await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
     expect(run).not.toHaveBeenCalled()
@@ -1045,7 +1081,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    const invocation = runAgent(agent, runtime(`stalled-store-hook-${fail}`), {})
+    const invocation = runAgentWithContext(agent, runtime(`stalled-store-hook-${fail}`), {})
     await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
     expect(run).not.toHaveBeenCalled()
     expect(error).not.toHaveBeenCalled()
@@ -1074,7 +1110,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime("stalled-observation"), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, runtime("stalled-observation"), {})).resolves.toBe("done")
     expect(appendDuration).toBeLessThan(500)
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
@@ -1185,8 +1221,8 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await runAgent(agent(false), runtime("hook-trace-finish"), {})
-    await expect(runAgent(agent(true), runtime("hook-trace-error"), {})).rejects.toThrow("failed")
+    await runAgentWithContext(agent(false), runtime("hook-trace-finish"), {})
+    await expect(runAgentWithContext(agent(true), runtime("hook-trace-error"), {})).rejects.toThrow("failed")
 
     const finished = await invocations.getByRunId("hook-trace-finish")
     const failed = await invocations.getByRunId("hook-trace-error")
@@ -1273,7 +1309,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    const invocation = runAgent(agent, { ...context, trace: { id: "retry-trace" } }, {})
+    const invocation = runAgentWithContext(agent, { ...context, trace: { id: "retry-trace" } }, {})
     try {
       await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
       expect(run).not.toHaveBeenCalled()
@@ -1303,7 +1339,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
     const invoke = async (traceId: string) => {
-      const result = runAgent(agent, { ...runtime("duplicate-hook-trace"), trace: { id: traceId } }, {})
+      const result = runAgentWithContext(agent, { ...runtime("duplicate-hook-trace"), trace: { id: traceId } }, {})
       if (fail) await expect(result).rejects.toThrow("failed")
       else await result
     }
@@ -1755,7 +1791,7 @@ describe("Agent Invocations", () => {
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     // SAFETY: This fixture supplies the custom Trace Event Log shape accepted by the runtime boundary.
-    await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
   })
 
@@ -1810,7 +1846,7 @@ describe("Agent Invocations", () => {
     })
 
     // SAFETY: This fixture supplies the runtime trace-log contract and intentionally makes append reject.
-    await expect(runAgent(agent, { ...runtime("rejecting-trace"), traceLog } as never, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, { ...runtime("rejecting-trace"), traceLog } as never, {})).resolves.toBe("done")
     const persisted = await invocations.getByRunId("rejecting-trace")
     expect(persisted).toMatchObject({ status: "completed" })
     expect(persisted?.observations.map(entry => entry.name)).toEqual(expect.arrayContaining([
@@ -2065,6 +2101,48 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("keeps long run IDs and names the shortened attributes", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("named-truncated-attributes"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const runId = JSON.stringify(["owner:chat:bot:teams:inline-steer:" + "t".repeat(400), "teams:" + "t".repeat(400), "message"])
+    await journal.context.traceLog?.append({ attributes: { "agent.run.id": runId, "message.content": "Done" }, name: "agent.message.delta", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { "agent.run.id": runId, metadata: "x".repeat(10_000) }, name: "tool.finish", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("named-truncated-attributes"))?.observations
+    const message = observations?.find(entry => entry.name === "agent.message.delta")
+    expect(message?.attributes?.["agent.run.id"]).toBe(runId)
+    expect(message?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+    const tool = observations?.find(entry => entry.name === "tool.finish")
+    expect(tool?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(tool?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["metadata"])
+  })
+
+  it.each(["input.messages", "input.prompt"])("names hidden input parts apart from message text in %s", async (key) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("hidden-input-parts"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    let data: Record<string, unknown> = { leaf: true }
+    for (let depth = 0; depth < 40; depth++) data = { data }
+    const hidden = [{ id: "m1", parts: [{ data, type: "data-header" }, { text: "even more", type: "text" }], role: "user" }]
+    const cut = [{ id: "m2", parts: [{ text: "x".repeat(100_000), type: "text" }], role: "user" }]
+    const history = Array.from({ length: 500 }, (_, index) => ({ content: `message ${index}`, role: "user" }))
+    const attachment = [{ parts: [{ url: "https://example.com/" + "x".repeat(100_000), type: "file" }], role: "user" }]
+    await journal.context.traceLog?.append({ attributes: { [key]: hidden }, name: "agent.hidden", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { [key]: cut }, name: "agent.cut", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { [key]: history }, name: "agent.history", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { [key]: attachment }, name: "agent.attachment", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("hidden-input-parts"))?.observations
+    expect(observations?.find(entry => entry.name === "agent.hidden")?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual([`${key}.parts`])
+    for (const name of ["agent.cut", "agent.history"]) {
+      expect(observations?.find(entry => entry.name === name)?.attributes?.["vitehub.observation.truncatedAttributes"], name).toEqual([key])
+    }
+    expect(observations?.find(entry => entry.name === "agent.attachment")?.attributes?.["vitehub.observation.truncatedAttributes"]).toContain(key)
+  })
+
   it("omits nested optional metadata without reporting content truncation", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("optional-observation-metadata"))
@@ -2251,6 +2329,41 @@ describe("Agent Invocations", () => {
           errors: [{ message: "first", name: "Error" }],
           message: "outer",
           name: "AggregateError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("keeps the children of a foreign AggregateError subclass with its own name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-aggregate-subclass",
+      observations: [],
+      status: "running",
+      traceId: "foreign-aggregate-subclass-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('new (class ValidationError extends AggregateError { name = "ValidationError" })([new Error("field invalid")], "validation failed")')
+
+    await store.update("foreign-aggregate-subclass", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-aggregate-subclass"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          errors: [{ message: "field invalid", name: "Error" }],
+          message: "validation failed",
+          name: "ValidationError",
         },
       },
       visibility: "public",
@@ -2694,7 +2807,7 @@ describe("Agent Invocations", () => {
       invocations,
     })
 
-    await runAgent(agent, runtime("metadata-only-instructions"), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime("metadata-only-instructions"), { prompt: "hello" })
 
     const configured = (await invocations.getByRunId("metadata-only-instructions"))?.observations
       .findLast(entry => entry.name === "vitehub.agent.configured")
@@ -2728,7 +2841,7 @@ describe("Agent Invocations", () => {
         return "done"
       } },
     })
-    await runAgent(agent, runtime("configuration-only"), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime("configuration-only"), { prompt: "hello" })
     const record = await invocations.getByRunId("configuration-only")
     const configured = record?.observations.findLast(entry => entry.name === "vitehub.agent.configured")
     expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).toContain("Search indexed records")
@@ -2761,7 +2874,7 @@ describe("Agent Invocations", () => {
       invocations,
     })
 
-    await runAgent(agent, runtime("content-instructions"), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime("content-instructions"), { prompt: "hello" })
 
     const configured = (await invocations.getByRunId("content-instructions"))?.observations
       .findLast(entry => entry.name === "vitehub.agent.configured")
@@ -2813,7 +2926,7 @@ describe("Agent Invocations", () => {
       invocations,
     })
 
-    await runAgent(agent, runtime("tool-descriptions"), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime("tool-descriptions"), { prompt: "hello" })
 
     const configured = (await invocations.getByRunId("tool-descriptions"))?.observations
       .findLast(entry => entry.name === "vitehub.agent.configured")
@@ -2840,7 +2953,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime("late-observation"), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, runtime("late-observation"), {})).resolves.toBe("done")
     const claimsAfterFinish = claim.mock.calls.length
     await appendTrace?.({ name: "late", type: "run" })
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -3938,7 +4051,7 @@ describe("Agent Invocations", () => {
       },
     })
     const run = vi.fn(() => "done")
-    const invocation = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("late-create"), {})
+    const invocation = runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("late-create"), {})
 
     await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
     expect(run).not.toHaveBeenCalled()
@@ -3960,7 +4073,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime("run-1", {
+    await expect(runAgentWithContext(agent, runtime("run-1", {
       "github.pull_request.number": 42,
       "github.repository": "vite-hub/vitehub",
       "secret key": "omitted",
@@ -4011,7 +4124,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await expect(runAgent(agent, runtime("terminal-credential"), {})).resolves.toBe(answer)
+    await expect(runAgentWithContext(agent, runtime("terminal-credential"), {})).resolves.toBe(answer)
     const observations = (await invocations.getByRunId("terminal-credential"))?.observations ?? []
     const finish = observations.find(entry => entry.name === "agent.invocation.finish")
     expect(finish).toBeDefined()
@@ -4042,7 +4155,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("bounded-streams"), {})
+    await runAgentWithContext(agent, runtime("bounded-streams"), {})
     const observations = (await invocations.getByRunId("bounded-streams"))?.observations || []
     const serialized = JSON.stringify(observations)
     expect(serialized).not.toContain("retained-secret")
@@ -4077,7 +4190,7 @@ describe("Agent Invocations", () => {
         runtime: false,
       })
 
-      await runAgent(agent, { ...runtime(runId), traceLog }, {})
+      await runAgentWithContext(agent, { ...runtime(runId), traceLog }, {})
       return (await invocations.getByRunId(runId))?.observations || []
     }
 
@@ -4125,7 +4238,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await runAgent(agent, runtime("title-delta-isolation"), {})
+    await runAgentWithContext(agent, runtime("title-delta-isolation"), {})
     const record = await invocations.getByRunId("title-delta-isolation")
     const deltas = record?.observations.filter(entry => entry.name === "agent.message.delta")
     expect(deltas).toHaveLength(1)
@@ -4158,7 +4271,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("title-diagnostics"), {})
+    await runAgentWithContext(agent, runtime("title-diagnostics"), {})
     const observations = (await invocations.getByRunId("title-diagnostics"))?.observations ?? []
     const titleEvents = observations.filter(entry => entry.attributes?.["vitehub.auxiliary.kind"] === "title")
     expect(titleEvents.map(entry => entry.name)).toEqual(["agent.usage", "agent.provider.error"])
@@ -4208,7 +4321,7 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, { ...runtime(runId), traceLog: createTraceEventLog({ content: "content" }) }, {})
+      await runAgentWithContext(agent, { ...runtime(runId), traceLog: createTraceEventLog({ content: "content" }) }, {})
       return (await invocations.getByRunId(runId))?.observations || []
     }
 
@@ -4252,7 +4365,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("budget-order"), {})
+    await runAgentWithContext(agent, runtime("budget-order"), {})
     const observations = (await invocations.getByRunId("budget-order"))?.observations ?? []
     const deltas = observations.filter(entry => entry.name === "agent.message.delta")
     expect(deltas.length).toBeGreaterThan(1)
@@ -4298,7 +4411,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("structured-credential"), {})
+    await runAgentWithContext(agent, runtime("structured-credential"), {})
     const observations = (await invocations.getByRunId("structured-credential"))?.observations ?? []
     expect(observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")).toBe(prefix + expected)
@@ -4321,7 +4434,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("split-authorization-header"), {})
+    await runAgentWithContext(agent, runtime("split-authorization-header"), {})
     const observations = (await invocations.getByRunId("split-authorization-header"))?.observations ?? []
     expect(observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")).toBe(`${prefix}${header} basic [REDACTED];status=ok`)
@@ -4348,7 +4461,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("split-camel-credential"), {})
+    await runAgentWithContext(agent, runtime("split-camel-credential"), {})
     const observations = (await invocations.getByRunId("split-camel-credential"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4380,7 +4493,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("split-passphrase-credential"), {})
+    await runAgentWithContext(agent, runtime("split-passphrase-credential"), {})
     const observations = (await invocations.getByRunId("split-passphrase-credential"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4406,7 +4519,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("closed-credential"), {})
+    await runAgentWithContext(agent, runtime("closed-credential"), {})
     const observations = (await invocations.getByRunId("closed-credential"))!.observations
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4434,7 +4547,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("single-quoted-backslash"), {})
+    await runAgentWithContext(agent, runtime("single-quoted-backslash"), {})
     const observations = (await invocations.getByRunId("single-quoted-backslash"))!.observations
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4464,7 +4577,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("shell-segments"), {})
+    await runAgentWithContext(agent, runtime("shell-segments"), {})
     const observations = (await invocations.getByRunId("shell-segments"))!.observations
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4492,7 +4605,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("quoted-password"), {})
+    await runAgentWithContext(agent, runtime("quoted-password"), {})
     const observations = (await invocations.getByRunId("quoted-password"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4521,7 +4634,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("split-quoted-password"), {})
+    await runAgentWithContext(agent, runtime("split-quoted-password"), {})
     const observations = (await invocations.getByRunId("split-quoted-password"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4548,7 +4661,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("yaml-plain-continuation"), {})
+    await runAgentWithContext(agent, runtime("yaml-plain-continuation"), {})
     const observations = (await invocations.getByRunId("yaml-plain-continuation"))!.observations
     const text = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
     expect(text).toBe("password: [REDACTED]\nstatus: ok")
@@ -4575,7 +4688,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime(`scheme-boundary-${scheme}`), {})
+    await runAgentWithContext(agent, runtime(`scheme-boundary-${scheme}`), {})
     const observations = (await invocations.getByRunId(`scheme-boundary-${scheme}`))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4603,7 +4716,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("separator-boundary"), {})
+    await runAgentWithContext(agent, runtime("separator-boundary"), {})
     const observations = (await invocations.getByRunId("separator-boundary"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4637,7 +4750,7 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("bounded-marker"), {})
+    await runAgentWithContext(agent, runtime("bounded-marker"), {})
     const observations = (await invocations.getByRunId("bounded-marker"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4667,7 +4780,7 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("structured-credential"), {})
+      await runAgentWithContext(agent, runtime("structured-credential"), {})
       const observations = (await invocations.getByRunId("structured-credential"))?.observations ?? []
       const text = observations.filter(entry => entry.name === "agent.message.delta")
         .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4698,7 +4811,7 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("ampersand-credential"), {})
+      await runAgentWithContext(agent, runtime("ampersand-credential"), {})
       const observations = (await invocations.getByRunId("ampersand-credential"))?.observations ?? []
       const text = observations.filter(entry => entry.name === "agent.message.delta")
         .map(entry => entry.attributes?.["message.content"]).join("")
@@ -4726,7 +4839,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime(runId), { abortSignal: abort.signal })).rejects.toThrow("stopped")
+    await expect(runAgentWithContext(agent, runtime(runId), { abortSignal: abort.signal })).rejects.toThrow("stopped")
 
     const record = await invocations.getByRunId(runId)
     expect(record?.status).toBe(status)
@@ -4762,7 +4875,7 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await expect(runAgent(agent, { ...runtime("cancelled-finish-error"), traceLog }, {
+      await expect(runAgentWithContext(agent, { ...runtime("cancelled-finish-error"), traceLog }, {
         abortSignal: abort.signal,
       })).rejects.toThrow()
 
@@ -4801,7 +4914,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await runAgent(agent, runtime("live-deltas"), {})
+    await runAgentWithContext(agent, runtime("live-deltas"), {})
 
     expect(runningObservations).toContain("agent.message.delta")
   })
@@ -4818,7 +4931,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    const stream = await streamAgent(agent, {
+    const stream = await streamAgentInline(agent, {
       ...runtime("phased-trace"),
       traceLog: createTraceEventLog({ content: "content" }),
     }, {})
@@ -4856,7 +4969,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await runAgent(agent, runtime("observation-numbers"), {})
+    await runAgentWithContext(agent, runtime("observation-numbers"), {})
     const observation = (await invocations.getByRunId("observation-numbers"))?.observations
       .find(event => event.name === "numbers")
     expect(observation?.attributes).toMatchObject({ finite: 1, nan: null, negative: null, positive: null })
@@ -4887,7 +5000,7 @@ describe("Agent Invocations", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await runAgent(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
+    await runAgentWithContext(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
     const observations = (await invocations.getByRunId("custom-sequence"))?.observations || []
     expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3, 4])
     expect(observations.every(observation => Number.isSafeInteger(observation.sequence))).toBe(true)
@@ -4922,7 +5035,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await runAgent(agent, runtime("bounded-observations"), {})
+    await runAgentWithContext(agent, runtime("bounded-observations"), {})
 
     await vi.waitFor(async () => {
       expect(await invocations.getByRunId("bounded-observations")).toMatchObject({ status: "completed" })
@@ -4954,7 +5067,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await runAgent(agent, runtime("bounded-fatal-observations"), {})
+    await runAgentWithContext(agent, runtime("bounded-fatal-observations"), {})
 
     const observations = (await invocations.getByRunId("bounded-fatal-observations"))?.observations || []
     expect(observations).toHaveLength(304)
@@ -4986,10 +5099,10 @@ describe("Agent Invocations", () => {
       invocations,
       runtime: false,
     })
-    const first = runAgent(agent, runtime("run-1"), {})
+    const first = runAgentWithContext(agent, runtime("run-1"), {})
     await vi.waitFor(async () => expect((await invocations.getByRunId("run-1"))?.status).toBe("running"))
     const abort = new AbortController()
-    const second = runAgent(agent, runtime("run-2"), { abortSignal: abort.signal })
+    const second = runAgentWithContext(agent, runtime("run-2"), { abortSignal: abort.signal })
     await vi.waitFor(async () => expect((await invocations.getByRunId("run-2"))?.status).toBe("pending"))
 
     abort.abort(new DOMException("stop", "AbortError"))
@@ -5035,7 +5148,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime("run-1"), {})).rejects.toMatchObject({ code: "AGENT_R0973" })
+    await expect(runAgentWithContext(agent, runtime("run-1"), {})).rejects.toMatchObject({ code: "AGENT_R0973" })
   })
 
   it("keeps trace persistence failures from changing an Invocation result", async () => {
@@ -5046,7 +5159,7 @@ describe("Agent Invocations", () => {
     } }
     const invocations = defineAgentInvocations({ store })
     const agent = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
-    await expect(runAgent(agent, runtime("trace-write-failure"), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, runtime("trace-write-failure"), {})).resolves.toBe("done")
     expect(await invocations.getByRunId("trace-write-failure")).toMatchObject({ status: "completed" })
   })
 
@@ -5093,7 +5206,7 @@ describe("Agent Invocations", () => {
     const run = vi.fn(() => "done")
     const agent = defineAgent({ driver: { ...(capacity ? { capacity: { concurrency: 1 } } : {}), run }, invocations, runtime: false })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       ...runtime("fast-running-recovery"),
       waitUntil: promise => recoveryTasks.push(promise),
     }, {})).rejects.toThrow("Could not persist the Invocation running state.")
@@ -5119,9 +5232,49 @@ describe("Agent Invocations", () => {
     const run = vi.fn(() => "done")
     const invocations = defineAgentInvocations({ store, storeTimeoutMs: 10_000 })
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("slow-running-write"), {})).resolves.toBe("done")
+    await expect(runAgentWithContext(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("slow-running-write"), {})).resolves.toBe("done")
     expect(run).toHaveBeenCalledOnce()
     await expect(invocations.getByRunId("slow-running-write")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it("opens the store once, outside storeTimeoutMs, and retries a failed open", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let attempts = 0
+    const open = vi.fn(async () => {
+      attempts++
+      // A lazy journal loads its driver and creates tables on first use, which can take longer than one operation.
+      await new Promise(resolve => setTimeout(resolve, 100))
+      if (attempts === 1) throw new Error("first open failed")
+    })
+    const invocations = defineAgentInvocations({ store: { ...memory, open }, storeTimeoutMs: 20 })
+
+    await expect(invocations.list()).rejects.toThrow("first open failed")
+    await expect(Promise.all([invocations.list(), invocations.getByRunId("missing")])).resolves.toMatchObject([{ invocations: [] }, undefined])
+    await expect(runAgentWithContext(defineAgent({ driver: { run: () => "done" }, invocations, runtime: false }), runtime("after-open"), {})).resolves.toBe("done")
+    await expect(invocations.getByRunId("after-open")).resolves.toMatchObject({ status: "completed" })
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  it("shares an unfinished open after its wait times out", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveOpen!: () => void
+      const pending = new Promise<void>(resolve => { resolveOpen = resolve })
+      const open = vi.fn(() => pending)
+      const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
+      const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
+      await vi.advanceTimersByTimeAsync(10_000)
+      await stalled
+      const next = invocations.list()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(open).toHaveBeenCalledOnce()
+      resolveOpen()
+      await expect(next).resolves.toMatchObject({ invocations: [] })
+      expect(open).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it.each([0, 1.5, 60_001])("rejects storeTimeoutMs %s", (storeTimeoutMs) => {
@@ -5234,9 +5387,9 @@ describe("Agent Invocations", () => {
     const completed = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
     const failed = defineAgent({ driver: { run: () => { throw new Error("retry failed") } }, invocations, runtime: false })
 
-    await runAgent(completed, runtime("delivery-1"), {})
+    await runAgentWithContext(completed, runtime("delivery-1"), {})
     const original = await invocations.getByRunId("delivery-1")
-    await expect(runAgent(failed, runtime("delivery-1"), {})).rejects.toThrow("retry failed")
+    await expect(runAgentWithContext(failed, runtime("delivery-1"), {})).rejects.toThrow("retry failed")
     expect(await invocations.getByRunId("delivery-1")).toEqual(original)
   })
 
@@ -5257,9 +5410,9 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
-    const first = runAgent(agent, runtime("delivery-1"), {})
+    const first = runAgentWithContext(agent, runtime("delivery-1"), {})
     await vi.waitFor(async () => expect((await invocations.getByRunId("delivery-1"))?.status).toBe("running"))
-    await expect(runAgent(agent, runtime("delivery-1"), {})).rejects.toThrow("Could not persist the Invocation running state.")
+    await expect(runAgentWithContext(agent, runtime("delivery-1"), {})).rejects.toThrow("Could not persist the Invocation running state.")
     expect(calls).toBe(1)
     expect((await invocations.getByRunId("delivery-1"))?.status).toBe("running")
     release()
@@ -5275,7 +5428,7 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
 
-    await runAgent(agent, runtime("run-1"), {})
+    await runAgentWithContext(agent, runtime("run-1"), {})
 
     expect(await invocations.getByRunId("run-1", "support")).toMatchObject({ agentName: "support" })
   })
@@ -5284,7 +5437,7 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
 
-    await runAgent(agent, { ...runtime("aliased-run"), agentIdentity: { name: "host-alias" } }, {})
+    await runAgentWithContext(agent, { ...runtime("aliased-run"), agentIdentity: { name: "host-alias" } }, {})
 
     await expect(invocations.getByRunId("aliased-run", "support")).resolves.toMatchObject({ agentName: "support" })
     await expect(invocations.getByRunId("aliased-run", "host-alias")).resolves.toBeUndefined()
@@ -5296,8 +5449,8 @@ describe("Agent Invocations", () => {
     const review = defineAgent({ name: "review", driver: { run: () => "review" }, invocations, runtime: false })
 
     await Promise.all([
-      runAgent(support, runtime("shared-run"), {}),
-      runAgent(review, runtime("shared-run"), {}),
+      runAgentWithContext(support, runtime("shared-run"), {}),
+      runAgentWithContext(review, runtime("shared-run"), {}),
     ])
 
     await expect(invocations.getByRunId("shared-run", "support")).resolves.toMatchObject({ agentName: "support" })
@@ -5309,7 +5462,7 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
 
-    await runAgent(agent, runtime("linked-run"), {})
+    await runAgentWithContext(agent, runtime("linked-run"), {})
 
     const id = await agentInvocationId("linked-run", "support")
     await expect(invocations.get(id)).resolves.toMatchObject({ agentName: "support" })
@@ -5322,8 +5475,8 @@ describe("Agent Invocations", () => {
     const second = defineAgent({ name: "a", driver: { run: () => "second" }, invocations, runtime: false })
 
     await Promise.all([
-      runAgent(first, runtime("c"), {}),
-      runAgent(second, runtime("b\0c"), {}),
+      runAgentWithContext(first, runtime("c"), {}),
+      runAgentWithContext(second, runtime("b\0c"), {}),
     ])
 
     await expect(invocations.getByRunId("c", "a\0b")).resolves.toMatchObject({ agentName: "a\0b" })
@@ -5340,7 +5493,7 @@ describe("Agent Invocations", () => {
       run: { channelId: oversized, origin: oversized, runId: oversized, threadId: oversized },
     }
 
-    await expect(runAgent(agent, context, {})).rejects.toThrow(oversized)
+    await expect(runAgentWithContext(agent, context, {})).rejects.toThrow(oversized)
     const record = await invocations.getByRunId(oversized)
     expect(record?.id).toMatch(/^sha256_[\da-f]{64}$/)
     expect(record?.channelId).toHaveLength(512)
@@ -5360,7 +5513,7 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({ driver: { run: () => { throw failure } }, invocations, runtime: false })
 
-    await expect(runAgent(agent, runtime("aggregate-failure"), {})).rejects.toBe(failure)
+    await expect(runAgentWithContext(agent, runtime("aggregate-failure"), {})).rejects.toBe(failure)
 
     expect((await invocations.getByRunId("aggregate-failure"))?.error).toEqual({
       errors: [{
@@ -5388,8 +5541,8 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({ driver: { run: ({ input }) => input.prompt }, invocations, runtime: false })
 
-    await runAgent(agent, runtime(oversized), { prompt: "oversized" })
-    await runAgent(agent, runtime(oversizedDigest), { prompt: "digest-shaped" })
+    await runAgentWithContext(agent, runtime(oversized), { prompt: "oversized" })
+    await runAgentWithContext(agent, runtime(oversizedDigest), { prompt: "digest-shaped" })
     const listed = await invocations.list()
     expect(listed.invocations).toHaveLength(2)
     expect(new Set(listed.invocations.map(invocation => invocation.id)).size).toBe(2)
@@ -5422,9 +5575,9 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
-      await runAgent(agent, runtime("unicode-search", { "github.repository": "Éclair" }), {})
-      await runAgent(
+      await runAgentWithContext(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
+      await runAgentWithContext(agent, runtime("unicode-search", { "github.repository": "Éclair" }), {})
+      await runAgentWithContext(
         defineAgent({
           driver: { run: () => "reviewed" },
           invocations,
@@ -5490,7 +5643,7 @@ describe("Agent Invocations", () => {
         return String(this).replaceAll("I", "ı").toLowerCase()
       })
       try {
-        await runAgent(agent, runtime("locale-search", { "github.repository": "INDIGO" }), {})
+        await runAgentWithContext(agent, runtime("locale-search", { "github.repository": "INDIGO" }), {})
         await expect(restored.list({ search: "indigo" })).resolves.toMatchObject({
           invocations: [expect.objectContaining({ status: "completed" })],
         })
@@ -6264,7 +6417,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("search_version < ?")) {
@@ -6364,7 +6517,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("WHERE summary IS NULL") && sql.includes("ORDER BY sequence DESC")) {
@@ -6456,7 +6609,7 @@ describe("Agent Invocations", () => {
             const isSummaryBackfill = statements.some((statement) => {
               return isRuntimeRecord(statement)
                 && "sql" in statement
-                && hasRuntimeType(statement.sql, "string")
+                && typeof statement.sql === "string"
                 && statement.sql.includes("SET summary = json_remove")
             })
             if (isSummaryBackfill && summaryBackfillAttempts++ === 0) {
@@ -6602,8 +6755,8 @@ describe("Agent Invocations", () => {
             return async (...args: Parameters<Client["batch"]>) => {
               const statements = args[0]
               const firstStatement = statements[0]
-              if (hasRuntimeType(firstStatement, "object")
-                && "sql" in firstStatement && hasRuntimeType(firstStatement.sql, "string")
+              if (typeof firstStatement === "object"
+                && "sql" in firstStatement && typeof firstStatement.sql === "string"
                 && firstStatement.sql.includes("SET search")) {
                 pageSizes.push(statements.length)
                 if (--failPage === 0) throw new Error("migration interrupted")
@@ -6612,7 +6765,7 @@ describe("Agent Invocations", () => {
             }
           }
           const value = Reflect.get(target, property)
-          return hasRuntimeType(value, "function") ? value.bind(target) : value
+          return typeof value === "function" ? value.bind(target) : value
         },
       })
       const store = createLibsqlAgentInvocationStore({ client: flakyClient })
@@ -6722,7 +6875,7 @@ describe("Agent Invocations", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return hasRuntimeType(value, "function") ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     const invocations = defineAgentInvocations({

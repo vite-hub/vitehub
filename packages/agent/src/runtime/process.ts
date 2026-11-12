@@ -308,10 +308,10 @@ export async function createProcessAgentInvocations(
     recovery: Parameters<typeof import("../server/invocation-health.ts").failInterruptedAgentInvocations>[1]
   },
 ): Promise<import("../invocations.ts").AgentInvocations> {
-  const { defineAgentInvocations } = await import("../invocations.ts")
-  const { failInterruptedAgentInvocations } = await import("../server/invocation-health.ts")
-  await failInterruptedAgentInvocations(options.store, options.recovery)
-  return defineAgentInvocations(options)
+  const { defineAgentInvocations, recoverInterruptedAgentInvocations } = await import("../invocations.ts")
+  const invocations = defineAgentInvocations(options)
+  await recoverInterruptedAgentInvocations(invocations, options.recovery)
+  return invocations
 }
 
 export { createProcessAgentHost } from './process-host.ts'
@@ -348,11 +348,11 @@ export function createAgentProcessHosts(options: {
   const startHost = async (agentName: string, attempt: number): Promise<void> => {
     retries.delete(agentName)
     if (closed) return
-    const { getAgentFromRegistry } = await import("../index.ts")
+    const { loadAgent } = await import("../index.ts")
     const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
     try {
-      const agent = await getAgentFromRegistry(agentName, options.registry)
+      const agent = await loadAgent(agentName, options.registry)
       const contribution = getAgentProcessHostContribution(agent)
       if (!contribution) {
         failures.set(agentName, "The Agent has no process host contribution.")

@@ -1,3 +1,4 @@
+import { consoleRelativeTime } from "../../client/format.ts";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, type DefineComponent, type ComponentOptionsMixin, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
@@ -12,11 +13,6 @@ export function invocationStatusLabel(status: AgentInvocationStatus): string {
     running: "Working",
   };
   return Object.hasOwn(labels, status) ? labels[status] : "Unknown";
-}
-
-interface RelativeTime {
-  label: string;
-  short: string;
 }
 
 const invocationListPaginationThreshold = 6 * 106;
@@ -57,25 +53,6 @@ function groupByRecency(items: readonly AgentInvocationListItem[], now: number) 
   });
 }
 
-function relativeTime(value: string | undefined, now: number | undefined): RelativeTime | undefined {
-  if (!value || now === undefined) return;
-  const elapsed = now - Date.parse(value);
-  if (!Number.isFinite(elapsed) || elapsed < 0) return;
-  if (elapsed < 60_000) return { label: "now", short: "now" };
-  if (elapsed < 3_600_000) {
-    const minutes = Math.floor(elapsed / 60_000);
-    return { label: new Intl.RelativeTimeFormat("en").format(-minutes, "minute"), short: `${minutes}m` };
-  }
-  if (elapsed < 86_400_000) {
-    const hours = Math.floor(elapsed / 3_600_000);
-    return { label: new Intl.RelativeTimeFormat("en").format(-hours, "hour"), short: `${hours}h` };
-  }
-  const date = new Date(value);
-  return {
-    label: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date),
-    short: new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(date),
-  };
-}
 
 function statusIcon(status: AgentInvocationStatus) {
   const paths: Record<AgentInvocationStatus, readonly string[]> = {
@@ -102,31 +79,38 @@ function renderItem(
   harnessSlot?: Slot,
 ) {
   const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
-  const time = relativeTime(timestamp, now);
+  const time = consoleRelativeTime(timestamp, now);
+  const state = h("span", { class: "vh-invocation-list__state", title: item.description }, [
+    item.status === "completed"
+      ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
+      : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
+    item.status === "completed" ? null : h("span", invocationStatusLabel(item.status)),
+    time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
+  ]);
+  const title = h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title);
   return h("li", { key: item.id }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
       "aria-description": item.description,
       class: "vh-invocation-list__item",
+      // The list clips its overflow, so the focus ring goes inside the row.
+      "data-focus-inset": "",
       "data-invocation-id": item.id,
       "data-relative-time": time?.short,
       "data-status": item.status,
       onClick: () => select(item),
       type: "button",
     }, [
-      // Line 1: where the session comes from, and its state. Line 2: the title. Line 3: branch, harness, and channel.
-      h("span", { class: "vh-invocation-list__context" }, [
-        projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
-        item.project ? h("span", { class: "vh-invocation-list__project", title: item.project }, item.project) : null,
-        h("span", { class: "vh-invocation-list__state", title: item.description }, [
-          item.status === "completed"
-            ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
-            : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
-          item.status === "completed" ? null : h("span", invocationStatusLabel(item.status)),
-          time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
-        ]),
-      ]),
-      h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title),
+      ...(item.project || projectIconSlot
+        ? [
+            h("span", { class: "vh-invocation-list__context" }, [
+              projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
+              item.project ? h("span", { class: "vh-invocation-list__project", title: item.project }, item.project) : null,
+              state,
+            ]),
+            title,
+          ]
+        : [h("span", { class: "vh-invocation-list__headline" }, [title, state])]),
       item.context || harnessSlot || item.channel
         ? h("span", { class: "vh-invocation-list__meta" }, [
             item.context ? h("span", { class: "vh-invocation-list__branch", title: item.context }, item.context) : null,

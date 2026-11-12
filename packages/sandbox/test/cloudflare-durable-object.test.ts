@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { posix } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 
@@ -11,6 +11,17 @@ import {
   type CloudflareContainerExecProcess,
   type CloudflareSandboxFiles,
 } from "../src/internal/cloudflare-durable-object.ts";
+
+afterEach(() => vi.useRealTimers());
+
+function gnuTimeout() {
+  for (const command of ["timeout", "gnutimeout", "gtimeout"]) {
+    try {
+      if (execFileSync(command, ["--version"], { encoding: "utf8" }).includes("GNU coreutils")) return command;
+    } catch {}
+  }
+  throw new Error("Install GNU coreutils to test the Debian Sandbox image's process-group timeout.");
+}
 
 class FileError extends Error {
   constructor(readonly code: string) {
@@ -204,6 +215,45 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(container.destroyed).toBe(1);
   });
 
+  it("reads the idle policy again at the next start after a failed read", async () => {
+    const { container, timeouts } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const get = vi.fn()
+      .mockRejectedValueOnce(new Error("transient storage failure"))
+      .mockResolvedValue({ sleepAfter: "30s" });
+    const sandbox = new Sandbox({ container, id: { name: "a", toString: () => "a" }, storage: { get, put: async () => {} } }, {});
+
+    await expect(sandbox.mkdir("/workspace/a")).rejects.toThrow("transient storage failure");
+    // The Container went to sleep, so the next call starts it again.
+    (container as { running: boolean }).running = false;
+    await expect(sandbox.mkdir("/workspace/a")).resolves.toEqual({ success: true });
+    expect(timeouts).toEqual([30_000]);
+  });
+
+  it("retries a completed deletion after its response is lost", async () => {
+    vi.useFakeTimers();
+    const { files, objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    await session.files.write("/workspace/output", new TextEncoder().encode("data"));
+    const object = objects.get("Task-1")!;
+    const remove = object.deleteFile.bind(object);
+    const request = vi.spyOn(object, "deleteFile").mockImplementationOnce(async (path) => {
+      await remove(path);
+      throw Object.assign(new Error("Network connection lost."), { retryable: true });
+    });
+
+    const result = expect(session.files.remove("/workspace/output")).resolves.toBeUndefined();
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(files.has("/workspace/output")).toBe(false);
+    await session.close();
+  });
+
   it("resolves relative file operations against /workspace", async () => {
     const { files, runtime, timeouts } = setup();
     const session = await (await resolveSandbox({ runtime }, {})).open();
@@ -273,11 +323,12 @@ describe("Cloudflare Sandbox Durable Object", () => {
     "sleep 600 >&2 & exit 0",
     "bash -c 'trap \"\" TERM; sleep 600' & exit 0",
   ])("times out descendants and drains output for %s", async (command) => {
+    const timeout = gnuTimeout();
     const { container, objects, runtime } = setup();
     const session = await (await resolveSandbox({ runtime }, {})).open();
     const children: ReturnType<typeof spawn>[] = [];
     container.exec = async (command, options) => {
-      const child = spawn(command[0]!, command.slice(1), { detached: true });
+      const child = spawn(command[0] === "timeout" ? timeout : command[0]!, command.slice(1), { detached: true });
       children.push(child);
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];

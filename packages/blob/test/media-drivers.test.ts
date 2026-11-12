@@ -1,4 +1,4 @@
-import { H3Event } from "h3"
+import { BlobNotFoundError } from "@vercel/blob"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -6,7 +6,9 @@ import { createDriver as createR2Driver } from "../src/drivers/cloudflare-native
 import { createBundledVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 // An in-memory Vercel Blob that, like the service, has no custom metadata and can forbid overwrites.
 const vercel = vi.hoisted(() => {
@@ -17,7 +19,7 @@ const vercel = vi.hoisted(() => {
     const object = objects.get(pathname)!
     return { contentType: object.contentType, etag: object.etag, pathname, size: object.body.byteLength, uploadedAt: object.uploadedAt, url: `https://store.public.blob.vercel-storage.com/${encodeURI(pathname)}` }
   }
-  const missing = () => Object.assign(new Error("Vercel Blob: The requested blob does not exist"), { name: "BlobNotFoundError" })
+  const missing = () => new BlobNotFoundError()
   return {
     calls: [] as Array<Record<string, unknown>>,
     objects,
@@ -60,10 +62,10 @@ const vercel = vi.hoisted(() => {
   }
 })
 
-vi.mock("@vercel/blob", () => vercel.module)
+vi.mock("@vercel/blob", async importOriginal => ({ ...vercel.module, BlobNotFoundError: (await importOriginal<typeof import("@vercel/blob")>()).BlobNotFoundError }))
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 
@@ -72,7 +74,7 @@ function photo(width: number, height: number) {
 }
 
 function request() {
-  return new H3Event(new Request("https://example.test/photo"))
+  return new Request("https://example.test/photo")
 }
 
 describe("media on Vercel Blob", () => {
@@ -190,14 +192,13 @@ describe("media on a Cloudflare R2 binding", () => {
     expect(record).toMatchObject({ color: expect.stringMatching(/^#[0-9a-f]{6}$/), height: 800, width: 1600 })
     expect(images.requests[0]).toEqual({ output: { format: "image/png" }, transform: { fit: "cover", height: 1, width: 1 } })
 
-    const event = request()
-    const [, body] = await storage.serve(event, "photos/wide.jpg", { variant: { crop: "mobile", format: "avif", quality: 50, width: 384 } })
+    const response = await storage.serve(request(), "photos/wide.jpg", { variant: { crop: "mobile", format: "avif", quality: 50, width: 384 } })
     expect(images.requests[1]).toEqual({
       output: { format: "image/avif", quality: 50 },
       transform: { fit: "cover", height: 480, trim: { bottom: 800, left: 0, right: 640, top: 0 }, width: 384 },
     })
-    expect(event.res.headers.get("content-type")).toBe("image/avif")
-    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ height: 480, width: 384 })
+    expect(response.headers.get("content-type")).toBe("image/avif")
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ height: 480, width: 384 })
     expect([...bucket.objects.keys()].some(key => key.startsWith("_vitehub/derived/"))).toBe(true)
   })
 
@@ -205,12 +206,11 @@ describe("media on a Cloudflare R2 binding", () => {
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
     const passthrough = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default", { images: { transformer: "passthrough" } })
     ok(await passthrough.media.put("a.jpg", await photo(100, 50)))
-    const event = request()
-    await passthrough.serve(event, "a.jpg", { variant: { width: 64 } })
-    expect(event.res.headers.get("content-type")).toBe("image/jpeg")
+    const response = await passthrough.serve(request(), "a.jpg", { variant: { width: 64 } })
+    expect(response.headers.get("content-type")).toBe("image/jpeg")
+    await response.body?.cancel()
 
     const explicit = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default", { images: { transformer: "cloudflare-images" } })
-    const [error] = await explicit.serve(request(), "a.jpg", { variant: { width: 64 } })
-    expect(error?.cause).toMatchObject({ code: "BLOB_R0034" })
+    await expect(explicit.serve(request(), "a.jpg", { variant: { width: 64 } })).rejects.toMatchObject({ cause: { code: "BLOB_R0034" } })
   })
 })

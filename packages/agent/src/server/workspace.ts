@@ -1,4 +1,4 @@
-import { registerWorkspace } from "@vite-hub/workspace/runtime"
+import { registerWorkspace, setWorkspaceRuntimeDefinitions } from "@vite-hub/workspace/runtime"
 
 import {
   markWorkspaceAgentDefinitionRegistered,
@@ -7,11 +7,15 @@ import {
   workspaceNameFromOptions,
 } from "../workspace-agent.ts"
 
-import type { AgentCapabilitiesInput, AgentInvocationContextValues, AgentInvokerProfile, AgentRuntimeConfig } from "../types.ts"
+import type { AgentCapabilitiesInput, AgentInvocationContextValues, AgentInvoker, AgentRuntimeConfig } from "../types.ts"
 import type { WorkspaceAgentDefinition } from "../workspace-agent.ts"
-import type { WorkspaceName } from "@vite-hub/workspace"
+import type { WorkspaceDefinitionInput, WorkspaceName } from "@vite-hub/workspace"
 
 export { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+
+export function setAgentWorkspaceDefinitions(definitions: Record<string, WorkspaceDefinitionInput>): void {
+  setWorkspaceRuntimeDefinitions("vitehub.agent", definitions)
+}
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> {
   name?: string
@@ -23,7 +27,7 @@ export function registerWorkspaceAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,

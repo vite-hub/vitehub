@@ -1,5 +1,5 @@
 import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
-import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAgentEvalInclude, discoverAgentDefinitions, discoverAgentEvalFiles } from "../src/discovery.ts"
 import { getMessageText } from "../src/messages.ts"
+import { installStubPackages } from "./support/stub-packages.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
@@ -49,7 +50,7 @@ it("discovers executable Agent Eval files without treating fixture directories a
 })
 
 function responseChunkText(chunk: unknown) {
-  if (hasRuntimeType(chunk, "string")) return chunk
+  if (typeof chunk === "string") return chunk
   if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
   if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8")
   return String(chunk)
@@ -85,10 +86,10 @@ async function devLoopTokenHeaders(root: string): Promise<Record<string, string>
 
 async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
   const hook = plugin.configureServer
-  if (hasRuntimeType(hook, "function")) {
+  if (typeof hook === "function") {
     await hook(server)
   }
-  else if (hook && hasRuntimeType(hook, "object") && "handler" in hook && hasRuntimeType(hook.handler, "function")) {
+  else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") {
     await hook.handler(server)
   }
 }
@@ -851,7 +852,7 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const reactionEffect = vi.fn()
@@ -874,7 +875,7 @@ describe("agent chat capability discovery", () => {
         }),
       ],
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           [channelDeliveryHandlers]: { reaction: reactionEffect },
           messages: false,
         }),
@@ -1373,13 +1374,13 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const triggerInputs: unknown[] = []
     const agent = defineAgent({
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           messages: false,
           triggers: {
             webhook: {
@@ -1445,14 +1446,14 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const triggerInputs: unknown[] = []
     const inheritedInput = Object.create({ "~standard": { vendor: "forged" } })
     const agent = defineAgent({
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
@@ -1495,7 +1496,7 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     class ClassSchema {
@@ -1512,7 +1513,7 @@ describe("agent chat capability discovery", () => {
     const triggerInputs: unknown[] = []
     const agent = defineAgent({
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
@@ -1551,13 +1552,13 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
     const v = await import("valibot")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const invoke = vi.fn((_context: unknown, input: { text: string, prompt: string }) => ({ input: { prompt: `${input.prompt}: ${input.text}` } }))
     const agent = defineAgent({
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
@@ -1782,7 +1783,7 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const reactionEffect = vi.fn()
@@ -1800,7 +1801,7 @@ describe("agent chat capability discovery", () => {
         }),
       ],
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           [channelDeliveryHandlers]: { reaction: reactionEffect, reply: replyEffect },
           messages: false,
           triggers: {
@@ -1972,7 +1973,7 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const { handlers, server } = createFakeServer(root, {
       default: defineAgent({
-        capabilities: ({ actor }) => actor.kind === "inspection"
+        capabilities: ({ invoker }) => invoker.kind === "inspection"
           ? [defineCapability({ id: "inspection-only", tools: { inspect: { name: "inspect" } } })]
           : [],
         name: "support",
@@ -2014,7 +2015,7 @@ describe("agent chat capability discovery", () => {
 
       // No Workspace plugin participates in this standalone Agent setup.
       const plugin = hubAgent()
-      if (hasRuntimeType(plugin.configResolved, "function")) {
+      if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { command: "serve", root, server: { port: 3000 } } as never)
       }
       await configurePluginServer(plugin, { ...server, environments: { nitro: { dispatchFetch } } })
@@ -2052,6 +2053,7 @@ describe("agent chat capability discovery", () => {
     const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "calories.ts"), "export default {}", "utf8")
+    await installStubPackages(root, ["@vite-hub/database/drizzle"])
 
     const { db } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -2076,7 +2078,7 @@ describe("agent chat capability discovery", () => {
       return { default: agent }
     })
     const plugin = (await import("../src/vite.ts")).hubAgent()
-    if (hasRuntimeType(plugin.configResolved, "function")) {
+    if (typeof plugin.configResolved === "function") {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await plugin.configResolved.call({} as never, {
         command: "serve",
@@ -2181,10 +2183,8 @@ it.each([
   ['export default enabled ? defineAgent({}) : defineAgent({}); const helper = defineAgent({ workspace: {} })', false],
   ['export default defineAgent({ driver: enabled ? { workspace: {} } : {} })', false],
   ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({ workspace: {} })', true],
-  ['import { defineAgent as makeAgent } from "vite-hub/agent"; const notes = makeAgent({ workspace: {} }); export default makeAgent({ preset: "notes", presets: { notes } })', true],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; const notes = makeAgent({ workspace: {} }); export default makeAgent({ extends: notes })', false],
   ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({})', false],
-  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', true],
-  ['const notes = defineAgent({}); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', false],
   ['export default defineAgent<{ load: () => Promise<void> }>({ workspace: {} })', true],
   ['export default defineAgent<{ load: () => Promise<void> }>({})', false],
   ['export default <AgentDefinition>defineAgent({ workspace: {} })', true],
@@ -2197,13 +2197,9 @@ it.each([
   ['export default defineAgent({ pattern: /[}]/, workspace: {} })', true],
   ['const helper = defineAgent({}); export default defineAgent({ workspace: {} })', true],
   ['const helper = defineAgent({ workspace: {} }); export default defineAgent({})', false],
-  ['const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "notes", presets: { notes: defineAgent({}) } })', false],
-  ['export default defineAgent({ preset: "notes", presets: { notes: defineAgent({}) } }); const unrelated = { notes: defineAgent({ workspace: {} }) }', false],
-  ['export default defineAgent({ preset: "notes", presets: { other: defineAgent({ workspace: {} }), notes: defineAgent({}) } })', false],
-  ['export default defineAgent({ preset: "notes", presets: { notes: defineAgent({ workspace: {} }) } })', true],
-  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ preset: "notes", presets: { notes } })', true],
-  ['const notes = defineAgent({}); const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "notes", presets: { notes } })', false],
-  ['const notes = defineAgent({ workspace: {} }); const preset = "notes"; const presets = { notes }; const agent = defineAgent({ preset, presets }); export default agent', true],
+  ['export default defineAgent({ extends: defineAgent({ workspace: {} }) })', false],
+  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ extends: notes })', false],
+  ['const notes = defineAgent({}); const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ extends: notes })', false],
   ['export default defineAgent({ driver: { providerSettings: { workspace: {} } } })', false],
 ])("discovers Workspace ownership from the selected exported Agent: %s", async (source, workspace) => {
   const root = await createTempRoot("vitehub-agent-preset-discovery-")

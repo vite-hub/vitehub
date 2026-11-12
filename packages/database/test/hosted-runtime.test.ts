@@ -27,7 +27,7 @@ async function createTempDir(prefix: string) {
 function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatabaseConfig, "cloudflare" | "connection">): ResolvedDBViteConfig {
   const migrationsDir = "server/databases/primary/migrations"
   const generatedSchemaFile = join(rootDir, ".vitehub", "database", "primary-schema.ts")
-  const handler = join(rootDir, "server", "databases", "primary", "config.ts")
+  const handler = join(rootDir, "server", "databases", "primary", "index.ts")
   const cloudflare = database.cloudflare ? { binding: "DB_PRIMARY", ...database.cloudflare, migrationsDir } : undefined
   return {
     databaseNames: ["primary"],
@@ -35,7 +35,6 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
       primary: {
         connection: {},
         dialect: "sqlite",
-        drizzle: {},
         generatedSchemaFile,
         migrationsDir,
         mode: "named",
@@ -101,7 +100,7 @@ describe("hosted Database runtime", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/definition-defaults.mjs"), "utf8"))
       .resolves.toBe('export default {"cloudflare":{},"cloudflareProjections":{}}\n')
     const expression = renderDatabaseConfigExpression("analytics", runtimeConfig, "definition")
-    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ connection: undefined, schema: {} }, resolveRuntimeCloudflareConfig)
     expect(config.cloudflare?.binding).toBe("DB_ANALYTICS")
   })
 
@@ -117,7 +116,7 @@ describe("hosted Database runtime", () => {
     })
     runtimeConfig.definitionDefaults.cloudflareProjections.primary = { resource: "inherited" }
     const expression = renderDatabaseConfigExpression("primary", runtimeConfig, "definition")
-    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ cloudflare: {}, connection: undefined, drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ cloudflare: {}, connection: undefined, schema: {} }, resolveRuntimeCloudflareConfig)
 
     expect(config.cloudflare).toMatchObject({
       binding: "DB_PRIMARY",
@@ -130,7 +129,7 @@ describe("hosted Database runtime", () => {
 
   it("gives sibling Vercel host functions the hosted Database runtime module", async () => {
     const rootDir = await createTempDir("vitehub-db-sibling-runtime-")
-    const definition = join(rootDir, "server", "databases", "config.ts")
+    const definition = join(rootDir, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await Promise.all([
       writeFile(join(rootDir, "package.json"), "{}\n"),
@@ -163,7 +162,7 @@ describe("hosted Database runtime", () => {
 
   it("keeps sibling Provider Output on a host without a hosted Database runtime", async () => {
     const rootDir = await createTempDir("vitehub-db-sibling-output-")
-    const definition = join(rootDir, "server", "databases", "config.ts")
+    const definition = join(rootDir, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await Promise.all([
       writeFile(join(rootDir, "package.json"), "{}\n"),

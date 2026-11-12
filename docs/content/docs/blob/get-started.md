@@ -8,15 +8,48 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Upload `hello.txt`, then fetch its contents in a separate request. The upload returns object metadata. The read returns `Hello from ViteHub` from storage.
+Blob stores files, such as images, PDFs, or text files. You save a file under a name, and you read it back later by that name.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node preset uses the local `fs` driver under `.vitehub/data/blob`. No provider account is required.
+In this tutorial, you make one API route that uploads `hello.txt` and one that reads it back. The read returns `Hello from ViteHub`.
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. On your computer, Blob saves files in the `.vitehub/data/blob` folder.
 
 ::tutorial-step{title="Enable Blob"}
 ## Enable Blob
 
-Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
+Install the Blob package in the app:
 
+```bash pm [commands/install-blob]
+pnpm add @vite-hub/blob
+```
+
+Add `blob: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep any other enabled features and plugins.
+
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', blob: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'node', blob: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -26,15 +59,15 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', blob: true })],
 })
 ```
-
-If you chose Nuxt in Installation, add `blob: true` to the options of the existing `vite-hub/nuxt` module. The routes below also work there. They use explicit H3 imports and upload a plain text request body.
+::::
+:::
 
 ::
 
 ::tutorial-step{title="Accept a text upload"}
 ## Accept a text upload
 
-Create `server/api/files.post.ts`. Nitro maps it to `POST /api/files`. This tutorial stores a UTF-8 text body at the fixed pathname `hello.txt`; another upload replaces it.
+Create `server/api/files.post.ts`. This file is the route `POST /api/files`. It saves the text of the request as `hello.txt`.
 
 ```ts [server/api/files.post.ts]
 import { createError, defineEventHandler, readRawBody } from 'h3'
@@ -58,14 +91,16 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.put()` returns `[error, object]`. The object describes the stored bytes. This route returns just the fields used in the check below.
+- `blob.put()` saves the file. If `hello.txt` exists, the new upload replaces it.
+- `blob.put()` returns `[error, object]`. Check `error` for storage failures. Invalid arguments and configuration errors can throw.
+- `object` describes the saved file. The route returns its name, type, and size.
 
 ::
 
 ::tutorial-step{title="Retrieve the file"}
 ## Retrieve the file
 
-Create `server/api/files.get.ts` to read `hello.txt` without writing it again.
+Create `server/api/files.get.ts`. This route reads `hello.txt` and returns its text.
 
 ```ts [server/api/files.get.ts]
 import { createError, defineEventHandler, setResponseHeader } from 'h3'
@@ -83,7 +118,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.get()` returns `[error, Blob | null]`. The `Blob` holds the file body, and `.text()` reads it as UTF-8. A missing object returns `null`; the route turns it into a `404` response.
+- `blob.get()` returns `[error, file]`. `file` is a standard `Blob`, or `null` when no file has that name.
+- `file.text()` reads the content as text.
+- When the file is missing, the route returns `404`.
 
 ::
 
@@ -96,13 +133,13 @@ Start or restart the app after the config change:
 pnpm dev
 ```
 
-In another terminal, create a file without a trailing newline:
+Open a second terminal. Create a test file:
 
 ```bash [commands/file]
 printf 'Hello from ViteHub' > hello.txt
 ```
 
-Upload it as the request body:
+Upload it:
 
 ```bash [commands/request]
 curl -X POST http://localhost:3000/api/files \
@@ -110,25 +147,41 @@ curl -X POST http://localhost:3000/api/files \
   --data-binary @hello.txt
 ```
 
-The response reports the stored pathname, content type, and 18-byte size:
+The response shows the name, the type, and the size of the saved file:
 
 ```json [output/response.json]
 { "pathname": "hello.txt", "contentType": "text/plain", "size": 18 }
 ```
 
-Retrieve the bytes through the GET route:
+Read the file back:
 
 ```bash [commands/read]
 curl http://localhost:3000/api/files
 ```
 
-The response body is:
+The response is the text of the file:
 
 ```text [output/file.txt]
 Hello from ViteHub
 ```
 
-The local store keeps the object after a restart. Repeat only the GET request after restarting `pnpm dev` to check it.
+The file stays after a restart. To check it, restart `pnpm dev` and run only the read request again.
 
-These routes are open local examples. Before exposing uploads to users, add access checks and upload limits. Continue with [Server API](/docs/blob/server-api#upload-files) for form uploads and [Hosts](/docs/blob/hosts) for storage shared across app instances.
+::
+
+
+## Before you go live
+
+These routes let anyone upload. Before real users can upload, add access checks and upload limits.
+
+## Next steps
+
+::card-group
+:::card{title="Upload files" icon="i-lucide-upload" to="/docs/blob/server-api#upload-files"}
+Accept form uploads and check file type and size.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/blob/hosts"}
+Store files in R2 or S3, so that all app instances share them.
+:::
 ::

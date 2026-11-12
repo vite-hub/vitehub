@@ -1,6 +1,5 @@
 import * as v from "valibot"
 
-import { consoleAppAuthBasePath } from "./access.ts"
 import { defineConsoleOperation } from "./operations.ts"
 import { consoleRequestError } from "./request.ts"
 
@@ -30,11 +29,7 @@ const mcpList = defineConsoleOperation({
   input: v.strictObject({}),
   kind: "read",
   name: "mcp-client.list",
-  run: async (_input, context) => {
-    const shared = context.request ? consoleAppAuthBasePath({ req: context.request }) : undefined
-    shared?.catch(() => {})
-    return (await server()).listConsoleMcp(caller(context), { sharedSession: shared !== undefined })
-  },
+  run: async (_input, context) => (await server()).listConsoleMcp(caller(context), { sharedSession: false }),
   section: "mcp-client",
 })
 

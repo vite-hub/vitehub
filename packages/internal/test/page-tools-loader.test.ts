@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { loadViteHubPageTools, viteHubPageToolsEdgeAt } from "../src/runtime/page-tools-loader.ts"
+import { loadViteHubPageTools, stopViteHubPageTools, viteHubPageToolsEdgeAt } from "../src/runtime/page-tools-loader.ts"
 import { readViteHubPageSession, viteHubPageSessionUrl } from "../src/runtime/page-tools-shared.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "../src/runtime/page-tools-loader.ts"
@@ -48,6 +48,11 @@ function pill() {
   }
 }
 
+/** The pill folds into its hexagon before the tools stop. Happy DOM runs no transition, so that takes one task. */
+async function exited() {
+  await new Promise(resolve => setTimeout(resolve))
+}
+
 function offMark() {
   const marks = document.querySelectorAll("vitehub-tools-off")
   expect(marks).toHaveLength(1)
@@ -60,16 +65,20 @@ function lazyControl(): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  // happy-dom has no layout and no `elementsFromPoint`: by default, nothing of the page is under the pill.
+  Object.defineProperty(document, "elementsFromPoint", { configurable: true, writable: true, value: () => [] })
   sessionStorage.clear()
   localStorage.clear()
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
 afterEach(() => {
+  stopViteHubPageTools()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-window, vitehub-tools-off")) element.remove()
   document.cookie = "vitehub-tools=; Path=/; Max-Age=0"
   document.documentElement.className = ""
   document.documentElement.removeAttribute("data-vitehub-pill")
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -105,6 +114,7 @@ describe("loadViteHubPageTools", () => {
     expect(slots).toEqual(["tab", "console"])
     expect(exit.querySelector("svg")?.namespaceURI).toBe("http://www.w3.org/2000/svg")
     exit.click()
+    await exited()
     expect(stopped).toEqual(["console"])
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })
@@ -173,6 +183,7 @@ describe("loadViteHubPageTools", () => {
     expect(slot.parentNode).toBe(element.shadowRoot)
     expect(slot.assignedElements()).toEqual([tab])
     exit.click()
+    await exited()
     expect(tab.isConnected).toBe(false)
   })
 
@@ -217,6 +228,173 @@ describe("loadViteHubPageTools", () => {
     document.documentElement.removeAttribute("data-vitehub-pill")
     await vi.waitFor(() => expect(element.style.getPropertyValue("--at")).toBe("50"))
     expect(element.hasAttribute("collapsed")).toBe(false)
+  })
+
+  it("folds to the mark at an end of its edge when the page's own floating control is where it docks", async () => {
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    const under = vi.fn((x: number, y: number) => (Math.abs(x - innerWidth / 2) <= 110 && y > innerHeight - 80 ? [menu, document.body, document.documentElement] : [document.body, document.documentElement]))
+    vi.spyOn(document, "elementsFromPoint").mockImplementation(under)
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([true, "bottom", "100"])
+    expect([localStorage.getItem("vitehub-tools-collapsed"), localStorage.getItem("vitehub-tools-dock")]).toEqual([null, null])
+    menu.remove()
+  })
+
+  it("stays folded when the person drops the folded mark somewhere else", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    // What a drop of the mark stores, then the pointerup that ends the drag.
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 40 }))
+    document.dispatchEvent(new PointerEvent("pointerup"))
+    vi.advanceTimersByTime(250)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    vi.useRealTimers()
+    menu.remove()
+  })
+
+  it("keeps the place where the person docked the pill, even over the page's floating control", async () => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 50 }))
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([false, "50"])
+    menu.remove()
+  })
+
+  it("folds when the page adds its floating control after the pill", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    // A chat widget that loads late.
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    document.body.append(menu)
+    await vi.advanceTimersByTimeAsync(250)
+    expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([true, "100"])
+    menu.remove()
+  })
+
+  it("finds a small control that sits between the old sample points", async () => {
+    page("/?vitehub")
+    const top = document.createElement("button")
+    top.style.position = "fixed"
+    document.body.append(top)
+    // A 44px button from 8px to 52px right of the middle.
+    vi.spyOn(top, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: innerWidth / 2 + 8, y: innerHeight - 60, width: 44, height: 44 }))
+    vi.spyOn(document, "elementsFromPoint").mockImplementation((x: number) => (x >= innerWidth / 2 + 8 && x <= innerWidth / 2 + 52 ? [top, document.body, document.documentElement] : [document.body, document.documentElement]))
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(true)
+    top.remove()
+  })
+
+  it("folds when the page shows a hidden control or a scroll reveals one", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    menu.hidden = true
+    const list = document.createElement("div")
+    document.body.append(menu, list)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    let revealed = false
+    vi.spyOn(document, "elementsFromPoint").mockImplementation(() => (!menu.hidden || revealed ? [menu, document.body, document.documentElement] : [document.body, document.documentElement]))
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    menu.hidden = false
+    await vi.advanceTimersByTimeAsync(250)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    menu.hidden = true
+    await vi.advanceTimersByTimeAsync(250)
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    // A scroll of an inner list, which does not bubble, shows the control without a change of the DOM.
+    revealed = true
+    list.dispatchEvent(new Event("scroll"))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    menu.remove()
+  })
+
+  it("folds for a small control in a fixed layer over the whole screen, but not for the layer", async () => {
+    page("/?vitehub")
+    const layer = document.createElement("div")
+    layer.style.position = "fixed"
+    const menu = document.createElement("button")
+    layer.append(menu)
+    document.body.append(layer)
+    vi.spyOn(layer, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 0, y: 0, width: innerWidth, height: innerHeight }))
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    const under = vi.spyOn(document, "elementsFromPoint").mockReturnValue([layer, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(false)
+    pill().element.remove()
+    under.mockReturnValue([menu, layer, document.body, document.documentElement])
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(true)
+    layer.remove()
+  })
+
+  it("keeps the folded mark aside when another tab saves a dock", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const dock = JSON.stringify({ edge: "left", at: 40 })
+    localStorage.setItem("vitehub-tools-dock", dock)
+    dispatchEvent(new StorageEvent("storage", { key: "vitehub-tools-dock", newValue: dock }))
+    await vi.advanceTimersByTimeAsync(250)
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([true, "bottom", "100"])
+    expect(localStorage.getItem("vitehub-tools-collapsed")).toBe(null)
+    menu.remove()
+  })
+
+  it("moves the focus from a hidden segment to the mark when the page asks for the mark", async () => {
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const control = document.querySelector("vitehub-tool")!.shadowRoot!.querySelector("button")!
+    const focus = vi.spyOn(element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!, "focus")
+    control.focus()
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(focus).toHaveBeenCalledOnce()
   })
 
   it("follows the page's ask after it loads, back to the person's own choices", async () => {
@@ -372,6 +550,72 @@ describe("loadViteHubPageTools", () => {
     expect(element.hasAttribute("collapsed")).toBe(false)
   })
 
+  it("moves the off mark where it is dragged, keeps the tools off, and opens the pill there", async () => {
+    page("/")
+    localStorage.setItem("vitehub-tools-off", "1")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element, button } = offMark()
+    button.setPointerCapture = () => {}
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(592, 660, 16, 14))
+    const width = 1200
+    const height = 676
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(width)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(height)
+    button.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 600, clientY: 667, pointerId: 1 }))
+    for (const [clientX, clientY] of [[600, 338], [width - 4, height / 2]]) button.dispatchEvent(new PointerEvent("pointermove", { clientX, clientY, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+    button.click()
+    expect(element.isConnected).toBe(true)
+    expect(element.hasAttribute("dragging")).toBe(false)
+    expect([element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual(["right", "50"])
+    expect(JSON.parse(localStorage.getItem("vitehub-tools-dock")!)).toEqual({ edge: "right", at: 50 })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    button.click()
+    await vi.waitFor(() => expect(document.querySelector("vitehub-pill")).not.toBeNull())
+    expect(pill().element.getAttribute("edge")).toBe("right")
+  })
+
+  it.each([false, true])("keeps a drag bound to its starting pointer (tools off: %s)", async (off) => {
+    page("/")
+    if (!off) localStorage.setItem("vitehub-tools-collapsed", "1")
+    if (off) localStorage.setItem("vitehub-tools-off", "1")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const element = off ? offMark().element : pill().element
+    const button = element.shadowRoot!.querySelector<HTMLButtonElement>(off ? "button" : "button.mark")!
+    const capture = vi.fn()
+    button.setPointerCapture = capture
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(592, 660, 16, 14))
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1200)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(676)
+
+    button.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 600, clientY: 667, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("pointermove", { clientX: 1196, clientY: 338, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 600, clientY: 667, pointerId: 2 }))
+    button.dispatchEvent(new PointerEvent("pointermove", { clientX: 4, clientY: 100, pointerId: 2 }))
+    expect([element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual(["right", "50"])
+    button.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 2 }))
+    expect(element.hasAttribute("dragging")).toBe(true)
+    expect(localStorage.getItem("vitehub-tools-dock")).toBeNull()
+    button.click()
+    expect(element.isConnected).toBe(true)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+
+    button.dispatchEvent(new PointerEvent("pointermove", { clientX: 1196, clientY: 338, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+    button.click()
+    expect(element.isConnected).toBe(true)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(element.hasAttribute("dragging")).toBe(false)
+    expect(JSON.parse(localStorage.getItem("vitehub-tools-dock")!)).toEqual({ edge: "right", at: 50 })
+    expect(capture).toHaveBeenCalledExactlyOnceWith(1)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    button.click()
+    await vi.waitFor(() => expect(pill().element.hasAttribute("collapsed")).toBe(false))
+    expect(pill().element.getAttribute("edge")).toBe("right")
+  })
+
   it.each([
     [600, 20, "top"], [600, 656, "bottom"], [1190, 338, "right"], [10, 338, "left"], [40, 40, "top"], [40, 660, "bottom"],
   ] as const)("picks the closest edge for a point (%d, %d)", (x, y, edge) => {
@@ -411,6 +655,7 @@ describe("loadViteHubPageTools", () => {
     finally { document.body.replaceWith(before) }
     expect(editor.isConnected).toBe(true)
     pill().exit.click()
+    await exited()
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })
 
@@ -453,6 +698,7 @@ describe("loadViteHubPageTools", () => {
     mark.click()
     expect(element.hasAttribute("collapsed")).toBe(false)
     pill().exit.click()
+    await exited()
   })
 
   it("hides the segment of a tool that leaves it empty", async () => {
@@ -478,6 +724,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started, stopped } = modules()
     await loadViteHubPageTools({ load })
     pill().exit.click()
+    await exited()
     expect(stopped).toEqual(["comments", "console"])
     expect(started.every(context => context.signal.aborted)).toBe(true)
     expect(document.querySelector("vitehub-pill")).toBeNull()
@@ -494,6 +741,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
     pill().exit.click()
+    await exited()
     expect(document.querySelector("vitehub-pill")).toBeNull()
     const mark = offMark()
     expect([mark.element.getAttribute("edge"), (mark.element as HTMLElement).style.getPropertyValue("--at")]).toEqual(["right", "20"])
@@ -514,8 +762,29 @@ describe("loadViteHubPageTools", () => {
     session({ tools: [comments] })
     await loadViteHubPageTools({ load: modules().load })
     pill().exit.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
+    await exited()
     const { element, button } = offMark()
     expect(element.shadowRoot!.activeElement === button).toBe(focused)
+  })
+
+  it.each(["pill", "off mark"])("removes the %s with stopViteHubPageTools(), and its page watcher stops", async (shown) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    const { load, stopped } = modules()
+    await loadViteHubPageTools({ load })
+    if (shown === "off mark") pill().exit.click()
+    // The checks that the pill or the off mark start with run first.
+    await vi.advanceTimersByTimeAsync(250)
+    expect(document.querySelectorAll(shown === "pill" ? "vitehub-pill" : "vitehub-tools-off")).toHaveLength(1)
+    const under = vi.spyOn(document, "elementsFromPoint")
+    stopViteHubPageTools()
+    expect(document.querySelectorAll("vitehub-pill, vitehub-tools-off")).toHaveLength(0)
+    expect(stopped).toEqual(["comments", "console"])
+    // A change of the page starts no check of the pill's place, so no timer outlives the test window.
+    document.body.append(document.createElement("div"))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(under).not.toHaveBeenCalled()
   })
 
   it("keeps the mark on the next pages without starting a tool, until the mark or ?vitehub turns them on", async () => {
@@ -524,6 +793,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
     pill().exit.click()
+    await exited()
     expect(location.pathname + location.search).toBe("/guide?tab=2")
 
     // The next page: the session route still answers, so only people with access get the mark.
@@ -535,6 +805,7 @@ describe("loadViteHubPageTools", () => {
     offMark().button.click()
     await vi.waitFor(() => expect(started).toHaveLength(4))
     pill().exit.click()
+    await exited()
 
     offMark().element.remove()
     page("/?vitehub")
@@ -571,17 +842,18 @@ describe("loadViteHubPageTools", () => {
     page("/?vitehub")
     session({ tools: [{ ...comments, script: "/broken.js" }, consoleTool] })
     const { load, started } = modules()
-    await expect(loadViteHubPageTools({ load })).resolves.toEqual([consoleTool])
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([{ ...comments, script: "/broken.js" }, consoleTool])
     expect(started.map(context => context.tool.id)).toEqual(["console"])
-    expect(pill().segments).toEqual([["vitehub-tool", "console", false]])
+    expect(pill().segments).toEqual([["vitehub-tool", "comments", false], ["vitehub-tool", "console", false]])
+    expect(lazyControl().textContent).toBe("Retry Comments")
     expect(console.error).toHaveBeenCalledOnce()
   })
 
-  it("removes the pill when no tool starts", async () => {
+  it("keeps the pill with a retry button when no tool starts", async () => {
     page("/?vitehub")
     session({ tools: [{ ...comments, script: "/broken.js" }] })
-    await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([])
-    expect(document.querySelector("vitehub-pill")).toBeNull()
+    await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([{ ...comments, script: "/broken.js" }])
+    expect(lazyControl().textContent).toBe("Retry Comments")
   })
 
   it("does not mount or remember a window created after startup exits", async () => {
@@ -663,6 +935,7 @@ describe("lazy tools", () => {
       expect(load).toHaveBeenCalledTimes(2)
     }
     finally { style.remove(); pill().exit.click() }
+    await exited()
   })
 
   it("loads a lazy tool's script when the pointer reaches its button, and shows the click at once", async () => {
@@ -683,6 +956,7 @@ describe("lazy tools", () => {
     await vi.waitFor(() => expect(document.querySelector("vitehub-tool")!.hasAttribute("aria-busy")).toBe(false))
     expect(load).toHaveBeenCalledOnce()
     pill().exit.click()
+    await exited()
   })
 
   it("loads a lazy script again on the next intent after a failed preload", async () => {
@@ -696,6 +970,7 @@ describe("lazy tools", () => {
     lazyControl().dispatchEvent(new PointerEvent("pointerenter"))
     expect(load).toHaveBeenCalledTimes(2)
     pill().exit.click()
+    await exited()
   })
 
   it.each([false, true])("rolls back failed startup registrations (lazy: %s)", async (lazy) => {
@@ -718,14 +993,13 @@ describe("lazy tools", () => {
     await loadViteHubPageTools({ load })
     expect(document.querySelector("vitehub-window")).toBeNull()
     expect(signals[0]!.aborted).toBe(true)
-    if (!lazy) {
-      expect(document.querySelector("vitehub-pill")).toBeNull()
-      return
-    }
+    // Eager and lazy tools both keep a retry button, so a failure during page load does not need a reload.
+    expect(lazyControl().textContent).toBe("Retry Console")
     lazyControl().click()
     await vi.waitFor(() => expect(document.querySelectorAll("vitehub-window")).toHaveLength(1))
     expect(signals[1]!.aborted).toBe(false)
     pill().exit.click()
+    await exited()
     expect(signals[1]!.aborted).toBe(true)
     expect(document.querySelector("vitehub-window")).toBeNull()
     expect(document.querySelector("vitehub-pill")).toBeNull()
@@ -746,6 +1020,7 @@ describe("lazy tools", () => {
     second.show()
     expect(onHide).not.toHaveBeenCalled()
     pill().exit.click()
+    await exited()
   })
 
   it("keeps a replacement window registered when the previous handle is destroyed", async () => {
@@ -764,6 +1039,7 @@ describe("lazy tools", () => {
     other.show()
     expect(onHide).toHaveBeenCalledOnce()
     pill().exit.click()
+    await exited()
   })
 
   it("restores a remembered eager window", async () => {
@@ -780,6 +1056,7 @@ describe("lazy tools", () => {
     await loadViteHubPageTools({ load })
     expect(document.querySelector<HTMLElement>("vitehub-window")!.hidden).toBe(false)
     pill().exit.click()
+    await exited()
   })
 
   it.each([false, true])("keeps the query-selected window visible when a restored import finishes later (lazy: %s)", async (lazy) => {
@@ -808,6 +1085,7 @@ describe("lazy tools", () => {
     expect(selected.hidden).toBe(false)
     expect([...document.querySelectorAll<HTMLElement>("vitehub-window")].map(window => window.hidden)).toEqual([false, true])
     pill().exit.click()
+    await exited()
   })
 
   it.each(["query", "restored"])("keeps a retry control after a failed %s import", async (activation) => {
@@ -826,6 +1104,7 @@ describe("lazy tools", () => {
     expect(started[0]!.open).toBe(true)
     expect(load).toHaveBeenCalledTimes(2)
     pill().exit.click()
+    await exited()
   })
 
   it("imports a tool on demand only once", async () => {
@@ -861,8 +1140,10 @@ it("retries a lazy import and honors the editor exit guard", async () => {
   launch.click()
   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
   pill().exit.click()
+  await exited()
   expect(document.querySelector("vitehub-pill")).not.toBeNull()
   allowExit = true
   pill().exit.click()
+  await exited()
   expect(document.querySelector("vitehub-pill")).toBeNull()
 })

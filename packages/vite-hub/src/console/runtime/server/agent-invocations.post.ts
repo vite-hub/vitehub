@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { consoleAttachmentRequestBytes, consoleInputMessage, withConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
@@ -6,8 +7,9 @@ import * as v from "valibot"
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
 import { console } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 
 import type { Message } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -18,7 +20,7 @@ const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
 function consoleError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }))
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -123,20 +125,20 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
     throw consoleError(400, "Unknown Agent invocation profile.")
   }
 
-  const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
+  const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext({
     agentIdentity: { name },
-    capabilities: { ...getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console },
     memo: memo(),
     request: consoleRequest(event),
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  const actor = consoleAccessActor(access.user)
+  const invoker = consoleAccessInvoker(access.user)
   const start = (inputMessages: Message[] | undefined, onInputHandoff?: () => void) => startAgentInvocation(agent, context, {
     context: {
-      ...(actor ? { actor } : {}),
+      ...(invoker ? { invoker } : {}),
       ...(profileId ? { invokerProfileId: profileId } : {}),
     },
     ...inputMessages ? { messages: inputMessages } : {},
@@ -159,9 +161,9 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
   return {
     agent: name,
     id,
-    url: `/_vitehub/agents/${encodeURIComponent(encodeAgentRouteParam(name))}/invocations/${encodeURIComponent(id)}`,
+    url: `/agents/${encodeURIComponent(encodeAgentRouteParam(name))}/invocations/${encodeURIComponent(id)}`,
   }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", user: true, write: true })
+const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", write: true })
 export default guardedHandler

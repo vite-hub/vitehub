@@ -1,3 +1,4 @@
+import { consoleDateTime, consoleDuration, consoleNumber } from "../../client/format.ts";
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
@@ -14,6 +15,7 @@ import {
   channelDeliverySummary,
   invocationActivities,
   invocationActivityTitle,
+  invocationTruncationNotice,
   invocationToolUsage,
   latestInvocationTokens,
   stringAttribute,
@@ -25,11 +27,11 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 
 export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
-import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
 import { isSafeExternalUrl } from "./internal/url.ts";
 import { Markdown } from "@vite-hub/ui/markdown";
 import { ToolList } from "@vite-hub/ui/tool-list";
+import { useCopy } from "@vite-hub/ui/copy-button";
 
 const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
 
@@ -57,13 +59,7 @@ function formatTokens(value: number | undefined): string | undefined {
 
 function formatDuration(startedAt: string | undefined, completedAt: string | undefined): string | undefined {
   if (!startedAt || !completedAt) return;
-  const duration = Date.parse(completedAt) - Date.parse(startedAt);
-  if (!Number.isFinite(duration) || duration < 0) return;
-  const seconds = Math.round(duration / 1_000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return consoleDuration(Date.parse(completedAt) - Date.parse(startedAt), { wholeSeconds: true });
 }
 
 /** Elapsed time of a live session as `m:ss`, or `h:mm:ss` after the first hour. */
@@ -136,7 +132,7 @@ type InspectHandler = (target: InspectTarget, path?: string) => void;
 
 
 function payloadPreview(value: unknown, text: string): string {
-  const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
+  const source = typeof value === "string" ? value : text.replaceAll(/\s+/g, " ");
   const compact = source.trim();
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
@@ -158,23 +154,9 @@ const InvocationError = defineComponent({
     const titleId = useId();
     const detailsId = useId();
     const detailsOpen = ref(false);
-    const copyStatus = ref<"copied" | "failed">();
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
-
-    async function copyError() {
-      try {
-        if (!("navigator" in globalThis) || !navigator.clipboard) throw new Error("Clipboard unavailable");
-        await navigator.clipboard.writeText(payloadText(diagnosticPayload(props.error)));
-        copyStatus.value = "copied";
-      } catch {
-        copyStatus.value = "failed";
-      }
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => copyStatus.value = undefined, 2_000);
-    }
+    const clipboard = useCopy();
+    const copyStatus = computed(() => clipboard.copied.value ? "copied" : clipboard.failed.value ? "failed" : undefined);
+    const copyError = () => clipboard.copy(() => payloadText(diagnosticPayload(props.error)));
 
     return () => {
       const error = props.error;
@@ -257,9 +239,9 @@ function diagnosticPayload(error: InvocationErrorValue): Record<string, unknown>
 }
 
 function jsonValueLabel(value: unknown): string {
-  if (hasRuntimeType(value, "string")) return JSON.stringify(value);
+  if (typeof value === "string") return JSON.stringify(value);
   if (value === null) return "null";
-  if (hasRuntimeType(value, "object")) return Array.isArray(value) ? `Array(${value.length})` : "Object";
+  if (typeof value === "object") return Array.isArray(value) ? `Array(${value.length})` : "Object";
   return String(value);
 }
 
@@ -278,7 +260,7 @@ function matchingPayloadRows(
     }
     result.rows.push({ path, value: label });
   }
-  if (!hasRuntimeType(value, "object") || value === null || depth >= 12) return result;
+  if (typeof value !== "object" || value === null || depth >= 12) return result;
   for (const [key, item] of Object.entries(value)) {
     matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, result, depth + 1);
     if (result.truncated) break;
@@ -296,16 +278,16 @@ function renderPayloadTree(
   if (budget.remaining < 0) {
     return h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden");
   }
-  if (depth >= 12 && hasRuntimeType(value, "object") && value !== null) {
+  if (depth >= 12 && typeof value === "object" && value !== null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
       h("code", { class: "vh-invocation-payload__value" }, "Nested content hidden"),
     ]);
   }
-  if (!hasRuntimeType(value, "object") || value === null) {
+  if (typeof value !== "object" || value === null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
-      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : runtimeType(value) }, jsonValueLabel(value)),
+      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : typeof value }, jsonValueLabel(value)),
     ]);
   }
   const entries = Object.entries(value);
@@ -341,19 +323,17 @@ const InvocationPayload = defineComponent({
     const mode = ref<"tree" | "raw">("tree");
     const query = ref("");
     const open = ref(false);
-    const copied = ref(false);
-    const copyFailed = ref(false);
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    const { copied, copy, failed: copyFailed } = useCopy({ duration: 1_600 });
     const text = computed(() => payloadText(props.value));
     const normalized = computed<unknown>(() => {
-      if (!hasRuntimeType(props.value, "object") || props.value === null) return props.value;
+      if (typeof props.value !== "object" || props.value === null) return props.value;
       try {
         return JSON.parse(text.value);
       } catch {
         return text.value;
       }
     });
-    const structured = computed(() => hasRuntimeType(normalized.value, "object") && normalized.value !== null);
+    const structured = computed(() => typeof normalized.value === "object" && normalized.value !== null);
     const matches = computed(() => query.value
       ? matchingPayloadRows(normalized.value, query.value.toLocaleLowerCase())
       : { rows: [], truncated: false });
@@ -363,25 +343,7 @@ const InvocationPayload = defineComponent({
       return text.value.split("\n").filter(line => line.toLocaleLowerCase().includes(normalizedQuery)).join("\n");
     });
 
-    async function copyPayload() {
-      copyFailed.value = false;
-      if (!("navigator" in globalThis) || !navigator.clipboard) {
-        copyFailed.value = true;
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(text.value);
-        copied.value = true;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => { copied.value = false; }, 1_600);
-      } catch {
-        copyFailed.value = true;
-      }
-    }
-
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
+    const copyPayload = () => copy(text.value);
 
     // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
     return () => h("details", {
@@ -469,7 +431,9 @@ function renderMessage(
   const sentAt = messageTimestamp(activity, messageRendering.now, messageRendering.mounted, activity.id === messageRendering.promptId ? messageRendering.sentAt : undefined);
   const copyStatus = messageRendering.copiedId === activity.id ? messageRendering.copyStatus : undefined;
   const commentary = activity.attributes["message.phase"] === "commentary";
-  const hasMessageMeta = (activity.role === "user" || activity.role === "assistant") && !(insideWork && commentary);
+  // Inside the work list, an assistant message is a progress note, even when the driver does not mark it as commentary.
+  const progressNote = insideWork && activity.role === "assistant";
+  const hasMessageMeta = (activity.role === "user" || activity.role === "assistant") && !progressNote;
   // The prompt names its known author; other user messages come from the viewer.
   const author = activity.id === messageRendering.promptId ? messageRendering.author : undefined;
   const roleLabel = author ?? messageRoleLabels[activity.role ?? "assistant"];
@@ -482,7 +446,7 @@ function renderMessage(
       key: activity.id,
     },
     [
-      insideWork && commentary
+      progressNote
         ? h("span", { class: "vh-visually-hidden" }, `${roleLabel} message`)
         : h("span", { class: "vh-invocation-message__role" }, roleLabel),
       activity.attributes["input.mode"] === "steer"
@@ -492,9 +456,7 @@ function renderMessage(
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
       }, [markdown(body, "vh-invocation-message__body")]),
-      activity.truncated
-        ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
-        : null,
+      renderTruncationNotice(activity),
       collapsible
         ? h("button", {
             "aria-expanded": String(isExpanded),
@@ -541,7 +503,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
       : `${new Intl.DateTimeFormat("en", dateOptions).format(date)} ${time}`;
   return {
     short,
-    title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
+    title: consoleDateTime(value),
     value,
   };
 }
@@ -674,12 +636,12 @@ function imageViewPath(activity: InvocationActivity): string | undefined {
   if (name !== "image view" && name !== "view image" && name !== "view_image") return;
   for (const key of ["tool.input", "tool.output"]) {
     const payload = activity.attributes[key];
-    if (!hasRuntimeType(payload, "object") || payload === null || Array.isArray(payload)) continue;
-    const item = "item" in payload && hasRuntimeType(payload.item, "object") && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
-    if ("path" in item && hasRuntimeType(item.path, "string") && item.path) return item.path;
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) continue;
+    const item = "item" in payload && typeof payload.item === "object" && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
+    if ("path" in item && typeof item.path === "string" && item.path) return item.path;
     if (!("commandActions" in item) || !Array.isArray(item.commandActions)) continue;
     for (const value of item.commandActions) {
-      if (hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && "path" in value && hasRuntimeType(value.path, "string") && value.path) return value.path;
+      if (typeof value === "object" && value !== null && !Array.isArray(value) && "path" in value && typeof value.path === "string" && value.path) return value.path;
     }
   }
   return activity.preview?.startsWith("/") ? activity.preview : undefined;
@@ -716,7 +678,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
   const capturedDeliveryBody = activity.kind === "delivery"
     ? activity.attributes["channel.effect.content"]
     : undefined;
-  const deliveryBody = hasRuntimeType(capturedDeliveryBody, "string") && capturedDeliveryBody.trim()
+  const deliveryBody = typeof capturedDeliveryBody === "string" && capturedDeliveryBody.trim()
     ? capturedDeliveryBody
     : undefined;
   const visibleDelivery = Boolean(deliveryBody);
@@ -783,9 +745,6 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
         deliveryFailure
           ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
           : null,
-        activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
-          : null,
         activity.patches.length
           ? openActivities.has(activity.id)
             ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(InvocationPatchDiff, { key: index, patch })))
@@ -813,6 +772,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
           : activity.kind !== "delivery" && activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
             : null,
+        renderTruncationNotice(activity),
         inspectable
           ? h("button", {
               class: "vh-invocation-event__inspect",
@@ -826,6 +786,11 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
       ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(deliveryBody, "vh-invocation-event__markdown")])
       : null,
   ]);
+}
+
+function renderTruncationNotice(activity: InvocationActivity, tag: "p" | "span" = "p") {
+  const notice = invocationTruncationNotice(activity);
+  return notice ? h(tag, { class: "vh-invocation-event__notice" }, notice) : null;
 }
 
 function renderEventPayload(label: string, value: unknown) {
@@ -869,7 +834,7 @@ function renderPreparationAction(activity: InvocationActivity, inspect: InspectH
 function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
   const repository = invocation.annotations?.["github.repository"];
   const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (!hasRuntimeType(repository, "string") || (!hasRuntimeType(pullRequest, "number") && !hasRuntimeType(pullRequest, "string"))) {
+  if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
     return h("code", agentInvocationContext(invocation));
   }
   return h("span", { class: "vh-invocation-preparation__context" }, [
@@ -959,7 +924,7 @@ function renderPreparationStep(activity: InvocationActivity, url: string | undef
     renderPreparationDetail(activity, url),
     renderPreparationAction(activity, inspect),
     activity.body ? h("p", { class: "vh-invocation-preparation__body" }, activity.body) : null,
-    activity.truncated ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.") : null,
+    renderTruncationNotice(activity),
   ]);
 }
 
@@ -1023,7 +988,7 @@ function renderAgentConfigurationGroup(activities: readonly InvocationActivity[]
       ]),
       h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(item => h("li", { key: item.id }, [
         item.body ? h("div", { class: "vh-invocation-event__body" }, [markdown(item.body, "vh-invocation-event__markdown")]) : null,
-        item.truncated ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.") : null,
+        renderTruncationNotice(item),
         h("button", { class: "vh-invocation-event__inspect", onClick: () => inspect("agent"), type: "button" }, "Inspect agent"),
       ]))),
     ]),
@@ -1039,7 +1004,8 @@ function labelStyle(color: string | undefined): Record<string, string> {
   const luminance = (red * 299 + green * 587 + blue * 114) / 1_000;
   return {
     "--vh-invocation-label-bg": `#${normalized}`,
-    "--vh-invocation-label-fg": luminance > 150 ? "#1f2328" : "#ffffff",
+    // The label color is GitHub data. Its text is the darkest or lightest neutral, whichever keeps it readable.
+    "--vh-invocation-label-fg": luminance > 150 ? "var(--ui-color-neutral-900)" : "var(--ui-color-neutral-50)",
   };
 }
 
@@ -1106,9 +1072,7 @@ function renderActivityGroup(
         activity.status === "failed" && activity.body
           ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
           : null,
-        activity.truncated
-          ? h("span", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
-          : null,
+        renderTruncationNotice(activity, "span"),
       ];
       return h("li", {
         "data-activity-id": activity.id,
@@ -1183,8 +1147,8 @@ function statusIcon(status: AgentInvocationView["status"]) {
 }
 
 function sourcePresentation(source: string | { id: string; repository?: string }) {
-  const id = hasRuntimeType(source, "string") ? source : source.id;
-  const repository = hasRuntimeType(source, "string")
+  const id = typeof source === "string" ? source : source.id;
+  const repository = typeof source === "string"
     ? /^(?:gh|github):([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
     : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
   return repository
@@ -1218,13 +1182,13 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
 }
 
 function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
-  if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   // SAFETY: The guard above establishes a non-null, non-array object; its field values remain unknown until checked below.
   const channel = value as Record<string, unknown>;
   return Object.hasOwn(channel, "id")
-    && hasRuntimeType(channel.id, "string")
+    && typeof channel.id === "string"
     && Object.hasOwn(channel, "kind")
-    && hasRuntimeType(channel.kind, "string");
+    && typeof channel.kind === "string";
 }
 
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
@@ -1441,6 +1405,14 @@ function renderActivitySequence(
   return rendered;
 }
 
+/** A model call without reasoning text or a token count has nothing to open, so the work list leaves it out. */
+function emptyModelStep(activity: InvocationActivity): boolean {
+  return (activity.kind === "model" || activity.kind === "reasoning")
+    && !activity.body?.trim()
+    && !activity.reasoningTokens
+    && !activity.truncated;
+}
+
 function renderWorkSummary(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
@@ -1459,6 +1431,8 @@ function renderWorkSummary(
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
   const duration = formatDuration(invocation.startedAt, endedAt);
   const elapsed = active ? formatElapsed(invocation.startedAt, messageRendering.liveNow) : undefined;
+  // A live session keeps its last step, so the list shows the model is still thinking.
+  const steps = activities.filter((activity, index) => !emptyModelStep(activity) || (active && index === activities.length - 1));
   return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
     h("details", {
       class: "vh-invocation-work__details",
@@ -1476,8 +1450,8 @@ function renderWorkSummary(
         renderDisclosureChevron("vh-invocation-work__disclosure"),
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
-      detailsOpen
-        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen, true))
+      detailsOpen && steps.length
+        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(steps, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen, true))
         : null,
     ]),
   ]);
@@ -1559,7 +1533,7 @@ type AgentInvocationEmits = {
 const agentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
+    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || typeof path === "string"),
   },
   props: {
     header: { default: true, type: Boolean },
@@ -1582,10 +1556,14 @@ const agentInvocation = defineComponent({
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
     const openActivities = ref<ReadonlySet<string>>(new Set());
-    const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
+    const clipboard = useCopy();
+    const copiedMessageId = ref<string>();
+    const messageCopy = computed<{ id: string; status: "copied" | "failed" } | undefined>(() => {
+      const status = clipboard.copied.value ? "copied" : clipboard.failed.value ? "failed" : undefined;
+      return copiedMessageId.value && status ? { id: copiedMessageId.value, status } : undefined;
+    });
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
     function toggleExpanded(id: string) {
       const next = new Set(expandedMessages.value);
@@ -1618,23 +1596,15 @@ const agentInvocation = defineComponent({
     }
 
     async function copyMessage(activity: InvocationActivity) {
-      try {
-        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-        const url = agentInvocationExternalUrl(props.invocation);
-        const metadata = [
-          `Invocation ID: ${props.invocation.id}`,
-          `Trace ID: ${props.invocation.traceId}`,
-          props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
-          url ? `URL: ${url}` : undefined,
-        ].filter((value): value is string => value !== undefined);
-        await navigator.clipboard.writeText(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
-        messageCopy.value = { id: activity.id, status: "copied" };
-      }
-      catch {
-        messageCopy.value = { id: activity.id, status: "failed" };
-      }
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => messageCopy.value = undefined, 2_000);
+      copiedMessageId.value = activity.id;
+      const url = agentInvocationExternalUrl(props.invocation);
+      const metadata = [
+        `Invocation ID: ${props.invocation.id}`,
+        `Trace ID: ${props.invocation.traceId}`,
+        props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
+        url ? `URL: ${url}` : undefined,
+      ].filter((value): value is string => value !== undefined);
+      await clipboard.copy(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
     }
 
     async function focusActivity(id: string | undefined) {
@@ -1666,7 +1636,7 @@ const agentInvocation = defineComponent({
     watch(() => props.invocation.id, () => {
       workOpen.value = false;
       openActivities.value = new Set();
-      messageCopy.value = undefined;
+      copiedMessageId.value = undefined;
     });
     watch(() => props.invocation.status, (status, previousStatus) => {
       if ((previousStatus === "pending" || previousStatus === "running")
@@ -1681,7 +1651,6 @@ const agentInvocation = defineComponent({
     }, { immediate: true });
     onBeforeUnmount(() => {
       clearSelectedElement();
-      if (copyTimer) clearTimeout(copyTimer);
       if (liveClock) clearInterval(liveClock);
     });
 
@@ -1775,9 +1744,10 @@ const agentInvocationInspector = defineComponent({
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
     const conversation = computed(() => buildInvocationConversation(activities.value));
-    const copied = ref<"invocation" | "trace">();
-    const copyError = ref<"invocation" | "trace">();
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    const clipboard = useCopy({ duration: 1_600 });
+    const copyKind = ref<"invocation" | "trace">();
+    const copied = computed(() => clipboard.copied.value ? copyKind.value : undefined);
+    const copyError = computed(() => clipboard.failed.value ? copyKind.value : undefined);
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
       messages: (conversation.value.kind === "activities"
@@ -1798,23 +1768,8 @@ const agentInvocationInspector = defineComponent({
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
       if (!value) return;
-      copyError.value = undefined;
-      await nextTick();
-      if (!("navigator" in globalThis) || !navigator.clipboard) {
-        copied.value = undefined;
-        copyError.value = kind;
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(value);
-        copied.value = kind;
-        copyError.value = undefined;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => { copied.value = undefined; }, 1_600);
-      } catch {
-        copied.value = undefined;
-        copyError.value = kind;
-      }
+      copyKind.value = kind;
+      await clipboard.copy(value);
     }
 
     function copyAction(kind: "invocation" | "trace", label: string, value: string | undefined) {
@@ -1836,10 +1791,6 @@ const agentInvocationInspector = defineComponent({
         ],
       );
     }
-
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
 
     return () => {
       const configuration = props.invocation.configuration;
@@ -1929,7 +1880,7 @@ const agentInvocationInspector = defineComponent({
                   : null,
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
-                  : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
+                  : consoleNumber((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
                 // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
                 inspectorRow(
                   usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
@@ -1943,7 +1894,7 @@ const agentInvocationInspector = defineComponent({
                   ["Reasoning", partition?.reasoningTokens],
                 ] as const).flatMap(([label, value]) => value === undefined
                   ? []
-                  : [inspectorRow(label, new Intl.NumberFormat("en").format(value))]),
+                  : [inspectorRow(label, consoleNumber(value))]),
               ]),
             ),
             props.showTimeline

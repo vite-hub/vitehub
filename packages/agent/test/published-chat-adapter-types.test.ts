@@ -34,7 +34,7 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
   try {
     const npmExecPath = process.env.npm_execpath
     if (npmExecPath?.includes("pnpm")) {
-      await execFileAsync(process.execPath, [npmExecPath, ...args], {
+      await execFileAsync(npmExecPath, args, {
         cwd,
         killSignal: "SIGKILL",
         timeout: childProcessTimeout,
@@ -113,7 +113,7 @@ it("shares private authority across packed Agent, Connections, and Env", { timeo
           provider: apiKey({ origins: ["https://service.example"] }),
           access: { "agent:owner": { read: true } },
         }) },
-        store: createDatabaseConnectionStore({ db: drizzle(db), encryptionKey: new Uint8Array(32).fill(3) }),
+        store: createDatabaseConnectionStore({ db: drizzle({ client: db }), encryptionKey: new Uint8Array(32).fill(3) }),
         fetch: async (_input, init) => {
           assert.equal(new Headers(init.headers).get("authorization"), "Bearer packed-secret");
           return new Response("ok");
@@ -127,8 +127,8 @@ it("shares private authority across packed Agent, Connections, and Env", { timeo
           return await (await runtime.client("service", { access }).fetch("https://service.example/data")).text();
         } } });
         const [error, result] = await runAgent(agent, {});
-        if (name === "owner") { assert.equal(error, null); assert.equal(result, "ok"); }
-        else assert.equal(error.code, "CONNECTIONS_DENIED");
+        if (name === "owner") { assert.equal(error, undefined); assert.equal(result.text, "ok"); }
+        else assert.equal(error.cause.code, "CONNECTIONS_DENIED");
       }
     } finally { db.close(); }
   `], { cwd: consumerRoot!, timeout: childProcessTimeout, killSignal: "SIGKILL" });

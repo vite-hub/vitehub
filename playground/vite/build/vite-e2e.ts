@@ -14,7 +14,7 @@ import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.
 import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
-import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
+import { discoverRateLimitDeclarations } from "../../../packages/rate-limit/src/discovery.ts"
 import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
@@ -109,7 +109,7 @@ interface GeneratedFeatureArtifacts {
   generatedDir: string
   queueDefinitions: Array<{ name: string, handler: string }>
   queueRegistryFile?: string
-  rateLimitDeclarations: ReturnType<typeof discoverRateLimitCatalog>["declarations"]
+  rateLimitDeclarations: ReturnType<typeof discoverRateLimitDeclarations>
   scheduleCrons: Map<string, string>
   scheduleDefinitions: Array<{ name: string, handler: string }>
   scheduleRegistryFile?: string
@@ -165,10 +165,11 @@ function withoutCloudflareWorkspaceAliases(alias: Record<string, string>) {
 
 function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   const schemaImports = config.databaseNames.map((name, index) =>
-    `import schema_${index} from ${JSON.stringify(createImportPath(file, config.generatedSchemaFilesByDatabase[name]!))}`)
+    `import schema_${index}, { relations as relations_${index} } from ${JSON.stringify(createImportPath(file, config.generatedSchemaFilesByDatabase[name]!))}`)
   const databaseEntries = config.databaseNames.map((name, index) => [
     `  ${JSON.stringify(name)}: {`,
-    `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, schema_${index}),`,
+    `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, relations_${index}),`,
+    `    relations: relations_${index},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -290,7 +291,7 @@ function renderQueueRuntimeModule(file: string) {
   return [
     `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
     `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
-    `export { deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { deferQueue, sendQueue, useQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
     `export { createQueueClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/create-client.ts")))}`,
     "",
   ].join("\n")
@@ -316,7 +317,7 @@ function renderSandboxTaskRuntimeModule(file: string) {
 function renderWorkflowRuntimeModule(file: string) {
   return [
     `export { defineWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/definition.ts")))}`,
-    `export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
+    `export { createWorkflow, deferWorkflow, getWorkflowRun, startWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
     `export { readRequestPayload, readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/payload.ts")))}`,
     "",
   ].join("\n")
@@ -698,7 +699,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
   const rateLimitDeclarations = options.rateLimit
-    ? discoverRateLimitCatalog({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] }).declarations
+    ? discoverRateLimitDeclarations({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] })
     : []
   const scheduleDefinitions = options.schedule
     ? discoverScheduleDefinitions({ rootDir: options.rootDir })
@@ -1353,7 +1354,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   if (options.kv) {
     // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
-    configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv)
+    configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv, readProvisionStateSync(options.rootDir))
   }
   // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
   configureCloudflareArtifacts({ cloudflare: { wrangler: wranglerConfig } as never }, options.workspace || false)
@@ -1520,6 +1521,16 @@ async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<
   await writeVercelOutput(options, artifacts)
 }
 
+/**
+ * The composer writes the one hosted output of the e2e build. A feature plugin writes its own Provider Output in
+ * `buildEnd` and `closeBundle`, so this removes those two hooks and keeps the config, dev and CLI parts of the plugin.
+ */
+export function withoutProviderOutput<T extends Plugin>(plugin: T): T {
+  delete plugin.buildEnd
+  delete plugin.closeBundle
+  return plugin
+}
+
 export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
   let resolvedAlias: Record<string, string> | undefined
 
@@ -1550,18 +1561,33 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
   }
 }
 
+// Live smoke names a fresh KV namespace, queue prefix, and workflow for each Cloudflare run.
+// Without these variables the playground keeps its default names.
+export function resolveViteE2EModuleOptions(hosting: string, env: Record<string, string | undefined> = process.env) {
+  const cloudflare = resolveHostedProvider(hosting) === "cloudflare"
+  const kvNamespaceName = cloudflare ? env.VITEHUB_KV_NAMESPACE_NAME?.trim() : undefined
+  const queueNamePrefix = cloudflare ? env.VITEHUB_QUEUE_NAME_PREFIX?.trim() : undefined
+  const workflowName = cloudflare ? env.VITEHUB_CLOUDFLARE_WORKFLOW_NAME?.trim() : undefined
+  return {
+    kv: kvNamespaceName ? { driver: "cloudflare-kv-binding" as const, namespaceName: kvNamespaceName } : undefined,
+    queue: queueNamePrefix ? { namePrefix: queueNamePrefix } : {},
+    workflow: workflowName ? { name: workflowName } : {},
+  }
+}
+
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
+  const moduleOptions = resolveViteE2EModuleOptions(hosting)
   return {
     blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel-blob" } : undefined, { hosting }),
     db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
-    kv: normalizeKVOptions(undefined, { hosting }),
-    queue: normalizeQueueOptions({}, { hosting }) || false,
+    kv: normalizeKVOptions(moduleOptions.kv, { hosting }),
+    queue: normalizeQueueOptions(moduleOptions.queue, { hosting }) || false,
     rateLimit: provider === "cloudflare" ? { namespace: "vitehub-playground-vite-e2e" } : false,
     schedule: true,
     sandbox: resolveSandboxTaskFeatureConfig({}, hosting),
     workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
-    workflow: normalizeWorkflowOptions({}, { hosting }) || false,
+    workflow: normalizeWorkflowOptions(moduleOptions.workflow, { hosting }) || false,
   }
 }

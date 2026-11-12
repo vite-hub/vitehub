@@ -4,11 +4,14 @@ import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import { kvResult } from "../errors.ts"
+import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
+import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { kvStoreWithMode } from "../store-mode.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -57,26 +60,42 @@ function shouldFallbackHostedConfigImport(error: unknown) {
     || code === "ERR_UNSUPPORTED_ESM_URL_SCHEME"
 }
 
-async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
+interface HostedConfig {
+  kv: false | ResolvedKVModuleOptions | undefined
+  /** Present when a store uses the `database` driver. */
+  loadDatabases?: KVDatabasesLoader
+}
+
+async function resolveHostedConfig(): Promise<HostedConfig> {
   try {
     // SAFETY: ViteHub generates this private module from validated KV configuration.
-    const module = await import("#vitehub/kv/config") as { kv: false | ResolvedKVModuleOptions }
-    return module.kv
+    const module = await import("#vitehub/kv/config") as HostedConfig
+    // Config modules from other integrations can omit `loadDatabases`.
+    const loadDatabases = "loadDatabases" in module ? module.loadDatabases : undefined
+    return { kv: module.kv, ...(loadDatabases ? { loadDatabases } : {}) }
   }
   catch (error) {
     if (!shouldFallbackHostedConfigImport(error)) {
       throw error
     }
     const env = typeof process !== "undefined" ? process.env : {}
-    return normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false
+    return { kv: normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false }
   }
 }
 
 async function resolveStorage(name = "default") {
+  // In app tests, each store is a fresh fs-lite folder that the next reset deletes.
+  const test = getViteHubTestMode()
+  if (test) {
+    resolveHostedKVStore((await resolveHostedConfig()).kv, name)
+    return await test.backend(`kv:${name}`, async () => createHostedKVStorage({
+      store: { base: await test.directory(`kv-${name}`), driver: "fs-lite" },
+    }, "default"), storage => storage.dispose())
+  }
   if (disposal) await disposal
   const existing = storagePromises.get(name)
   if (existing) return existing
-  const promise = resolveHostedConfig().then(config => createHostedKVStorage(config, name))
+  const promise = resolveHostedConfig().then(config => createHostedKVStorage(config.kv, name, config.loadDatabases))
   storagePromises.set(name, promise)
   void promise.catch(() => {
     if (storagePromises.get(name) === promise) storagePromises.delete(name)
@@ -98,15 +117,21 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
-    async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
+    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async deleteIfEquals(key, expected) {
+      return runKVOperation("deleteIfEquals", name, async (storage) => {
+        if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })
+        return storage.deleteIfEqualsItem(key, expected)
+      }, ["KV_UNSUPPORTED_OPERATION"])
+    },
+    async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options), kvKeyLimitCodes) },
     async getAndDelete(key, options) {
       return runKVOperation("getAndDelete", name, async (storage) => {
         if (!storage.getAndDeleteItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "getAndDelete", store: name })
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
-    async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
+    async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
         if (!storage.incrementItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "increment", store: name })
@@ -119,7 +144,7 @@ function createKVStorage(name = "default"): KVStorage {
       if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
-    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
+    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options), kvWriteLimitCodes) },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
@@ -128,8 +153,15 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.setIfAbsentItem(key, value, ttl)
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
-    store(storeName: KVStoreName) { return createKVStorage(storeName) },
+    store: selectKVStore,
   }
+}
+
+function selectKVStore(name: KVStoreName, options?: { mode?: "write" }): KVStorage
+function selectKVStore(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
+function selectKVStore(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage
+function selectKVStore(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage {
+  return kvStoreWithMode(createKVStorage(name), options)
 }
 
 export const kv: KVStorage = createKVStorage()

@@ -32,6 +32,8 @@ export type Snapshot = {
   sourcePushOverflow?: boolean
   prospectivePush?: { token: string; heads: string[] }
   threadReopens?: Record<string, number>
+  /** Authenticated outcome replies, including IDs used by thread-only reads. */
+  ownedReviewCommentIds?: string[]
   hydrated: boolean; refresh: boolean; feedbackRefresh: boolean
   comments: Record<string, GitHubEvidence>; reviews: Record<string, GitHubEvidence>
   reviewComments: Record<string, GitHubEvidence>; checks: Record<string, GitHubEvidence>; statuses: Record<string, GitHubEvidence>
@@ -89,6 +91,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.recoveryHead !== undefined) v.parse(v.string(), input.recoveryHead)
   if (input.humanFeedbackGeneration !== undefined) v.parse(v.pipe(v.number(), v.integer(), v.minValue(0)), input.humanFeedbackGeneration)
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
+  if (input.ownedReviewCommentIds !== undefined) v.parse(v.array(v.string()), input.ownedReviewCommentIds)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
   if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
@@ -263,19 +266,41 @@ export class PullRequestInbox {
       const t = this.tables
       await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.schemaVersion} (version INTEGER PRIMARY KEY)`)
       const [row] = await tx.execute(`SELECT COALESCE(MAX(version), 0) AS version FROM ${t.schemaVersion}`)
-      if (Number(row?.version ?? 0) >= 1) return
-      await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.pullRequests} (scope TEXT NOT NULL, repository TEXT NOT NULL, number INTEGER NOT NULL,
-        value TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL, generation INTEGER NOT NULL, handled INTEGER NOT NULL,
-        dirty_at INTEGER NOT NULL, next_at INTEGER NOT NULL, lease TEXT, lease_until INTEGER NOT NULL, waiting INTEGER NOT NULL,
-        progress_blocked INTEGER NOT NULL, state TEXT, head_sha TEXT, head_ref TEXT, base_ref TEXT, PRIMARY KEY(scope, repository, number))`)
+      const version = Number(row?.version ?? 0)
+      if (version >= 2) return
+      // The JSON columns come last: SQLite walks a row's overflow chain to reach any column stored
+      // after a large value, so filters on status, lease or head would read the whole snapshot.
+      const columns = `scope TEXT NOT NULL, repository TEXT NOT NULL, number INTEGER NOT NULL, status TEXT NOT NULL,
+        generation INTEGER NOT NULL, handled INTEGER NOT NULL, dirty_at INTEGER NOT NULL, next_at INTEGER NOT NULL, lease TEXT,
+        lease_until INTEGER NOT NULL, waiting INTEGER NOT NULL, progress_blocked INTEGER NOT NULL, state TEXT, head_sha TEXT,
+        head_ref TEXT, base_ref TEXT, wait_head TEXT, lease_heads TEXT, summary TEXT NOT NULL, value TEXT NOT NULL,
+        PRIMARY KEY(scope, repository, number)`
+      if (version === 1) {
+        await tx.execute(`DROP TABLE IF EXISTS ${t.pullRequests}_v2`)
+        await tx.execute(`CREATE TABLE ${t.pullRequests}_v2 (${columns})`)
+        await tx.execute(`INSERT INTO ${t.pullRequests}_v2 (scope, repository, number, status, generation, handled, dirty_at, next_at, lease,
+          lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref, wait_head, lease_heads, summary, value)
+          SELECT p.scope, p.repository, p.number, p.status, p.generation, p.handled, p.dirty_at, p.next_at, p.lease, p.lease_until, p.waiting,
+            p.progress_blocked, p.state, p.head_sha, p.head_ref, p.base_ref, json_extract(p.doc, '$.wait.headSha'),
+            CASE WHEN p.lease IS NULL THEN NULL ELSE (SELECT json_group_array(h.head) FROM (
+              SELECT value AS head FROM json_each(p.doc, '$.sourcePushHeads')
+              UNION SELECT value FROM json_each(p.doc, '$.prospectivePush.heads') WHERE json_extract(p.doc, '$.prospectivePush.token')=p.lease) h) END,
+            p.summary, p.value
+          FROM (SELECT *, CASE WHEN json_valid(value) THEN value ELSE '{}' END AS doc FROM ${t.pullRequests}) p`)
+        await tx.execute(`DROP TABLE ${t.pullRequests}`)
+        await tx.execute(`ALTER TABLE ${t.pullRequests}_v2 RENAME TO ${t.pullRequests}`)
+      }
+      else await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.pullRequests} (${columns})`)
       await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.pullRequests}_head ON ${t.pullRequests}(scope, repository, state, head_sha)`)
       await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.pullRequests}_refs ON ${t.pullRequests}(scope, repository, state, head_ref, base_ref)`)
       await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.pullRequests}_queue ON ${t.pullRequests}(scope, status, dirty_at)`)
-      await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.deliveries} (scope TEXT NOT NULL, id TEXT NOT NULL, event TEXT, received INTEGER NOT NULL,
+      if (version === 0) {
+        await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.deliveries} (scope TEXT NOT NULL, id TEXT NOT NULL, event TEXT, received INTEGER NOT NULL,
         payload TEXT, result TEXT, PRIMARY KEY(scope, id))`)
-      await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.deliveries}_received ON ${t.deliveries}(scope, received)`)
-      await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.meta} (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(scope, key))`)
-      await tx.execute(`INSERT INTO ${t.schemaVersion} (version) VALUES (1)`)
+        await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.deliveries}_received ON ${t.deliveries}(scope, received)`)
+        await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.meta} (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(scope, key))`)
+      }
+      await tx.execute(`INSERT INTO ${t.schemaVersion} (version) VALUES (2)`)
     }).catch((error: unknown) => {
       this.ready = undefined
       throw error
@@ -316,8 +341,27 @@ export class PullRequestInbox {
   private isActivityComment(comment: GitHubEvidence | undefined): boolean {
     return this.ownsComment(comment) && String(comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
   }
+  private isOutcomeComment(comment: GitHubEvidence | undefined): boolean {
+    return this.ownsComment(comment) && /^(?:<!-- vitehub-babysitter-repair:[^\n]* -->\r?\n)?<!-- vitehub-babysitter-outcome:(?:fixed|disproved|declined|pre-existing|duplicate) -->/.test(String(comment?.body ?? ''))
+  }
+  private cleanReviewComments(snapshot: Snapshot): void {
+    const owned = new Set(snapshot.ownedReviewCommentIds)
+    const comments = [...Object.values(snapshot.reviewComments), ...snapshot.threads.flatMap(thread => Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [])]
+    for (const comment of comments) {
+      if (this.isOutcomeComment(comment)) {
+        for (const id of [comment.id, comment.node_id, comment.databaseId]) if (id !== undefined && id !== null) owned.add(String(id))
+      }
+    }
+    const keep = (comment: GitHubEvidence) => !this.isOutcomeComment(comment) && ![comment.id, comment.node_id, comment.databaseId].some(id => id !== undefined && id !== null && owned.has(String(id)))
+    snapshot.reviewComments = Object.fromEntries(Object.entries(snapshot.reviewComments).filter(([, comment]) => keep(comment)))
+    snapshot.threads = snapshot.threads.map(thread => ({ ...thread, ...(thread.comments === undefined ? {} : {
+      comments: Array.isArray(thread.comments) ? thread.comments.filter(keep) : { ...thread.comments, nodes: thread.comments.nodes.filter(keep) },
+    }) }))
+    if (owned.size) snapshot.ownedReviewCommentIds = [...owned]
+  }
   private cleanSnapshot(snapshot: Snapshot): Snapshot {
     snapshot.comments = Object.fromEntries(Object.entries(snapshot.comments).filter(([, comment]) => !this.isActivityComment(comment)))
+    this.cleanReviewComments(snapshot)
     return snapshot
   }
   private async getIn(tx: PullRequestInboxExecutor, repository: string, number: number): Promise<Snapshot | undefined> {
@@ -352,6 +396,7 @@ export class PullRequestInbox {
     s.checks = {}
     s.statuses = {}
     s.threads = []
+    delete s.ownedReviewCommentIds
     delete s.ciEvidence
     s.hydrated = false
     s.refresh = true
@@ -373,11 +418,14 @@ export class PullRequestInbox {
     if (!s.lease) delete s.prospectivePush
     this.compactTerminal(s)
     const head = s.pr?.head?.sha
+    const leaseHeads = s.lease ? [...new Set([...s.sourcePushHeads ?? [], ...s.prospectivePush?.token === s.lease ? s.prospectivePush.heads : []])] : undefined
     await tx.execute(`INSERT OR REPLACE INTO ${this.tables.pullRequests} (scope, repository, number, value, summary, status, generation, handled,
-      dirty_at, next_at, lease, lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+      dirty_at, next_at, lease, lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref, wait_head, lease_heads)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
       this.scope, s.repository, s.number, JSON.stringify(s), JSON.stringify(summaryOf(s)), s.status, s.generation, s.handled,
       s.dirtyAt, s.nextAt, s.lease, s.leaseUntil, s.wait ? 1 : 0, s.progressBudget?.exhausted && s.progressBudget.head === head ? 1 : 0,
       s.pr?.state === undefined ? null : String(s.pr.state).toLowerCase(), head ?? null, s.pr?.head?.ref ?? null, s.pr?.base?.ref ?? null,
+      s.wait?.headSha ?? null, leaseHeads ? JSON.stringify(leaseHeads) : null,
     ])
     if (this.activityAuthors.size && (s.status === 'terminal' || reopened || resumed || readySuperseded)) {
       const target = statusTargetKey(s)
@@ -412,7 +460,8 @@ export class PullRequestInbox {
   }
   /** Metadata entries whose keys start with `prefix`. */
   async metaEntries(prefix: string): Promise<Array<[string, unknown]>> {
-    const rows = await this.read(`SELECT key, value FROM ${this.tables.meta} WHERE scope=? AND substr(key, 1, ?)=? ORDER BY key`, [this.scope, prefix.length, prefix])
+    const end = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)
+    const rows = await this.read(`SELECT key, value FROM ${this.tables.meta} WHERE scope=? AND key>=? AND key<? AND substr(key, 1, ?)=? ORDER BY key`, [this.scope, prefix, end, prefix.length, prefix])
     return rows.map(row => [stringValue(row.key), JSON.parse(stringValue(row.value))])
   }
   async deleteMeta(key: string): Promise<void> {
@@ -891,8 +940,8 @@ export class PullRequestInbox {
         return result
       }
       if (!this.repositories.includes(repository)) return await finish('repository not configured')
-      // Activity suppression applies to issue comments only. Actual reviews
-      // and inline review comments are evidence regardless of reviewer name.
+      // Actual reviews remain evidence. Only authenticated activity and outcome
+      // markers identify transport records from the host.
       const commentBody = String(payload.comment?.body ?? '')
       const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
       const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
@@ -923,12 +972,9 @@ export class PullRequestInbox {
       if (sha && (check || event === 'status')) {
         // Source-push and check deliveries can precede synchronize. Retain CI
         // for an active publication or its durable pushed-head wait.
-        const pending = await tx.execute(`SELECT repository, number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository])
-        for (const row of pending) {
-          const snapshot = this.parseRow(row, value => this.cleanSnapshot(parseSnapshot(value)))
-          if (!snapshot) continue
-          if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number))
-        }
+        const pending = await tx.execute(`SELECT number FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)
+          AND (wait_head=? OR (lease IS NOT NULL AND lease_until>? AND EXISTS (SELECT 1 FROM json_each(lease_heads) WHERE value=?)))`, [this.scope, repository, sha, this.clock(), sha])
+        for (const row of pending) numbers.add(Number(row.number))
       }
       for (const number of numbers) {
         let existing: Snapshot | undefined
@@ -970,13 +1016,23 @@ export class PullRequestInbox {
           // must not advance the repair generation or revoke the active claim.
           if (activity || repairMarked && this.ownsComment(payload.comment)) changed = false
         }
-        if (event === 'pull_request_review_comment') { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
+        if (event === 'pull_request_review_comment') {
+          if (this.isOutcomeComment(payload.comment)) {
+            // Retain ownership for later thread reads that contain only IDs.
+            if (payload.comment) s.reviewComments[String(payload.comment.id)] = payload.comment
+            this.cleanReviewComments(s)
+          } else { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
+        }
         if (event === 'pull_request_review') { upsert(s.reviews, payload.review); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review_thread' && payload.thread) {
           const id = String(payload.thread.node_id)
           const position = s.threads.findIndex(thread => String(thread.node_id ?? thread.id) === id)
           const previous = position < 0 ? undefined : s.threads[position]
-          const incomingComments: GitHubEvidence[] = Array.isArray(payload.thread.comments) ? payload.thread.comments : []
+          const incoming = { ...s, threads: [payload.thread] }
+          this.cleanReviewComments(incoming)
+          s.ownedReviewCommentIds = incoming.ownedReviewCommentIds
+          const incomingThread = incoming.threads[0]
+          const incomingComments: GitHubEvidence[] = Array.isArray(incomingThread?.comments) ? incomingThread.comments : incomingThread?.comments?.nodes ?? []
           const previousComments: GitHubEvidence[] = Array.isArray(previous?.comments) ? previous.comments : previous?.comments?.nodes ?? []
           const comments = new Map(previousComments.map(comment => [String(comment.node_id ?? comment.id), comment]))
           for (const comment of incomingComments) {
@@ -1115,13 +1171,17 @@ export class PullRequestInbox {
       this.cleanSnapshot(s)
       if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
       if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
-      await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, status: s.status, progressBudget: s.progressBudget }); return true
+      await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, reviewComments: s.reviewComments, threads: s.threads, ownedReviewCommentIds: s.ownedReviewCommentIds, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
   async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s || s.lease || s.generation !== observed.generation || (s.revision ?? 0) !== (observed.revision ?? 0)) return false
+      const incoming = { ...s, threads }
+      this.cleanReviewComments(incoming)
+      threads = incoming.threads
+      s.ownedReviewCommentIds = incoming.ownedReviewCommentIds
       const semantic = (items: GitHubReviewThread[]) => items.map(thread => ({
         id: thread.node_id ?? thread.id, isResolved: thread.isResolved, isOutdated: thread.isOutdated,
         comments: (Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? []).map((comment: GitHubEvidence) => String(comment.node_id ?? comment.id)).sort(),
@@ -1492,11 +1552,10 @@ export class PullRequestInbox {
     const now = this.clock()
     // CI metadata and full logs share the delivery payload retention window.
     // Entries written before timestamps were introduced are expired too.
-    const staleEvidence = (await this.metaEntries('ci-evidence:v1:'))
-      .filter(([, value]) => !isRuntimeRecord(value) || !isRuntimeNumber(value.fetchedAt) || value.fetchedAt < now - payloadMs)
-      .map(([key]) => key)
     await this.transaction(async tx => {
-      for (const key of staleEvidence) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+      await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key>='ci-evidence:v1:' AND key<'ci-evidence:v1;'
+        AND CASE WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
+          WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs])
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
       await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs])
     })

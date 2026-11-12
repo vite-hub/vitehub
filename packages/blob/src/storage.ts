@@ -2,7 +2,6 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -10,33 +9,24 @@ import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } f
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
+export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
-import { assertValidPathname } from "./internal/pathname.ts"
+import { withHostPathnameLimits } from "./internal/host-limits.ts"
+import { assertValidPathname, pathnameIssue } from "./internal/pathname.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
-
-function normalizeServeEvent(event: Parameters<BlobStorage["serve"]>[0]): BlobServeEvent {
-  if (!isH3V1Event(event)) return event
-  // The accepted Node event type requires its writable response.
-  const response = event.node.res!
-  return {
-    req: toH3V1Request(event),
-    res: {
-      headers: createH3V1ResponseHeaders(response),
-      get status() { return response.statusCode },
-      set status(value) { if (value !== undefined) response.statusCode = value },
-    },
-  }
-}
 
 function matchesETag(condition: string | null, etag: string | undefined): boolean {
   if (!condition) return false
@@ -67,8 +57,8 @@ function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
   return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
 }
 
-// Decode the pathname once, then reject it before a driver, filesystem, or URL can resolve it elsewhere.
-function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
+// Decode the pathname once. A pathname that is not valid percent-encoding stays as it is.
+function decodePathname(pathname: string): string {
   let decoded: string
   try {
     decoded = decodeURIComponent(pathname)
@@ -76,7 +66,12 @@ function normalizePathname(pathname: string, options?: { prefix?: boolean }): st
   catch {
     decoded = pathname
   }
-  return assertValidPathname(decoded.replace(/^\/+/, ""), options)
+  return decoded.replace(/^\/+/, "")
+}
+
+// Reject the decoded pathname before a driver, filesystem, or URL can resolve it elsewhere.
+function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
+  return assertValidPathname(decodePathname(pathname), options)
 }
 
 // `_vitehub/derived/` holds cached variants and `_vitehub/media/` holds media records and crop replacements.
@@ -91,15 +86,23 @@ function resolvedParts(pathname: string): string[] {
   return parts
 }
 
+// The fs driver keeps metadata, hashes, and multipart parts under `.vitehub/`. Every driver reserves it, so a store
+// behaves the same on every host.
 function isReservedPath(pathname: string): boolean {
-  const parts = resolvedParts(pathname)
-  return parts[0]?.toLowerCase() === "_vitehub" && (parts.length === 1 || reservedNamespaces.includes(parts[1]!.toLowerCase()))
+  const [first, second] = resolvedParts(pathname).map(part => part.toLowerCase())
+  if (first === ".vitehub") return true
+  return first === "_vitehub" && (second === undefined || reservedNamespaces.includes(second))
 }
 
 function assertWritablePath(pathname: string) {
   if (isReservedPath(pathname)) {
-    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: _vitehub/derived or _vitehub/media." })
+    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." })
   }
+}
+
+function blobErrorResponse(request: Request, status: 400 | 404, error: string): Response {
+  const response = Response.json({ error }, { status })
+  return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
 }
 
 async function hashCacheKey(value: unknown): Promise<string> {
@@ -200,22 +203,21 @@ function parseByteRange(header: string | null): BlobDriverByteRange | undefined 
  * Selects the bytes to send. Returns `undefined` to send the whole body: no range, several ranges, a stale `If-Range`,
  * or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
  */
-function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
+function selectByteRange(request: Request, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
   // RFC 9110 section 14.2 requires ignoring Range on methods other than GET.
-  if (event.req.method !== "GET") return
-  const range = parseByteRange(event.req.headers.get("range"))
+  if (request.method !== "GET") return
+  const range = parseByteRange(request.headers.get("range"))
   if (!range) return
-  const ifRange = event.req.headers.get("if-range")
+  const ifRange = request.headers.get("if-range")
   // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
   if (ifRange !== null && (!etag || ifRange !== etag)) return
   return byteRangeBounds(range, size) ?? "unsatisfiable"
 }
 
-function setNotModified(event: BlobServeEvent, headers: Headers): void {
-  for (const [name, value] of headers) event.res.headers.set(name, value)
-  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) event.res.headers.delete(name)
-  event.res.status = 304
-  event.res.headers.set("X-Content-Type-Options", "nosniff")
+function notModified(headers: Headers): Response {
+  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) headers.delete(name)
+  headers.set("X-Content-Type-Options", "nosniff")
+  return new Response(null, { headers, status: 304 })
 }
 
 /** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
@@ -226,7 +228,19 @@ export interface BlobStorageOptions {
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
 
-export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name, options: BlobStorageOptions = {}): BlobStorage {
+/** Only `vite dev` sets `remote: true` on a store, so the dev server warns once per store that writes change real data. */
+function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
+  if (options?.remote !== true) return
+  const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
+  const target = options.driver === "vercel-blob"
+    ? "Vercel Blob store"
+    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+  console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
+}
+
+export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: string = hostDriver.name, options: BlobStorageOptions = {}): BlobStorage {
+  warnRemoteStore(hostDriver.options, store)
+  const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
   async function clearDerived(pathname: string) {
     try {
@@ -325,28 +339,54 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
-    async serve(input, pathname: string, options = {}) {
-      const event = normalizeServeEvent(input)
-      const normalizedPath = normalizePathname(pathname)
-      if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-      if (options.variant && !options.transform) {
-        const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
-        if (error) return [error, undefined]
-        if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
-      }
-      return serveObject(event, normalizedPath, options)
+    async serve(request, pathname, options = {}) {
+      const decodedPath = decodePathname(pathname)
+      const issue = pathnameIssue(decodedPath)
+      if (issue) return blobErrorResponse(request, 400, `Invalid Blob pathname: it ${issue}.`)
+      if (isReservedPath(decodedPath)) return blobErrorResponse(request, 404, "Blob not found.")
+      const [error, response] = await serveRequest(request, decodedPath, options)
+      if (!error) return response
+      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, 404, "Blob not found.")
+      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, 400, error.message)
+      throw error
     },
     store() {
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
-  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
+  // Expects a pathname that `serve()` decoded and checked.
+  async function serveRequest(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
+    if (options.variant && !options.transform) {
+      const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
+      if (error) return [error, undefined]
+      if (plan) return serveObject(request, plan.source, { ...options, transform: plan.transform })
+    }
+    return serveObject(request, normalizedPath, options)
+  }
+  // Starts from the `headers` option, so the headers that `serve()` sets replace it.
+  function responseHeaders(options: BlobServeResponseOptions, normalizedPath: string): Headers {
+    const headers = new Headers(options.headers)
+    headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
+    if (options.download !== undefined && options.download !== false) {
+      headers.set("Content-Disposition", attachmentDisposition(options.download === true ? normalizedPath : options.download))
+    }
+    return headers
+  }
+  // A stored file can have any type that the uploader sent. Serve a type that a browser opens as a page in a CSP
+  // sandbox, so it cannot run script on the app origin. The sandbox is added to a policy from the `headers` option.
+  // Without a type, for example before a transform runs, the response always gets the sandbox.
+  function sandboxActiveContent(headers: Headers, options: BlobServeResponseOptions, contentType?: string) {
+    if (contentType !== undefined && !isActiveContentType(contentType)) return
+    const policy = new Headers(options.headers).get("Content-Security-Policy")
+    headers.set("Content-Security-Policy", policy ? `${policy}, sandbox` : "sandbox")
+  }
+  async function serveObject(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
         // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
         // without holding it in memory. A video and every seek in it cost one read and only the bytes sent.
-        if (!options.transform && driver.getStream && event.req.method === "GET") {
-          const requested = parseByteRange(event.req.headers.get("range"))
+        if (!options.transform && driver.getStream && request.method === "GET") {
+          const requested = parseByteRange(request.headers.get("range"))
           let read = await driver.getStream(normalizedPath, { range: requested })
           if (read === false) return false
           if (!read) {
@@ -354,15 +394,17 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
             return
           }
           const { object } = read
+          const contentType = object.contentType || guessContentType(normalizedPath)
           const etag = object.httpEtag ? `"${await hashCacheKey([object.httpEtag, object.contentType])}"` : undefined
-          const headers = new Headers({ "Cache-Control": options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache" })
+          const headers = responseHeaders(options, normalizedPath)
           if (etag) headers.set("ETag", etag)
-          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
+          // A 304 updates the headers that a cache stored, so it carries the sandbox too.
+          sandboxActiveContent(headers, options, contentType)
+          if (matchesETag(request.headers.get("if-none-match"), etag)) {
             await read.body.cancel()
-            setNotModified(event, headers)
-            return null
+            return notModified(headers)
           }
-          const range = selectByteRange(event, etag, object.size)
+          const range = selectByteRange(request, etag, object.size)
           if (requested && !range) {
             // A stale If-Range: send the whole body of the version just read.
             await read.body.cancel()
@@ -375,26 +417,21 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
             }
           }
           headers.set("Accept-Ranges", "bytes")
-          headers.set("Content-Type", object.contentType || guessContentType(normalizedPath))
+          headers.set("Content-Type", contentType)
           headers.set("X-Content-Type-Options", "nosniff")
-          let body = read.body
           if (range === "unsatisfiable") {
-            await body.cancel()
-            body = new Blob([]).stream()
+            await read.body.cancel()
             headers.set("Content-Range", `bytes */${object.size}`)
             headers.set("Content-Length", "0")
-            event.res.status = 416
+            return new Response(null, { headers, status: 416 })
           }
-          else if (range) {
+          if (range) {
             headers.set("Content-Range", `bytes ${range.start}-${range.end}/${object.size}`)
             headers.set("Content-Length", String(range.end - range.start + 1))
-            event.res.status = 206
+            return new Response(read.body, { headers, status: 206 })
           }
-          else {
-            headers.set("Content-Length", String(object.size))
-          }
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return body
+          headers.set("Content-Length", String(object.size))
+          return new Response(read.body, { headers })
         }
 
         const meta = await driver.head(normalizedPath)
@@ -421,24 +458,23 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
           cachePath = `${await derivedCachePrefix(sourcePath)}${await hashCacheKey(options.transform.key)}`
         }
 
-        const cacheControl = options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache"
-        const headers = new Headers({ "Cache-Control": cacheControl })
+        const headers = responseHeaders(options, normalizedPath)
         if (etag) headers.set("ETag", etag)
-        if (["GET", "HEAD"].includes(event.req.method)) {
-          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
-            setNotModified(event, headers)
-            return null
-          }
+        if (!options.transform) sandboxActiveContent(headers, options, meta.contentType || guessContentType(normalizedPath))
+        if (["GET", "HEAD"].includes(request.method) && matchesETag(request.headers.get("if-none-match"), etag)) {
+          // A 304 replaces the headers that a cache stored. The transform result type is not known here, so a 304 for a
+          // transform always carries the sandbox. The sandbox does not change how an `<img>` shows an image.
+          if (options.transform) sandboxActiveContent(headers, options)
+          return notModified(headers)
         }
 
-        if (event.req.method === "HEAD" && !options.transform && meta.contentType
+        if (request.method === "HEAD" && !options.transform && meta.contentType
           && meta.size !== undefined && Number.isSafeInteger(meta.size) && meta.size >= 0) {
           headers.set("Accept-Ranges", "bytes")
           headers.set("Content-Length", String(meta.size))
           headers.set("Content-Type", meta.contentType)
           headers.set("X-Content-Type-Options", "nosniff")
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return new Blob([]).stream()
+          return new Response(null, { headers })
         }
 
         const cached = cachePath
@@ -498,36 +534,39 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
           body = transformed ?? null
         }
         if (!body) return
+        let status = 200
         if (!transform) {
           headers.set("Accept-Ranges", "bytes")
-          const range = selectByteRange(event, etag, body.size)
+          const range = selectByteRange(request, etag, body.size)
           if (range === "unsatisfiable") {
             headers.set("Content-Range", `bytes */${body.size}`)
             body = new Blob([])
-            event.res.status = 416
+            status = 416
           }
           else if (range) {
             headers.set("Content-Range", `bytes ${range.start}-${range.end}/${body.size}`)
             body = body.slice(range.start, range.end + 1, body.type)
-            event.res.status = 206
+            status = 206
           }
         }
-        const stream = body.stream()
+        const contentType = transform
+          ? body.type || "application/octet-stream"
+          : meta.contentType || body.type || guessContentType(normalizedPath)
         headers.set("X-Content-Type-Options", "nosniff")
         headers.set("Content-Length", String(body.size))
-        headers.set("Content-Type", transform
-          ? body.type || "application/octet-stream"
-          : meta.contentType || body.type || guessContentType(normalizedPath))
-        for (const [name, value] of headers) event.res.headers.set(name, value)
-        return stream
+        headers.set("Content-Type", contentType)
+        sandboxActiveContent(headers, options, contentType)
+        // A HEAD response has the headers of the GET response and no body.
+        return new Response(request.method === "HEAD" ? null : body.stream(), { headers, status })
       })
       if (error) return [error, undefined]
       if (payload === false) continue
       return payload === undefined
         ? [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-        : [null, payload]
+        : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
+      // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
       throw new Error("Blob changed repeatedly while preparing its response.")
     })
   }

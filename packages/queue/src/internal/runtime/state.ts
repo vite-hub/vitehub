@@ -2,14 +2,14 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
-import type { QueueClient, QueueDefinition, QueueDefinitionRegistry, QueueProviderOptions, ResolvedQueueOptions } from "../../types.ts"
+import type { QueueClient, QueueDefinition, QueueDefinitionRegistry } from "../../types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
-export type QueueRuntimeClientFactory = (options: QueueProviderOptions) => QueueClient | Promise<QueueClient>
+export type QueueRuntimeClientFactory = (options: QueueRuntimeProviderOptions) => QueueClient | Promise<QueueClient>
 
-let runtimeConfig: false | ResolvedQueueOptions | undefined
+let runtimeConfig: false | QueueRuntimeOptions | undefined
 let runtimeClientFactory: QueueRuntimeClientFactory | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
 
@@ -21,14 +21,14 @@ export function missingQueueDefinitionError(queue: string): Error {
   return queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue })
 }
 
-export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined, createClient?: QueueRuntimeClientFactory): void {
+export function setQueueRuntimeConfig(config: false | QueueRuntimeOptions | undefined, createClient?: QueueRuntimeClientFactory): void {
   runtimeConfig = config
   runtimeClientFactory = createClient
   if (typeof config === "undefined") queueEventDefaults = undefined
   queueClientCache.clear()
 }
 
-export function getQueueRuntimeConfig(): false | ResolvedQueueOptions | undefined {
+export function getQueueRuntimeConfig(): false | QueueRuntimeOptions | undefined {
   return runtimeConfig
 }
 
@@ -83,7 +83,7 @@ export function getOrCreateQueueClient(name: string, createClient: () => Promise
 function isQueueDefinition(value: unknown): value is QueueDefinition {
   return isPlainObject(value)
     && Object.hasOwn(value, "handler")
-    && hasRuntimeType(value.handler, "function")
+    && typeof value.handler === "function"
 }
 
 export async function loadQueueDefinition(name: string): Promise<QueueDefinition | undefined> {

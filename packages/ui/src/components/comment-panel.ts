@@ -3,6 +3,7 @@ import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsT
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
+import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
@@ -88,7 +89,10 @@ export const CommentPanel = defineComponent({
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
     /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
     can: { type: Function as PropType<CommentCan> },
-    /** Groups the rows under headings, in the order the groups first appear. Threads without a group come first. */
+    /**
+     * Groups the rows under headings, in the order the groups first appear. Threads without a group come first. Without a
+     * group callback, a resolved thread that Open lists for a later reply goes under "Replied since resolved".
+     */
     group: { type: Function as PropType<CommentGroup> },
   },
   emits: ["update:thread", "update:status", "select"],
@@ -115,7 +119,10 @@ export const CommentPanel = defineComponent({
     const scoped = computed(() =>
       state.threads.value.filter((thread) => state.scope.value === "site" || sameSubject(thread.subject, state.subject.value)),
     );
-    const rows = computed(() => scoped.value.filter((thread) => thread.status === status.value));
+    // Open also lists a resolved thread with a reply since it was resolved, so the reply is seen.
+    const rows = computed(() =>
+      scoped.value.filter((thread) => thread.status === status.value || (status.value === "open" && repliedSinceResolved(thread))),
+    );
     const opened = computed(() => (threadId.value ? state.threads.value.find((thread) => thread.id === threadId.value) : undefined));
 
     const body = ref("");
@@ -188,7 +195,9 @@ export const CommentPanel = defineComponent({
     const groups = computed(() => {
       const found: Array<{ label: string | undefined; threads: CommentThreadModel[] }> = [];
       for (const thread of rows.value) {
-        const label = props.group?.(thread);
+        const label = props.group
+          ? props.group(thread)
+          : status.value === "open" && thread.status === "resolved" ? "Replied since resolved" : undefined;
         let entry = found.find((group) => group.label === label);
         if (!entry) found.push((entry = { label, threads: [] }));
         entry.threads.push(thread);
@@ -201,6 +210,7 @@ export const CommentPanel = defineComponent({
         h(
           "button",
           {
+            "data-focus-inset": "",
             "data-slot": "comment-panel-item",
             "data-status": thread.status,
             "data-thread-id": thread.id,
@@ -254,7 +264,7 @@ export const CommentPanel = defineComponent({
         ]),
         rows.value.length === 0
           ? h("p", { "data-slot": "comment-panel-empty", role: "status" }, empty)
-          : props.group
+          : props.group || groups.value.some((group) => group.label !== undefined)
             ? h("div", { "data-slot": "comment-panel-groups" }, grouped())
             : items(rows.value, props.title),
         props.readOnly
@@ -269,6 +279,7 @@ export const CommentPanel = defineComponent({
                 error: failure.value,
                 files: files.value,
                 guard: false,
+                layout: "row",
                 mentions: mentions.value,
                 modelValue: body.value,
                 onSubmit: send,
@@ -281,6 +292,7 @@ export const CommentPanel = defineComponent({
               }, {
                 ...(slots.extra ? { extra: slots.extra } : {}),
                 ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+                ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
               }),
             ]),
       ];

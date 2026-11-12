@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { MockLanguageModelV3 } from "ai/test"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { typesafe } from "@vite-hub/gateways"
 import { defineChoices, toOptions } from "../src/index.ts"
 import { wordGateway } from "./support.ts"
 
@@ -102,6 +104,119 @@ describe("defineChoices().resolve()", () => {
   })
 })
 
+describe("defineChoices() with a model", () => {
+  it("asks an AI SDK model instead of a gateway", async () => {
+    const prompts: unknown[] = []
+    const model = new MockLanguageModelV3({
+      doGenerate: async (options) => {
+        prompts.push(options.prompt)
+        return {
+          content: [{ text: JSON.stringify({ g0: { choice: "Console", confidence: 0.9 } }), type: "text" }],
+          finishReason: { raw: "stop", unified: "stop" },
+          usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+          warnings: [],
+        }
+      },
+    })
+    const inbox = defineChoices({
+      groups: {
+        project: {
+          infer: true,
+          label: "Project",
+          multiple: false,
+          options: [
+            { description: "The docs site.", label: "Docs", value: "docs" },
+            { description: "Runs, queues, and logs.", label: "Console", value: "console" },
+          ],
+        },
+      },
+      model,
+    })
+
+    const [error, selection] = await inbox.resolve("the queue tab crashes")
+    expect(error).toBeUndefined()
+    expect(selection?.project).toMatchObject({ confidence: expect.closeTo(0.8, 5), value: "console" })
+    expect(JSON.stringify(prompts[0])).toContain("Console: Runs, queues, and logs.")
+  })
+
+  it("needs exactly one of gateway or model", () => {
+    const groups = { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }] } }
+    expect(() => defineChoices({ groups })).toThrow(/one of gateway or model/)
+    expect(() => defineChoices({ gateway: wordGateway(), groups, model: new MockLanguageModelV3() })).toThrow(/one of gateway or model/)
+  })
+})
+
+describe("defineChoices() with infer", () => {
+  const projects = [
+    { description: "General tasks: translate, explain, research, write.", label: "No project", value: "scratch" },
+    { description: "Server primitives, the Console, and the docs site.", label: "ViteHub", value: "vitehub" },
+    { description: "Thai lessons and flash card decks.", label: "Thai", value: "thai" },
+  ]
+
+  function router(calls: Parameters<typeof wordGateway>[0] = []) {
+    return defineChoices({
+      gateway: wordGateway(calls),
+      groups: { project: { infer: true, label: "Project", multiple: false, options: projects } },
+      limits: { text: 2000 },
+    })
+  }
+
+  it("chooses an option that the text does not name, from its description", async () => {
+    const [error, selection] = await router().resolve("the console crashes when I open the queue tab")
+    expect(error).toBeUndefined()
+    expect(selection?.project.value).toBe("vitehub")
+    expect(selection?.project.ranked).toHaveLength(3)
+  })
+
+  it("asks no supported check and offers no none answer", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    await router(calls).resolve("translate this")
+    expect(Object.keys(calls[0]!.questions)).toEqual(["g0"])
+    expect(calls[0]!.questions.g0).toMatchObject({
+      criteria: { "No project": projects[0]!.description, "Thai": projects[2]!.description, "ViteHub": projects[1]!.description },
+      instructions: expect.stringContaining("does not have to name the option"),
+    })
+    // The description is sent once, in the criteria.
+    expect(JSON.stringify(calls[0]!.state)).not.toContain(projects[0]!.description)
+    expect(calls[0]!.state).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
+  })
+
+  it("keeps a weak guess out of value but ranks it", async () => {
+    const [, selection] = await router().resolve("hello")
+    expect(selection?.project.value).toBeNull()
+    expect(selection?.project.ranked[0]).toEqual({ probability: 0.4, value: "scratch" })
+  })
+
+  it("answers a group with one option without the gateway", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    const one = defineChoices({ gateway: wordGateway(calls), groups: { project: { infer: true, label: "Project", multiple: false, options: [projects[1]!] } } })
+    const [error, selection] = await one.resolve("anything")
+    expect(error).toBeUndefined()
+    expect(selection?.project).toEqual({ confidence: 1, ranked: [{ probability: 1, value: "vitehub" }], value: "vitehub" })
+    expect(calls).toHaveLength(0)
+  })
+
+  it("still checks the groups that do not infer", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    const mixed = defineChoices({
+      gateway: wordGateway(calls),
+      groups: {
+        project: { infer: true, label: "Project", multiple: false, options: projects },
+        supplier: { label: "Supplier", options: suppliers },
+      },
+    })
+    expect((await mixed.resolve("unsupported thai"))[0]?.code).toBe("DECISIONS_R0004")
+    const supported = JSON.stringify(calls[0]!.questions.supported)
+    expect(supported).toContain("Judge only the \\\"Supplier\\\" group. Ignore every group with infer: true.")
+    expect(supported).toContain("Also true when the text sets no constraint for these groups.")
+    expect(supported).not.toContain("names no option at all")
+  })
+
+  it("needs multiple: false", () => {
+    expect(() => defineChoices({ gateway: wordGateway(), groups: { a: { infer: true, label: "A", options: [] } } })).toThrow(/multiple: false/)
+  })
+})
+
 describe("defineChoices() errors", () => {
   it("returns DECISIONS_R0003 for empty and too long text, and asks nothing", async () => {
     const calls: Parameters<typeof wordGateway>[0] = []
@@ -135,6 +250,70 @@ describe("defineChoices() errors", () => {
     expect((await partial.resolve("nord"))[0]?.code).toBe("DECISIONS_R0006")
   })
 
+  describe("gateway failures", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+    })
+
+    it("puts a missing API key in the message", async () => {
+      vi.stubEnv("TYPESAFE_API_KEY", "")
+      const choices = defineChoices({ gateway: typesafe(), groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toMatch(/^\[vitehub\] The gateway request failed: Gateway "typesafe" needs an API key\. Set TYPESAFE_API_KEY/)
+      expect(error?.cause).toMatchObject({ code: "GATEWAYS_R0002" })
+    })
+
+    it("uses the gateway fix for a rejected key", async () => {
+      vi.stubEnv("TYPESAFE_API_KEY", "fake-key")
+      vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: { message: "invalid key" } }, { status: 401 })))
+      const choices = defineChoices({ gateway: typesafe(), groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toContain("rejected the API key with HTTP 401")
+      expect(error?.fix).toBe("Set or rotate TYPESAFE_API_KEY.")
+    })
+
+    it.each([
+      new Error("provider token secret at https://internal.test"),
+      Object.assign(new Error("custom gateway secret"), { fix: "Use secret-token" }),
+      new DOMException("abort reason with secret-token", "AbortError"),
+      "provider body with secret-token",
+      null,
+      undefined,
+    ])("keeps an unknown gateway failure private: %s", async (cause) => {
+      const choices = defineChoices({ gateway: { ask: async () => { throw cause } }, groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toBe("[vitehub] The gateway request failed.")
+      expect(error?.fix).toBe("Read error.cause for the gateway error.")
+      expect(error?.cause).toBe(cause)
+    })
+
+    it("keeps a non-transient provider failure private", async () => {
+      vi.stubEnv("TYPESAFE_API_KEY", "fake-key")
+      vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: { message: "internal provider secret-token" } }, { status: 400 })))
+      const choices = defineChoices({ gateway: typesafe(), groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toBe("[vitehub] The gateway request failed.")
+      expect(error?.fix).toBe("Read error.cause for the gateway error.")
+      expect(error?.cause).toBeInstanceOf(Error)
+    })
+
+    it("keeps an AI SDK model failure private", async () => {
+      const cause = new Error("model provider secret-token")
+      const model = new MockLanguageModelV3({ doGenerate: async () => { throw cause } })
+      const choices = defineChoices({ model, groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toBe("[vitehub] The gateway request failed.")
+      expect(error?.fix).toBe("Read error.cause for the gateway error.")
+      expect(error?.cause).toBe(cause)
+    })
+  })
+
   it("throws when you define it wrong", () => {
     const gateway = wordGateway()
     expect(() => defineChoices({ gateway, groups: {} })).toThrow(/at least one group/)
@@ -157,9 +336,9 @@ describe("defineChoices().inspect()", () => {
 })
 
 describe("toOptions()", () => {
-  it("maps items and leaves out empty aliases", () => {
-    expect(toOptions([{ id: 1, n: "A", a: ["x"] }, { id: 2, n: "B", a: [] }], { aliases: item => item.a, label: item => item.n, value: item => item.id })).toEqual([
-      { aliases: ["x"], label: "A", value: 1 },
+  it("maps items and leaves out empty aliases and descriptions", () => {
+    expect(toOptions([{ id: 1, n: "A", a: ["x"], d: "first" }, { id: 2, n: "B", a: [], d: " " }], { aliases: item => item.a, description: item => item.d, label: item => item.n, value: item => item.id })).toEqual([
+      { aliases: ["x"], description: "first", label: "A", value: 1 },
       { label: "B", value: 2 },
     ])
   })

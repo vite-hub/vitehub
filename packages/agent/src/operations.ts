@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import {
@@ -46,7 +46,7 @@ const defaultThreads = 25
 const maximumThreads = 100
 const defaultMessages = 100
 const maximumMessages = 500
-const stateFix = "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state: \"cloudflare\"`). The generated webhook route installs the reader when the server starts."
+const stateFix = "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state.driver: \"cloudflare\"`). The generated webhook route installs the reader when the server starts."
 
 function host(): ChannelsConsoleHost {
   const installed = channelsConsoleHost()
@@ -131,18 +131,20 @@ export interface ChannelRetentionView {
   mode: "durable-transcripts" | "provider-window"
   transcripts: boolean
   ttlMs: number
-  /** Present when older messages may be missing. */
+  /** Present when older messages may be missing. A simulated Channel has none. */
   warning?: string
 }
 
-function retentionOf(retention: AgentChannelRetention): ChannelRetentionView {
+// A simulated Channel has no provider history to lose: its chat page keeps the messages in browser memory, and a
+// reload starts a new thread. So it gets no warning about the provider window.
+function retentionOf(retention: AgentChannelRetention, simulated: boolean): ChannelRetentionView {
   return {
     durable: retention.durable,
     maxMessages: retention.maxMessages,
     mode: retention.durable ? "durable-transcripts" : "provider-window",
     transcripts: retention.transcripts,
     ttlMs: retention.ttlMs,
-    ...(retention.durable
+    ...(retention.durable || simulated
       ? {}
       : { warning: `Transcripts are not durable. The provider keeps ${retention.maxMessages} messages for ${Math.max(1, Math.round(retention.ttlMs / 86_400_000))} days, so older messages may be missing.` }),
   }
@@ -158,17 +160,44 @@ function cursorOf(value: string | undefined): ChannelCursor | undefined {
   return cursor
 }
 
+interface ChannelListEntry extends ChannelTarget {
+  conversations: boolean
+  provider: string
+  retention: ChannelRetentionView
+  /** True when the Channel runs on the simulated chat of `agent.channels.simulate`. */
+  simulated: boolean
+  /** The path of the chat page of a simulated Channel. */
+  simulator?: string
+}
+
+function formatChannels({ channels }: { channels: readonly ChannelListEntry[] }): string {
+  if (channels.length === 0) return "No Channels.\n"
+  return `${table([
+    ["AGENT", "CHANNEL", "PROVIDER", "HISTORY", "CHAT PAGE"],
+    ...channels.map(entry => [entry.agent, entry.channel, entry.simulated ? `${entry.provider} (simulated)` : entry.provider, entry.retention.mode, entry.simulator ?? "-"]),
+  ])}\n`
+}
+
 const channelsList = defineOperation({
-  description: "List the Channels of the Agents, with the provider and how long each keeps its conversations.",
+  cli: { format: formatChannels },
+  description: "List the Channels of the Agents, with the provider, how long each keeps its conversations, and the chat page of a simulated Channel.",
   input: v.strictObject({}),
   kind: "read",
   name: "channels.list",
   run: async (_input, context) => {
     const installed = host()
-    const channels = []
+    const channels: ChannelListEntry[] = []
     for (const [agent, handler] of Object.entries(installed.handlers)) {
       for (const channel of await handler.channels(requestOf(context), installed.options(agent, context.env))) {
-        channels.push({ agent, channel: channel.id, conversations: channel.conversations, provider: channel.provider, retention: retentionOf(channel.retention) })
+        channels.push({
+          agent,
+          channel: channel.id,
+          conversations: channel.conversations,
+          provider: channel.provider,
+          retention: retentionOf(channel.retention, channel.simulated),
+          simulated: channel.simulated,
+          ...(channel.simulator ? { simulator: channel.simulator } : {}),
+        })
       }
     }
     return { channels }
@@ -224,7 +253,7 @@ const channelsThreads = defineOperation({
       channel: input.channel,
       ...(rest.length > size && selected.length ? { nextCursor: encodeChannelCursor(key(selected.at(-1)!)) } : {}),
       provider: channel.provider,
-      retention: retentionOf(channel.retention),
+      retention: retentionOf(channel.retention, channel.simulated),
       threads: selected.map(thread => ({
         invocationCount: thread.invocationCount,
         lastMessageAt: thread.lastActivity,
@@ -322,7 +351,7 @@ const channelsConversation = defineOperation({
       messages: selected.map(messageView),
       ...(rest.length > size && selected.length ? { nextCursor: encodeChannelCursor(channelMessageCursor(selected.at(-1)!)) } : {}),
       provider: conversation.provider,
-      retention: retentionOf(conversation.retention),
+      retention: retentionOf(conversation.retention, conversation.simulated),
       thread: conversation.threadId,
       ...(conversation.truncated ? { truncated: true } : {}),
     }
@@ -368,7 +397,7 @@ const conversationsExport = defineOperation({
     const conversation = await readConversation(context, { ...input, attachmentBytes: input.media ? maximumMediaBytes : 0 })
     const archive = channelConversationArchive(conversation)
     const { archive: files, media } = materializeChannelArchive({ ...archive, messages: conversation.messages as readonly Record<string, unknown>[] })
-    const retention = retentionOf(conversation.retention)
+    const retention = retentionOf(conversation.retention, conversation.simulated)
     const exported: Omit<ConversationExport, "text"> = input.format === "json"
       ? { filename: "history.json", format: "json", media, messageCount: conversation.messages.length, mimeType: "application/json", retention }
       : { filename: `${slug(conversation.threadId)}.md`, format: "markdown", media, messageCount: conversation.messages.length, mimeType: "text/markdown", retention }
@@ -380,7 +409,7 @@ const conversationsExport = defineOperation({
           exportedAt: new Date().toISOString(),
           messages: files.messages,
           provider: conversation.provider,
-          retention: conversation.retention,
+          ...(conversation.simulated ? {} : { retention: conversation.retention }),
           threadId: conversation.threadId,
           truncated: conversation.truncated,
         })
@@ -409,9 +438,7 @@ interface ChannelPageResult extends ChannelTarget {
 }
 
 type ChannelOperationDefinitions = readonly [
-  OperationDefinition<Record<string, never>, {
-    channels: (ChannelTarget & { conversations: boolean, provider: string, retention: ChannelRetentionView })[]
-  }>,
+  OperationDefinition<Record<string, never>, { channels: ChannelListEntry[] }>,
   OperationDefinition<ChannelTarget & ChannelPage, ChannelPageResult & {
     threads: { invocationCount: number, lastMessageAt: string, participants: string[], thread: string, title?: string }[]
   }>,

@@ -5,6 +5,7 @@ import { ownedBlobPrefix } from "../../storage/owned-blob-prefix.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createCurrentSnapshotFromStore, diffSnapshots } from "../../storage/utils.ts"
 
+import type { VercelBlobSdk } from "@vite-hub/blob/internal/vercel-blob"
 import type {
   DiffOptions,
   GlobOptions,
@@ -21,6 +22,7 @@ import type {
   WorkspaceStore,
 } from "../../core/types.ts"
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 type BlobListItem = {
   key: string
@@ -49,10 +51,6 @@ async function serializeFileMutation(key: string, mutate: () => Promise<void>): 
   finally {
     if (fileMutations.get(key) === pending) fileMutations.delete(key)
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function invalidBlobListResponse(): never {
@@ -87,35 +85,6 @@ function parseBlobListResponse(value: unknown): BlobListResult {
   }
 }
 
-type VercelBlobModule = {
-  del(key: string, options?: { token?: string }): Promise<void>
-  get(key: string, options: { access: "private" | "public", token?: string, useCache?: boolean, headers?: Record<string, string> }): Promise<{
-    blob: { contentType: string, size: number }
-    statusCode: 200
-    stream: ReadableStream<Uint8Array>
-  } | { statusCode: 304, stream: null } | null>
-  head(key: string, options?: { token?: string }): Promise<{ contentType?: string, pathname: string, size: number, uploadedAt: Date }>
-  list(options: { cursor?: string, limit?: number, prefix: string, token?: string }): Promise<{
-    blobs: Array<{ pathname: string, size?: number, uploadedAt?: Date }>
-    cursor?: string
-    hasMore?: boolean
-  }>
-  put(key: string, body: Blob | Uint8Array | string, options: {
-    access: "private" | "public"
-    addRandomSuffix: boolean
-    allowOverwrite: boolean
-    contentType?: string
-    token?: string
-  }): Promise<unknown>
-}
-
-function isMissingBlobError(error: unknown) {
-  return error instanceof Error && (
-    error.name === "BlobNotFoundError"
-    || /requested blob does not exist/i.test(error.message)
-  )
-}
-
 function joinBlobPath(...parts: string[]) {
   return parts.map(part => normalizeWorkspacePath(part)).filter(Boolean).join("/")
 }
@@ -138,28 +107,37 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   const blob = await importVercelBlobPeer()
   const access = options.access || "private"
   return {
+    isMissing(error: unknown): boolean {
+      return error instanceof blob.BlobNotFoundError
+    },
     async delete(key: string): Promise<void> {
       await blob.del(key, auth(options))
     },
     async download(key: string): Promise<Blob | undefined> {
-      const readKey = access === "public"
-        ? `${key}?vitehubCacheBust=${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-        : key
-      const result = await blob.get(readKey, {
-        access,
-        headers: { "cache-control": "no-cache, no-store" },
-        useCache: false,
-        ...auth(options),
-      })
-      if (!result) return undefined
-      if (result.statusCode !== 200) throw workspaceErrorDiagnostics.WORKSPACE_R0033({ message: `Unexpected Vercel Blob response: ${result.statusCode}.` })
-      return await new Response(result.stream, {
-        headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
-      }).blob()
+      try {
+        const readKey = access === "public"
+          ? `${key}?vitehubCacheBust=${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+          : key
+        const result = await blob.get(readKey, {
+          access,
+          headers: { "cache-control": "no-cache, no-store" },
+          useCache: false,
+          ...auth(options),
+        })
+        if (!result) return undefined
+        if (result.statusCode !== 200) throw workspaceErrorDiagnostics.WORKSPACE_R0033({ message: `Unexpected Vercel Blob response: ${result.statusCode}.` })
+        return await new Response(result.stream, {
+          headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
+        }).blob()
+      }
+      catch (error) {
+        if (isNotFoundError(error)) return undefined
+        throw error
+      }
     },
     async head(key: string): Promise<BlobListItem | undefined> {
       const result = await blob.head(key, auth(options)).catch((error: unknown) => {
-        if (isMissingBlobError(error)) return undefined
+        if (error instanceof blob.BlobNotFoundError) return undefined
         throw error
       })
       if (!result) return undefined
@@ -189,10 +167,10 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   }
 }
 
-async function importVercelBlobPeer(): Promise<VercelBlobModule> {
+async function importVercelBlobPeer(): Promise<VercelBlobSdk> {
   const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
   // @vercel/blob is about 480 KB. Load it with the first Blob call, not with every server start.
-  return testImport ? await testImport() as VercelBlobModule : await import("@vercel/blob") as VercelBlobModule
+  return testImport ? await testImport() as VercelBlobSdk : (await import("@vite-hub/blob/internal/vercel-blob")).vercelBlob
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {
@@ -219,7 +197,11 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #client() {
-    this.#files ||= createVercelBlobClient(this.#options)
+    // A failed load lets the next call try again.
+    this.#files ||= createVercelBlobClient(this.#options).catch((error: unknown) => {
+      this.#files = undefined
+      throw error
+    })
     return await this.#files
   }
 
@@ -247,16 +229,10 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const normalized = normalizeSafeWorkspacePath(path)
     const pathname = this.#fileKey(normalized)
     let attributesPath = this.#fileAttributesKey(normalized)
-    let file = await (await this.#client()).download(pathname).catch((error: unknown) => {
-      if (isNotFoundError(error)) return undefined
-      throw error
-    })
+    let file = await (await this.#client()).download(pathname)
     if (!file && this.#legacyRoot !== this.#root) {
       attributesPath = this.#legacyFileAttributesKey(normalized)
-      file = await (await this.#client()).download(this.#legacyFileKey(normalized)).catch((error: unknown) => {
-        if (isNotFoundError(error)) return undefined
-        throw error
-      })
+      file = await (await this.#client()).download(this.#legacyFileKey(normalized))
     }
     if (!file) return undefined
     const bytes = await file.arrayBuffer()
@@ -280,12 +256,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       const client = await this.#client()
       const fileKey = this.#fileKey(normalized)
       const attributesKey = this.#fileAttributesKey(normalized)
-      const download = (key: string) => client.download(key).catch((error: unknown) => {
-        if (isNotFoundError(error)) return undefined
-        throw error
-      })
       // Preserve the current root exactly; removing a failed new write exposes any legacy file again.
-      const [previousFile, previousAttributes] = await Promise.all([download(fileKey), download(attributesKey)])
+      const [previousFile, previousAttributes] = await Promise.all([client.download(fileKey), client.download(attributesKey)])
       await client.upload(fileKey, new Blob([contentToBytes(file.content) as any]), {
         contentType: contentType(normalized, file.mediaType),
       })
@@ -295,7 +267,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         }
         else {
           await client.delete(attributesKey).catch((error: unknown) => {
-            if (!isMissingBlobError(error)) throw error
+            if (!client.isMissing(error)) throw error
           })
         }
       }
@@ -511,8 +483,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #readJson(pathname: string, fallback?: string): Promise<unknown> {
-    let file = await (await this.#client()).download(pathname).catch((error: unknown) => { if (isNotFoundError(error)) return undefined; throw error })
-    if (!file && fallback) file = await (await this.#client()).download(fallback).catch((error: unknown) => { if (isNotFoundError(error)) return undefined; throw error })
+    let file = await (await this.#client()).download(pathname)
+    if (!file && fallback) file = await (await this.#client()).download(fallback)
     return file ? JSON.parse(await file.text()) : undefined
   }
 }

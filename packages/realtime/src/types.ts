@@ -1,6 +1,6 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
-import type { H3Event } from "h3"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -134,11 +134,22 @@ export interface RealtimeVerifyResult {
 /** Why a connection is read-only: `access` (authorization denied write) or `document` (the codec cannot edit it losslessly). */
 export type RealtimeReadOnlyReason = "access" | "document"
 
+/**
+ * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings
+ * from `event["~standard"]`. `context` is the H3 event context, such as the session that a middleware set.
+ */
+export type RealtimeRequestEvent = ViteHubContext<{ context: Record<string, unknown> }>
+
 export interface RealtimeRequestContext {
   definition: string
-  /** The H3 event of the WebSocket upgrade or HTTP request, for reading cookies, context, and platform bindings. */
-  event: H3Event
+  /** The request event of the WebSocket upgrade or HTTP request. */
+  event: RealtimeRequestEvent
   request: Request
+}
+
+export interface RealtimeOriginContext extends RealtimeRequestContext {
+  /** The `Origin` header of a request from another origin than the app's. */
+  origin: string
 }
 
 export interface RealtimeAuthorizeContext extends RealtimeRequestContext {
@@ -160,6 +171,13 @@ export interface RealtimeDefinition {
   auth?: boolean
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
+  /**
+   * Let a page on another origin connect to a definition with `identify`, such as a script that sites load from the
+   * app. Return `true` to accept `origin`. Without it, only the app's own origin connects. The browser sends cookies
+   * with a cross-site handshake too, so `identify` must then trust only what the page sends on purpose, such as a
+   * ticket in `params`, never the session cookie.
+   */
+  origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
   /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
   authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
@@ -201,7 +219,7 @@ export interface DiscoveredRealtimeDefinition {
   source: "contributed" | "server-realtime"
 }
 
-export interface RealtimeModuleOptions {
+export interface RealtimeOptions {
   authority?: "auto" | "cloudflare" | "memory"
   projectRoot?: string
 }

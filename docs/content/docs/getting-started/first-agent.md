@@ -10,16 +10,13 @@ icon: i-lucide-bot
 ---
 
 Add an Agent that greets a name and returns JSON. An Agent Definition declares
-the work; its Driver runs it. This first Driver is a function, so it runs
-offline after installation and needs no model account or credentials.
+the work, and its Driver runs it. Here the Driver is a function, so it runs
+offline and needs no model account or credentials.
 
 ## Before you start
 
-Complete [Installation](/docs/getting-started/installation) and check
-`/api/health` in your app. You need Node.js 22.22 or newer and pnpm.
-Continue in that project directory. The configuration below uses the Vite
-and Nitro path. In Nuxt, put the same ViteHub options in your module config;
-the Agent Definition and server route stay the same.
+Complete [Installation](/docs/getting-started/installation), check
+`/api/health`, and continue in that app with Node.js 22.22 or newer and pnpm.
 
 ::run-tutorial{to="/learn/first-agent"}
 ::
@@ -33,9 +30,43 @@ Install the Agent package:
 pnpm add @vite-hub/agent
 ```
 
-Add `agent: true` to the ViteHub options. Set `workflow: false` because this
-Agent finishes inside the HTTP request. Keep other features you already use.
+Add `agent: true` to the ViteHub options. Set `workflow: false`, because this
+Agent finishes inside the HTTP request. Keep your other features.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    agent: true,
+    workflow: false,
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from 'nitro/vite'
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      agent: true,
+      workflow: false,
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
@@ -50,15 +81,17 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 ::
 
 ::tutorial-step{title="Define the greeting Agent"}
 ## Define the greeting Agent
 
-Create `server/agents/greeting.ts`. ViteHub discovers the name `greeting` from
-its file path. `runtime: false` makes the Agent run inline. The function
-Driver receives the name as its prompt and returns a text result.
+Create `server/agents/greeting.ts`. ViteHub names the Agent `greeting` from
+its file path. `runtime: false` runs it inline. The function Driver gets the
+name as its prompt and returns text.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
@@ -82,9 +115,8 @@ export default defineAgent({
 ::tutorial-step{title="Call the Agent from a route"}
 ## Call the Agent from a route
 
-Create `server/api/greet.post.ts`. Nitro and Nuxt serve this file at
-`POST /api/greet`. Import the H3 helpers explicitly so the code does not
-depend on framework auto-imports.
+Create `server/api/greet.post.ts`. Nitro and Nuxt serve it at
+`POST /api/greet`. The explicit H3 imports remove the need for auto-imports.
 
 ```ts [server/api/greet.post.ts]
 import { defineEventHandler, readBody } from "h3"
@@ -98,25 +130,25 @@ export default defineEventHandler(async (event) => {
   })
 
   if (error) throw error
-  return result
+  return { text: result.text }
 })
 ```
 
-This `runAgent(agent, input)` form creates a memo cache and waits for its
-background work. It returns `[null, result]` on success or `[Error, null]` on
-failure. Check the error before returning the result.
+`runAgent()` creates a memo cache and waits for the background work of the
+run. It returns `[undefined, result]` on success or `[error, undefined]` on
+failure. Check the error before you read `result.text`.
 
-For request metadata or host bindings, use the public
-[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) with
-`runAgent(agent, runtime, input)`. That form returns the result directly and
-throws failures. The greeting needs only its prompt.
+For request metadata or host bindings, pass the public
+[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) as
+`runAgent(agent, input, { runtimeContext: getRuntimeContext(event) })`. The
+greeting needs only its prompt.
 
 ::
 
 ::tutorial-step{title="Run the Agent"}
 ## Run the Agent
 
-Restart the app after changing its configuration:
+Restart the app to load the new configuration:
 
 ```bash [commands/dev]
 pnpm dev
@@ -130,18 +162,17 @@ curl -X POST http://localhost:3000/api/greet \
   -d '{"name":"Ada"}'
 ```
 
-You should receive this JSON. It proves that the route called the function
-Driver and returned its result without a model request.
+You should receive this JSON. It proves the route called the function Driver
+without a model request.
 
 ```json [output/response.json]
 {"text":"Hello, Ada. This result came from an Agent Invocation."}
 ```
 
-Change the name and repeat the request. Sending `{}` returns a greeting for
-`friend`.
+Sending `{}` greets `friend`.
 
-To check the Vite app's production server, stop development first, then run
-the scripts from Installation and repeat the same request:
+To check the Vite app's production server, stop development, run the
+Installation scripts, and repeat the request:
 
 ```bash [commands/build]
 pnpm build
@@ -154,24 +185,24 @@ In Nuxt, run `pnpm build` and `node .output/server/index.mjs` instead.
 
 ## Continue with a model
 
-A model Driver needs network access and a billed provider account. Install
-`ai` and set `AI_GATEWAY_API_KEY` in your server environment before using a
-model string through Vercel AI Gateway. Keep the key out of client code and
-version control. Each request can incur provider charges.
+A model Driver needs network access and a billed provider account. To use a
+model string through Vercel AI Gateway, install `ai` and set
+`AI_GATEWAY_API_KEY` in your server environment. Keep the key out of client
+code and version control. Each request can cost money.
 
-Replace `driver.run` with a `driver.model` and `driver.instructions` when
-you are ready for model output. [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver)
-shows the supported forms. Model responses vary, so the exact greeting above
-is only the offline check.
+For model output, replace `driver.run` with `driver.model` and
+`driver.instructions`. [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver)
+shows the supported forms. Model replies vary, so the exact greeting above is
+only the offline check.
 
-Continue with [Build a chat app](/docs/agents/build-a-chat-app) for a complete
-chat UI with streaming, an offline Driver, and an optional model Driver. Read
+[Build a chat app](/docs/agents/build-a-chat-app) adds a chat UI with
+streaming, an offline Driver, and an optional model Driver. Read
 [Capabilities](/docs/agents/capabilities) when the Agent needs a tool or
-access to stored data.
+stored data.
 
 ## Related guides
 
-Use [Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel)
-to check the same inline Agent on two hosts. Read
+[Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel)
+checks the same inline Agent on two hosts.
 [Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks)
-to compare execution and state models before expanding the app.
+compares execution and state models.

@@ -21,8 +21,10 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
-const optionalPeerProbes = optionalPeers
+const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
+const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// ProseMirror's package has no root export; probe the entry used by the editor.
+const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
 // run side by side, bounded by the CPU count so CI runners are not overloaded.
 const parallelism = availableParallelism()
@@ -109,6 +111,8 @@ async function workspaceConfig(specs: Record<string, string>) {
   // select a Vue adapter before its exact virtual-core dependency is published.
   const overrides = Object.entries({
     ...specs,
+    // Keep Nuxt UI on its tested Tailwind adapter; new releases can precede their exact Oxide dependency.
+    "@tailwindcss/vite": await installedVersion(resolve(dirname(nuxtUi.resolve("@tailwindcss/vite")), "../package.json")),
     "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
     // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
     "mdast-util-gfm-table": "2.0.0",
@@ -143,16 +147,21 @@ async function requiredPeerSpecs() {
     ...agentCatalog,
     ...browserCatalog,
     ...chatCatalog,
+    ...await catalogDependencySpecs("nuxt", ["nuxt"]),
     ...vercelCatalog,
     ...workflowCatalog,
+    "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
+    "@comark/vue": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
+    comark: await installedVersion(join(repoRoot, "packages/docs/node_modules/comark/package.json")),
+    "comark-ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/comark-ui/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
-    nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
+    nitro: await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/nitro/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
@@ -299,12 +308,16 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
   await settled(specifiers.map(async (specifier) => {
+    // Vite provides this side-effect module when it compiles the Vue entry. The
+    // package's Vue app test exercises the generated config and catalog loaders.
+    const withI18nClient = specifier === "@vite-hub/i18n/vue" || specifier === "vite-hub/i18n/vue"
     const script = [
-      ...(withCloudflareHost
+      ...(withCloudflareHost || withI18nClient
         ? [
             'const { registerHooks } = await import("node:module")',
             "registerHooks({ resolve(specifier, context, nextResolve) {",
-            '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
+            ...(withCloudflareHost ? ['  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }'] : []),
+            ...(withI18nClient ? ['  if (specifier === "virtual:vite-hub/i18n/client") return { shortCircuit: true, url: "data:text/javascript,export {}" }'] : []),
             "  return nextResolve(specifier, context)",
             "} })",
           ]
@@ -616,9 +629,15 @@ async function assertResolution(appDir: string, specifiers: readonly string[], e
 async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
+  const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
+    "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
+    "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
+    "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
+    ...Object.fromEntries(markdownEditorTiptapPeers.map(name => [name, tiptapVersion])),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
+    "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
@@ -781,6 +800,20 @@ async function packageTypeDependenciesFrom(runnerDir: string, packageName: strin
 }
 
 describe("published declaration diagnostics", () => {
+  it("probes optional peers that only export subpaths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-peer-probe-"))
+    const probe = optionalPeerProbes[optionalPeers.indexOf("@tiptap/pm")]!
+    try {
+      await assertResolution(root, [probe], false)
+      await mkdir(join(root, "node_modules/@tiptap"), { recursive: true })
+      await symlink(await realpath(join(repoRoot, "packages/ui/node_modules/@tiptap/pm")), join(root, "node_modules/@tiptap/pm"), "dir")
+      await assertResolution(root, [probe], true)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("reports package diagnostics without adopting dependency diagnostics", () => {
     expect(isPackageDeclarationFile("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts", "@vite-hub/ui")).toBe(true)
     expect(isPackageDeclarationFile("/consumer/node_modules/@comark/vue/dist/index.d.ts", "@vite-hub/ui")).toBe(false)
@@ -975,6 +1008,10 @@ describe("published declaration diagnostics", () => {
 
   it("forwards non-Cloudflare imports through the host shim", async () => {
     await importSpecifiers(tmpdir(), ["node:path"], true)
+  })
+
+  it("imports Vue i18n entries with their Vite client module", async () => {
+    await importSpecifiers(join(repoRoot, "packages/vite-hub"), ["@vite-hub/i18n/vue", "vite-hub/i18n/vue"])
   })
 
   it("reports diagnostics reached through dependency declarations", async () => {

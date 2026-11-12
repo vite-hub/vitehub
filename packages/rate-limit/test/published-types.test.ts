@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { it } from "vitest"
 
-import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+import { packedWorkspacePackages, syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -18,7 +18,7 @@ const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
   if (npmExecPath?.includes("pnpm")) {
-    await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
+    await execFileAsync(npmExecPath, args, { cwd })
     return
   }
   await execFileAsync("corepack", ["pnpm", ...args], { cwd })
@@ -28,8 +28,10 @@ it("publishes every documented Rate Limit entrypoint to a real consumer", { time
   const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-types-"))
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    await syncPackedWorkspaceDependencies(root, workspaceRoot, ["@vite-hub/rate-limit"])
-    await runPnpm(["pack", "--pack-destination", root], packageRoot)
+    // Pack the workspace packages that Rate Limit depends on, so the consumer never installs an older published copy.
+    const packed = await packedWorkspacePackages(workspaceRoot, ["rate-limit"])
+    await syncPackedWorkspaceDependencies(root, workspaceRoot, packed.map(name => `@vite-hub/${name}`))
+    for (const name of packed) await runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))
     await runPnpm(["install", "--ignore-scripts", "--no-frozen-lockfile"], root)
     try {
       await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])

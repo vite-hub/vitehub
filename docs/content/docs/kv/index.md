@@ -2,13 +2,26 @@
 title: KV
 layout: landing
 navigation.title: Overview
-description: Save small values such as settings and flags under a key, and read them back from any server route.
+description: Save small values such as settings under a key, and read them from any server route.
 navigation.order: 1
 icon: i-lucide-database-zap
 ---
 
-::product-hero{tagline="Save small values like settings and flags under a key, then read them back from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+::product-hero{tagline="Save small values like settings under a key. Read them from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::code-tree{feature="kv"}
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // Node supports shared stores and local files
+      kv: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -16,12 +29,32 @@ icon: i-lucide-database-zap
 
   export default defineConfig({
     plugins: [
-      // On Node, values are saved in .vitehub/data/kv
-      vitehub({ preset: 'node', kv: true }),
+      vitehub({
+        preset: 'node',
+        // Node supports shared stores and local files
+        kv: true,
+      }),
       nitro(),
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // Node supports shared stores and local files
+        kv: true,
+      }),
+    ],
+  })
+  ```
+  ::::
   ```ts [server/api/settings.get.ts]
   import { defineEventHandler } from 'h3'
   import { kv } from 'vite-hub/kv'
@@ -63,34 +96,34 @@ icon: i-lucide-database-zap
 
 ::product-features
   :::product-feature-item{title="Save and read by key" icon="i-lucide-key-round" to="/docs/kv/server-api#use-it-at-runtime"}
-  `kv.set()` saves a value under a key. `kv.get()` reads it back, or returns `null`.
+  `kv.set()` saves a value. `kv.get()` reads it, or returns `null`.
   :::
 
   :::product-feature-item{title="Check errors without try/catch" icon="i-lucide-code-2" to="/docs/kv/limits-and-errors"}
-  Every call returns `[error, value]`. Each error has a `code`, a `why`, and a `fix`.
+  Each call returns `[error, value]`. Errors have a `code`, `why`, and `fix`.
   :::
 
   :::product-feature-item{title="Keep data apart" icon="i-lucide-layers" to="/docs/kv/configure#configuration-options"}
-  Add more than one store in your config. Select one with `kv.store(name)`.
+  Add named stores in config. Select one with `kv.store(name)`.
   :::
 
   :::product-feature-item{title="Same code on every host" icon="i-lucide-server" to="/docs/kv/configure#providers"}
-  Values stay on your disk while you develop. On Cloudflare, Deno, or Upstash, your routes do not change.
+  Values stay on disk in development. On Cloudflare, Deno, Redis, Postgres, or Upstash, your routes do not change.
   :::
 
   :::product-feature-item{title="Counters and one-time values" icon="i-lucide-circle-plus" to="/docs/kv/server-api#use-it-at-runtime"}
-  `setIfAbsent()` writes a single-use token only once. With Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
+  `setIfAbsent()` writes a token once. With Redis, a Database, or Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
   :::
 
   :::product-feature-item{title="Know when to use a database" icon="i-lucide-database" to="/docs/kv/hosts#production-checks"}
-  KV is for values you read by key. Use Database when you need tables, joins, or queries.
+  Use KV to read by key. Use Database for tables, joins, or queries.
   :::
 ::
 
 ::agent-only{skill="kv"}
 Use KV for small values addressed by a key, such as flags, cursors, short-lived state, or counters that do not require relational queries.
 
-Choose the driver in Vite config. Keep key names and serialization in application code. KV operations are not a substitute for atomic Rate Limit enforcement or relational transactions.
+Turn KV on with `vitehub add kv`. Where the host needs an explicit driver, such as Upstash on Netlify, pass it with `--option kv.driver=<driver>`. Keep key names and serialization in application code. KV operations are not a substitute for atomic Rate Limit enforcement or relational transactions.
 
 Prove put, get, list with a prefix, and delete. Restart local storage or query the hosted provider to confirm the durability you need.
 ::

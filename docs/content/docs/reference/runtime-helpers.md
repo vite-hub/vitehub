@@ -1,19 +1,17 @@
 ---
 title: Runtime Helpers and stable imports
 navigation.title: Runtime Helpers and stable imports
-description: Understand which ViteHub imports application code uses at runtime, keep configuration separate, and fix import failures.
+description: Learn which ViteHub imports your server code calls at runtime, and how to fix import failures.
 navigation.order: 51.5
 navigation.group: Setup
 icon: i-lucide-code-2
 ---
 
-A Runtime Helper is the documented server API that application code uses to call or inspect a ViteHub feature. ViteHub keeps generated registries, provider bindings, and framework adapters behind that import.
-
-The package page documents what the API returns and which host resources it needs.
+A Runtime Helper is the server function you import to use a ViteHub feature. It hides registries, provider bindings, and framework adapters. Each package page lists what it returns and which host resources it needs.
 
 ## Call the helper from server code
 
-```ts [server/api/health.ts]
+```ts [server/api/health.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
 
 export function health() {
@@ -22,19 +20,19 @@ export function health() {
 }
 ```
 
-Use the package import or generated `#vitehub/...` path documented for the feature. Don't import `.vitehub` registry files directly. The integration can change their structure.
+Use the import path from the feature page. Do not import `.vitehub` registry files: their structure can change.
 
 ## Keep configuration and runtime code separate
 
 | Part | What it contains |
 | --- | --- |
-| Runtime Helper | The application call or inspection API. |
-| Definition | Named configuration and behavior in application code. |
-| Runtime Context | Host resources needed during execution. |
-| Provider Output | Generated routes, bindings, functions, workers, or other host artifacts. |
+| Runtime Helper | The API your code calls. |
+| Definition | Named config and behavior in your code. |
+| Runtime Context | Host resources needed at run time. |
+| Provider Output | Generated routes, bindings, functions, workers, or other host files. |
 
-The Runtime Helper can use Runtime Context without making application code construct provider-specific objects.
+The helper reads Runtime Context, so you never build provider objects.
 
 ## Check an import failure
 
-Check the package's documented import, the registered Vite integration, and the generated type files. Read [Import paths](/docs/reference/import-paths) for exact path rules and [Provider Output](/docs/reference/provider-output) for generated files.
+Check the import on the package page, the Vite plugin registration, and the generated types. See [Import paths](/docs/reference/import-paths) for path rules and [Provider Output](/docs/reference/provider-output) for generated files.

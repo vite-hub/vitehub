@@ -3,23 +3,23 @@ title: File Tree
 description: "Render Pierre's path-first file tree from Vue, control its expanded and selected state, and keep it accessible."
 navigation.order: 39
 navigation.group: Agent work
-icon: i-ph-tree-structure-light
+icon: i-lucide-network
 ---
 
-`FileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files that an Agent changed.
+`FileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files an Agent changed.
 
-::component-preview{name="FileTreeExample"}
+::example{name="FileTreeExample" height=20}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/file-tree`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/file-tree`:
 
 ```ts
 import { FileTree } from "@vite-hub/ui";
 ```
 
-The composables `useFileTree` and `useFileTreeSelection` come from `@vite-hub/ui` only. Import them in Nuxt too.
+Import `useFileTree` and `useFileTreeSelection` from `@vite-hub/ui`, also in Nuxt.
 
 ## Usage
 
@@ -36,21 +36,35 @@ import { FileTree } from "@vite-hub/ui";
 </template>
 ```
 
-When you pass `paths`, the component owns the Pierre model and cleans it up when Vue unmounts the tree. A new `paths` array resets the paths. A new `options` object creates a new model.
+With `paths`, the component creates the Pierre model and cleans it up on unmount. A new `paths` array resets the paths. A new `options` object creates a new model.
 
 ## Features
 
-- Builds folders from a flat list of repository paths.
-- Pierre's `@pierre/trees` owns search, selection, keyboard navigation, and Git status.
-- With `paths`, the component owns the model and cleans it up on unmount.
-- With `useFileTree()`, application code owns the model and can select, search, rename, drag and drop, and mutate it.
-- `useFileTreeSelection()` returns a reactive copy of the selected paths.
+- Builds folders from a flat list of paths.
+- Pierre handles search, selection, keyboard navigation, and Git status.
+- With `useFileTree()`, your code holds the model.
+
+## Selected File
+
+Use `v-model:selected-path` to keep the open file in your app state, such as a route query. When the value changes, the tree selects only that file, opens its folders, and scrolls to it. When the reader selects a file, the tree updates the value. A folder never becomes the value.
+
+```vue
+<script setup lang="ts">
+const path = ref("src/chat/Message.vue");
+</script>
+
+<template>
+  <FileTree v-model:selected-path="path" :paths="paths" />
+</template>
+```
+
+A path that the tree does not have clears the selection. The tree selects it when `paths` gets it. [Code view](/docs/ui/code-view#open-a-file-at-its-lines) shows how to link to a file and its lines.
 
 ## Controlled Model
 
-Use `useFileTree()` when application code needs selection, search, rename, drag and drop, or mutation methods. `useFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
+Use `useFileTree()` when your code needs to select, search, rename, drag and drop, or change the tree. `useFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
 
-::component-preview{name="FileTreeControlledExample" reset}
+::example{name="FileTreeControlledExample" reset height=18}
 ::
 
 ```vue
@@ -71,40 +85,47 @@ const selectedPaths = useFileTreeSelection(tree);
 </template>
 ```
 
-When `model` is set, it is the source of truth. Do not also use `paths` or `options` as controlled inputs. Both composables dispose their subscription and the model with the current Vue scope.
+When `model` is set, it is the source of truth. Do not also control `paths` or `options`. Both composables dispose their subscription and the model with the current Vue scope.
 
 ## Accessibility
 
-- The inner tree has `role="tree"` and the accessible name **Files**. Pass `aria-label` for a more specific name, for example **Changed files**.
-- With `search: true`, the search input has the accessible name **Search files**. Pass `search-label` to localize it or describe the tree's context, for example `search-label="Search workspace files"`. The label updates when the prop changes and persists across search updates and model replacement.
+- The tree has `role="tree"` and the name **Files**. Pass `aria-label` for a better name, such as **Changed files**.
+- With `search: true`, the search input is named **Search files**. Pass `search-label` to translate it or add context, such as `search-label="Search workspace files"`. The label follows prop changes and survives search updates and model swaps.
 - Pierre handles keyboard navigation inside the tree.
 
 ## API Reference
 
 ### FileTree
 
-Renders a Pierre file tree from paths or from a model.
+Renders a Pierre file tree from paths or a model.
 
 #### Props
 
 | Prop      | Type                             | Default | Description                                        |
 | --------- | -------------------------------- | ------- | -------------------------------------------------- |
-| `paths`   | `readonly string[]`              | `[]`    | Paths for the owned model.                         |
-| `options` | `Omit<FileTreeOptions, 'paths'>` |         | Pierre configuration for the owned model.          |
-| `model`   | `FileTreeModel`                  |         | An application-owned model. Replaces `paths` and `options`. |
-| `searchLabel` | `string`                     | `"Search files"` | Accessible name for the search input. |
+| `paths`   | `readonly string[]`              | `[]`    | Paths for the internal model. |
+| `options` | `Omit<FileTreeOptions, 'paths'>` |         | Pierre options for the internal model. |
+| `model`   | `FileTreeModel`                  |         | Your own model. Replaces `paths` and `options`. |
+| `searchLabel` | `string`                     | `"Search files"` | Search input name. |
+| `selectedPath` | `string`                    |         | The selected file. Use `v-model:selected-path`. |
 
-Other attributes go to the tree element. The component exposes `getModel()` through a template ref.
+#### Events
+
+| Event | Description |
+| --- | --- |
+| `update:selectedPath` | The reader selected a file. Gets its path. |
+
+Other attributes go to the tree element. A template ref exposes `getModel()`.
 
 #### Types
 
-`FileTreeModel` is the Pierre `FileTree` model that `useFileTree()` returns and `FileTree` renders. `FileTreeOptions` adds a required `paths` list to Pierre's tree options.
+`FileTreeModel` is the Pierre `FileTree` model that `useFileTree()` returns. `FileTreeOptions` adds a required `paths` list to Pierre's options.
 
 ### useFileTree
 
 Creates a Pierre `FileTree` model.
 
-```ts
+```ts fragment
 function useFileTree(options: FileTreeOptions): FileTreeModel;
 
 interface FileTreeOptions extends Omit<PierreFileTreeOptions, "paths"> {
@@ -112,13 +133,13 @@ interface FileTreeOptions extends Omit<PierreFileTreeOptions, "paths"> {
 }
 ```
 
-Common options are `initialExpansion`, `initialSelectedPaths`, `search`, `gitStatus`, and `onSelectionChange`. The model is cleaned up when the current Vue scope is disposed.
+Common options: `initialExpansion`, `initialSelectedPaths`, `search`, `gitStatus`, and `onSelectionChange`. The model is cleaned up with the current Vue scope.
 
 ### useFileTreeSelection
 
 Returns the selected paths of a model.
 
-```ts
+```ts fragment
 function useFileTreeSelection(model: FileTreeModel): ShallowRef<readonly string[]>;
 ```
 

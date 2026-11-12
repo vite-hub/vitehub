@@ -14,27 +14,34 @@ import {
 } from "../src/console/runtime/client/request.ts"
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
 import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 
 // Decode each stateless call and answer with the result that mocks.call returns.
 const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-  const payload: { input: unknown; operation: string } = JSON.parse(String(init?.body))
+  const payload = operationRpcRequest(init?.body)
   const signal = init?.signal ?? undefined
   const result = await new Promise<ConsoleRpcResult>((resolve, reject) => {
     signal?.throwIfAborted()
     signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
     Promise.resolve(mocks.call(payload.operation, payload.input)).then(resolve, reject)
   })
-  return Response.json(result, { status: result.ok ? 200 : result.status })
+  // A failure without a code stands for host middleware, which answers without a birpc reply.
+  if (!result.ok && !result.code) return Response.json(result, { status: result.status })
+  return operationRpcResponse(init?.body, result)
 })
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock)
 })
 
+const pageProject = consoleProject()
+
 afterEach(() => {
+  setConsoleProject(pageProject)
   mocks.call.mockReset()
   fetchMock.mockClear()
   vi.unstubAllGlobals()
@@ -43,13 +50,13 @@ afterEach(() => {
 describe("Console requests", () => {
   it("routes Workspace file requests through RPC with the invocation id", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { content: "hello" } })
-    await expect(requestConsole("/workspace/api/_vitehub/console/invocations/run%20one/workspace?path=AGENTS.md"))
+    await expect(requestConsole("/workspace/_vitehub/api/invocations/run%20one/workspace?path=AGENTS.md"))
       .resolves.toEqual({ content: "hello" })
     expect(mocks.call).toHaveBeenCalledWith("invocations.workspace", { id: "run one", path: "AGENTS.md" })
   })
 
   it.each(["", "/workspace"])("rejects malformed invocation ids before making an RPC request (%s)", async (suffix) => {
-    const request = requestConsole(`/api/_vitehub/console/invocations/%E0%A4%A${suffix}`)
+    const request = requestConsole(`/_vitehub/api/invocations/%E0%A4%A${suffix}`)
     await expect(request)
       .rejects.toMatchObject({ name: "ConsoleRequestError", status: 400, message: "Malformed invocation id." })
     expect(isRetryableConsoleRequestError(await request.catch(error => error))).toBe(false)
@@ -57,47 +64,50 @@ describe("Console requests", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("sends one stateless POST to the app-relative call endpoint", async () => {
+  it("sends one stateless POST to the call endpoint under the app mount", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
     const signal = new AbortController().signal
+    setConsoleProject({ origin: "", base: "/first" })
 
-    await expect(requestConsole("/first/api/_vitehub/console/sections", { signal }))
+    await expect(requestConsole("/_vitehub/api/sections", { signal }))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
-      body: JSON.stringify({ operation: "sections.list", input: {} }),
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc", {
+      body: expect.any(String),
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
       signal,
     })
+    expect(operationRpcRequest(fetchMock.mock.calls[0]![1]!.body)).toEqual({ input: {}, operation: "sections.list" })
   })
 
   it("lets a release outlive the page with keepalive", async () => {
     mocks.call.mockResolvedValueOnce({ ok: true, value: null })
-    await requestConsole("/api/_vitehub/console/documents", { body: { action: "release" }, keepalive: true, method: "POST" })
+    await requestConsole("/_vitehub/api/documents", { body: { action: "release" }, keepalive: true, method: "POST" })
     expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ keepalive: true, method: "POST" })
   })
 
   it("keeps an application mount that contains the Console API marker", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    setConsoleProject({ origin: "", base: "/tenant/_vitehub/api/thing" })
 
-    await expect(requestConsole("/tenant/api/_vitehub/console/thing/api/_vitehub/console/sections"))
+    await expect(requestConsole("/_vitehub/api/sections"))
       .resolves.toEqual({ sections: ["kv"] })
 
-    expect(fetchMock).toHaveBeenCalledWith("/tenant/api/_vitehub/console/thing/_vitehub/rpc/__call", expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith("/tenant/_vitehub/api/thing/_vitehub/rpc", expect.any(Object))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
   it("retries only fetch-originated TypeErrors", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
-    const networkFailure = await requestConsole("/network/api/_vitehub/console/sections").catch(error => error)
+    const networkFailure = await requestConsole("/network/_vitehub/api/sections").catch(error => error)
     expect(isRetryableConsoleRequestError(networkFailure)).toBe(true)
 
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
-    const requestFailure = await requestConsole("/cyclic/api/_vitehub/console/kv", { body: cyclic, method: "POST" }).catch(error => error)
+    const requestFailure = await requestConsole("/cyclic/_vitehub/api/kv", { body: cyclic, method: "POST" }).catch(error => error)
     expect(requestFailure).toBeInstanceOf(TypeError)
     expect(isRetryableConsoleRequestError(requestFailure)).toBe(false)
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -107,14 +117,14 @@ describe("Console requests", () => {
     const aborted = new DOMException("The operation was aborted.", "AbortError")
     fetchMock.mockRejectedValueOnce(aborted)
 
-    const error = await requestConsole("/aborted/api/_vitehub/console/sections").catch(error => error)
+    const error = await requestConsole("/aborted/_vitehub/api/sections").catch(error => error)
     expect(error).toBe(aborted)
     expect(isRetryableConsoleRequestError(error)).toBe(false)
   })
 
   it("does not replay a submitted invocation when its connection drops", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
-    await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {
+    await expect(requestConsole("/no-replay/_vitehub/api/agents/support/invocations", {
       method: "POST", body: { prompt: "Run once" },
     })).rejects.toThrow("connection dropped")
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -122,13 +132,31 @@ describe("Console requests", () => {
 
   it("keeps the HTTP status of a response that is not a Console result", async () => {
     fetchMock.mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }))
-    const unauthorized = requestConsole("/auth/api/_vitehub/console/sections")
+    const unauthorized = requestConsole("/auth/_vitehub/api/sections")
     await expect(unauthorized).rejects.toMatchObject({ name: "ConsoleRequestError", status: 401 })
     expect(isRetryableConsoleRequestError(await unauthorized.catch(error => error))).toBe(false)
 
     fetchMock.mockResolvedValueOnce(new Response("<!doctype html>", { headers: { "content-type": "text/html" } }))
-    await expect(requestConsole("/fallback/api/_vitehub/console/sections"))
+    await expect(requestConsole("/fallback/_vitehub/api/sections"))
       .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
+  })
+
+  it("shows the Console sentence for an Auth guard refusal", async () => {
+    const refusal = (status: number, statusText: string, code: string) =>
+      Response.json({ status, statusText, message: `${statusText}.`, data: { code } }, { status, statusText })
+    fetchMock.mockResolvedValueOnce(refusal(401, "Unauthorized", "SIGNED_OUT"))
+    await expect(requestConsole("/signed-out/_vitehub/api/sections")).rejects.toMatchObject({
+      code: "CONSOLE_SIGN_IN_REQUIRED",
+      status: 401,
+      why: "You are not signed in, or your session ended.",
+    })
+
+    fetchMock.mockResolvedValueOnce(refusal(403, "Forbidden", "FORBIDDEN"))
+    await expect(requestConsole("/forbidden/_vitehub/api/sections")).rejects.toMatchObject({
+      code: "CONSOLE_ACCESS_DENIED",
+      status: 403,
+      why: "The Console access policy rejected this account.",
+    })
   })
 
   it("deduplicates keys repeated across provider pages", () => {
@@ -138,10 +166,11 @@ describe("Console requests", () => {
 
   it("supports requests without query or signal options", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    setConsoleProject({ origin: "", base: "/first" })
 
-    await expect(requestConsole("/first/api/_vitehub/console/sections"))
+    await expect(requestConsole("/_vitehub/api/sections"))
       .resolves.toEqual({ sections: ["kv"] })
-    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", expect.objectContaining({ method: "POST", signal: undefined }))
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc", expect.objectContaining({ method: "POST", signal: undefined }))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
@@ -149,7 +178,7 @@ describe("Console requests", () => {
     mocks.call.mockResolvedValue({ ok: true, value: { invocations: [] } })
 
     await expect(requestConsole(
-      "/api/_vitehub/console/invocations?id=old-1&id=old-2&agent=old&limit=10&status=old",
+      "/_vitehub/api/invocations?id=old-1&id=old-2&agent=old&limit=10&status=old",
       { query: { agent: ["selected"], limit: 20, status: [] } },
     )).resolves.toEqual({ invocations: [] })
     expect(mocks.call).toHaveBeenCalledWith("invocations.list", {
@@ -163,7 +192,7 @@ describe("Console requests", () => {
     mocks.call.mockResolvedValue({ ok: true, value: { observations: [] } })
 
     await expect(requestConsole(
-      "/api/_vitehub/console/invocations/run-1?observationCount=100&observationCursor=cursor-100",
+      "/_vitehub/api/invocations/run-1?observationCount=100&observationCursor=cursor-100",
     )).resolves.toEqual({ observations: [] })
     expect(mocks.call).toHaveBeenCalledWith("invocations.get", {
       id: "run-1",
@@ -176,7 +205,7 @@ describe("Console requests", () => {
     const details = { id: "hello", issues: [{ field: "title", message: "Required", path: [] }] }
     mocks.call.mockResolvedValue({ code: "CONTENT_INVALID", details, message: "hello has invalid fields.", ok: false, status: 422 })
 
-    const failure = await requestConsole("/api/_vitehub/console/documents?action=save&section=content", { body: { id: "hello" }, method: "POST" }).catch(error => error)
+    const failure = await requestConsole("/_vitehub/api/documents?action=save&section=content", { body: { id: "hello" }, method: "POST" }).catch(error => error)
     expect(failure).toBeInstanceOf(ConsoleRequestError)
     expect(failure).toMatchObject({ code: "CONTENT_INVALID", details, failureCode: "CONTENT_INVALID", status: 422 })
     expect(mocks.call).toHaveBeenCalledWith("documents.action", { action: "save", body: { id: "hello" }, section: "content" })
@@ -185,7 +214,7 @@ describe("Console requests", () => {
   it("preserves remote status and retries only transient request failures", async () => {
     mocks.call.mockResolvedValue({ message: "Upstream unavailable.", ok: false, status: 502 })
 
-    await expect(requestConsole("/second/api/_vitehub/console/invocations/selected"))
+    await expect(requestConsole("/second/_vitehub/api/invocations/selected"))
       .rejects.toMatchObject({
         message: "Upstream unavailable.",
         name: "ConsoleRequestError",
@@ -202,7 +231,7 @@ describe("Console requests", () => {
   it("sends read-only action bodies through RPC", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { found: true } })
 
-    await expect(requestConsole("/third/api/_vitehub/console/kv", {
+    await expect(requestConsole("/third/_vitehub/api/kv", {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
     })).resolves.toEqual({ found: true })
@@ -212,7 +241,7 @@ describe("Console requests", () => {
   it("routes Agent invocation writes with the encoded Agent identity", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { agent: "support/team", id: "invocation" } })
 
-    await expect(requestConsole("/api/_vitehub/console/agents/support%2Fteam/invocations", {
+    await expect(requestConsole("/_vitehub/api/agents/support%2Fteam/invocations", {
       body: { invokerProfileId: "person", prompt: "Test this Agent" },
       method: "POST",
     })).resolves.toEqual({ agent: "support/team", id: "invocation" })
@@ -226,8 +255,8 @@ describe("Console requests", () => {
   it("routes Schedule runs and kebab-case operations through RPC", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { run: { status: "succeeded" } } })
 
-    await requestConsole("/base/api/_vitehub/console/schedule-run", { body: { name: "sync" }, method: "POST" })
-    await requestConsole("/base/api/_vitehub/console/invocation-capabilities")
+    await requestConsole("/base/_vitehub/api/schedule-run", { body: { name: "sync" }, method: "POST" })
+    await requestConsole("/base/_vitehub/api/invocation-capabilities")
 
     expect(mocks.call).toHaveBeenNthCalledWith(1, "schedule.run", { name: "sync" })
     expect(mocks.call).toHaveBeenNthCalledWith(2, "invocations.capabilities", {})
@@ -249,8 +278,8 @@ describe("Console requests", () => {
     })
     mocks.call.mockResolvedValueOnce({ message: "Schedule run is not available.", ok: false, status: 404 })
 
-    const failed = await runConsoleScheduleDefinition("/api/_vitehub/console/schedule-run", "sync")
-    const unavailable = await runConsoleScheduleDefinition("/api/_vitehub/console/schedule-run", "nightly")
+    const failed = await runConsoleScheduleDefinition("/_vitehub/api/schedule-run", "sync")
+    const unavailable = await runConsoleScheduleDefinition("/_vitehub/api/schedule-run", "nightly")
 
     expect(failed).toEqual({ durationMs: 1_250, error: "mailbox unavailable", id: "srun_manual_sync_2026-09-29T10:00:00.000Z", status: "failed" })
     expect(consoleScheduleRunDescription(failed)).toBe("mailbox unavailable · 1.3s · srun_manual_sync_2026-09-29T10:00:00.000Z")
@@ -263,7 +292,7 @@ describe("Console requests", () => {
       .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["first"] } })
       .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["second"] } })
 
-    await expect(loadConsoleKVPages("/host/api/_vitehub/console/kv", "cache", new AbortController().signal))
+    await expect(loadConsoleKVPages("/host/_vitehub/api/kv", "cache", new AbortController().signal))
       .resolves.toEqual({
         pages: [
           { cursor: "next", keys: ["first"] },
@@ -289,7 +318,7 @@ describe("Console requests", () => {
       .mockResolvedValueOnce({ ok: true, value: { cursor: "last", keys: ["matching"] } })
 
     await expect(loadConsoleKVPages(
-      "/api/_vitehub/console/kv",
+      "/_vitehub/api/kv",
       "cache",
       new AbortController().signal,
       undefined,
@@ -316,7 +345,7 @@ describe("Console requests", () => {
         value: { error: "KV unavailable", errorCode: "provider_failed", keys: [] },
       })
 
-    await expect(loadConsoleKVPages("/api/_vitehub/console/kv", "cache", new AbortController().signal))
+    await expect(loadConsoleKVPages("/_vitehub/api/kv", "cache", new AbortController().signal))
       .rejects.toMatchObject({ code: "provider_failed", message: "KV unavailable" })
   })
 
@@ -324,7 +353,7 @@ describe("Console requests", () => {
     mocks.call
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
-    const loadSections = createConsoleSectionLoader("/sections-test/api/_vitehub/console/sections")
+    const loadSections = createConsoleSectionLoader("/sections-test/_vitehub/api/sections")
 
     await expect(loadSections()).resolves.toBeUndefined()
     await expect(loadSections()).resolves.toEqual(["kv"])
@@ -332,8 +361,8 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps why navigation failed, so a signed-out Console asks to sign in", async () => {
-    const base = "/sign-in-test/api/_vitehub/console/sections"
+  it("keeps why navigation failed, so the Console says that the app refused it", async () => {
+    const base = "/sign-in-test/_vitehub/api/sections"
     mocks.call.mockResolvedValueOnce({ ok: false, status: 401, message: "Sign in to use the Console." })
     await expect(loadConsoleNavigation(base)).resolves.toBeUndefined()
     expect(isConsoleSignInRequired(consoleNavigationError(base))).toBe(true)
@@ -351,9 +380,8 @@ describe("Console requests", () => {
     })
 
     await expect(
-      loadConsoleNavigation("/navigation-test/api/_vitehub/console/sections"),
+      loadConsoleNavigation("/navigation-test/_vitehub/api/sections"),
     ).resolves.toEqual({
-      auth: false,
       contributions: {},
       operations: [],
       projectName: "console-host",
@@ -363,37 +391,30 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
-  it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
+  it("requests no page tools session, since apps serve no page tools", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
-    const base = "/page-tools-app/api/_vitehub/console/sections"
+    setConsoleProject({ origin: "", base: "/page-tools-app" })
+    const base = "/_vitehub/api/sections?page-tools-app"
     await loadConsoleNavigation(base)
     await loadConsoleNavigation(base)
     const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
-    expect(sessions).toEqual([["/page-tools-app/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } }]])
+    expect(sessions).toEqual([])
   })
 
   it("keeps permitted operations alongside read-only section metadata", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { operations: ["workflow.start", 7, "schedule.run"], readOnly: ["kv"], sections: ["kv"] } })
 
     await expect(
-      loadConsoleNavigation("/operations-navigation-test/api/_vitehub/console/sections"),
+      loadConsoleNavigation("/operations-navigation-test/_vitehub/api/sections"),
     ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"], readOnly: ["kv"] })
   })
 
-  it("loads independent auth availability in the navigation response", async () => {
-    mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
-
-    await expect(
-      loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
-  })
-
-  it("preserves Cloudflare Access auth mode in the navigation response", async () => {
+  it("ignores an auth field of an older app in the navigation response", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { auth: "cloudflare-access", sections: ["kv"] } })
 
     await expect(
-      loadConsoleNavigation("/cloudflare-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
+      loadConsoleNavigation("/auth-navigation-test/_vitehub/api/sections"),
+    ).resolves.toEqual({ contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -413,28 +434,27 @@ describe("Console requests", () => {
     })
 
     await expect(
-      loadConsoleNavigation("/contributions-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
+      loadConsoleNavigation("/contributions-navigation-test/_vitehub/api/sections"),
+    ).resolves.toEqual({ contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
-  it.each(["", "/admin"])("requests the shared page session under the app mount %s", async (mount) => {
+  it.each(["", "/admin"])("loads navigation without a page session under the app mount %s", async (mount) => {
     const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" } }
     const hidden = { ...comments, id: "hidden" }
-    const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
-    // Navigation uses RPC; the shared page session is an ordinary GET that sets the app cookie.
-    const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
+    const navigation = { ok: true as const, value: { contributions: [comments, hidden], sections: ["comments"] } }
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? operationRpcResponse(init.body, navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
-    const base = `${mount}/api/_vitehub/console/sections?page-session-test`
+    setConsoleProject({ origin: "", base: mount })
+    const base = `/_vitehub/api/sections?page-session-test${mount}`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch.mock.calls.map(([url]) => url)).not.toContainEqual(`${mount}/_vitehub/page/session`)
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {
     mocks.call.mockReturnValue(new Promise(() => undefined))
     const controller = new AbortController()
-    const request = requestConsole("/abort-test/api/_vitehub/console/sections", {
+    const request = requestConsole("/abort-test/_vitehub/api/sections", {
       signal: controller.signal,
     })
     controller.abort(new Error("navigation changed"))
@@ -445,26 +465,26 @@ describe("Console requests", () => {
 
 describe("Console storage actions", () => {
   it.each([
-    { action: "set", operation: "kv.set", path: "/api/_vitehub/console/kv", input: { key: "greeting", store: "cache", value: "hi" } },
-    { action: "del", operation: "kv.del", path: "/api/_vitehub/console/kv", input: { key: "greeting", store: "cache" } },
-    { action: "put", operation: "blob.put", path: "/api/_vitehub/console/blob", input: { data: "aGk=", pathname: "docs/hi.txt" } },
-    { action: "del", operation: "blob.del", path: "/api/_vitehub/console/blob", input: { pathname: "docs/hi.txt" } },
-    { action: "peek", operation: "rate-limit.peek", path: "/api/_vitehub/console/rate-limit", input: { key: "192.0.2.1", name: "login" } },
-    { action: "reset", operation: "rate-limit.reset", path: "/api/_vitehub/console/rate-limit", input: { key: "192.0.2.1", name: "login" } },
+    { action: "set", operation: "kv.set", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache", value: "hi" } },
+    { action: "del", operation: "kv.del", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache" } },
+    { action: "put", operation: "blob.put", path: "/_vitehub/api/blob", input: { data: "aGk=", pathname: "docs/hi.txt" } },
+    { action: "del", operation: "blob.del", path: "/_vitehub/api/blob", input: { pathname: "docs/hi.txt" } },
+    { action: "peek", operation: "rate-limit.peek", path: "/_vitehub/api/rate-limit", input: { key: "192.0.2.1", name: "login" } },
+    { action: "reset", operation: "rate-limit.reset", path: "/_vitehub/api/rate-limit", input: { key: "192.0.2.1", name: "login" } },
   ])("sends the $action action of $path as $operation", async ({ action, input, operation, path }) => {
     mocks.call.mockResolvedValue({ ok: true, value: { done: true } })
     await expect(requestConsole(path, { body: { action, ...input }, method: "POST" })).resolves.toEqual({ done: true })
     expect(mocks.call).toHaveBeenCalledWith(operation, input)
   })
 
-  it.each(["/api/_vitehub/console/blob", "/api/_vitehub/console/rate-limit"])("rejects an unknown action of %s before the RPC", async path => {
+  it.each(["/_vitehub/api/blob", "/_vitehub/api/rate-limit"])("rejects an unknown action of %s before the RPC", async path => {
     await expect(requestConsole(path, { body: { action: "wipe" }, method: "POST" })).rejects.toMatchObject({ status: 400 })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("shows a failed write as the operation reports it", async () => {
     mocks.call.mockResolvedValue({ code: "KV_UNSUPPORTED_OPERATION", message: "This store is read-only.", ok: false, status: 400 })
-    await expect(requestConsole("/api/_vitehub/console/kv", { body: { action: "del", key: "a", store: "default" }, method: "POST" }))
+    await expect(requestConsole("/_vitehub/api/kv", { body: { action: "del", key: "a", store: "default" }, method: "POST" }))
       .rejects.toMatchObject({ status: 400, message: expect.stringContaining("read-only") })
   })
 })

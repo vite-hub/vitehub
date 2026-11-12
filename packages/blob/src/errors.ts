@@ -1,32 +1,25 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import type { Result, ResultError } from "@vite-hub/runtime"
 
-import type { BlobErrorCode, BlobErrorDetails, BlobOperation, BlobResult } from "./types.ts"
-import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import type { BlobErrorCode, BlobOperation } from "./types.ts"
+import { blobErrorDiagnostics, blobErrors } from "./error-diagnostics.ts"
+import { BlobPathnameTooLongError } from "./internal/host-limits.ts"
 
-export function unknownBlobStoreError(name: string): Error {
-  return blobErrorDiagnostics.BLOB_R0028({ message: `Unknown Blob store "${name}".` })
+/** Names the unknown store and the keys of `stores`, so the reader sees the correct name. */
+export function unknownBlobStoreMessage(name: string, stores: object): string {
+  return `Unknown Blob store "${name}". Configured stores: ${Object.keys(stores).map(key => JSON.stringify(key)).join(", ")}.`
 }
 
-const blobErrorMessages: Record<BlobErrorCode, string> = {
-  BLOB_CONFLICT: "Blob change conflicts with existing objects.",
-  BLOB_NOT_FOUND: "Blob not found.",
-  BLOB_OPERATION_FAILED: "Blob storage operation failed.",
+export function unknownBlobStoreError(name: string, stores: object): Error {
+  return blobErrorDiagnostics.BLOB_R0028({ message: unknownBlobStoreMessage(name, stores) })
 }
 
 export function blobError(
   code: BlobErrorCode,
   operation: BlobOperation,
   store: string,
-  cause?: unknown,
-): ViteHubError<typeof code, BlobErrorDetails> {
-  const error = new ViteHubError(
-    code,
-    blobErrorMessages[code],
-    {
-      ...(cause === undefined ? {} : { cause }),
-      details: { operation, store },
-    },
-  )
+  options: { cause?: unknown, detail?: string } = {},
+): ResultError<BlobErrorCode> {
+  const error: ResultError<BlobErrorCode> = blobErrors[code]({ ...options, operation, store })
   // H3 reads `statusCode`, so a route that rethrows a missing object answers 404, not 500.
   return code === "BLOB_NOT_FOUND" ? Object.assign(error, { statusCode: 404 }) : error
 }
@@ -35,11 +28,12 @@ export async function blobResult<TResult>(
   operation: BlobOperation,
   store: string,
   run: () => Promise<TResult>,
-): Promise<BlobResult<TResult>> {
+): Promise<Result<TResult, BlobErrorCode>> {
   try {
-    return [null, await run()]
+    return [undefined, await run()]
   }
   catch (cause) {
-    return [blobError("BLOB_OPERATION_FAILED", operation, store, cause), undefined]
+    if (cause instanceof BlobPathnameTooLongError) return [blobError("BLOB_PATHNAME_TOO_LONG", operation, store, { cause, detail: cause.message }), undefined]
+    return [blobError("BLOB_OPERATION_FAILED", operation, store, { cause }), undefined]
   }
 }

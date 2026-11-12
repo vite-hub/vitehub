@@ -16,7 +16,7 @@ async function setup(options: DefineCommentsOptions = {}, attachments?: Map<stri
     subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
     // A share link names its reader in a header, as Drop's links do.
     identify: ({ event }) => {
-      const token = event.req.headers.get("x-share-token")
+      const token = event["~standard"].req.headers.get("x-share-token")
       return token === "ada" ? { id: "ada", name: "Ada" } : token === "ben" ? { id: "ben", name: "Ben" } : null
     },
     ...(attachments

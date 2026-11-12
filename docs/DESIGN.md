@@ -1,79 +1,37 @@
-# ViteHub design direction
+# ViteHub design system
 
-ViteHub should feel like practical infrastructure for Vite teams: fast to understand, portable across providers, and built from small server primitives.
+ViteHub looks like the Vercel dashboard and shadcn/ui: Geist, black and white with neutral grays, hairline borders, 6px controls, and one blue that only marks focus. The Console, vitehub.dev, `@vite-hub/docs` sites such as comark-ui, and the playgrounds all use the same theme, so a component looks and behaves the same everywhere.
 
-## Logo
+## Where it lives
 
-Use the grounded black hexagon mark as the primary symbol. The shape references the Nimiq hexagon's radical simplicity, but ViteHub owns the surrounding system: a flat bottom edge sitting on a baseline that can extend into route rails, endpoint dots, code blocks, and provider output maps.
+- `packages/ui/theme.css` (`@vite-hub/ui/theme.css`): tokens, fonts, status text colors, and the one focus rule.
+- `packages/ui/theme-focus-ring.css`: wrapper focus frames, including the row comment field, shared by `theme.css` and `styles.css` so the documented package installation keeps them.
+- `packages/ui/src/theme.ts` (`@vite-hub/ui/theme`): `vitehubTheme`, the Nuxt UI app config. It sets the default variant, size, radius, and surface of each component.
+- A surface imports both and adds slots only for parts that no other surface has, such as the Console's `dashboardNavbar` or the docs shell. It never restyles a component that the theme already styles.
 
-The mark should communicate:
+```css
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/theme.css";
+```
 
-- stable server primitives
-- provider-agnostic deployment paths
-- developer flow without platform lock-in
+```ts
+import { vitehubTheme } from "@vite-hub/ui/theme"
+export default defineAppConfig({ ui: { ...vitehubTheme, dashboardNavbar: { /* Console only */ } } })
+```
 
-The current production assets are generated from the SVG source:
+## Rules that apply everywhere
 
-- `docs/public/vitehub-mark.svg` for the source mark
-- `docs/public/vitehub-logo.svg` for the horizontal source logo
-- `docs/public/vitehub-logo.png` for large horizontal usage
-- `docs/public/vitehub-logo-dark.png` for large horizontal dark-surface fallback
-- `docs/public/vitehub-logo-header.png` for compact header fallback
-- `docs/public/vitehub-logo-header-dark.png` for compact dark-surface fallback
-- `docs/public/vitehub-mark.png` for standalone mark usage
-- `docs/public/favicon.png` for browser tabs
-- `docs/public/apple-touch-icon.png` for install/bookmark surfaces
-- `docs/public/github-org-avatar.png` for the GitHub organization avatar
-- `docs/public/og/vitehub.png` for social previews on every docs page
-- `.github/assets/readme-banner-light.png` and `.github/assets/readme-banner-dark.png` for the README header
+1. **Never style focus.** The theme draws one 2px blue ring (`--vh-focus`) on whatever has keyboard focus, and turns a text field's own frame blue (red when the field has an error). A writing surface without a frame, such as the command palette input or the document editor, shows focus with its caret. Rows in a clipped list get the ring inside; a link row opts in with `data-focus-inset`. Do not add `focus-visible:outline-*`, `focus-visible:ring-*`, `has-focus-visible:*`, or a `:focus` CSS rule. A component that needs a different focus shape is a theme change, not a component change. Why: every hand-made ring we had was a different color, offset, or width, and pages showed five focus styles at once.
+2. **Never write a color.** Use the Nuxt UI tokens through their utilities (`text-muted`, `bg-elevated`, `border-default`) or `var(--ui-*)` and `var(--vh-*)` in CSS. No hex, `rgb()`, `oklch()`, or palette classes such as `text-zinc-500` or `bg-sky-600`. Brand logos are the only exception, and they live in one registry.
+3. **Use a Nuxt UI component before you build one.** `UTabs` for every tab strip, `UButton` for every button, `UBadge` for every pill, `UEmpty` for every empty state. A `<button>` styled by hand, or a `role="tab"` element, is a bug.
+4. **Use the defaults.** The theme already picks the variant and the size. Pass `variant`, `size`, or `color` only when the component docs below say to. Do not pass `:ui` to restyle a slot.
+5. **Keep weight still.** Selected and hover states change color, never font weight, so nothing moves.
 
-Run `node docs/scripts/og-images.mjs` to render the social preview and the README banners again. The script uses a Chromium executable from `OG_CHROMIUM_PATH`, or a `chromium`/`google-chrome` command on `PATH`; install Chromium or set that variable before running it.
+`test/design-rules.test.ts` fails on a focus class, a focus CSS rule, a color literal, or a hand-made tab strip in any surface. Run it with `vp test run test/design-rules.test.ts`.
 
-Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative logo construction diagrams, and alternate mark systems.
+## Read when needed
 
-## Color
-
-The public docs use a monochrome system with equal light and dark modes.
-
-| Role | Light | Dark | Use |
-| --- | --- | --- | --- |
-| Canvas | `#ffffff` | `#09090b` | Page background |
-| Raised | `#fafafa` | `#18181b` | Cards, code, and raised controls |
-| Line | `#e4e4e7` | `#27272a` | Borders and route rails |
-| Text | `#3f3f46` | `#e4e4e7` | Body text |
-| Highlighted | `#18181b` | `#fafafa` | Logo, headings, and selected states |
-| Muted | `#71717a` | `#a1a1aa` | Secondary text and endpoint dots |
-
-Keep the system black, white, and zinc. Active states can use stronger ink, heavier borders, or route-line placement instead of hue.
-
-## Typography
-
-Use Geist as the preferred family for product and docs UI.
-
-- **Sans:** Geist Sans for navigation, headings, body text, and controls.
-- **Mono:** Geist Mono for code, package names, environment variables, and terminal UI.
-
-Use sentence-case headings. Keep headings direct and functional.
-
-## Visual style
-
-The visual system should be quiet, technical, and precise.
-
-- Prefer compact docs layouts over marketing-heavy composition.
-- Use sharp alignment, clear spacing, and restrained borders.
-- Use grounded route, rail, endpoint, and primitive-block motifs when illustration is needed.
-- Use icons to identify primitives such as Blob, KV, Queue, Workflow, Sandbox, Chat, and Workspace.
-- Keep provider visuals neutral unless a provider page needs a real provider logo.
-
-Avoid decorative gradients, orbs, mascot art, heavy shadows, and dark cyberpunk styling.
-
-## UI tone
-
-ViteHub UI copy should be concrete and developer-facing.
-
-- Say what the primitive does.
-- Prefer examples over abstract claims.
-- Keep provider support explicit.
-- Make escape hatches and runtime assumptions visible.
-
-The brand should feel confident because the product is understandable, not because the interface is loud.
+- [Tokens](design/tokens.md): which background, text, border, radius, and shadow to use.
+- [Components](design/components.md): which component and which variant for each job.
+- [Brand](design/brand.md): the logo, its assets, and the tone of UI copy.

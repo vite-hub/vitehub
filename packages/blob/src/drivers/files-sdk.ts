@@ -17,6 +17,7 @@ async function loadFiles(): Promise<FilesCtor> {
 
 function isNotFound(error: unknown): boolean {
   const value = error as { code?: unknown, message?: unknown }
+  // provider-message-match: files-sdk sets the NotFound code for some providers only. The others say it in text.
   return value?.code === "NotFound" || /not found|object not found/i.test(String(value?.message || ""))
 }
 
@@ -40,6 +41,7 @@ function isString(value: unknown): value is string {
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
   let decoded: string
   try {
@@ -48,16 +50,20 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
   }
   catch {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
   let parsed: unknown
   try {
     parsed = JSON.parse(decoded)
   }
   catch {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
@@ -67,6 +73,7 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     || (providerCursor !== undefined && !isString(providerCursor))
     || (providerCursorHistory !== undefined && (!Array.isArray(providerCursorHistory) || !providerCursorHistory.every(isString)))
   ) {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
   return {
@@ -126,6 +133,7 @@ async function listPage(client: FilesInstance, listOptions: ListOptions): Promis
     return await client.list(listOptions)
   }
   catch (error) {
+    // provider-message-match: files-sdk drops the Node file system code. Only the message keeps ENOTDIR.
     if (error instanceof Error && /ENOTDIR/.test(error.message)) {
       throw Object.assign(error, { code: "ENOTDIR" })
     }
@@ -159,7 +167,11 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return await createFiles(putOptions)
     }
 
-    filesPromise ||= createFiles()
+    // A failed creation lets the next call try again.
+    filesPromise ||= createFiles().catch((error: unknown) => {
+      filesPromise = undefined
+      throw error
+    })
     return await filesPromise
   }
 
@@ -245,6 +257,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           })
 
           if (start > 0 && start >= result.items.length) {
+            // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
             throw new TypeError("Invalid Blob cursor.")
           }
 

@@ -1,5 +1,8 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv"] as const
+export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "setup"] as const
+
+/** Sections that only a development server has. They are tools, not primitives, so the Overview does not offer them. */
+export const consoleDevelopmentSectionIds: readonly ConsoleBuiltinSectionId[] = ["setup"]
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -16,12 +19,6 @@ export interface ConsoleSectionDetails {
 /** Details of built-in sections. Contributed sections get their details from the navigation response. */
 export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, ConsoleSectionDetails>> = {
   env: { description: "Inspect Server Env declarations and their providers.", icon: "i-vitehub-env", label: "Env", routeName: "vitehub-console-env" },
-  connections: {
-    description: "Inspect and manage app-owned OAuth Connections.",
-    icon: "i-vitehub-connections",
-    label: "Connections",
-    routeName: "vitehub-console-connections",
-  },
   agents: {
     description: "Inspect Agent sessions and invocation details.",
     icon: "i-vitehub-agent",
@@ -66,6 +63,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "KV",
     routeName: "vitehub-console-kv",
   },
+  setup: {
+    description: "Turn features on and off for this app. Development only.",
+    icon: "i-lucide-blocks",
+    label: "Setup",
+    routeName: "vitehub-console-setup",
+  },
 }
 
 /** Navigation groups in rail order. A contributed section with an unknown id goes to `more`. */
@@ -85,16 +88,17 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   blob: "data",
   content: "data",
   comments: "data",
+  forms: "data",
   workspaces: "data",
   workflows: "runtime",
   queues: "runtime",
   schedules: "runtime",
   "sandbox-tasks": "runtime",
   env: "platform",
-  connections: "platform",
   auth: "platform",
   email: "platform",
   "rate-limits": "platform",
+  setup: "platform",
 }
 
 /** Labels that the Overview shows above each navigation group. */
@@ -158,7 +162,6 @@ const primitive = (id: ConsoleSectionId, label: string, icon: string, slug: stri
 export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("auth", "Auth", "i-vitehub-auth", "auth", "Manage users, sessions, organizations, and approved OAuth clients."),
   primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
-  primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
   primitive("skills", "Skills", consoleSectionDetails.skills.icon, "agents/capabilities/skills", "Inspect the bundled Skill files that each Agent receives.", "agents/capabilities/skills"),
   primitive("logs", "Logs", consoleSectionDetails.logs.icon, "logs", "Read structured logs and diagnostic guidance from your existing pipeline."),
@@ -176,16 +179,19 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
   primitive("workflows", "Workflows", "i-vitehub-workflow", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
   primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
+  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts."),
 ]
 
-/** Guides that the Overview links next to the primitives. */
-export const consoleGuides: readonly { readonly description: string, readonly href: string, readonly icon: string, readonly label: string }[] = [
-  { description: "Enable the Console, inspect primitives, and protect its routes.", href: `${consoleDocsBase}/development/console`, icon: "i-vitehub-docs", label: "Console guide" },
-  { description: "Add local KV to a small Vite server and return one stored value.", href: `${consoleDocsBase}/getting-started/first-server-primitive`, icon: "i-vitehub-start", label: "First Server Primitive" },
-  { description: "Vue components for chat, Agent Invocations, traces, diffs, and file trees.", href: `${consoleDocsBase}/ui`, icon: "i-vitehub-ui", label: "UI kit" },
-  { description: "Run package-owned development workflows through the local Vite config.", href: `${consoleDocsBase}/development/cli`, icon: "i-vitehub-development", label: "CLI" },
-]
+/**
+ * The guide that the Overview links under Learn, before the docs of each enabled section. It is for the people who run
+ * the app, so it explains the Console, not how to build with ViteHub.
+ */
+export const consoleGuide: { readonly description: string, readonly href: string, readonly icon: string, readonly label: string } = {
+  description: "What each page of this Console does, and who can open it.",
+  href: `${consoleDocsBase}/development/console`,
+  icon: "i-vitehub-docs",
+  label: "Console guide",
+}
 
 /** Returns the documentation link of a section, or undefined for a contributed section that the Console does not know. */
 export function resolveConsoleSectionDocs(section: ConsoleSectionId): string | undefined {
@@ -218,9 +224,9 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   schedules: "s",
   "sandbox-tasks": "x",
   env: "e",
-  connections: "c",
   email: "m",
   "rate-limits": "r",
+  setup: "y",
 }
 
 /** Returns the "Go to" chord keys of a section. A contributed section with an unknown id has no chord. */
@@ -245,15 +251,6 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
 
 export function isConsoleBuiltinSectionId(value: unknown): value is ConsoleBuiltinSectionId {
   return consoleBuiltinSectionIds.some(section => section === value)
-}
-
-/** Connections management is mounted for development Consoles and explicit production management. */
-export function isConsoleConnectionsEnabled(options: { connections?: unknown }, development = false): boolean {
-  const connections = options.connections
-  if (!connections) return false
-  if (development) return true
-  if (typeof connections !== "object" || connections === null) return false
-  return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
 }
 
 /** The MCP client section is on when the Console options set `mcpClient: true`. */
@@ -314,7 +311,6 @@ export function describeConsoleSectionRoutes(section: { id: ConsoleSectionId, pa
 export function resolveConsoleSectionIds(options: {
   auth?: unknown;
   env?: unknown;
-  connections?: unknown
   console?: unknown;
   agent?: unknown;
   blob?: unknown;
@@ -322,7 +318,7 @@ export function resolveConsoleSectionIds(options: {
   database?: unknown;
   email?: unknown;
   kv?: unknown;
-  logs?: unknown;
+  observability?: unknown;
   preset?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
@@ -335,9 +331,9 @@ export function resolveConsoleSectionIds(options: {
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
-    ...(options.logs ? ["logs"] : []),
+    // `observability: { logs }` connects the log source that the section reads.
+    ...(options.observability && typeof options.observability === "object" && "logs" in options.observability && options.observability.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
-    ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
     ...(isConsoleMcpClientEnabled(options.console) ? ["mcp-client"] : []),
     ...(options.blob ? ["blob"] : []),

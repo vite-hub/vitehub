@@ -8,8 +8,9 @@ import {
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
-import { displayName, toPerson } from "../internal/comment-person.ts";
-import { timeAgo } from "../internal/comment-time.ts";
+import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
+import { messagesSinceResolved } from "../internal/comment-status.ts";
+import { timeAgo } from "../internal/format.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
@@ -103,7 +104,7 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
           files.map((item) =>
             h(Attachment, { key: item.key, size: "xs" }, () => [
-              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-ph-file-light" })),
+              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-lucide-file" })),
               h(AttachmentContent, () =>
                 h(AttachmentTitle, () => (item.href ? h("a", { href: item.href, rel: "noreferrer", target: "_blank" }, item.name) : item.name)),
               ),
@@ -142,7 +143,7 @@ export const CommentReply = defineComponent({
     onDelete: { type: Function as PropType<(messageId: string) => Done> },
   },
   // SAFETY: Vue uses Object as its runtime slots marker.
-  slots: Object as SlotsType<CommentReplySlots & Pick<CommentComposerSlots, "mention-item">>,
+  slots: Object as SlotsType<CommentReplySlots & Pick<CommentComposerSlots, "mention-item" | "mention-empty">>,
   setup(props, { slots }) {
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
@@ -222,9 +223,8 @@ export const CommentReply = defineComponent({
         [
           h("div", { "data-slot": "comment-reply-content" }, [
             h("div", { "data-slot": "comment-reply-header" }, [
-              h(AvatarStack, { "aria-hidden": "true", people: [toPerson(message.author)], size: "sm" }),
-              h("span", { "data-slot": "comment-reply-author" }, displayName(message.author)),
-              message.actor ? h("span", { "data-slot": "comment-reply-actor" }, `via ${message.actor.name ?? message.actor.id}`) : null,
+              h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(message)], size: "sm" }),
+              h("span", { "data-agent": message.actor ? "true" : undefined, "data-slot": "comment-reply-author" }, writerName(message)),
               h(
                 "time",
                 { "data-slot": "comment-reply-time", datetime: new Date(message.createdAt).toISOString(), title: new Date(message.createdAt).toLocaleString() },
@@ -248,7 +248,10 @@ export const CommentReply = defineComponent({
                   people: props.people,
                   users: props.users,
                   variant: "edit",
-                }, slots["mention-item"] ? { "mention-item": slots["mention-item"] } : undefined)
+                }, {
+                  ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+                  ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
+                })
               : (slots.body?.({ message }) ?? h(Markdown, {
                   components: bodyComponents,
                   "data-slot": "comment-reply-body",
@@ -267,11 +270,11 @@ export const CommentReply = defineComponent({
           ]),
           (canEdit() || canDelete()) && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-lucide-pencil", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
                 canDelete() ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
-                  icon: "i-ph-trash-light",
+                  icon: "i-lucide-trash-2",
                   onClick: () => (props.confirmDelete ? (confirming.value = true) : void remove()),
                   size: "xs",
                   variant: "ghost",
@@ -283,6 +286,14 @@ export const CommentReply = defineComponent({
     };
   },
 });
+
+/** "Resolved by Ana", as a line across the thread. */
+const resolvedMarker = (thread: CommentThreadModel) =>
+  h(Marker, { key: "resolved", variant: "separator" }, () =>
+    h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
+  );
+
+export { messagesSinceResolved, repliedSinceResolved } from "../internal/comment-status.ts";
 
 // The thread of one pin: the comment and its replies, a reply box, Resolve or Reopen, and Close.
 // With `preview` it is the hover card of a pin: the comment, the reply count, and no controls.
@@ -413,15 +424,20 @@ export const CommentThread = defineComponent({
       ...(slots.body ? { body: slots.body } : {}),
       ...(slots.attachments ? { attachments: slots.attachments } : {}),
       ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+      ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
     });
     const composerSlots = () => ({
       ...(slots.extra ? { extra: slots.extra } : {}),
       ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+      ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
     });
 
     return () => {
       const { thread } = props;
       const resolved = thread.status === "resolved";
+      const later = messagesSinceResolved(thread);
+      // A reply since the thread was resolved asks for a look: Resolve again marks it seen.
+      const resolvable = !resolved || later.length > 0;
       const first = thread.messages[0];
       const quote = thread.anchor.kind === "text" ? thread.anchor.exact : undefined;
       if (props.preview) {
@@ -438,26 +454,28 @@ export const CommentThread = defineComponent({
         { "aria-label": `Comment ${thread.n}`, "data-slot": "comment-thread", "data-status": thread.status, ref: root, role: "dialog", tabindex: -1 },
         [
           h("header", { "data-slot": "comment-thread-header" }, [
-            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-ph-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
+            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-lucide-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {
-              "aria-label": resolved ? "Reopen" : "Resolve",
+              "aria-label": resolvable ? "Resolve" : "Reopen",
               color: "neutral",
-              icon: resolved ? "i-ph-arrow-counter-clockwise" : "i-ph-check",
-              onClick: () => void act(resolved ? props.onReopen : props.onResolve),
+              icon: resolvable ? "i-lucide-check" : "i-lucide-rotate-ccw",
+              onClick: () => void act(resolvable ? props.onResolve : props.onReopen),
               size: "xs",
               variant: "ghost",
             }),
-            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: close, size: "xs", variant: "ghost" }),
+            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-lucide-x", onClick: close, size: "xs", variant: "ghost" }),
           ]),
           h("div", { "data-slot": "comment-thread-messages" }, [
             anchor,
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")
               : null,
-            ...thread.messages.map((message, index) =>
+            ...thread.messages.flatMap((message, index) => [
+              // The marker sits where the thread was resolved, so a later reply shows below it.
+              resolved && message === later[0] ? resolvedMarker(thread) : null,
               h(CommentReply, {
                 attachmentUrl: props.attachmentUrl,
                 confirmDelete: index === 0,
@@ -471,12 +489,8 @@ export const CommentThread = defineComponent({
                 user: user.value,
                 users: users.value,
               }, replySlots()),
-            ),
-            resolved
-              ? h(Marker, { variant: "separator" }, () =>
-                  h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
-                )
-              : null,
+            ]),
+            resolved && later.length === 0 ? resolvedMarker(thread) : null,
             slots.after ? h("div", { "data-slot": "comment-thread-after" }, slots.after({ thread })) : null,
           ]),
           !allowed("reply") && (failure.value ?? props.error)
@@ -490,6 +504,7 @@ export const CommentThread = defineComponent({
             error: failure.value ?? props.error,
             files: files.value,
             guard: false,
+            layout: "row",
             mentions: mentions.value,
             modelValue: reply.value,
             onCancel: close,

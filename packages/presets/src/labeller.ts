@@ -1,10 +1,12 @@
 import { ask } from "@vite-hub/gateways"
-import { defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
-import { cleanupGmailChannel, gmail } from "@vite-hub/agent/channels"
+import { defineAgent, type AgentDefinition, type AgentInvoker, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
+import { gmail, gmailClient } from "@vite-hub/agent/channels"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
-import type { CleanupGmailChannelResult, GmailChannelOptions, GmailCleanupRule, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
+import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
 import { channelMessageContextKey } from "@vite-hub/agent/channels"
+import * as v from "valibot"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 export interface LabellerLabel extends GmailLabelSettings {}
 
@@ -34,7 +36,12 @@ export interface LabellerAction {
 }
 
 /** Moves mail with a declared `label` that is older than `olderThan` days to Trash. Starred mail stays. */
-export interface LabellerCleanupRule extends GmailCleanupRule {}
+export interface LabellerCleanupRule {
+  /** Gmail label name. Nested labels use `Parent/Child`. */
+  label: string
+  /** Age in whole days. */
+  olderThan: number
+}
 
 export interface LabellerOptions {
   labels: Readonly<Record<string, LabellerLabel>>
@@ -209,6 +216,9 @@ function validateOptions(options: LabellerOptions): void {
     if (!isRuntimeObject(rule) || !hasRuntimeType(rule.label, "string") || !Object.hasOwn(options.labels, rule.label)) {
       throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" refers to an undeclared label.`)
     }
+    if (/["\\\p{Cc}]/u.test(rule.label)) {
+      throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" needs a label name without quotes, backslashes, or control characters.`)
+    }
     if (!Number.isSafeInteger(rule.olderThan) || rule.olderThan < 1) {
       throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" needs olderThan as a positive whole number of days.`)
     }
@@ -221,7 +231,7 @@ function decision(message: GmailMessage, rules: Readonly<Record<string, Labeller
   }
 }
 
-type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, LabellerResult | LabellerDecision>
+type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, LabellerResult | LabellerDecision>
 export type LabellerAgent = ConfiguredAgentDefinition<LabellerOptions, LabellerDefinition>
 
 // defineAgent materializes the template once before consumers supply their options.
@@ -307,16 +317,51 @@ export interface CleanupLabellerOptions {
   runtime?: AgentRuntimeContext
 }
 
+export interface LabellerCleanupRuleResult {
+  /** IDs of the matching messages, at most 500 per rule. */
+  messageIds: string[]
+  /** Gmail search query of the rule. */
+  query: string
+  rule: string
+}
+
+export interface CleanupLabellerResult {
+  applied: boolean
+  rules: LabellerCleanupRuleResult[]
+}
+
+/** Gmail's largest search page. A later run finds the rest. */
+const cleanupLimit = 500
+const trashConcurrency = 5
+const messageList = v.object({ messages: v.optional(v.array(v.object({ id: v.string() }))) })
+
 /**
  * Runs the Labeller's `cleanup` rules on its Gmail Channel, at most 500 messages per rule.
  * Call it from a daily Schedule: each run continues with the matches that remain.
  */
-export async function cleanupLabeller(agent: LabellerAgent, options: CleanupLabellerOptions = {}): Promise<CleanupGmailChannelResult> {
+export async function cleanupLabeller(agent: LabellerAgent, options: CleanupLabellerOptions = {}): Promise<CleanupLabellerResult> {
   const channel = agent.channels?.gmail
   if (!channel) throw new TypeError("[vitehub] cleanupLabeller() expects an Agent that extends labeller.")
-  return await cleanupGmailChannel(channel, {
-    apply: options.apply === true && agent.options.dryRun === false,
-    rules: agent.options.cleanup,
-    ...(options.runtime ? { runtime: options.runtime } : {}),
-  })
+  const apply = options.apply === true && agent.options.dryRun === false
+  const rules = Object.entries(agent.options.cleanup)
+  if (!rules.length) return { applied: apply, rules: [] }
+  const client = await gmailClient(channel, options.runtime ? { runtime: options.runtime } : {})
+  const results: LabellerCleanupRuleResult[] = []
+  for (const [rule, { label, olderThan }] of rules) {
+    // Quotes keep spaces and nested label names exact.
+    const query = `label:"${label}" older_than:${olderThan}d -is:starred -in:trash`
+    const page = v.parse(messageList, await client({ method: "GET", path: "messages", query: { includeSpamTrash: true, maxResults: cleanupLimit, q: query } }))
+    const messageIds = (page.messages ?? []).map(message => message.id)
+    for (let start = 0; apply && start < messageIds.length; start += trashConcurrency) {
+      await Promise.all(messageIds.slice(start, start + trashConcurrency).map(async (id) => {
+        try { await client({ method: "POST", path: `messages/${encodeURIComponent(id)}/trash` }) }
+        catch (error) {
+          // A message deleted after the search needs no cleanup.
+          if (!isRuntimeRecord(error) || error.status !== 404) throw error
+        }
+      }))
+    }
+    results.push({ messageIds, query, rule })
+  }
+  return { applied: apply, rules: results }
 }

@@ -6,9 +6,9 @@ export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/queue/limits-and-errors",
+  docs: "https://vitehub.dev/docs/queue/diagnostics",
   codes: {
-    // Runtime errors. `send()`, `sendBatch()`, and `runQueue()` return them as `[error, undefined]`.
+    // Runtime errors. `send()`, `sendBatch()`, and `sendQueue()` return them as `[error, undefined]`.
     QUEUE_PROVIDER_FAILED: {
       why: ({ operation, provider }: { operation: QueueProviderOperation, provider: QueueProvider }) => `The ${provider} queue provider failed during ${operation}.`,
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again. Pass `idempotencyKey` on Vercel so that a retry does not enqueue the job two times.",
@@ -27,7 +27,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ binding }: { binding?: string }) => binding
         ? `The Cloudflare queue binding "${binding}" is not in the Worker env.`
         : "The Cloudflare queue client has no binding.",
-      fix: "The dev server has no local Queue delivery. Run the built Worker with `wrangler dev`, or deploy it. In a deployed Worker, add the binding to the Worker configuration.",
+      fix: "Run the Worker that `vite build` writes, with `wrangler dev` or a deployment, so its configuration has the generated binding. A custom Worker configuration must keep that binding. `vite dev` runs Queue jobs in the dev server and needs no binding.",
     },
     QUEUE_DEFINITION_LOAD_FAILED: {
       why: ({ queue }: { queue?: string }) => queue ? `The Queue Definition "${queue}" failed to load.` : "A Queue Definition failed to load.",
@@ -39,7 +39,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_DISABLED: {
       why: "Queue is disabled in this runtime.",
-      fix: "Add `hubQueue()` to the Vite config and do not set `queue: false`.",
+      fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host.",
     },
     QUEUE_INVALID_BINDING: {
       why: "The Cloudflare queue binding does not have `send()` and `sendBatch()`.",
@@ -51,11 +51,15 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_MISSING_QUEUE: {
       why: "A direct local queue client needs a `queue` name.",
-      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `getQueue()`.",
+      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `useQueue()`.",
+    },
+    QUEUE_LOCAL_MODE_MISMATCH: {
+      why: "The local Queue directory already has an engine with a different development error disclosure mode.",
+      fix: "Use `useQueue()` in the generated server runtime, or give the direct client a separate directory.",
     },
     QUEUE_MISSING_TOPIC: {
       why: "A direct Vercel queue client needs a `topic`.",
-      fix: "Pass `topic` to `createQueueClient()`, or use `getQueue()` for a discovered Queue Definition.",
+      fix: "Pass `topic` to `createQueueClient()`, or use `useQueue()` for a discovered Queue Definition.",
     },
     QUEUE_PROVIDER_MISMATCH: {
       why: ({ expected, provider }: { expected: QueueProvider, provider: QueueProvider }) => `The ${expected} Queue runtime received the ${provider} provider.`,
@@ -63,15 +67,15 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
-      fix: "Add `hubQueue()` to the Vite config, build the app, and run the built server.",
+      fix: "Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build the app and run the built server.",
     },
     QUEUE_VERCEL_SDK_INVALID: {
       why: "`@vercel/queue` does not have the client API that ViteHub uses.",
       fix: "Install a supported `@vercel/queue` version, or pass a `client` that has `send()` and `handleCallback()`.",
     },
     QUEUE_VERCEL_SDK_UNAVAILABLE: {
-      why: "`@vercel/queue` cannot be loaded.",
-      fix: "Add `@vercel/queue` to the app dependencies. Read `error.cause` for the import error.",
+      why: "`@vercel/queue` or `@vercel/functions` cannot be loaded.",
+      fix: "Add `@vercel/queue` and `@vercel/functions` to the app dependencies. Read `error.cause` for the import error.",
     },
 
     // Definition and build errors. ViteHub throws them when Vite reads the config or builds the app.

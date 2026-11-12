@@ -3,7 +3,8 @@ import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { admin } from "better-auth/plugins"
-import { generateSQLiteDrizzleJson, generateSQLiteMigration } from "drizzle-kit/api"
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/payload/sqlite"
+import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
@@ -11,10 +12,10 @@ import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
 import { authSqliteSchema } from "../src/auth/schema.ts"
 import { createAuthForRequest } from "../src/auth/server.ts"
-import { consoleMcpOAuth } from "../src/console/auth.ts"
+import { mcpOAuth } from "../src/auth/mcp.ts"
 
 const app = "https://app.example.com"
-const resource = `${app}/_vitehub/mcp`
+const resource = `${app}/mcp`
 const state = vi.hoisted(() => ({ databases: {} as Record<string, { db: unknown, schema: Record<string, unknown> }> }))
 vi.mock("@vite-hub/database/drizzle", () => ({ databases: state.databases }))
 
@@ -24,10 +25,10 @@ let client: ReturnType<typeof createClient>
 beforeAll(async () => {
   directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "vitehub-auth-database-"))
   client = createClient({ url: `file:${join(directory, "auth.db")}` })
-  // The migration that `vitehub db generate` writes for the contributed tables.
-  const statements = await generateSQLiteMigration(await generateSQLiteDrizzleJson({}), await generateSQLiteDrizzleJson({ ...authSqliteSchema }))
+  // The migration that `vitehub database generate` writes for the contributed tables.
+  const statements = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...authSqliteSchema }))
   for (const statement of statements) await client.execute(statement)
-  state.databases.default = { db: drizzle(client, { schema: authSqliteSchema }), schema: { ...authSqliteSchema } }
+  state.databases.default = { db: drizzle({ client: client, relations: defineRelations(authSqliteSchema) }), schema: { ...authSqliteSchema } }
 })
 
 afterAll(async () => {
@@ -64,11 +65,11 @@ describe("authDatabase()", () => {
     expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/user.additionalFields/)
   })
 
-  it("runs Better Auth, admin(), and Console MCP OAuth on the contributed tables", async () => {
+  it("runs Better Auth, admin(), and MCP OAuth on the contributed tables", async () => {
     const definition = defineAuth({
       database: authDatabase(),
       emailAndPassword: { enabled: true },
-      plugins: [admin(), ...consoleMcpOAuth({ resource })],
+      plugins: [admin(), ...mcpOAuth({ resource, loginPage: "/oauth" })],
     })
     const auth = createAuthForRequest(definition, new Request(app))
     const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {
@@ -93,6 +94,39 @@ describe("authDatabase()", () => {
     const keys = await auth.handler(new Request(`${app}/api/auth/jwks`))
     expect(keys.status).toBe(200)
     expect((await client.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
+  })
+
+  it("keeps the limiter counters of every Auth instance in the rate_limit table", async () => {
+    // A Worker build: the Auth Vite plugin marks it as a build, and there is no NODE_ENV.
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("NODE_ENV", "")
+    try {
+      const definition = defineAuth({ database: authDatabase(), emailAndPassword: { enabled: true } })
+      const signIn = async (address: string) => {
+        const request = new Request(`${app}/api/auth/sign-in/email`, {
+          body: JSON.stringify({ email: "nobody@example.com", password: "wrong-password" }),
+          headers: { "cf-connecting-ip": address, "content-type": "application/json", "origin": app, "x-forwarded-for": "203.0.113.1" },
+          method: "POST",
+        })
+        // srvx adds the Cloudflare client address to the Request as `ip`.
+        Object.defineProperty(request, "ip", { value: address })
+        // Each request builds its own Auth, as an Auth that follows `requestOrigin` does.
+        return (await createAuthForRequest(definition, request).handler(request)).status
+      }
+
+      const first = [await signIn("198.51.100.7"), await signIn("198.51.100.7"), await signIn("198.51.100.7"), await signIn("198.51.100.7")]
+      expect(first).toEqual([401, 401, 401, 429])
+      expect(await signIn("198.51.100.8")).toBe(401)
+      const rows = await client.execute("select key, count from rate_limit order by key")
+      expect(rows.rows).toEqual([
+        expect.objectContaining({ count: 3, key: "198.51.100.7|/sign-in/email" }),
+        expect.objectContaining({ count: 1, key: "198.51.100.8|/sign-in/email" }),
+      ])
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
   })
 
   it("names the missing tables instead of keeping users in memory", () => {

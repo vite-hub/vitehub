@@ -191,7 +191,7 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
   const runtime = extractAgentRuntime(file)
   if (!runtime) return undefined
-  const workflowPattern = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*$/
+  const workflowPattern = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*agentWorkflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*$/
   const match = workflowPattern.exec(runtime.raw || "")
   if (match) {
     return match[2] || fallbackName
@@ -418,7 +418,7 @@ function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNu
 }
 
 export function discoverWorkflowDefinitions(options:
-  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverDirs?: string[] }
+  | { mode?: "vite-suffix" | "standalone", rootDir: string, scanDirs?: string[], serverDirs?: string[] }
   | { mode: "server-workflows", scanDirs: string[] }
 ): DiscoveredWorkflowDefinition[] {
   if (options.mode === "server-workflows") {
@@ -442,6 +442,6 @@ export function discoverWorkflowDefinitions(options:
     ]),
     discoverFlatServerWorkflowDefinitions(serverScanDirs, "server-workflows"),
     folderDefinitions,
-    discoverAgentWorkflowDefinitions(roots, serverScanDirs),
+    options.mode === "standalone" ? [] : discoverAgentWorkflowDefinitions(roots, serverScanDirs),
   )
 }

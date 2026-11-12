@@ -39,8 +39,13 @@ export interface ViteHubConsoleOperationColumn {
   /** Dot path into each item of the result, such as `author.name` or `messages.0.body`. */
   key: string
   label: string
-  /** `datetime` shows a time in milliseconds since the epoch as a date. `excerpt` cuts a long text. */
-  format?: "datetime" | "excerpt"
+  /**
+   * `datetime` shows a time in milliseconds since the epoch as a relative date, such as `5m ago`. `excerpt` cuts a long
+   * text. `status` shows the value as a status with a colored dot, such as `Open`. `tones` picks the color of each value.
+   */
+  format?: "datetime" | "excerpt" | "status"
+  /** The color of each value of a `status` column, such as `{ open: "info", resolved: "success" }`. Other values are neutral. */
+  tones?: Readonly<Record<string, "error" | "info" | "neutral" | "success" | "warning">>
 }
 
 /** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
@@ -67,8 +72,9 @@ export interface ViteHubConsoleOperationView {
   kind: "operation-view"
   /**
    * Makes each row a link: `{path}` placeholders take values from the item and are URL-encoded, and `{path:path}` takes an
-   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link). Rows where
-   * `when.path` is not `when.equals` get none.
+   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link).
+   * `{path:href}` takes an app URL that is already encoded, with its query, as it is. Rows where `when.path` is not
+   * `when.equals` get none.
    */
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
   notice: string
@@ -208,8 +214,8 @@ export interface ViteHubConsoleServerExport {
   /** Named export of `module`. */
   export: string
   /**
-   * Owner package module specifier, for example `@vite-hub/email/runtime/console`. The host maps it to the module
-   * path that the application can import.
+   * Absolute path of the owner module, such as `ownModule(import.meta.url, "runtime/console")`, or an owner package
+   * specifier that the host maps to a module path that the application can import.
    */
   module: string
 }
@@ -345,8 +351,19 @@ export interface ViteHubConsoleDocumentCollection {
    * so the editor shows no body editor.
    */
   format?: "markdown" | "json" | "yaml"
+  /**
+   * Locales of a translated collection, source locale first, such as `["en", "es"]`. The editor offers a locale
+   * switcher, and the document actions take `locale`. Absent when the collection has no locales.
+   */
+  locales?: readonly string[]
   access: ViteHubConsoleDocumentAccess
 }
+
+/**
+ * How a translation compares with its source locale document on the draft. `current`: made from the source version on
+ * the draft. `stale`: the source changed since. `missing`: no translation yet.
+ */
+export type ViteHubConsoleDocumentTranslationState = "current" | "stale" | "missing"
 
 /** A Comark component that document bodies may use, such as `::alert`. */
 export interface ViteHubConsoleDocumentComponent {
@@ -413,6 +430,8 @@ export interface ViteHubConsoleDocumentSummary {
    * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
    */
   conflict?: ViteHubConsoleDocumentConflict
+  /** The state of each translation, by locale, in a collection with `locales`. */
+  translations?: Record<string, ViteHubConsoleDocumentTranslationState>
 }
 
 /** A document that changed on the published side and in the draft. */
@@ -489,6 +508,20 @@ export interface ViteHubConsoleDocument {
    * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
    */
   conflict?: ViteHubConsoleDocumentConflict
+  /** The locale of this version, in a collection with `locales`. With `fallback`, it is the source locale. */
+  locale?: string
+  /**
+   * Set when the requested locale has no translation yet, so this is the source locale version. `digest`, `path`, and
+   * `revision` are the source's: save the translation with `ifDigest: null`.
+   */
+  fallback?: true
+  /**
+   * The source locale version on the draft when this was read, in a collection with `locales`. Save a translation made
+   * from it with `sourceDigest: source.digest`.
+   */
+  source?: { path: string, digest: string }
+  /** The state of each translation of the document, by locale, in a collection with `locales`. */
+  translations?: Record<string, ViteHubConsoleDocumentTranslationState>
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */
@@ -506,6 +539,8 @@ export interface ViteHubConsoleRawDocument {
 export interface ViteHubConsoleDocumentPublishExpectation {
   id: string
   digest: string | null
+  /** The locale of the document, in a collection with `locales`. Defaults to the source locale. `schedule` takes the source locale only. */
+  locale?: string
 }
 
 export interface ViteHubConsoleDocumentRevision {
@@ -666,6 +701,11 @@ export interface ViteHubConsoleDocumentSessionInput {
   kind?: "view" | "edit"
   /** For `report`: true when the user typed or changed something since the last report. */
   input?: boolean
+  /**
+   * The locale open in the editor, in a collection with `locales`. Edit leases cover the source locale only, so a
+   * translation answers `available: false` and stays editable.
+   */
+  locale?: string
 }
 
 /** Who has one document open, after a session action. */
@@ -739,7 +779,7 @@ export interface ViteHubConsoleDocumentActions {
   setup?(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSetup>
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
   /** Reads the draft, or the published version with `ref: "published"`. Returns null when that ref has no such document. */
-  get(input: { collection: string, id: string, ref?: "draft" | "published" }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  get(input: { collection: string, id: string, ref?: "draft" | "published", locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
   /**
    * Signs a short token for the side browser of the editor, for this one document. The page at the document URL renders
    * the posted version of it in place of its draft: it receives a form POST to `url?parameter` whose `parameter` field
@@ -754,15 +794,17 @@ export interface ViteHubConsoleDocumentActions {
    */
   resolve(input: { path: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentResolved | null>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
-  raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
+  raw(input: { collection: string, id: string, revision?: string, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
    * `ifDigest: null` creates a document that must not exist yet. `session` is the tab token: while another tab holds
    * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`. `ifPublishedDigest` resolves a
-   * `conflict`: it names the published version that the person saw, which the draft then builds on.
+   * `conflict`: it names the published version that the person saw, which the draft then builds on. `sourceDigest`, on a
+   * translation, is the `source.digest` of the source version it was made from; without it, an
+   * existing translation keeps the version it records.
    */
-  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean, locale?: string, sourceDigest?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** `live: true` when the tab edits in the live room of the document, which holds the lease for everyone in it. */
-  remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
+  remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**
    * Publishes exactly the reviewed drafts. When a draft digest no longer matches, it publishes nothing and fails with
    * `WORKSPACE_CONFLICT` and `details.documents`: `{ id, expected, actual }` for each document that changed.
@@ -775,8 +817,8 @@ export interface ViteHubConsoleDocumentActions {
   schedule(input: { collection: string, at: string, expect: readonly ViteHubConsoleDocumentPublishExpectation[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
   unschedule(input: { collection: string, schedule: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
-  revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
-  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  revisions(input: { collection: string, id: string, cursor?: string, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
+  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** Report, take, or release this tab's session on one document, and read who else has it open. */
   session(input: ViteHubConsoleDocumentSessionInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPresence>
   /** Every open tab on a document the user may read, in every collection or in one `collection`. `session` marks this tab as `self`. */
@@ -835,6 +877,11 @@ export function readViteHubConsoleActionFailure(error: unknown): ViteHubConsoleA
 
 const sectionIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 const runtimeModulePattern = /^@vite-hub\/[a-z0-9-]+(?:\/[a-z0-9-]+)*$/
+
+/** An owner package specifier, or the absolute path of an owner module from `ownModule()`. */
+function isRuntimeModule(module: string): boolean {
+  return runtimeModulePattern.test(module) || /^(?:\/|[A-Za-z]:[\\/])/.test(module)
+}
 const runtimeExportPattern = /^[A-Za-z_$][\w$]*$/
 
 export function isViteHubConsoleSectionId(value: unknown): value is string {
@@ -863,8 +910,8 @@ export function isViteHubConsoleDocumentEditorSection<TOptions>(
 
 function checkedServerExport(section: { id: string }, value: ViteHubConsoleServerExport, role: string): ViteHubConsoleServerExport {
   const { export: name, module } = value
-  if (!runtimeModulePattern.test(module)) {
-    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path.`)
+  if (!isRuntimeModule(module)) {
+    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path or an absolute file path.`)
   }
   if (!runtimeExportPattern.test(name)) {
     throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} export ${JSON.stringify(name)} must be an identifier.`)

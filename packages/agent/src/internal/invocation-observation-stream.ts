@@ -1,9 +1,10 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
-import { hasRuntimeType } from "./runtime-type.ts"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, pendingCredentialUri, redactCredentialText } from "./credential-redaction.ts"
 import type { AuthorizationState, CredentialAssignmentState } from "./credential-redaction.ts"
 
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
+/** Lists the attributes that the journal shortened or dropped when it set the truncation flag. */
+export const AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE = "vitehub.observation.truncatedAttributes"
 
 /** Applies stream-safe redaction and buffering after the journal content policy. */
 export function createInvocationObservationStream(options: {
@@ -32,7 +33,7 @@ export function createInvocationObservationStream(options: {
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
     let retainedContent: string | undefined
-    if (hasRuntimeType(rawContent, "string")) {
+    if (typeof rawContent === "string") {
       let content = rawContent
       const precedingText = precedingMessageText.get(key) ?? ""
       if (!final && credentialTextMayContinue(content, precedingText)) {
@@ -60,7 +61,7 @@ export function createInvocationObservationStream(options: {
         else if (uri) {
           pending.entry = {
             ...pending.entry,
-            attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true },
+            attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true, [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: ["message.content"] },
           }
           redactingCredentialDeltas.set(key, { kind: "uri" })
           content = content.slice(0, uri.start) + uri.prefix + "[REDACTED]"
@@ -85,7 +86,7 @@ export function createInvocationObservationStream(options: {
             if (retainedContent.length >= maxPendingCredentialCharacters) {
               pending.entry = {
                 ...pending.entry,
-                attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true },
+                attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true, [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: ["message.content"] },
               }
               content += "[REDACTED]"
               redactingCredentialDeltas.set(key, { kind: "unquoted" })
@@ -251,7 +252,7 @@ export function createInvocationObservationStream(options: {
   return {
     append(entry: TraceEventLogEntry): void {
       const resultText = entry.attributes?.["result.text"]
-      if (entry.name === "agent.invocation.finish" && hasRuntimeType(resultText, "string")) {
+      if (entry.name === "agent.invocation.finish" && typeof resultText === "string") {
         entry.attributes = { ...entry.attributes, "result.text": redactCredentialText(resultText) }
       }
       if (entry.name === "agent.message.delta") {

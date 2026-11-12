@@ -4,15 +4,13 @@ import { createInterface } from "node:readline/promises"
 import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
-import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { isSecretInspectionKey, redactInspectionText, redactedInspectionValue } from "@vite-hub/internal/inspect"
 import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { AnyOperation, OperationFailure, OperationResult } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
 
 type JsonSchema = Record<string, unknown>
 
@@ -361,51 +359,6 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
   return { failure: failureOf(error, 503) }
 }
 
-/**
- * Posts a signed dispatch to the route of an operation on a deployed app. Returns undefined when no dispatch key is set,
- * so the command falls back to the RPC with Console credentials.
- */
-async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
-  const base = new URL(url)
-  let key: string | undefined
-  try {
-    key = await resolveViteHubDispatchKey(context.env)
-  }
-  catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
-  }
-  if (!key) return undefined
-  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
-  const target = new URL(route.slice(1), base)
-  const body = JSON.stringify(input ?? {})
-  const actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
-  const headers = new Headers({ accept: "application/json", "content-type": "application/json", ...await signViteHubDispatch({ actor, body, key, operation }) })
-  if (context.env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", context.env.CF_ACCESS_CLIENT_ID)
-  if (context.env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", context.env.CF_ACCESS_CLIENT_SECRET)
-  let response: Response
-  let text: string
-  try {
-    response = await (context.fetch ?? fetch)(target.href, { body, headers, method: "POST", redirect: "manual", signal: AbortSignal.timeout(timeout ?? 30_000) })
-    text = await response.text()
-  }
-  catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${redactInspectionText(error instanceof Error ? error.message : String(error))}` }), 502), ok: false }
-  }
-  let json: unknown
-  try {
-    // Share inspection's secret-key policy without its output size limits.
-    json = text ? JSON.parse(text, (key, value: unknown) => isSecretInspectionKey(key) ? redactedInspectionValue : typeof value === "string" ? redactInspectionText(value) : value) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && json !== undefined) return { ok: true, value: json }
-  const message = Reflect.get(Object(json), "message")
-  const failure = failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request failed with HTTP ${response.status}${typeof message === "string" && message ? `: ${message}` : "."}` }), response.status)
-  if (response.status === 401) failure.fix = "Set VITEHUB_DISPATCH_KEY to the key of the app (`vitehub secret derive vitehub:dispatch` prints it), and keep the clock of this machine correct."
-  return { ...failure, ok: false }
-}
-
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
   const flags = flagsOf(operation)
   const { command } = operationCliPath(operation)
@@ -446,8 +399,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         confirmed = true
       }
       // The server parses the original input once and verifies confirmation against that result.
-      const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
-      const result = dispatch ?? await callOperation({
+      const result = await callOperation({
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
@@ -465,15 +417,67 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
   }
 }
 
-/** One namespace per operation namespace, with a command for each operation. */
+/** `vitehub <namespace> <group> <command>`: one feature that runs the commands whose name starts with `<group> `. */
+function groupOf(namespace: string, name: string, commands: readonly ViteHubCliFeature[]): ViteHubCliFeature {
+  const usage = `vitehub ${namespace} ${name} <${commands.map(command => command.name).join("|")}> [args...]`
+  const help = () => {
+    const width = Math.max(...commands.map(command => command.name.length))
+    return [
+      `Usage: ${usage}`,
+      "",
+      "Commands:",
+      ...commands.map(command => `  ${command.name.padEnd(width)}  ${command.description ?? ""}`.trimEnd()),
+      "",
+      `Run \`vitehub ${namespace} ${name} <command> --help\` for the options of one command.`,
+      "",
+    ].join("\n")
+  }
+  return {
+    description: `${commands.map(command => command.name).join(", ")}.`,
+    name,
+    async run(args, context) {
+      const [commandName, ...rest] = args
+      if (commandName === "-h" || commandName === "--help") {
+        context.stdout.write(help())
+        return 0
+      }
+      const command = commands.find(candidate => candidate.name === commandName)
+      if (!command) {
+        context.stderr.write(`${commandName ? `Unknown ViteHub CLI command: ${namespace} ${name} ${commandName}\n` : ""}${help()}`)
+        return 1
+      }
+      return await command.run(rest, context) ?? 0
+    },
+    usage,
+  }
+}
+
+/**
+ * One namespace per operation namespace, with a command for each operation. A command name with a space, such as
+ * `jobs list`, becomes `list` in the `jobs` group: `vitehub queue jobs list`.
+ */
 export function createOperationNamespaces(operations: readonly AnyOperation[]): ViteHubCliCommandNamespace[] {
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
+  const groups = new Map<string, { commands: ViteHubCliFeature[], name: string, namespace: string }>()
   for (const operation of operations) {
-    const { namespace: name } = operationCliPath(operation)
+    const { command, namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
-    namespace.features.push(featureOf(operation))
-    if (operation.cli?.default) namespace.defaultFeature = operationCliPath(operation).command
+    const space = command.indexOf(" ")
+    if (space < 0) namespace.features.push(featureOf(operation))
+    else {
+      const groupName = command.slice(0, space)
+      const key = `${name} ${groupName}`
+      const group = groups.get(key) ?? { commands: [], name: groupName, namespace: name }
+      group.commands.push({ ...featureOf(operation), name: command.slice(space + 1) })
+      groups.set(key, group)
+    }
+    if (operation.cli?.default) namespace.defaultFeature = command
     namespaces.set(name, namespace)
+  }
+  for (const group of groups.values()) {
+    const namespace = namespaces.get(group.namespace)!
+    // An operation command with the group name wins, as a hand-written command wins over a generated one.
+    if (!namespace.features.some(feature => feature.name === group.name)) namespace.features.push(groupOf(group.namespace, group.name, group.commands))
   }
   return [...namespaces.values()]
 }

@@ -1,16 +1,20 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
-    copy: [{ from: "src/host-declarations.d.ts", to: "dist" }],
+    ...packDefaults,
+    copy: [
+      { from: "src/host-declarations.d.ts", to: "dist" },
+      { from: "src/bun-sqlite.d.ts", to: "dist" },
+    ],
     deps: {
       neverBundle: [
         "better-auth",
         "vue",
         "vite",
+        "#vitehub/auth/abilities",
         "#vitehub/auth/definition",
         "#app",
         "#vitehub/env/server",
@@ -34,13 +38,16 @@ export default defineConfig({
       },
     }],
     entry: [
+      "src/abilities.ts",
       "src/agent.ts",
       "src/cli.ts",
       "src/runtime/console.ts",
       "src/console.ts",
       "src/console-runtime.ts",
       "src/database.ts",
+      "src/mcp.ts",
       "src/index.ts",
+      "src/runtime/empty-abilities.ts",
       "src/runtime/empty-definition.ts",
       "src/runtime/nuxt.ts",
       "src/runtime/vue-nuxt.ts",
@@ -55,15 +62,10 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
-          Object.entries(exports).filter(([key]) => !["./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
+          Object.entries(exports).filter(([key]) => !["./runtime/empty-abilities", "./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
         ))
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

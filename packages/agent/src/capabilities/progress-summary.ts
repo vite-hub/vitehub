@@ -6,7 +6,6 @@ import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeUiMessageStreamChunk } from "../stream-output.ts"
@@ -100,7 +99,7 @@ const defaultProgressSummaryTemplate = [
 const maxProgressSummaryUserTextLength = 2_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && hasRuntimeType(value, "object")
+  return value !== null && typeof value === "object"
 }
 
 function eventType(value: unknown): string {
@@ -110,7 +109,7 @@ function eventType(value: unknown): string {
 function eventToolName(value: unknown): string {
   if (!isRecord(value)) return ""
   const name = value.toolName ?? value.name
-  return hasRuntimeType(name, "string")
+  return typeof name === "string"
     ? name.replace(/^tool[-_]/, "").replace(/[-_]+/g, " ").trim()
     : ""
 }
@@ -118,14 +117,14 @@ function eventToolName(value: unknown): string {
 function eventToolId(value: unknown): string {
   if (!isRecord(value)) return ""
   const id = value.toolCallId ?? value.id
-  return hasRuntimeType(id, "string") ? id : ""
+  return typeof id === "string" ? id : ""
 }
 
 function firstUserText(messages: Message[], input: AgentRunInput): string {
   const message = messages.findLast(message => message.role === "user")
   const text = message
     ? getMessageText(message)
-    : hasRuntimeType(input.prompt, "string")
+    : typeof input.prompt === "string"
       ? input.prompt
       : ""
   const sanitized = text
@@ -136,7 +135,7 @@ function firstUserText(messages: Message[], input: AgentRunInput): string {
 }
 
 function cleanSummary(value: unknown, maxLength: number): string | undefined {
-  const raw = hasRuntimeType(value, "string") ? value : ""
+  const raw = typeof value === "string" ? value : ""
   const summary = raw
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+/g, " ")
@@ -165,10 +164,10 @@ async function renderProgressSummaryTemplate(
   options: ProgressSummaryOptions,
   input: ProgressSummaryTemplateInput,
 ): Promise<string> {
-  if (hasRuntimeType(options.template, "function")) return await options.template(input)
+  if (typeof options.template === "function") return await options.template(input)
   const variables: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(options.variables || {})) {
-    variables[name] = hasRuntimeType(value, "function")
+    variables[name] = typeof value === "function"
       ? await value(input)
       : value
   }
@@ -200,7 +199,6 @@ function progressSummaryAdapterRunContext(
     throw agentDiagnostics.AGENT_R0156({ message: "[vitehub] progressSummary({ driver }) requires an agent runtime context." })
   }
   return markAuxiliaryMessageChannelInstructionContext({
-    actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: progressSummaryDriverInput(input, prompt),
@@ -222,7 +220,6 @@ function progressSummaryRunContext(
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
   return {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: progressSummaryDriverInput(input, prompt),
     invoker: context.invoker,
@@ -311,9 +308,9 @@ async function generateProgressSummary(
   if (options.execute) {
     const result = await options.execute(input)
     return cleanSummary(
-      hasRuntimeType(result, "string")
+      typeof result === "string"
         ? result
-        : result && hasRuntimeType(result, "object")
+        : result && typeof result === "object"
           ? result.summary
           : undefined,
       maxLength,
@@ -617,7 +614,7 @@ function isStreamResult(value: unknown): value is {
     && (
       "fullStream" in value
       || "stream" in value
-      || hasRuntimeType(value.toUIMessageStream, "function")
+      || typeof value.toUIMessageStream === "function"
     )
 }
 

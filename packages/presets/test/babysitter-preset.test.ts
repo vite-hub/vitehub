@@ -12,13 +12,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const createProviderRuntime = vi.hoisted(() => vi.fn());
+const threadComment = { databaseId: 501, body: "Review feedback", author: { login: "reviewer", __typename: "User" }, createdAt: "2026-11-07T00:00:00Z", url: "https://github.com/acme/app/pull/12#discussion_r501" };
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }));
 vi.mock("../../agent/src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
 }));
 
-vi.mock("../../agent/src/server/github-repair.ts", async importOriginal => ({
-  ...await importOriginal<typeof import("../../agent/src/server/github-repair.ts")>(),
+vi.mock("../src/github/repair.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/github/repair.ts")>(),
   prepareGitHubRepairBase: vi.fn(async () => {}),
 }));
 const sandboxDefinitions = vi.hoisted(() => vi.fn());
@@ -39,24 +40,26 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
   return { ...actual, resolveSandbox };
 });
 
-import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, getAgentFromRegistry } from "@vite-hub/agent";
+import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
-import type { BabysitterPlacement } from "../src/babysitter.ts";
+import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
 import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
-import { getAgentLayerOptions } from "../../agent/src/agent-layers.ts";
+import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
 import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
-import * as githubRuns from "../../agent/src/server/github-pull-requests.ts";
-import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../../agent/src/server/github-repair.ts";
-import * as githubInstalls from "../../agent/src/server/github-install.ts";
+import * as githubRuns from "../src/github/pull-requests.ts";
+import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
+import * as githubInstalls from "../src/github/install.ts";
 import { agentInvocationId } from "@vite-hub/agent";
-import type { GitHubHost } from "@vite-hub/agent/server/github";
+import type { GitHubHost } from "../src/github/index.ts";
 import { RateLimitedError } from "@vite-hub/forge";
-import { githubError, githubForge, type GitHubTestRequest } from "../../agent/test/fixtures/github-forge.ts";
+import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`;
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -159,6 +162,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         stderr: "",
       };
     if (args.includes("graphql")) {
+      if (text.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { viewer: { login: "repair-bot" }, node: { comments: { nodes: [], pageInfo } } } }), stderr: "" };
       if (abortOperation && !text.includes("reviewThreads")) {
         checkoutController.abort(new DOMException("Checkout cancelled", "AbortError"));
         request?.signal?.throwIfAborted();
@@ -192,6 +196,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     }
     if (text.includes("-X PATCH")) return { stdout: JSON.stringify(pr()), stderr: "" };
     const path = args.find((arg) => arg.startsWith("repos/")) ?? "";
+    if (/\/comments\/\d+\/replies$/.test(path)) return { stdout: JSON.stringify({ id: 900, body: args.find(arg => arg.startsWith("body="))?.slice(5) ?? "", user: { login: "repair-bot", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r900" }), stderr: "" };
     if (/^repos\/acme\/app\/branches\/[^/]+$/.test(path)) return { stdout: JSON.stringify({ name: pr().base.ref, protected: false }), stderr: "" };
     if (path.includes("pulls?state=all&head="))
       return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
@@ -317,8 +322,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   const events = vi.fn();
   const agent = agentWithColocatedInstructions(defineAgent({
     ...(discovered ? {} : { name: "babysitter" }),
-    preset: "babysitter",
-    presets: { babysitter },
+    extends: babysitter,
     // SAFETY: exercise preservation of a valid custom capability across the preset boundary.
     capabilities: [defineCapability({
       id: "internal-check",
@@ -336,7 +340,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
-    agent: discovered ? await getAgentFromRegistry("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
+    agent: discovered ? await loadAgent("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
     ...(discovered ? { agentName: preset.agentName ?? "babysitter" } : {}),
     github,
     inboxPath: preset.inboxPath ?? join(root, "inbox.sqlite"),
@@ -422,7 +426,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
           }
           if (preset.resolveAfterPush) {
             await runtime.inbox.ingest("push-before-resolution", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: pr() });
-            const result = await client.callTool({ name: "resolveReviewThread", arguments: { id: preset.resolveAfterPush } });
+            const result = await client.callTool({ name: "resolveReviewThread", arguments: { id: preset.resolveAfterPush, outcome: "fixed" } });
             expect(result.isError, JSON.stringify(result)).not.toBe(true);
           }
         } finally {
@@ -467,7 +471,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     await Promise.all(tracked);
     if (expectedError) {
       expect(errors).toHaveBeenCalledExactlyOnceWith(expectedError, expect.anything(), expect.anything());
-    } else if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure instanceof RateLimitedError)
+    } else if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure.name === "ForgeNetworkError" || checkoutFailure instanceof RateLimitedError)
       expect(errors.mock.calls).toEqual([]);
     else expect(errors).toHaveBeenCalledOnce();
   }
@@ -957,10 +961,10 @@ describe("Babysitter preset runtime", () => {
     f.command.mockImplementation(async (args, request) => {
       const query = args.join(" ");
       if (query.includes("reviewThreads")) return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
-        nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
+        nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [threadComment], pageInfo: { hasNextPage: false, endCursor: null } } }],
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
+      if (query.includes("node(id:") && !query.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         resolved = true;
         return { stdout: JSON.stringify({ data: { resolveReviewThread: { thread: { id: "PRRT_1" } } } }), stderr: "" };
@@ -1071,6 +1075,40 @@ describe("Babysitter preset runtime", () => {
       expect(f.command.mock.calls.some(([args]) => args.includes(`repos/acme/app/pulls/12/merge-async/${uuid}`))).toBe(true);
       expect(createProviderRuntime).not.toHaveBeenCalled();
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("polls a pending GitHub merge less often as it ages and stops after 30 minutes", async () => {
+    // vite-hub/vitehub#3350: GitHub answered "pending" for one merge request for 19 hours, read every 30 seconds.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    const uuid = "9e6273b9-0000-4000-8000-000000000000";
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/pulls/12/merge-async/${uuid}`)) throw new Error("gh: Merge result unavailable (HTTP 502)");
+      if (args.includes("repos/acme/app/pulls/12/merge-async")) return { stdout: JSON.stringify({ status: "pending", details: { uuid, expected_head_sha: "a".repeat(40), merge_action: "direct_merge", merge_method: "squash" } }), stderr: "" };
+      return command(args, request);
+    });
+    const requests = () => f.command.mock.calls.filter(([args]) => args.includes("PUT")).length;
+    const wait = async () => (await f.runtime.inbox.get("acme/app", 12))!.wait!;
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      expect((await wait()).retryAt).toBe(started + 30_000);
+      vi.setSystemTime(started + 10 * 60_000);
+      await f.reconcile();
+      expect((await wait()).retryAt).toBe(Date.now() + 5 * 60_000);
+      const polled = requests();
+      vi.setSystemTime(started + 31 * 60_000);
+      await f.reconcile();
+      expect(requests()).toBe(polled);
+      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toBeUndefined();
+      expect((await wait()).retryAt).toBe(Date.now() + 2 * 60 * 60_000);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.lastResult).toMatch(/still pending after 31 minutes/);
+      vi.setSystemTime(started + 31 * 60_000 + 2 * 60 * 60_000 + 1);
+      await f.reconcile();
+      expect(requests()).toBe(polled + 1);
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
 
   it.each([404, 502])("reconciles an unavailable asynchronous result with HTTP %s", async status => {
@@ -1538,6 +1576,7 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { admission: { inputTokens: { hourly: -1 } } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { admission: { paused: "yes" as unknown as boolean } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { placement: {} as BabysitterPlacement } })).toThrow(/placement must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { placement: { place: () => ({ release() {} }), admitted: 2 as unknown as () => number } } })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["vercel[bot]"], noProgressBudget: false, deferWhilePending: false, install: { command: "pnpm", args: ["install"] } } })).not.toThrow();
   });
 
@@ -1622,6 +1661,38 @@ describe("Babysitter preset runtime", () => {
       await botReview(303);
       await f.reconcile();
       expect(f.passes).toHaveLength(3);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("retries a pass after a network error instead of failing it", async () => {
+    // 2026-10-18: GitHub App token timeouts and dropped TLS connections showed up as failed Babysitter runs.
+    const f = await fixture();
+    f.failCheckout(Object.assign(new Error("Request to https://api.github.com/graphql failed: fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }), { name: "ForgeNetworkError" }));
+    try {
+      await f.reconcile();
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current).toMatchObject({ status: "ready", lastResult: "Network error; retrying the pass." });
+      expect(current?.nextAt).toBeGreaterThan(Date.now());
+      expect(current?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.events.mock.calls.some(([name, properties]) => name === "babysitter.owner.deferred" && properties.reason === "network")).toBe(true);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("reads a pull request again after a 502 from GitHub", async () => {
+    const f = await fixture();
+    const command = f.command.getMockImplementation()!;
+    let failures = 1;
+    f.command.mockImplementation(async (args, request) => {
+      if (failures > 0 && args.length === 2 && args[1] === "repos/acme/app/pulls/12") {
+        failures--;
+        throw new Error("HTTP 502: Bad Gateway");
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(failures).toBe(0);
+      expect(f.passes).toHaveLength(1);
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1839,12 +1910,12 @@ describe("Babysitter preset runtime", () => {
   it("parks a malformed lockfile without retrying unchanged installation inputs", async () => {
     const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
-    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: {}\n");
+    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: [\n");
     try {
       await f.reconcile("babysitter.install.failed");
       const waiting = await f.runtime.inbox.get("acme/app", 12);
       expect(waiting?.status).toBe("waiting");
-      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("Source contains multiple documents") });
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("Flow sequence") });
       expect(waiting?.wait?.retryAt).toBeUndefined();
       expect(f.passes).toHaveLength(0);
       const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 600_000);
@@ -1914,7 +1985,7 @@ describe("Babysitter preset runtime", () => {
 
   it("preserves the Babysitter mention allowlist through Agent layer configuration", () => {
     const agent = defineAgent({ extends: babysitter, options: { mentionAllowlist: [" Stefina ", "other-user"] } });
-    expect(getAgentLayerOptions(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
+    expect(agentSettings(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
     expect(agent.options.mentionAllowlist).toEqual([" Stefina ", "other-user"]);
   });
 
@@ -2135,7 +2206,7 @@ describe("Babysitter preset runtime", () => {
 
   it("selects the Claude Code driver", () => {
     const agent = defineAgent({ extends: babysitter, options: { driver: "claude-code" } });
-    expect(getAgentLayerOptions(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
+    expect(agentSettings(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
     expect(agent.options.driver).toBe("claude-code");
   });
 
@@ -2155,7 +2226,7 @@ describe("Babysitter preset runtime", () => {
       const run = await createRun.mock.results[0]!.value;
       expect(run.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`),
       }]);
     } finally {
       await f.runtime.inbox.close();
@@ -2617,16 +2688,16 @@ describe("Babysitter preset runtime", () => {
     const head = "a".repeat(40);
     const f = await fixture(false, false, { result: { disposition: "park", text: "Reviewed this head.", reviewedHead: head,
       wait: { kind: "checks", headSha: head } } });
-    f.choose("resolveReviewThread", { id: "PRRT_1" });
+    f.choose("resolveReviewThread", { id: "PRRT_1", outcome: "fixed" });
     let resolved = alreadyResolved;
     const command = f.command.getMockImplementation()!;
     f.command.mockImplementation(async (args, request) => {
       const query = args.join(" ");
       if (query.includes("reviewThreads")) return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
-        nodes: [{ id: "PRRT_1", isResolved: false, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
+        nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [threadComment], pageInfo: { hasNextPage: false, endCursor: null } } }],
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
+      if (query.includes("node(id:") && !query.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         resolved = true;
         return { stdout: JSON.stringify({ data: { resolveReviewThread: { thread: { id: "PRRT_1" } } } }), stderr: "" };
@@ -2645,7 +2716,7 @@ describe("Babysitter preset runtime", () => {
   });
 
   it.each([false, true])("keeps owned thread resolutions while fencing external reopens=%s", async reopen => {
-    const f = await fixture(false, false, { operationCount: 2, operationInputs: [{ id: "PRRT_1" }, { id: "PRRT_2" }],
+    const f = await fixture(false, false, { activityBarrier: Promise.resolve(), operationCount: 2, operationInputs: [{ id: "PRRT_1", outcome: "fixed" }, { id: "PRRT_2", outcome: "fixed" }],
       ...(reopen ? { expectedOperationErrorAt: 1 } : {}) });
     f.choose("resolveReviewThread");
     const resolved = new Set<string>();
@@ -2653,10 +2724,16 @@ describe("Babysitter preset runtime", () => {
     f.command.mockImplementation(async (args, request) => {
       const query = args.join(" ");
       if (query.includes("reviewThreads")) return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
-        nodes: ["PRRT_1", "PRRT_2"].map(id => ({ id, isResolved: resolved.has(id), comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } })),
+        nodes: ["PRRT_1", "PRRT_2"].map(id => ({ id, isResolved: resolved.has(id), comments: { nodes: [threadComment], pageInfo: { hasNextPage: false, endCursor: null } } })),
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: args.find(arg => arg.startsWith("id="))!.slice(3), pullRequest: { id: "PR_12" }, isResolved: false } } }), stderr: "" };
+      if (query.includes("node(id:") && !query.includes("ReviewThreadOutcomeComments")) return { stdout: JSON.stringify({ data: { node: { id: args.find(arg => arg.startsWith("id="))!.slice(3), pullRequest: { id: "PR_12" }, isResolved: false } } }), stderr: "" };
+      if (query.includes("/comments/501/replies")) {
+        await f.runtime.inbox.ingest(`owned-answer-${resolved.size}`, "pull_request_review_comment", {
+          repository: { full_name: "acme/app" }, action: "created", pull_request: f.pr(),
+          comment: { id: 900 + resolved.size, body: args.find(arg => arg.startsWith("body="))!.slice(5), user: { login: "repair-bot", type: "Bot" } },
+        });
+      }
       if (query.includes("resolveReviewThread(input:")) {
         const id = args.find(arg => arg.startsWith("id="))!.slice(3);
         resolved.add(id);
@@ -3053,6 +3130,35 @@ describe("Babysitter preset runtime", () => {
       expect(sandboxDefinitions).not.toHaveBeenCalled();
       expect(install).toHaveBeenCalled();
       expect(release).toHaveBeenCalledOnce();
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  });
+
+  it("waits for placement capacity instead of failing the pass", async () => {
+    const place = vi.fn(() => { throw new BabysitterPlacementCapacityError("All hosts are full.", 45_000); });
+    const f = await fixture(false, false, { placement: { place } });
+    try {
+      const before = Date.now();
+      await f.reconcile();
+      expect(place).toHaveBeenCalledOnce();
+      expect(f.passes).toHaveLength(0);
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current).toMatchObject({ status: "waiting", lease: null, wait: { kind: "external", reason: "All hosts are full.", reasonCode: "placement-capacity" } });
+      expect(current?.wait?.retryAt).toBeGreaterThanOrEqual(before + 45_000);
+      expect(current?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.placement.waiting", expect.objectContaining({ reason: "placement-capacity" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([[0, 0], [1, 1]])("claims no more PRs than placement admits (%i admitted)", async (admitted, placed) => {
+    const release = vi.fn();
+    const place = vi.fn(() => ({ release }));
+    const f = await fixture(false, false, { placement: { place, admitted: async () => admitted } });
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
+    try {
+      await f.reconcile();
+      expect(place).toHaveBeenCalledTimes(placed);
+      expect(f.passes).toHaveLength(placed);
+      if (!placed) expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("ready");
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 

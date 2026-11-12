@@ -1,26 +1,35 @@
-import { readFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
-import { createDocsSearch, docsManifestPages } from "../src/navigation.ts"
+import { createDocsSearch, docsIndexedPages, docsUnindexedSearchSections } from "../src/navigation.ts"
 
 import type { DocsSearchSection } from "../src/types.ts"
 
 // The vitehub.dev content is the real index: about 2,800 records, most of them headings and error codes.
 const contentDir = resolve(import.meta.dirname, "../../../docs/content")
+const examplesDir = resolve(import.meta.dirname, "../../../docs/app/examples")
 let search: ReturnType<typeof createDocsSearch>
 
 beforeAll(async () => {
   const manifest = createDocsManifest({ dir: contentDir, base: "/docs" })
-  const parse = createDocsParser()
+  const examples = Object.fromEntries(await Promise.all(
+    (await readdir(examplesDir)).filter(file => file.endsWith(".vue")).map(async file => [
+      file.slice(0, -4),
+      await readFile(resolve(examplesDir, file), "utf8"),
+    ] as const),
+  ))
+  const parse = createDocsParser({ examples })
   const records: DocsSearchSection[] = []
-  for (const page of docsManifestPages(manifest)) {
+  // As in the site search, a page that search engines skip, such as a generated diagnostic code page, has one record.
+  for (const page of docsIndexedPages(manifest)) {
     const { nodes } = await parse(await readFile(resolve(contentDir, page.file), "utf8"))
     records.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
   }
+  records.push(...docsUnindexedSearchSections(manifest))
   search = createDocsSearch(records)
 }, 60_000)
 
@@ -72,6 +81,19 @@ describe("docs search on the vitehub.dev content", () => {
     expect(ids("schedle")[0]).toBe("/docs/schedule")
     expect(ids("chatgtp")[0]).toBe("/docs/connections/chatgpt")
     expect(ids("sched")[0]).toBe("/docs/schedule")
+  })
+
+  it("finds a page by its keywords, after the pages that have the word in their title", () => {
+    const records: DocsSearchSection[] = [
+      { id: "/annotate", title: "Annotate", titles: [], level: 1, content: "Marks on screenshots.", keywords: ["image annotation", "PR evidence"] },
+      { id: "/evidence", title: "Evidence", titles: [], level: 1, content: "" },
+      { id: "/guide#pr", title: "Open a PR", titles: ["Guide"], level: 2, content: "Write the evidence." },
+    ]
+    const local = createDocsSearch(records)
+    expect(local("annotation", 5).map(record => record.id)).toEqual(["/annotate"])
+    // A typo in a keyword still finds it, like a typo in a title.
+    expect(local("evidnce", 5).map(record => record.id)).toEqual(["/evidence", "/annotate"])
+    expect(local("pr evidence", 5).map(record => record.id)[0]).toBe("/annotate")
   })
 
   it("needs every word and returns nothing for an unknown word", () => {

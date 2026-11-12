@@ -3,7 +3,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { frameAnswer, frameError, frameHop, framePageUrl } from "./preview-frame.ts"
-import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+import { contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter } from "./preview-parameters.ts"
 
 /** Name of the cookie that carries the Content preview token. */
 export const contentPreviewCookieName = "vitehub-content-preview"
@@ -23,7 +23,12 @@ const frameTokenVersion = "f1"
 const frameTokenPurpose = "vitehub.content.preview.frame"
 const frameTokenPattern = /^f1\.(\d{1,12})\.([\w-]{1,1400})\.([\w-]{43})$/
 
-export { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+// A ref token signs one ref of one Source. Its purpose and shape differ from the other tokens, so none passes as another.
+const refTokenVersion = "r1"
+const refTokenPurpose = "vitehub.content.preview.ref"
+const refTokenPattern = /^r1\.(\d{1,12})\.([\w-]{1,600})\.([\w-]{43})$/
+
+export { contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter } from "./preview-parameters.ts"
 /** The largest preview frame form, in bytes. It carries a whole Markdown document. */
 const maximumFrameBytes = 1024 * 1024
 
@@ -355,6 +360,62 @@ async function verifyFrameToken(key: HmacKey, token: string): Promise<{ expires:
   return scope && unexpired(expires) ? { expires, ...scope } : undefined
 }
 
+function refTokenMessage(expires: number, scope: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`${refTokenPurpose}.${refTokenVersion}.${expires}.${scope}`)
+}
+
+/**
+ * Sign a token for one ref of one `github()` Source, for `content.sources.sign()`. It uses the key of
+ * `content.preview`, `VITEHUB_CONTENT_KEY`.
+ */
+export async function signContentRefToken(source: string, ref: string, maxAge: number = defaultMaxAge): Promise<ContentPreviewToken> {
+  if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
+    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.sign() maxAge must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+  }
+  const key = await signingKey()
+  if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
+  const scope = encodeScope(source, ref)
+  const expires = Math.floor(Date.now() / 1000) + maxAge
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, refTokenMessage(expires, scope))
+  return { token: `${refTokenVersion}.${expires}.${scope}.${base64url(signature)}`, expiresAt: new Date(expires * 1000) }
+}
+
+/**
+ * How a request may read a ref of a `github()` Source without the public rule: `console` with a valid preview cookie
+ * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token` for this Source and ref. Undefined
+ * otherwise, and when the signing key is missing or invalid.
+ */
+export async function contentRefGrant(request: Request, source: string, ref: string): Promise<"console" | "token" | undefined> {
+  const cookies = cookieValues(request.headers.get("cookie") ?? undefined, contentPreviewCookieName)
+  let token: string | null = null
+  try {
+    token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+  }
+  catch {
+    // A request without an absolute URL carries no link token.
+  }
+  if (!cookies.length && !token) return
+  let key: HmacKey | undefined
+  try {
+    key = await signingKey()
+  }
+  catch {
+    return
+  }
+  if (!key) return
+  for (const value of cookies) {
+    if (await verifyToken(key, value) !== undefined) return "console"
+  }
+  const match = token ? refTokenPattern.exec(token) : null
+  if (!match) return
+  const expires = Number(match[1])
+  const signature = fromBase64url(match[3]!)
+  if (signature.byteLength !== 32) return
+  if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) return
+  const scope = decodeScope(match[2]!)
+  return scope?.collection === source && scope.id === ref && unexpired(expires) ? "token" : undefined
+}
+
 function cookie(value: string, maxAge: number, secure: boolean): string {
   return `${contentPreviewCookieName}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`
 }
@@ -607,15 +668,25 @@ function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | unde
   }
 }
 
+/** Whether a URL can carry `name` in its query. A `%` counts, since percent-encoding can spell the name another way. */
+function mayCarryParameter(url: string, name: string): boolean {
+  return url.includes(name) || url.includes("%")
+}
+
 /**
  * Whether a request asks for published reads: its URL has `?vitehub-content-published`, or its `Referer` is a page of
  * the same origin with it, such as a fetch from the page in the Published view. It only takes draft access away.
  */
 function publishedRequest(event: ContentPreviewEvent): boolean {
+  // Most requests carry the parameter in neither their URL nor their referer, so they skip parsing both.
+  const raw = eventParts(event).url
+  const text = raw instanceof URL ? raw.href : raw
+  const referer = requestHeader(event, "referer")
+  if (String(text) === text && !mayCarryParameter(text, contentPreviewPublishedParameter)
+    && (!referer || !mayCarryParameter(referer, contentPreviewPublishedParameter))) return false
   const url = requestUrl(event)
   if (!url) return false
   if (url.searchParams.has(contentPreviewPublishedParameter)) return true
-  const referer = requestHeader(event, "referer")
   if (!referer) return false
   try {
     const from = new URL(referer)
@@ -624,6 +695,14 @@ function publishedRequest(event: ContentPreviewEvent): boolean {
   catch {
     return false
   }
+}
+
+/** Whether a request carries `?vitehub-content-token`, the signed link of `content.sources.sign()`. */
+function signedRefRequest(event: ContentPreviewEvent): boolean {
+  const raw = eventParts(event).url
+  const text = raw instanceof URL ? raw.href : raw
+  if (String(text) === text && !mayCarryParameter(text, contentRefTokenParameter)) return false
+  return requestUrl(event)?.searchParams.has(contentRefTokenParameter) === true
 }
 
 function requestUrl(event: ContentPreviewEvent): URL | undefined {
@@ -885,6 +964,37 @@ export interface ContentPreviewHost {
   preview?: ContentPreview
 }
 
+/** Loads the Content runtime, such as `() => import("./server/content.ts").then(module => module.default)`. */
+export type ContentPreviewHostLoader = () => Promise<ContentPreviewHost>
+
+interface PreviewSource {
+  /** The preview, loading the Content runtime first when `content` is a loader. */
+  load(): ContentPreview | undefined | Promise<ContentPreview | undefined>
+  /** The preview when the runtime is loaded. Before that, no request runs in a preview scope. */
+  loaded(): ContentPreview | undefined
+}
+
+/** A loader runs once, and again only after it fails. */
+function previewSource(content: ContentPreviewHost | ContentPreviewHostLoader): PreviewSource {
+  if (!(content instanceof Function)) return { load: () => content.preview, loaded: () => content.preview }
+  let host: ContentPreviewHost | undefined
+  let loading: Promise<ContentPreview | undefined> | undefined
+  return {
+    load() {
+      if (host) return host.preview
+      loading ??= content().then((loaded) => {
+        host = loaded
+        return loaded.preview
+      }, (error: unknown) => {
+        loading = undefined
+        throw error
+      })
+      return loading
+    },
+    loaded: () => host?.preview,
+  }
+}
+
 function hasPreviewCookie(event: ContentPreviewEvent): boolean {
   return cookieValues(requestHeader(event, "cookie"), contentPreviewCookieName).length > 0
 }
@@ -912,35 +1022,75 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed. A redirect
  * from it to the same host name, such as a canonical or locale redirect, gets the parameter in its `Location`, so the
  * page the browser lands on reads `published` too. A redirect to another host is not changed.
- * ViteHub generates this plugin for `server/content.ts`.
+ * A request with `?vitehub-content-token`, the signed ref link of `content.sources.sign()`, bypasses Nitro's cache and
+ * gets `private, no-store`, so a cached route never answers it after the token expires.
+ * ViteHub generates this plugin for `server/content.ts` with a loader, so the server starts without the Content runtime.
+ * The loader runs on the first request with a preview cookie, a preview frame form, or the published parameter. Other
+ * requests never load it.
  */
-export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
+export function defineContentPreviewPlugin(content: ContentPreviewHost | ContentPreviewHostLoader): (nitroApp: unknown) => void {
   return (nitroApp) => {
-    const preview = content.preview
-    if (!preview || !isObject(nitroApp)) return
-    const frame = frames.get(preview)
+    if (!isObject(nitroApp) || (!(content instanceof Function) && !content.preview)) return
+    const source = previewSource(content)
+    /** Runs `callback` with the preview, or `fallback` when the runtime has none. */
+    const withPreview = (fallback: () => unknown, callback: (preview: ContentPreview) => unknown): unknown => {
+      const preview = source.load()
+      if (preview instanceof Promise) return preview.then(loaded => loaded ? callback(loaded) : fallback())
+      return preview ? callback(preview) : fallback()
+    }
     // ViteHub routes Nitro's cache module through this check (nitroCacheBypass); the grant scope is the request's.
-    const previewing = () => preview.active() || preview.frame() !== undefined || frame?.published() === true
+    const previewing = () => {
+      const preview = source.loaded()
+      return preview !== undefined && (preview.active() || preview.frame() !== undefined || frames.get(preview)?.published() === true)
+    }
     const removeCacheBypass = addCacheBypass(previewing)
+    // A request with a signed ref link can read a private ref until its token expires. Nitro must not keep that answer.
+    let signedScope: Scope<true> | undefined
+    try {
+      signedScope = createScope<true>(true)
+    }
+    catch {
+      // Without AsyncLocalStorage the response is still `private, no-store`.
+    }
+    const signed = signedScope
+    const removeSignedBypass = signed ? addCacheBypass(() => signed.getStore() === true) : () => {}
     const hooks = nitroApp.hooks
     if (isObject(hooks) && hooks.hook instanceof Function) {
-      const dispose = () => removeCacheBypass()
+      const dispose = () => {
+        removeCacheBypass()
+        removeSignedBypass()
+      }
       for (const name of ["close", "shutdown", "dispose"]) {
         Reflect.apply(hooks.hook, hooks, [name, dispose])
       }
     }
     const scoped = (event: unknown, next: () => unknown): unknown => {
       if (!isObject(event)) return next()
-      if (!publishedRequest(event)) return hasPreviewCookie(event) ? preview.run(event, next) : next()
-      // A redirect keeps the request published: the browser follows it with the cookie, but without this URL.
-      markNodeRedirects(event)
-      return preview.run(event, next).then(result => publishedRedirect(result, event))
+      if (signedRefRequest(event)) {
+        appendResponseHeader(event, "cache-control", "private, no-store", "set")
+        const run = () => previewScoped(event, next)
+        const result = signed ? signed.run(true, run) : run()
+        return result instanceof Promise ? result.then(privateResponse) : privateResponse(result)
+      }
+      return previewScoped(event, next)
+    }
+    const previewScoped = (event: ContentPreviewEvent, next: () => unknown): unknown => {
+      if (!publishedRequest(event)) {
+        return hasPreviewCookie(event) ? withPreview(next, preview => preview.run(event, next)) : next()
+      }
+      return withPreview(next, (preview) => {
+        // A redirect keeps the request published: the browser follows it with the cookie, but without this URL.
+        markNodeRedirects(event)
+        return preview.run(event, next).then(result => publishedRedirect(result, event))
+      })
     }
     /** Checks a preview frame form and runs the page with its grant, or returns the 403 error page. */
     async function runFrame(blocked: boolean, body: string | undefined, next: () => unknown): Promise<unknown> {
       if (blocked) return forbidden("A preview frame must come from this site.")
       if (body === undefined) return forbidden("The preview form was larger than 1 MiB or did not arrive whole.")
       const form = parseContentPreviewFrameForm(body)
+      const preview = form && await source.load()
+      const frame = preview && frames.get(preview)
       const ran = form && frame ? await frame.run(form, next) : undefined
       return ran ? privateResponse(ran.result) : forbidden("The preview expired. Open the preview again.")
     }
@@ -948,7 +1098,8 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     if (nitroApp.fetch instanceof Function) {
       const fetch = nitroApp.fetch
       nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
-        const url = request instanceof Request ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
+        // Only a POST can be a preview frame, so other requests skip parsing their URL.
+        const url = request instanceof Request && String(request.method).toUpperCase() === "POST" ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
         if (!(request instanceof Request) || !isFrameRequest(request.method, url)) {
           return scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
         }
@@ -978,7 +1129,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
         const url = isObject(event) ? frameUrl(request?.url, request?.headers, secureRequest(event)) : undefined
         if (!event || !request || !isFrameRequest(request.method, url)) {
           // The page of a frame runs here through localCall, inside the frame scope.
-          if (isObject(event) && preview.frame() !== undefined) inlineFramePayload(event)
+          if (isObject(event) && source.loaded()?.frame() !== undefined) inlineFramePayload(event)
           return scoped(event, () => Reflect.apply(handler, h3App, [event]))
         }
         return (async () => {

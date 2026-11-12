@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ensureWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 const modelGenerate = vi.hoisted(() => vi.fn())
 const registry = vi.hoisted((): Record<string, () => Promise<unknown>> => ({}))
 
-vi.mock("#vitehub/agent/registry", () => ({ default: registry }))
+vi.mock("#vitehub/agent/registry", () => ({ default: registry, loadAgentHost: async () => {} }))
 vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk: async () => ({
     // This SDK double executes fixture responses without invoking a language model.
@@ -22,13 +22,13 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   }),
 }))
 
-import { agentInvocationId, defineAgent, runAgent } from "../src/index.ts"
+import { agentInvocationId, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { agentInvocationsDevHeader, agentInvocationsDevRuntimeRoute, agentInvocationsDevTokenServerHeader } from "../src/invocations-dev.ts"
 import { handleAgentInvocationsDevRequest } from "../src/runtime/invocations-dev.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 import { hubAgent } from "../src/vite.ts"
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 
 import type { AgentInvocations } from "../src/index.ts"
 
@@ -81,26 +81,46 @@ afterEach(() => {
 })
 
 describe("Agent Invocations Nitro dev handler", () => {
-  it("generates a handler that authenticates with the project root and server ID", async () => {
+  it("generates Nitro handlers without bare h3 imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-handler-imports-"))
+    try {
+      await mkdir(join(root, "server/agents"), { recursive: true })
+      await writeFile(join(root, "server/agents/echo.ts"), "export default {}")
+      const hook = hubAgent({ routes: { discordGateway: true } }).configResolved
+      if (typeof hook !== "function") throw new Error("Expected a configResolved hook")
+      // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
+      await hook.call({} as never, { root, command: "serve", plugins: [], resolve: { alias: [] } } as never)
+      for (const file of ["invocations-dev-handler.ts", "chat-webhook-route.ts", "discord-gateway-route.ts"]) {
+        const source = await readFile(join(root, ".vitehub/agent", file), "utf8")
+        expect(source, file).not.toMatch(/(?:from\s*|import\s*\(?\s*)["']h3["']/)
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("generates a Fetchable route that authenticates with the project root and server ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-handler-"))
     try {
-      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
       const hook = plugin.configResolved
-      if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
+      if (typeof hook !== "function") throw new Error("Expected a configResolved hook")
       // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
       await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: { port: 5173 } } as never)
       const source = await readFile(join(root, ".vitehub/agent/invocations-dev-handler.ts"), "utf8")
-      // Execute the generated callback with its real owner handler to verify the authorization boundary.
-      const callback: (event: { req: Request }) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
+      expect(source).not.toContain("defineEventHandler")
+      // Execute the generated route with its real owner handler to verify the authorization boundary.
+      const route: { fetch: (request: Request) => Promise<Response> } = new Function("handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))(handleAgentInvocationsDevRequest)
       const body = { id: "ainv_missing", operation: "cancel" }
-      expect((await callback({ req: devRequest(body) })).status).toBe(403)
+      expect((await route.fetch(devRequest(body))).status).toBe(403)
       const serverId = workspaceDevTokenServerId(5173)
       const token = await ensureWorkspaceDevToken(root, { serverId })
-      const response = await callback({ req: devRequest(body, {
+      const response = await route.fetch(devRequest(body, {
         [agentInvocationsDevHeader]: "1",
         [agentInvocationsDevTokenServerHeader]: serverId,
         [workspaceDevTokenHeader]: token,
-      }) })
+      }))
       expect(response.status).toBe(404)
       expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
     }
@@ -113,8 +133,8 @@ describe("Agent Invocations Nitro dev handler", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-cli-load-"))
     try {
       const generate = async (config: Record<string, unknown>) => {
-        const hook = hubAgent({ providers: { state: { provider: "memory" } } }).configResolved
-        if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
+        const hook = hubAgent({ providers: { state: { driver: "memory" } } }).configResolved
+        if (typeof hook !== "function") throw new Error("Expected a configResolved hook")
         // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
         await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, ...config } as never)
       }
@@ -216,7 +236,7 @@ describe("Agent Invocations Nitro dev handler", () => {
     const agent = defineAgent({ driver: modelDriver, invocations, name: "digest" })
     registry.digest = async () => ({ default: agent })
     registry.broken = async () => { throw new Error("Definition failed to load.") }
-    const run = runAgent(agent, runtime("dev-cancel"), { prompt: "Summarize the release." })
+    const run = runAgentWithContext(agent, runtime("dev-cancel"), { prompt: "Summarize the release." })
     const id = await runningId(invocations, "dev-cancel")
 
     const response = await cancelRequest({ id, operation: "cancel" })

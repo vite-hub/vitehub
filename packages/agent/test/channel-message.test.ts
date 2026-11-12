@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { defineChannel } from "../src/channels.ts"
-import { defineAgent, runAgent, runAgentTrigger } from "../src/index.ts"
+import { channelAdapter } from "../src/channels.ts"
+import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import type { AgentChannelMessage } from "../src/index.ts"
 import type { AgentRuntimeContext } from "../src/types.ts"
@@ -29,7 +30,7 @@ async function deliveryObservations(invocations: ReturnType<typeof consoleInvoca
 }
 
 function mailChannel(provider: { label: (id: string, add: string[]) => void, subject: (id: string) => string }, options: { dryRun?: boolean } = {}) {
-  return defineChannel("mail", {
+  return channelAdapter("mail", {
     message: {
       data: v.object({ id: v.string() }),
       methods: {
@@ -114,7 +115,7 @@ describe("Channel message handle", () => {
   it("routes event.reply() to a Channel reply method and skips it in a dry run", async () => {
     const reply = vi.fn()
     const invocations = consoleInvocations()
-    const channel = (dryRun: boolean) => defineChannel("portal", {
+    const channel = (dryRun: boolean) => channelAdapter("portal", {
       message: { methods: { reply: (_context, input: unknown) => { reply(input) } } },
       messages: false,
       triggers: {
@@ -149,7 +150,7 @@ describe("Channel message handle", () => {
     const postMessage = vi.fn()
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: { channelIdFromThreadId: () => "channel-1", postMessage } as never,
           messages: { delivery: "manual" },
@@ -189,7 +190,7 @@ describe("Channel message handle", () => {
     })
     const agent = defineAgent({
       channels: {
-        support: defineChannel("teams", {
+        support: channelAdapter("teams", {
           // SAFETY: The fixture implements the Chat SDK methods exercised by reply delivery.
           adapter: { channelIdFromThreadId, postMessage, ...(mode === "unsupported stream" ? {} : { stream }) } as never,
           messages: { delivery: "manual" },
@@ -237,7 +238,7 @@ describe("Channel message handle", () => {
     const reply = vi.fn(async () => ({ id: "sent", raw: {}, threadId: "thread-1" }))
     const agent = defineAgent({
       channels: {
-        support: defineChannel("telegram", {
+        support: channelAdapter("telegram", {
           // SAFETY: The fixture implements the Chat SDK methods exercised by reply delivery.
           adapter: { channelIdFromThreadId: () => "channel-1", postMessage, reply, stream: async () => null } as never,
           messages: { delivery: "manual" },
@@ -285,7 +286,7 @@ describe("Channel message handle", () => {
     }
     const agent = defineAgent({
       channels: {
-        support: defineChannel("teams", {
+        support: channelAdapter("teams", {
           // SAFETY: The fixture implements the Chat SDK methods exercised by reply delivery.
           adapter: adapter as never,
           messages: { delivery: "manual" },
@@ -321,12 +322,12 @@ describe("Channel message handle", () => {
       },
     })
 
-    await runAgent(agent, runtimeContext(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtimeContext(), { prompt: "hello" })
     expect(message).toBeUndefined()
   })
 
   it("rejects message methods that use reserved names or invalid shapes", () => {
-    expect(() => defineChannel("bad", { message: { methods: { data: (() => undefined) as never } } })).toThrow(/reserved name/)
-    expect(() => defineChannel("bad", { message: { methods: { tag: { handler: () => undefined } as never } } })).toThrow(/must be a function or \{ read: true, handler \}/)
+    expect(() => channelAdapter("bad", { message: { methods: { data: (() => undefined) as never } } })).toThrow(/reserved name/)
+    expect(() => channelAdapter("bad", { message: { methods: { tag: { handler: () => undefined } as never } } })).toThrow(/must be a function or \{ read: true, handler \}/)
   })
 })

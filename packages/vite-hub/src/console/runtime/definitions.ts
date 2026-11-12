@@ -40,10 +40,14 @@ export interface ConsoleRecord {
   activity?: readonly ConsoleRecordActivity[]
 }
 
+export type ConsoleOperationTone = "error" | "info" | "neutral" | "success" | "warning"
+
 export interface ConsoleOperationColumn {
-  format?: "datetime" | "excerpt"
+  format?: "datetime" | "excerpt" | "status"
   key: string
   label: string
+  /** The tone of each value of a `status` column. */
+  tones?: Readonly<Record<string, ConsoleOperationTone>>
 }
 
 export interface ConsoleOperationFilter {
@@ -98,6 +102,8 @@ export interface ConsoleDocumentCollection {
   document?: string
   /** `json` and `yaml` documents have fields only, without a Markdown body. */
   format?: "markdown" | "json" | "yaml"
+  /** Locales of a translated collection, source locale first. The editor offers a locale switcher. */
+  locales?: readonly string[]
 }
 
 /** A Comark component that document bodies may use. It mirrors `ViteHubConsoleDocumentComponent`. */
@@ -220,12 +226,21 @@ export function parseConsoleDefinitionFields(value: unknown): ConsoleDefinitionF
   })
 }
 
+const operationTones: ReadonlySet<string> = new Set<ConsoleOperationTone>(["error", "info", "neutral", "success", "warning"])
+
 function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperationView | undefined {
   if (!text(view.operation) || !Array.isArray(view.columns) || !text(view.notice)) return undefined
   const columns = view.columns.flatMap((entry): ConsoleOperationColumn[] => {
     const column = record(entry)
     if (!text(column?.key) || !text(column.label)) return []
-    return [{ key: column.key, label: column.label, ...(column.format === "datetime" || column.format === "excerpt" ? { format: column.format } : {}) }]
+    const format = column.format === "datetime" || column.format === "excerpt" || column.format === "status" ? column.format : undefined
+    const tones = format === "status" ? record(column.tones) : undefined
+    return [{
+      key: column.key,
+      label: column.label,
+      ...(format ? { format } : {}),
+      ...(tones ? { tones: Object.fromEntries(Object.entries(tones).filter((entry): entry is [string, ConsoleOperationTone] => operationTones.has(String(entry[1])))) } : {}),
+    }]
   })
   const filters = Array.isArray(view.filters)
     ? view.filters.flatMap((entry): ConsoleOperationFilter[] => {
@@ -394,6 +409,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
       schema,
     }
     if (Array.isArray(collection.paths) && collection.paths.every(text)) parsed.paths = [...collection.paths]
+    if (Array.isArray(collection.locales) && collection.locales.length && collection.locales.every(text)) parsed.locales = [...collection.locales]
     if (text(collection.titleField)) parsed.titleField = collection.titleField
     if (text(collection.singularLabel) && collection.singularLabel.trim()) parsed.singularLabel = collection.singularLabel
     const components = parseConsoleDocumentComponents(collection.components)
@@ -409,7 +425,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
   })
 }
 
-/** Reads `/api/_vitehub/console/definitions` content for one section, or returns undefined when it does not match. */
+/** Reads `/_vitehub/api/definitions` content for one section, or returns undefined when it does not match. */
 export function parseConsoleSectionContent(value: unknown, section: string): ConsoleSectionContent | undefined {
   const source = record(value)
   if (source?.section !== section) return undefined

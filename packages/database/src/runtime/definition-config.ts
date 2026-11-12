@@ -1,5 +1,5 @@
 import definitionDefaults from "#vitehub/database/definition-defaults"
-import { resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
+import { resolveDevRemoteConfig, resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
 
 import type { CloudflareD1Projection, DatabaseDefinition, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
@@ -7,6 +7,8 @@ interface DatabaseDefinitionDefaults {
   cloudflare?: DatabaseDefinition["cloudflare"]
   cloudflareProjections?: Record<string, CloudflareD1Projection>
   connection?: DatabaseDefinition["connection"]
+  /** Set only in defaults generated for `vite dev`, where `remote` applies. */
+  dev?: true
 }
 
 function defaultUrl(name: string) {
@@ -15,7 +17,7 @@ function defaultUrl(name: string) {
 }
 
 export function runtimeConfig(
-  definition: DatabaseDefinition,
+  definition: Pick<DatabaseDefinition, "cloudflare" | "connection" | "name" | "remote">,
   defaults: DatabaseDefinitionDefaults = definitionDefaults,
 ): RuntimeDrizzleDatabaseConfig {
   const cloudflare = resolveRuntimeCloudflareConfig(defaults.cloudflare, definition.cloudflare, {
@@ -27,9 +29,8 @@ export function runtimeConfig(
       authToken: definition.connection?.authToken ?? defaults.connection?.authToken,
       url: definition.connection?.url ?? defaults.connection?.url ?? defaultUrl(definition.name),
     },
-    drizzle: definition.drizzle,
     name: definition.name,
   }
   if (cloudflare) config.cloudflare = cloudflare
-  return config
+  return defaults.dev ? resolveDevRemoteConfig(config, definition.remote) : config
 }

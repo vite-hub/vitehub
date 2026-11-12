@@ -4,7 +4,7 @@ import type { GitHubEvidence } from "./inbox/types.ts";
 import type { PullRequestWait } from "./inbox/wait-state.ts";
 import type { DailyPassBudget } from "./inbox/budgets.ts";
 import type { Snapshot } from "./inbox/store.ts";
-import type { GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
+import type { GitHubRequiredCheckState } from "../github/index.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
 
@@ -13,8 +13,21 @@ const pending = new Set(["queued", "in_progress", "pending", "waiting", "request
 const failed = new Set(["failure", "error", "timed_out", "action_required", "startup_failure"]);
 /** Check conclusions that need repair. */
 export const failedConclusions: ReadonlySet<string> = failed;
-/** A check that runs this long is treated as stuck. */
+/** A pending commit status this old is treated as stuck. */
 const stuckCheckMs = 30 * 60_000;
+/**
+ * GitHub Actions keeps a job queued for up to 24 hours and runs it for up to 6, so only its check runs
+ * past those limits are stuck. GitHub sets a queued run's `started_at` when it creates the run. On
+ * 2026-11-07 vite-hub/vitehub jobs waited up to 3 hours for a runner, and a 30-minute limit let
+ * passes push over 62 queued CI runs in 17 hours.
+ */
+const stuckQueuedCheckMs = 24 * 60 * 60_000;
+const stuckRunningCheckMs = 8 * 60 * 60_000;
+/** Check run statuses that have not reached a runner yet. */
+const notStarted = new Set(["queued", "waiting", "pending", "requested"]);
+/** GitHub Actions' app id on github.com. */
+const actionsAppId = 15368;
+const isActionsCheck = (signal: GitHubEvidence) => signal.app?.slug === "github-actions" || signal.app?.id === actionsAppId;
 
 export interface BabysitterWaitPolicy {
   /** Logins whose comments and reviews come from this host's repairs. They never wake a wait. */
@@ -130,7 +143,8 @@ export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolic
 
 /**
  * A current-head check is still queued or running. A required check that has not reported yet counts
- * only through the workflow jobs that run before it. A check that runs for half an hour is stuck.
+ * only through the workflow jobs that run before it. A GitHub Actions check run is stuck after 24 hours
+ * in the queue or 8 hours running. Other check runs and commit statuses are stuck after half an hour.
  */
 export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
   return latestCheckSignals(s).some(signal => {
@@ -141,7 +155,10 @@ export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
     // Check runs are different: a queued run without timestamps is still an
     // active gate, while timestamp-less commit statuses are only snapshots.
     if (!Number.isFinite(timestamp)) return signal.app !== undefined;
-    return timestamp >= now - stuckCheckMs;
+    // Other apps and commit statuses keep the half-hour limit: nothing on GitHub's side ends them,
+    // and a Workers Builds check run can stay in progress for good.
+    const limit = !isActionsCheck(signal) ? stuckCheckMs : notStarted.has(String(signal.status)) ? stuckQueuedCheckMs : stuckRunningCheckMs;
+    return timestamp >= now - limit;
   });
 }
 

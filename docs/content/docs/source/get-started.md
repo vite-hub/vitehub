@@ -8,22 +8,41 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Read `docs/intro.md` from a server route with a glob Source. A Source describes where to find read-only data, and `createSource()` opens the reader. This example returns the Markdown file without parsing it into a Content document.
+A Source tells your server where to find data that it only reads, such as a folder of Markdown files. You write the Source once. Your server code then reads each file by its name.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. All files stay local and no provider account is needed. Use [Workspace](/docs/workspace) if the application must also write files.
+In this tutorial, you make a Source for a `docs` folder and read the file `docs/intro.md` from an API route. The route returns the file as it is. It does not turn the Markdown into HTML.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. All files stay on your computer. If your app must also write files, use [Workspace](/docs/workspace) instead.
 
-Install ViteHub and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+::tutorial-step{title="Configure"}
+## Configure
 
-```bash [commands/install]
-pnpm add vite-hub nitro h3
-pnpm add -D vite
+Source comes with `vite-hub`, so you install nothing. Check that `nuxt.config.ts` or `vite.config.ts` adds ViteHub. Keep the other plugins of your app. You do not need a `source` option, because your route imports the Source file itself.
+
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node' },
+})
 ```
+::::
 
-Register ViteHub and Nitro in the app. You will import the Source directly in the next step; it does not need a discovery flag.
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -32,21 +51,26 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node' })],
 })
 ```
+::::
+:::
 
 ::
 
 ::tutorial-step{title="Define a Source"}
 ## Define a Source
 
-`cwd: 'docs'` makes Source keys relative to that directory. The glob includes Markdown files; the key below is `intro.md`, without the `docs/` prefix.
+Create `server/sources/docs.ts`. A glob Source reads the files in a folder that match a pattern.
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
-Create `docs/intro.md` so the route has a known file to read:
+- `cwd: 'docs'` reads from the `docs` folder. The name of each file is relative to that folder, so `docs/intro.md` is `intro.md`.
+- `include: '**/*.md'` takes every Markdown file in the folder and its subfolders.
+
+Create `docs/intro.md`, so the route has a file to read:
 
 ```md [docs/intro.md]
 # Hello from Source
@@ -54,7 +78,7 @@ Create `docs/intro.md` so the route has a known file to read:
 This file is loaded by the glob Source.
 ```
 
-Import the Source directly and open a reader in the route. The reader returns the known file you created, so the result does not depend on directory ordering.
+Create `server/api/docs.get.ts`. This route reads `intro.md` through the Source.
 
 ```ts [server/api/docs.get.ts]
 import { defineEventHandler } from 'h3'
@@ -67,27 +91,40 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Keep the reader on the server. A glob Source reads from the server's filesystem, so the app must have these files available when it runs.
+- `createSource(docs)` opens a reader for the Source.
+- `reader.read('intro.md')` reads one file by its name.
+
+Use the reader only in server code. It reads files on the server, not in the browser. [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system) explains what happens to the files when you build and deploy.
 
 ::
 
 ::tutorial-step{title="Read one file"}
 ## Read one file
 
-Start Vite and call the route:
+Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Keep the server running. In another terminal, run:
+Open a second terminal, and call the route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/docs
+curl http://localhost:3000/api/docs
 ```
 
-The response contains the `intro.md` file you created, including `Hello from Source`. Read
-[Configure](/docs/source/configure) when the Source should load GitHub,
-collections, or a custom data store.
+The response has the `intro.md` file that you created, with the text `Hello from Source`.
 
+::
+
+## Next steps
+
+::card-group
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/source/configure"}
+Load data from GitHub, collections, or your own data store.
+:::
+
+:::card{title="Server API" icon="i-lucide-code" to="/docs/source/server-api"}
+Read items, combine Sources, and expose a typed Collection.
+:::
 ::

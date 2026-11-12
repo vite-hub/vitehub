@@ -15,13 +15,15 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentCallbackContext } from "../types.ts"
 import { readBuiltInEnv } from "./builtin-env.ts"
 import { pullRequestCheckoutPlan, pullRequestRepositories } from "./pull-request-checkout.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 /** Scope of one forge access request. */
 export interface ForgeAccessScope {
   /** `owner/name` of the repository that the token must reach. */
   repository: string
   signal?: AbortSignal
+  /** Milliseconds the token must stay valid. A cached token that expires sooner is replaced. */
+  minLifetime?: number
 }
 
 /** Resolves a repository-scoped GitHub token. A github() Channel with an `app` supplies one to its Agent. */
@@ -39,7 +41,7 @@ export function readForgeAccess(value: object | undefined): ForgeAccess | undefi
   // SAFETY: github() and withForgeAccess() are the only writers of this private symbol.
   const access = (value as ForgeAccessCarrier | undefined)?.[forgeAccessKey]
   // SAFETY: the writers store only ForgeAccess functions under this key.
-  return hasRuntimeType(access, "function") ? access as ForgeAccess : undefined
+  return typeof access === "function" ? access as ForgeAccess : undefined
 }
 
 /** The forge access of the Agent's github() Channels, when exactly one Channel supplies it. */
@@ -154,7 +156,7 @@ export function workspaceGitHubRepositories(definition: WorkspaceDefinition | un
     const resolved = isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source) ? fingerprint.source : fingerprint
     const options = resolved.inferredSource === "github" && isRuntimeRecord(resolved.options) ? resolved.options : resolved
     const repo = options.repo
-    if (!hasRuntimeType(repo, "string") || !/^[\w.-]+\/[\w.-]+$/.test(repo)) continue
+    if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) continue
     if (!repositories.some(known => known.toLowerCase() === repo.toLowerCase())) repositories.push(repo)
   }
   return repositories
@@ -173,6 +175,12 @@ export function forgeGitScope(
   const repositories = workspaceGitHubRepositories(workspace)
   return repositories.length ? { repositories } : undefined
 }
+
+/**
+ * GitHub App installation tokens last one hour. `git` and `gh` keep the token for the whole run,
+ * so a run gets a token that stays valid for most of that hour, not a cached one about to expire.
+ */
+const forgeGitTokenLifetime = 55 * 60_000
 
 /** `GIT_CONFIG_*` entries that send the token only to this repository, with and without the `.git` suffix. */
 function gitAuthEntries(repository: string, token: string, baseUrl?: string): { key: string, value: string }[] {
@@ -198,7 +206,7 @@ export async function forgeGitEnvironment(
 ): Promise<Record<string, string>> {
   const access = readForgeAccess(runtimeContext)
   if (!access || !scope) return {}
-  const request = (repository: string) => access(context, signal ? { repository, signal } : { repository })
+  const request = (repository: string) => access(context, { repository, minLifetime: forgeGitTokenLifetime, ...(signal ? { signal } : {}) })
   const entries: { key: string, value: string }[] = []
   let primary: ForgeAccessResult | undefined
   if (scope.repository) {

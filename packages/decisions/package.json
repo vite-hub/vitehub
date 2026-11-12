@@ -34,6 +34,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
@@ -45,7 +50,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/decisions#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/decisions#build && vp test"
+    "test": "vp run --cache -t @vite-hub/decisions#build && vp test"
   },
   "dependencies": {
     "@vite-hub/gateways": "workspace:*",
@@ -54,16 +59,22 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "ai": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "vue": "catalog:ui"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
     "vue": {
       "optional": true
     }

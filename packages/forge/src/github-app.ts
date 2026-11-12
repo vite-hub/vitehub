@@ -3,11 +3,17 @@ import { createHash } from "node:crypto"
 import type { ForgeProvider } from "forges"
 import { forgeDiagnostics } from "./error-diagnostics.ts"
 import { abortError, forgeErrorStatus, ForgeResponseError, withSignal } from "./provider.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 export interface GitHubAppCredentials {
   installationToken(
     installationId: number | string,
-    options?: { refresh?: boolean, signal?: AbortSignal },
+    options?: {
+      refresh?: boolean
+      signal?: AbortSignal
+      /** Mint a new token when the cached one expires within this many milliseconds. Default 60000. */
+      minLifetime?: number
+    },
   ): Promise<{ token: string, expiresAt: Date }>
   /** GET /repos/{repository}/installation with the app JWT. */
   installation(repository: string, signal?: AbortSignal): Promise<number>
@@ -67,10 +73,6 @@ function appProvider(input: GitHubAppInput, installationId = "", refresh = false
   return pending
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function positiveId(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
@@ -85,7 +87,7 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const id = String(installationId)
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
-      if (cached && cached.expiresAt > Date.now() + 60_000) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
+      if (cached && cached.expiresAt > Date.now() + Math.max(options.minLifetime ?? 0, 60_000)) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
       // installations.token() cannot forward a signal in the pinned forges version.
       // Keep JWT signing in the provider and pass cancellation through its transport.
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(

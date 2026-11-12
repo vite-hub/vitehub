@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
+import { parse, parseAllDocuments } from "yaml";
 
 const root = resolve(import.meta.dirname, "../..");
 const fixture = resolve(root, "fixtures/tutorials/chat-app");
@@ -57,5 +57,11 @@ describe("chat project tutorial", () => {
     expect(manifest.scripts.test).toBe("node --test test/store.test.ts");
     expect(manifest.scripts["test:journey"]).toBe("node --test test/journey.test.mjs");
     expect(await readFile(resolve(fixture, "test/journey.test.mjs"), "utf8")).toContain('CHAT_MODE: "offline"');
+  });
+
+  it("pins the zod version of the runtime catalog, so the server output traces one zod", async () => {
+    const manifest = JSON.parse(await readFile(resolve(fixture, "package.json"), "utf8"));
+    const lockfile = parseAllDocuments(await readFile(resolve(root, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS();
+    expect(manifest.dependencies.zod).toBe(lockfile.catalogs.runtime.zod.version);
   });
 });

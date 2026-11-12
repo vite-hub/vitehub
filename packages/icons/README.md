@@ -4,7 +4,7 @@ The ViteHub icon set as an [Iconify](https://iconify.design/) collection with th
 
 ## Use
 
-This package is private: it is not published to npm. `@vite-hub/ui` and the Console bundle it, so a Nuxt app with `@vite-hub/ui/nuxt` or `@vite-hub/docs/nuxt` has the collection registered. Write the icon name:
+This package is private: it is not published to npm. `@vite-hub/ui` and the Console bundle it, so a Nuxt app with `vite-hub/nuxt` and Nuxt UI, or with `@vite-hub/docs/nuxt`, has the collection registered. Write the icon name:
 
 ```vue
 <UIcon name="i-vitehub-kv" />
@@ -26,8 +26,12 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `connections` | Connections |
 | `content` | Content |
 | `database` | Database |
+| `decisions` | Decisions |
 | `email` | Email |
 | `env` | Env |
+| `forms` | Forms |
+| `gateways` | AI Gateways |
+| `i18n` | i18n |
 | `kv` | KV |
 | `logs` | Logs |
 | `queue` | Queue |

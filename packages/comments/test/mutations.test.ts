@@ -3,7 +3,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { commentsSchema } from "../src/database.ts"
-import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
+import { defineComments, defineCommentSubject } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { ada, anchor, commentsMigration, grace } from "./harness.ts"
 
 import type { CommentsDatabase } from "../src/operations-core/store.ts"
@@ -20,7 +21,7 @@ async function setup(foreignKeys = false) {
   await client.executeMultiple(commentsMigration)
   await client.execute(`PRAGMA foreign_keys = ${foreignKeys ? "ON" : "OFF"}`)
   // SAFETY: libSQL implements the runtime SQLite database and atomic batch contract.
-  const database = drizzle(client) as unknown as CommentsDatabase
+  const database = drizzle({ client }) as unknown as CommentsDatabase
   const onComment = vi.fn()
   const comments = defineComments({ onComment, subjects: [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })] })
   installComments(comments, { database })

@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { renderDatabaseRuntimeModule } from "../../database/src/internal/runtime-module.ts"
-import { createAgentDatabase, defaultDatabaseNotConfiguredError } from "../../database/src/runtime/agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError } from "../../database/src/runtime/agent.ts"
+import { createUseDatabase } from "../../database/src/runtime/use-database.ts"
 import { selectCommentsDatabase } from "../src/runtime/database.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
@@ -53,10 +54,11 @@ it("installs Comments on the sole named Database in a generated runtime registry
     createAgentDatabaseImport: "@vite-hub/database/runtime/agent",
     databaseEntries: ["  main: { db: main },"],
     imports: [],
+    useDatabaseImport: "@vite-hub/database/runtime/use-database",
   })
   const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn databases"
-  const databases = new Function("main", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
-    main, createAgentDatabase, defaultDatabaseNotConfiguredError,
+  const databases = new Function("main", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+    main, createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError, createUseDatabase,
   ) as CommentsDatabaseRegistry
 
   expect(selectCommentsDatabase(databases) === main).toBe(true)
@@ -78,4 +80,29 @@ it("installs Comments on a Database that connects only once requests arrive", as
   const [error, threads] = await comments.list()
   expect(error).toBeUndefined()
   expect(threads).toEqual([])
+})
+
+it("reads the Database on the first Comments call, not when the plugin starts", async () => {
+  const main = await createDatabase()
+  const database = vi.fn(async () => selectCommentsDatabase({ default: { db: main } }))
+  const comments = defineComments()
+  defineCommentsPlugin({ comments, database, overlay: "/o.js" })(null)
+  expect(database).not.toHaveBeenCalled()
+
+  const [first, second] = await Promise.all([comments.list(), comments.list()])
+  expect(first).toEqual([undefined, []])
+  expect(second).toEqual([undefined, []])
+  expect(database).toHaveBeenCalledTimes(1)
+})
+
+it("warns once and reports Comments as not installed without a Database", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  const comments = defineComments()
+  defineCommentsPlugin({ comments, database: () => undefined, overlay: "/o.js" })(null)
+  expect(warn).not.toHaveBeenCalled()
+
+  expect((await comments.list())[0]?.code).toBe("COMMENTS_NOT_INSTALLED")
+  expect((await comments.list())[0]?.code).toBe("COMMENTS_NOT_INSTALLED")
+  expect(warn).toHaveBeenCalledTimes(1)
+  warn.mockRestore()
 })

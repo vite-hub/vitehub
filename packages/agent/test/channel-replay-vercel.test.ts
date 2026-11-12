@@ -2,13 +2,14 @@ import { afterEach, expect, it, vi } from "vitest"
 import * as v from "valibot"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { defineCollection } from "../../source/src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { createWorkflow } from "../../workflow/src/index.ts"
 import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../../workflow/src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader, type VercelRun, type VercelWorkflowRuntime } from "../../workflow/src/runtime/vercel.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 import { agentEnvAccess } from "@vite-hub/env/internal/agent"
-import { defineAgent, runAgentInline, workflow } from "../src/index.ts"
+import { defineAgent, agentWorkflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -37,11 +38,11 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {}, agentIdentity: { name } }
   const driver = vi.fn(() => "done")
   const identities: unknown[] = []
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
-  const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: workflow(name) }) })
+  const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: agentWorkflow(name) }) })
   const runs = new Map<string, VercelRun>()
   const statuses = new Map<string, string>()
   const cancel = vi.fn(async (id: string) => { statuses.set(id, "cancelled") })
@@ -80,7 +81,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
 
 it("uses provider IDs with the real native Vercel adapter and omits caller IDs for primary and recovery starts", async () => {
   const test = fixture()
-  await expect(createWorkflow(test.name).run({}, { id: "logical-id" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
+  await expect(createWorkflow(test.name).start({}, { id: "logical-id" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
   expect(test.start).not.toHaveBeenCalled()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1, failed: 0 })
   expect(test.primaryStarts()).toHaveLength(1)

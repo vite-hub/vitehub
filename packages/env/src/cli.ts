@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { viteHubEnvServerModulePath } from "@vite-hub/internal/build/vite"
+import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
 
 import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
@@ -91,6 +92,57 @@ function isInspection(value: unknown): value is ServerEnvInspection {
   })) }), value)
 }
 
+/**
+ * Resolves the stage config and loads modules in its SSR environment. A dev server would also start every other
+ * environment, such as Nitro's dev worker, and the check never uses them.
+ */
+async function createStageModuleLoader(vite: typeof import("vite"), config: import("vite").InlineConfig, allowNuxtFallback = false) {
+  const nitro = createCliDiscoveryNitroCloser()
+  // SAFETY: Vite's WebSocket type has a private brand. The headless CLI has no socket clients.
+  const ws = {
+    ...vite.createServerHotChannel(),
+    clients: new Set(),
+    handleInvoke: async () => ({ error: { name: "TransportError", message: "WebSocket transport is disabled during Env inspection." } }),
+  } as unknown as import("vite").WebSocketServer
+  let environment: import("vite").DevEnvironment | undefined
+  let fallback: import("vite").RunnableDevEnvironment | undefined
+  const close = async () => {
+    try { await fallback?.close() }
+    finally {
+      try { await environment?.close() }
+      finally {
+        try { await ws.close() }
+        finally { await nitro.close() }
+      }
+    }
+  }
+  try {
+    const resolved = await vite.resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, "serve")
+    environment = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
+    await environment.init()
+    let runnable: import("vite").RunnableDevEnvironment
+    if (vite.isRunnableDevEnvironment(environment)) runnable = environment
+    else {
+      // Internal invariant: Vite's default SSR environment is runnable; Nuxt's replacement uses the fallback below.
+      if (!allowNuxtFallback) throw envErrorDiagnostics.ENV_R0030({ message: "The SSR environment does not support runnable imports." })
+      // Nuxt 5 gives `ssr` to Nitro. Inspect in-process with the same stage aliases and plugin transforms.
+      fallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
+      await fallback.init()
+      runnable = fallback
+    }
+    return {
+      close,
+      config: resolved,
+      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await runnable.runner.import(url),
+    }
+  }
+  catch (error) {
+    // Initialization may fail before the environment can close. Keep the original load error.
+    await close().catch(() => {})
+    throw error
+  }
+}
+
 async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspection> {
   const explicitEnv = { ...input.env }
   const vite = await import("vite")
@@ -99,7 +151,7 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
   const stageVite = {
     loadEnv: vite.loadEnv,
     async createServer(config: ViteStageServerConfig) {
-      if (!hasNuxtConfig) return await vite.createServer(config)
+      if (!hasNuxtConfig) return await createStageModuleLoader(vite, config)
       const require = createRequire(join(projectRoot, "package.json"))
       // SAFETY: nuxt/kit owns loadNuxt. Resolve the application-installed version.
       const kit = await import(pathToFileURL(require.resolve("nuxt/kit")).href) as {
@@ -109,7 +161,7 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
       for (const [key, value] of Object.entries(explicitEnv)) if (value !== undefined) process.env[key] = value
       const nuxt = await kit.loadNuxt({ cwd: projectRoot, dev: true, envName: input.stage, overrides: { devtools: { enabled: false }, vite: { mode: input.stage }, vitehubCliDiscovery: true }, ready: true })
       try {
-        const server = await vite.createServer({ ...nuxt.options.vite, ...config, configFile: false })
+        const server = await createStageModuleLoader(vite, { ...nuxt.options.vite, ...config, configFile: false }, true)
         const close = server.close.bind(server)
         server.close = async () => {
           try { await close() }

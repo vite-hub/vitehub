@@ -87,7 +87,7 @@ jobs:
             packages/*
       # GitHub starts no workflows for branches and PRs that GITHUB_TOKEN
       # writes, so dispatch each required check once per release PR commit.
-      - name: Run required checks for the release PR
+      - name: Update release versions and run required checks
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,6 +104,22 @@ jobs:
             exit 0
           fi
           release_branch="${release_branches[0]}"
+          release_directory="$(mktemp -d "${RUNNER_TEMP}/vitehub-release.XXXXXX")"
+          git fetch --no-tags origin "$release_branch"
+          git worktree add --detach "$release_directory" FETCH_HEAD
+          (
+            cd "$release_directory"
+            node "$GITHUB_WORKSPACE/.github/scripts/check-release-candidate.mjs" "$release_branch" --bump
+            if ! git diff --quiet; then
+              corepack pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+              git add package.json packages pnpm-lock.yaml
+              git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "chore: sync release dependency versions"
+              git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+                push origin "HEAD:refs/heads/$release_branch"
+            fi
+          )
+          git worktree remove "$release_directory"
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
           # ci.yml reports "ci" and pkg-pr-new.yml reports "publish preview packages".
           for workflow in ci.yml pkg-pr-new.yml; do

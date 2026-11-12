@@ -1,6 +1,5 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
-import { hasRuntimeType } from "./runtime-type.ts";
 import { payloadText } from "./payload-text.ts";
 
 type InvocationActivityKind =
@@ -54,12 +53,65 @@ export interface InvocationActivity {
   toolDisplay?: Pick<AgentToolInspection, "icon" | "label">;
   totalTokens?: number;
   truncated?: boolean;
+  /** Displayed attributes the journal shortened. Absent when the record does not name them. */
+  truncatedAttributes?: readonly string[];
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+const truncatedContentLabels: Readonly<Record<string, string>> = {
+  "approval.input": "Approval input",
+  "approval.reason": "Approval reason",
+  body: "Details",
+  "channel.effect.content": "Delivered text",
+  content: "Details",
+  "error.message": "Error",
+  input: "Input",
+  "input.messages": "Conversation history",
+  "input.prompt": "Conversation history",
+  "message.content": "Message",
+  output: "Output",
+  "result.text": "Message",
+  "tool.error": "Error",
+  "tool.input": "Input",
+  "tool.output": "Output",
+  "vitehub.activity.body": "Details",
+  "vitehub.activity.detail": "Details",
+  "vitehub.activity.progress": "Details",
+  "vitehub.activity.title": "Title",
+  "vitehub.payload.value": "Details",
+};
+
+/**
+ * The displayed attributes that an observation's truncation flag covers.
+ * `undefined` means the record is flagged but does not name its attributes, so any displayed value may be cut.
+ * Identity and accounting metadata are never displayed, so their truncation returns an empty list.
+ */
+function truncatedContent(observation: Pick<TraceEventLogEntry, "attributes">): readonly string[] | undefined {
+  const attributes = observation.attributes;
+  if (attributes?.["vitehub.observation.truncated"] !== true) return [];
+  const named = attributes["vitehub.observation.truncatedAttributes"];
+  if (!Array.isArray(named)) return undefined;
+  return named.filter((key): key is string => typeof key === "string" && key in truncatedContentLabels);
+}
+
+function cutsContent(observation: Pick<TraceEventLogEntry, "attributes">): boolean {
+  return truncatedContent(observation)?.length !== 0;
+}
+
+/** The note that says which displayed value of an activity was shortened. */
+export function invocationTruncationNotice(activity: InvocationActivity): string | undefined {
+  if (!activity.truncated) return;
+  const labels = [...new Set((activity.truncatedAttributes ?? []).map(key => truncatedContentLabels[key]!))];
+  if (!labels.length) return "Part of this activity was shortened when it was recorded.";
+  const subject = labels.length === 1
+    ? labels[0]!
+    : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)!.toLowerCase()}`;
+  return `${subject} shortened when recorded.`;
 }
 
 function messageText(value: unknown): string | undefined {
@@ -67,9 +119,9 @@ function messageText(value: unknown): string | undefined {
   if (!Array.isArray(message?.parts)) return;
   const parts = message.parts.flatMap((part) => {
     const item = record(part);
-    if (hasRuntimeType(item?.text, "string")) return [item.text];
-    if (item?.type === "image" && hasRuntimeType(item.url, "string") && /^(https?:\/\/|\/(?!\/))/.test(item.url)) {
-      const name = hasRuntimeType(item.name, "string") ? item.name.replace(/[\[\]\r\n]/g, "") : "Attachment";
+    if (typeof item?.text === "string") return [item.text];
+    if (item?.type === "image" && typeof item.url === "string" && /^(https?:\/\/|\/(?!\/))/.test(item.url)) {
+      const name = typeof item.name === "string" ? item.name.replace(/[\[\]\r\n]/g, "") : "Attachment";
       const url = item.url.replace(/[<>\r\n]/g, "");
       return [`\n\n![${name}](<${url}>)\n\n`];
     }
@@ -105,9 +157,9 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
   ]) {
     const value = attributes[key];
     if (value === undefined || value === "undefined") continue;
-    if (hasRuntimeType(value, "string") && value) return value;
+    if (typeof value === "string" && value) return value;
     try {
-      const json = JSON.stringify(value, (_key, item: unknown) => hasRuntimeType(item, "bigint") ? `${item}n` : item, 2);
+      const json = JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? `${item}n` : item, 2);
       if (json) return json;
     } catch (error) {
       return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
@@ -126,19 +178,19 @@ function fileChanges(attributes: Record<string, unknown>): { patches: string[]; 
     const paths: string[] = [];
     const patches = item.changes.flatMap((value) => {
       const change = record(value);
-      if (!hasRuntimeType(change?.path, "string")) {
+      if (typeof change?.path !== "string") {
         return [];
       }
       const path = change.path.split("/workspace/").at(-1) || change.path.replace(/^\/+/, "");
       paths.push(path);
-      if (!hasRuntimeType(change.diff, "string") || !change.diff) return [];
+      if (typeof change.diff !== "string" || !change.diff) return [];
       const diff = change.diff.endsWith("\n") ? change.diff : `${change.diff}\n`;
       return [`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${diff}`];
     });
     if (patches.length || paths.length) return { patches, paths };
   }
   const body = attributes["vitehub.activity.body"];
-  if (attributes["vitehub.activity.kind"] === "change" && hasRuntimeType(body, "string") && /^diff --git /m.test(body)) {
+  if (attributes["vitehub.activity.kind"] === "change" && typeof body === "string" && /^diff --git /m.test(body)) {
     const paths = [...body.matchAll(/^diff --git a\/(.+?) b\/.+$/gm)].map(match => match[1]!);
     // Diff views take one file per patch, and a turn diff can change several files.
     return {
@@ -169,29 +221,29 @@ function commandDetails(
   const streamedOutput = observations
     .filter(observation => observation.name === "agent.tool.output")
     .map(observation => observation.attributes?.["tool.output"])
-    .filter((value): value is string => hasRuntimeType(value, "string"))
+    .filter((value): value is string => typeof value === "string")
     .join("");
   const directOutput = observations
     .filter(observation => /\.(finish|error)$/.test(observation.name))
     .map(observation => observation.attributes?.["tool.output"])
-    .findLast(value => hasRuntimeType(value, "string"));
-  const outputText = hasRuntimeType(output?.aggregatedOutput, "string")
+    .findLast(value => typeof value === "string");
+  const outputText = typeof output?.aggregatedOutput === "string"
       ? output.aggregatedOutput
       : streamedOutput
         ? streamedOutput
-        : hasRuntimeType(directOutput, "string")
+        : typeof directOutput === "string"
           ? directOutput
-          : hasRuntimeType(output?.output, "string")
+          : typeof output?.output === "string"
             ? output.output
-            : hasRuntimeType(input?.aggregatedOutput, "string")
+            : typeof input?.aggregatedOutput === "string"
           ? input.aggregatedOutput
-          : hasRuntimeType(input?.output, "string")
+          : typeof input?.output === "string"
             ? input.output
             : undefined;
   return {
     command,
-    ...(hasRuntimeType(input?.cwd, "string") ? { cwd: input.cwd } : hasRuntimeType(output?.cwd, "string") ? { cwd: output.cwd } : {}),
-    ...(hasRuntimeType(output?.exitCode, "number") ? { exitCode: output.exitCode } : hasRuntimeType(input?.exitCode, "number") ? { exitCode: input.exitCode } : {}),
+    ...(typeof input?.cwd === "string" ? { cwd: input.cwd } : typeof output?.cwd === "string" ? { cwd: output.cwd } : {}),
+    ...(typeof output?.exitCode === "number" ? { exitCode: output.exitCode } : typeof input?.exitCode === "number" ? { exitCode: input.exitCode } : {}),
     ...(outputText !== undefined ? { output: outputText } : {}),
   };
 }
@@ -209,14 +261,14 @@ function skillReadDetails(attributes: Record<string, unknown>): InvocationSkillR
     if (!item || !Array.isArray(item.commandActions)) continue;
     for (const value of item.commandActions) {
       const action = record(value);
-      const cwd = hasRuntimeType(item.cwd, "string") ? item.cwd.replace(/\/+$/, "") : undefined;
-      if (action?.type === "read" && hasRuntimeType(action.path, "string")) {
+      const cwd = typeof item.cwd === "string" ? item.cwd.replace(/\/+$/, "") : undefined;
+      if (action?.type === "read" && typeof action.path === "string") {
         add(cwd && action.path.startsWith(`${cwd}/`)
           ? action.path.slice(cwd.length + 1)
           : action.path.replace(/^\.\//, ""));
         continue;
       }
-      if (action?.type !== "unknown" || !hasRuntimeType(action.command, "string")) continue;
+      if (action?.type !== "unknown" || typeof action.command !== "string") continue;
       const tokens = action.command.trim().split(/\s+/);
       if (tokens[0] !== "cat" || tokens.length < 2 || tokens.slice(1).some(token => token.startsWith("-") || /[\\'"`$;&|<>(){}[\]*?!]/.test(token))) continue;
       for (const token of tokens.slice(1)) add(token.replace(/^\.\//, ""));
@@ -228,7 +280,7 @@ function skillReadDetails(attributes: Record<string, unknown>): InvocationSkillR
 export function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = attributes[key];
-    if (hasRuntimeType(value, "string") && value.trim()) return value.trim();
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
 }
 
@@ -245,8 +297,10 @@ function payloadDetail(attributes: Record<string, unknown>): string | undefined 
 /** Sentences for common snake_case tool identifiers. Other identifiers keep their words with the underscores removed. */
 const toolTitles: Record<string, string> = {
   apply_patch: "Changed files",
+  command_execution: "Ran command",
   edit_file: "Changed files",
   exec_command: "Ran command",
+  file_change: "Changed files",
   grep_search: "Searched code",
   list_dir: "Listed directory",
   read_file: "Read file",
@@ -258,10 +312,22 @@ const toolTitles: Record<string, string> = {
 
 function normalizedTitle(value: string): string {
   const trimmed = value.replace(/\s+(?:complete|completed)$/i, "").trim();
-  const known = toolTitles[trimmed.toLocaleLowerCase()];
+  // Provider tools arrive as `<server>.<tool>`, and proxied MCP tools as `<server>.mcp_<service>_<tool>`.
+  const namespaced = /^[a-z0-9-]+\.[a-z0-9_]+$/i.test(trimmed);
+  const name = namespaced ? trimmed.slice(trimmed.indexOf(".") + 1).replace(/^mcp_(?=[a-z0-9]+_)/i, "") : trimmed;
+  const known = toolTitles[name.toLocaleLowerCase()];
   if (known) return known;
-  const title = /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(trimmed) ? trimmed.replaceAll("_", " ") : trimmed;
+  const title = namespaced || /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(name)
+    ? name.split("_").map(word => word.toLocaleLowerCase() === "mcp" ? "MCP" : word).join(" ")
+    : name;
   return title ? title[0]!.toUpperCase() + title.slice(1) : "Activity";
+}
+
+/** Shows the script that `sh -lc '<script>'` wrappers run, so the row reads as the command the agent typed. */
+function shellScript(command: string): string {
+  const match = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z|da)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/.exec(command.trim());
+  if (!match) return command;
+  return match[1] === "'" ? match[2]!.replaceAll("'\\''", "'") : match[2]!.replace(/\\(["\\$`])/g, "$1");
 }
 
 function activityPreview(
@@ -270,7 +336,7 @@ function activityPreview(
   paths: readonly string[],
   title: string,
 ): string | undefined {
-  const detail = command?.command ?? payloadDetail(attributes) ?? (paths.length
+  const detail = (command ? shellScript(command.command) : undefined) ?? payloadDetail(attributes) ?? (paths.length
     ? `${paths[0]}${paths.length > 1 ? ` +${paths.length - 1} more` : ""}`
     : undefined);
   if (!detail || normalizedTitle(detail).toLocaleLowerCase() === title.toLocaleLowerCase()) return;
@@ -301,7 +367,7 @@ function activityKind(
   if (observation.name === "agent.usage.recorded") return "model";
   const explicit = attributes["vitehub.activity.kind"];
   if (
-    hasRuntimeType(explicit, "string")
+    typeof explicit === "string"
     && ["action", "approval", "change", "delivery", "error", "message", "model", "plan", "preparation", "reasoning", "run", "system", "tool", "activity"].includes(explicit)
   ) {
     return explicit as InvocationActivityKind;
@@ -323,15 +389,15 @@ function activityKind(
 function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
     const value = attributes[key];
-    if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
   }
 }
 
 function isRecordedTool(value: unknown): value is Pick<AgentToolInspection, "icon" | "label" | "name"> {
   const tool = record(value);
-  return hasRuntimeType(tool?.name, "string")
-    && (tool.icon === undefined || hasRuntimeType(tool.icon, "string"))
-    && (tool.label === undefined || hasRuntimeType(tool.label, "string"));
+  return typeof tool?.name === "string"
+    && (tool.icon === undefined || typeof tool.icon === "string")
+    && (tool.label === undefined || typeof tool.label === "string");
 }
 
 export function invocationActivities(invocation: AgentInvocationView): InvocationActivity[] {
@@ -368,12 +434,14 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ? originalAttributes["input.prompt"]
         : undefined;
     if (Array.isArray(inputMessages)) {
+      let lastInputKey: string | undefined;
       inputMessages.forEach((message, index) => {
         const value = record(message);
         const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
+        lastInputKey = key;
         groups.set(key, [{
           ...observation,
           attributes: {
@@ -381,14 +449,19 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.origin": "invocation-input",
             "message.id": value ? stringAttribute(value, "id") ?? key : key,
             "message.role": role,
-            ...(originalAttributes["vitehub.observation.truncated"] === true
-              ? { "vitehub.observation.truncated": true }
-              : {}),
           },
           name: "agent.input.message",
           sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
         }]);
       });
+      // One note after the history says it was shortened; repeating it on every message adds noise.
+      const historyTruncation = truncatedContent(observation) === undefined
+        ? { "vitehub.observation.truncated": true }
+        : truncatedContent(observation)!.some(key => key === "input.messages" || key === "input.prompt")
+          ? { "vitehub.observation.truncated": true, "vitehub.observation.truncatedAttributes": ["input.messages"] }
+          : undefined;
+      const lastInput = lastInputKey === undefined ? undefined : groups.get(lastInputKey)?.[0];
+      if (lastInput && historyTruncation) lastInput.attributes = { ...lastInput.attributes, ...historyTruncation };
     }
     const attributes = inputMessages === undefined
       ? originalAttributes
@@ -422,13 +495,13 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   }
   for (const observations of groups.values()) {
     if (Math.max(...observations.map(item => item.sequence)) !== latestMessageSequence) continue;
-    if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
+    if (observations.some(cutsContent)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
       && item.attributes?.["message.phase"] !== "commentary")) continue;
     const text = observations.map(item => {
       const content = item.attributes?.["message.content"];
-      return hasRuntimeType(content, "string") ? content : "";
+      return typeof content === "string" ? content : "";
     }).join("").trim();
     if (!text) continue;
     completeAssistantTexts.add(text);
@@ -448,7 +521,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const attributes = Object.assign({}, ...sorted.map(item => item.attributes ?? {}));
       const messageBody = sorted
         .map(item => item.attributes?.["message.content"])
-        .filter((value): value is string => hasRuntimeType(value, "string"))
+        .filter((value): value is string => typeof value === "string")
         .join("");
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
@@ -510,9 +583,14 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(Object.keys(toolDisplay).length ? { toolDisplay } : {}),
-        ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+        ...(sorted.some(cutsContent)
           && !(first.name === "agent.invocation.finish" && completeAssistantTexts.has(stringAttribute(attributes, "result.text") ?? ""))
-          ? { truncated: true }
+          ? {
+              truncated: true,
+              ...(sorted.every(item => truncatedContent(item) !== undefined)
+                ? { truncatedAttributes: [...new Set(sorted.flatMap(item => truncatedContent(item)!))] }
+                : {}),
+            }
           : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
@@ -550,9 +628,9 @@ export function invocationToolUsage(invocation: AgentInvocationView): ReadonlyMa
   const seen = new Set<string>();
   for (const observation of invocation.observations) {
     const name = observation.attributes?.["tool.name"];
-    if (!hasRuntimeType(name, "string") || !name) continue;
+    if (typeof name !== "string" || !name) continue;
     const id = observation.attributes?.["tool.id"];
-    if (hasRuntimeType(id, "string") && id) {
+    if (typeof id === "string" && id) {
       const key = `${name}:${id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -576,7 +654,7 @@ export function invocationActivityDetail(activity: InvocationActivity): string |
 
 export function invocationActivityTitle(activity: InvocationActivity): string {
   const explicit = activity.attributes["vitehub.activity.title"];
-  if (hasRuntimeType(explicit, "string") && explicit.trim()) return explicit.trim();
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.name === "vitehub.agent.configured") return agentConfigurationTitle(activity);
   if (activity.skill) return `Read ${activity.skill.name} skill`;
@@ -588,7 +666,11 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
-  if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  if (activity.kind === "tool") {
+    // Codex records the script as tool.title; the command preview already shows it.
+    if (activity.attributes["tool.name"] === "command_execution") return normalizedTitle("command_execution");
+    return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  }
   if (activity.kind === "approval") {
     if (activity.attributes["approval.approved"] === true) return "Approval granted";
     if (activity.attributes["approval.approved"] === false) return "Approval denied";
