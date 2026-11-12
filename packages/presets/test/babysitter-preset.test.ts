@@ -1667,7 +1667,7 @@ describe("Babysitter preset runtime", () => {
         try {
           await f.reconcile();
           expect(markReady(f)).toHaveLength(0);
-          expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Reviewed head is unchanged; waiting for merge gates." });
+          expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Reviewed, but the pull request is a draft. It merges once it is marked ready for review." });
         } finally { await f.runtime.inbox.close(); }
       }
     });
