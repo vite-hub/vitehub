@@ -6,7 +6,7 @@ import { createSource, glob } from "@vite-hub/source"
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
-import { docsMarkdownPlugins, docsSearchSections } from "../src/markdown.ts"
+import { docsMarkdown, docsSearchSections } from "../src/markdown.ts"
 import { createDocsSearch, docsIndexedPages, docsUnindexedSearchSections } from "../src/navigation.ts"
 
 import type { DocsSearchSection } from "../src/types.ts"
@@ -24,11 +24,11 @@ beforeAll(async () => {
       await readFile(resolve(examplesDir, file), "utf8"),
     ] as const),
   ))
-  // As on the site, search reads each page through Content, parsed with the page plugins.
+  // As on the site, search reads each page through Content, parsed with the page parser config.
   const content = defineContent({
     route: false,
     live: false,
-    markdown: { plugins: docsMarkdownPlugins({ examples }) },
+    markdown: docsMarkdown({ examples }),
     sources: { docs_0: () => createSource(glob({ include: ["**/*.md"] }), { rootDir: contentDir }) },
   })
   // One parse of the folder: a `glob()` Source reads every file again on each read of one page.
