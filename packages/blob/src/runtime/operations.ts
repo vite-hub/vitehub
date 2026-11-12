@@ -184,7 +184,7 @@ async function headOrUndefined(storage: BlobStorage, pathname: string): Promise<
 
 function selectStore(stores: readonly BlobDevStore[], name = "default"): { name: string, storage: BlobStorage } {
   if (stores.length === 0) {
-    throw new BlobOperationError("Blob is disabled in this runtime. Configure `hubBlob()` without `blob: false`.", 409, "BLOB_DISABLED", "Enable Blob with hubBlob() or vitehub({ blob: true }).")
+    throw new BlobOperationError("Blob is disabled in this runtime.", 409, "BLOB_DISABLED", "Set `blob` in `vitehub()` to `true` or to a Blob config. With `@vite-hub/blob` alone, add `hubBlob()` to the Vite plugins and do not pass `false` to it.")
   }
   if (!stores.some(entry => entry.name === name)) {
     throw new BlobOperationError(`Blob store "${name}" was not found. Stores: ${stores.map(entry => entry.name).join(", ")}.`, 404, "BLOB_STORE_NOT_FOUND")

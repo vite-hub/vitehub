@@ -3,6 +3,7 @@ import { parseEvidence, parsePullRequest, type GitHubReviewThread, type GitHubEv
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
 import { repoRef, type GitHubProvider } from '@vite-hub/forge'
+import { isBabysitterCheckRun } from '../check-run.ts'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
@@ -92,7 +93,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
   const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
-    checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
+    checks: Object.fromEntries(checks.map(parseEvidence).filter(c => !isBabysitterCheckRun(c)).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
   }
   if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
@@ -136,7 +137,11 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads)
   const ingest = async (event: string, payload: GitHubDelivery) => {
     const full = { repository: { full_name: s.repository }, ...payload }
-    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, full])).digest('hex')}`
+    // Reviews and comments embed the whole PR, whose updated_at and mergeability change with any
+    // activity. Hash only its number and head so an unchanged review keeps its delivery ID.
+    const pr = full.pull_request as { number?: number, head?: { sha?: string } } | undefined
+    const identity = event === 'pull_request' || !pr ? full : { ...full, pull_request: { number: pr.number, head: pr.head?.sha } }
+    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, identity])).digest('hex')}`
     await inbox.ingest(id, event, full)
   }
   await ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })
@@ -202,7 +207,8 @@ const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.numbe
 const changeDetectionInFlight = new WeakSet<PullRequestInbox>()
 
 /**
- * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute.
+ * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute,
+ * and at most once per 1.5 seconds per repository, so many repositories stay within the GraphQL rate limit.
  * Seeds new PRs and marks PRs whose fingerprint changed, or that closed, for a targeted REST probe.
  * This recovers lost webhook deliveries without probing unchanged PRs.
  */
@@ -211,7 +217,7 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
   changeDetectionInFlight.add(inbox)
   try {
   if (((await inbox.metaNumber('change-detect-next')) ?? 0) > now) return
-  await inbox.setMeta('change-detect-next', now + 60_000)
+  await inbox.setMeta('change-detect-next', now + Math.max(60_000, repositories.length * 1_500))
   // The summary query already contains every tracked PR. Reuse it for both
   // change detection and the closed-PR sweep instead of issuing one SQLite
   // read per open PR. On a busy inbox this turns an O(open PRs) sequence of

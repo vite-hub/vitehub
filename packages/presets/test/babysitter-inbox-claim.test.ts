@@ -170,6 +170,18 @@ test('stack parents are claimed before older independent work', async () => {
   } finally { await inbox.close() }
 })
 
+test('stack children are claimed beside their open parent when the inbox claims them', async () => {
+  let now = 1_000
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['acme/app'], clock: () => now++, claimStackChildren: true })
+  try {
+    const pr = (number: number, head: string, base: string) => ({ number, state: 'open', head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'acme/app' } }, base: { ref: base, repo: { full_name: 'acme/app' } }, updated_at: '2026-10-01T00:00:00Z' })
+    await inbox.seed('acme/app', pr(1, 'parent', 'main'))
+    await inbox.seed('acme/app', pr(2, 'child', 'parent'))
+    assert.equal((await inbox.summary()).some(item => item.stackBlocked), false)
+    assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [1, 2])
+  } finally { await inbox.close() }
+})
+
 test('startup releases every held lease and keeps recorded waits', async () => {
   const inbox = await fixture()
   try {

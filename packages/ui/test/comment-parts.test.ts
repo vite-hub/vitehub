@@ -160,9 +160,8 @@ describe("composer mentions", () => {
   it("never suggests the signed-in user", async () => {
     const wrapper = keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false })), { attachTo: document.body, global }));
     await wrapper.get("textarea").setValue("@an");
-    await flushPromises();
-    await flushPromises();
-    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty]").exists()).toBe(true));
+    expect(wrapper.find("[role=option]").exists()).toBe(false);
   });
 
   it("lets a users prop win over the comments state", async () => {
@@ -244,6 +243,64 @@ describe("composer mentions", () => {
     }));
     await wrapper.get("textarea").setValue("@be");
     await vi.waitFor(() => expect(wrapper.findAll("[role=option] b").map(item => item.text())).toEqual(["Ben Soto *", "Sofía Benítez"]));
+  });
+
+  it.each([
+    { failed: true, line: "Could not load people.", users: async () => { throw new Error("401") } },
+    { failed: false, line: "No one by that name can be mentioned here.", users: async () => [ben] },
+  ])("shows a line that is not an option when the lookup has no one to show (failed: $failed)", async ({ failed, line, users }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper: VueWrapper = keep(mount(CommentComposer, {
+      attachTo: document.body,
+      global,
+      props: { autofocus: false, guard: false, users, "onUpdate:modelValue": (value: string) => wrapper.setProps({ modelValue: value }) },
+    }));
+    const field = wrapper.get("textarea");
+    await field.setValue("@zo");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty]").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-composer-mentions]").attributes()).toMatchObject({ "data-state": failed ? "error" : "empty", role: "status" });
+    expect(wrapper.get("[data-slot=comment-composer-mention-empty]").text()).toBe(line);
+    expect(wrapper.find("[role=listbox]").exists()).toBe(false);
+    expect(wrapper.find("[role=option]").exists()).toBe(false);
+    expect(field.attributes("aria-expanded")).toBe("false");
+    expect(field.attributes("aria-controls")).toBeUndefined();
+    expect(field.attributes("aria-activedescendant")).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(failed ? 1 : 0);
+
+    // The arrows and Tab pick nothing, and Enter sends the text as it is.
+    await field.trigger("keydown", { key: "ArrowDown" });
+    await field.trigger("keydown", { key: "Tab" });
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(field.element).toHaveProperty("value", "@zo");
+    expect(wrapper.emitted("update:mentions")).toBeUndefined();
+    expect(wrapper.emitted("submit")).toEqual([[{ body: "@zo", files: [], mentions: [] }]]);
+
+    await field.trigger("keydown", { key: "Escape" });
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+  });
+
+  it.each(["@z", "@zo b"])("keeps the menu closed when %j finds no one, as the text is too short or after a space", async (value) => {
+    const users = vi.fn(async () => []);
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, users } }));
+    await wrapper.get("textarea").setValue(value);
+    await vi.waitFor(() => expect(users).toHaveBeenCalled());
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+  });
+
+  it("renders a mention-empty slot with the query and whether the lookup failed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper = keep(mount(CommentComposer, {
+      attachTo: document.body,
+      global,
+      props: { autofocus: false, guard: false, users: async () => { throw new Error("offline") } },
+      slots: { "mention-empty": ({ query, failed }: { query: string; failed: boolean }) => h("b", `${query} ${failed}`) },
+    }));
+    await wrapper.get("textarea").setValue("@zoe");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty] b").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-composer-mention-empty] b").text()).toBe("zoe true");
   });
 
   it("renders the extra slot above the text field", () => {
