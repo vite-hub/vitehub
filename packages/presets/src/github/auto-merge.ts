@@ -9,6 +9,7 @@ import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type
 import { checkLogExcerpt, compactCiLog, parseCheckLogSelection, type CheckLogExcerpt, type CheckLogSelection } from "./ci-logs.ts"
 import type { GitHubHost } from "./host.ts"
 import type { GitHubRepairCommit } from "./repair.ts"
+import type { GitHubDependencyStatus } from "./install.ts"
 
 interface GitHubMentionToken {
   attrSet: (name: string, value: string) => void
@@ -102,6 +103,8 @@ export interface GitHubPullRequestOperationsOptions {
   commentPrefix?: string
   /** Host-owned checkout push, already bound to its source branch and expected-head lease. */
   push?: () => Promise<string>
+  /** Host-owned report of dependency inputs that changed since the last install. */
+  checkDependencies?: () => Promise<GitHubDependencyStatus>
   /** Host-owned frozen installation after resolving dependency conflicts. */
   refreshDependencies?: () => Promise<void>
   /** Host-owned staging and commit in the assigned repair checkout. */
@@ -153,6 +156,7 @@ export interface GitHubPullRequestOperations {
   resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<string>
+  checkDependencies(): Promise<GitHubDependencyStatus>
   refreshDependencies(): Promise<void>
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
@@ -535,6 +539,9 @@ export function createGitHubPullRequestOperations(
       }
       const { provider, pullRequest } = await forge()
       await provider.threads.update(pullRequest, update, { signal })
+    },
+    async checkDependencies() {
+      return await options.checkDependencies?.() ?? { current: true, changedInputs: [], reason: "This worker has no host dependency install." }
     },
     async refreshDependencies() {
       if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")
