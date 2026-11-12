@@ -81,5 +81,25 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the `default` KV store. A host can limit the size of one value: Cloudflare KV takes up to 25 MiB. `content.sources.head()` shows the cache key and how many reads missed.",
       why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] Content could not store ${key} of Content source ${JSON.stringify(source)} in KV: ${reason}`,
     },
+    /** `content.sources.at()` received a ref that is not a full SHA, a `pr/<number>` ref, or a safe branch name. */
+    CONTENT_R0027: {
+      fix: "Pass a full 40-character commit SHA, `pr/<number>` such as `pr/12`, or a branch name with letters, digits, and `. _ - /`, up to 200 characters.",
+      why: ({ ref, reason }: { ref: string, reason: string }) => `[vitehub] content.sources.at() cannot open ref ${JSON.stringify(ref)}: ${reason}.`,
+    },
+    /** The repository of a `github()` Source has no commit, branch, or pull request with this ref. */
+    CONTENT_R0028: {
+      fix: "Check the ref on GitHub. A branch must match its full name, and a SHA must be a full commit SHA. A private repository needs `VITEHUB_GITHUB_TOKEN` with read access.",
+      why: ({ source, ref }: { source: string, ref: string }) => `[vitehub] The repository of Content source ${JSON.stringify(source)} has no ref ${JSON.stringify(ref)}.`,
+    },
+    /** GitHub did not answer a ref lookup, for example because of a rate limit. */
+    CONTENT_R0029: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env for a higher GitHub rate limit, then try again. `content.sources.at()` holds each branch and pull request lookup for 30 seconds.",
+      why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content could not look up ref ${JSON.stringify(ref)} of Content source ${JSON.stringify(source)} on GitHub: ${reason}`,
+    },
+    /** A document of the commit that a ref points to does not load or parse, so Content opens no view of it. */
+    CONTENT_R0030: {
+      fix: "Fix the document on the branch or pull request and push a new commit. The next `content.sources.at()` call after 30 seconds reads the new commit.",
+      why: ({ source, ref, sha, reason }: { source: string, ref: string, sha: string, reason: string }) => `[vitehub] Commit ${sha} of ref ${JSON.stringify(ref)} in Content source ${JSON.stringify(source)} failed validation: ${reason}`,
+    },
   },
 })
