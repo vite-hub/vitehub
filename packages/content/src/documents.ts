@@ -42,11 +42,12 @@ export type ContentFormat = "markdown" | "json" | "yaml"
 /**
  * How a document maps to its public URL: a root-relative pattern such as `/blog/:id`, or a function of the document.
  * A pattern replaces `:id` with the document id and `:<field>` with a text or number field. A function, or a pattern
- * whose field has no value, may return null for a document without a page.
+ * whose field has no value, may return null for a document without a page. A function gets the `key` of a Source
+ * file, such as `guides/start.md`.
  */
 export type ContentDocumentUrl<TData = Record<string, unknown>> =
   | string
-  | ((document: { id: string, data: TData, locale?: string }) => string | null | undefined)
+  | ((document: { id: string, data: TData, locale?: string, key?: string }) => string | null | undefined)
 
 export interface DocumentsOptions<TFields extends ContentFields> {
   /**
@@ -469,7 +470,7 @@ export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>, localized: b
  */
 export function contentDocumentUrl(
   url: ContentDocumentUrl<any> | undefined,
-  document: { id: string, data: Record<string, unknown>, locale?: string },
+  document: { id: string, data: Record<string, unknown>, locale?: string, key?: string },
   sourceLocale?: string,
 ): string | null {
   if (url === undefined) return null
@@ -478,7 +479,7 @@ export function contentDocumentUrl(
     return resolved === null ? null : `/${document.locale}${resolved === "/" ? "" : resolved}`
   }
   if (url instanceof Function) {
-    const result: unknown = url(document.locale === undefined ? { id: document.id, data: document.data } : { id: document.id, data: document.data, locale: document.locale })
+    const result: unknown = url({ id: document.id, data: document.data, ...document.locale === undefined ? {} : { locale: document.locale }, ...document.key === undefined ? {} : { key: document.key } })
     if (result === null || result === undefined) return null
     if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
       throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)

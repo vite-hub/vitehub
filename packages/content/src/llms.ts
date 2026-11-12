@@ -1,4 +1,4 @@
-import { markdownCopyUrl } from "./markdown-negotiation.ts"
+import { markdownCopyUrl as copyUrl } from "./markdown-negotiation.ts"
 import type { DefineContentLlmsOptions } from "./sitemap.ts"
 
 /** The files that `defineContent({ seo: { llms: true } })` serves. */
@@ -117,8 +117,9 @@ export function renderContentSitemapMarkdown(options: { title: string, host: str
  * One file of `defineContent({ seo: { llms } })`, from the routed Markdown pages in definition order. `copy` reads the
  * Markdown copy of one page for `llms-full.txt`.
  */
-export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: readonly TPage[], copy: (page: TPage) => Promise<string | null>, options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile): Promise<string> {
+export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: readonly TPage[], copy: (page: TPage) => Promise<string | null>, options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile, prefix = ""): Promise<string> {
   const title = llmsTitle(options, site)
+  const markdownCopyUrl = (path: string) => copyUrl(path, prefix)
   const { home, groups } = sections(pages)
   const ordered = [...home ? [home] : [], ...[...groups.values()].flat()]
   if (file === "sitemap.md") {
@@ -137,12 +138,14 @@ export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: read
     href: absolute(markdownCopyUrl(page.path), site),
     ...(page.description ? { description: page.description.replace(/\s*\n\s*/g, " ") } : {}),
   })
+  const description = [options.description, options.details].filter(Boolean).join("\n\n")
   return renderContentLlms({
     title,
-    ...(options.description ? { description: options.description } : {}),
+    ...(description ? { description } : {}),
     sections: [
       ...home ? [{ title: "Overview", links: [{ title, href: absolute(markdownCopyUrl("/"), site) }] }] : [],
       { title: "Documentation Sets", links: [{ title, href: absolute("/llms-full.txt", site), ...(options.description ? { description: options.description } : {}) }] },
+      ...options.sections ?? [],
       ...[...groups].map(([label, group]) => ({ title: label, description: rawSectionDescription, links: group.map(link) })),
     ],
   })

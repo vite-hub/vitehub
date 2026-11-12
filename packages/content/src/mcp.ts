@@ -1,4 +1,5 @@
 import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
+import { siteOrigin } from "./sitemap.ts"
 
 import type { McpServer, McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ContentHandler } from "./index.ts"
@@ -41,8 +42,11 @@ export const contentPagesLimit = 1_000
 export const contentPageCharacters = 200_000
 
 /** The path of a routed page, such as `/blog/hello`. */
-export function contentPagePath(loc: string): string {
-  return new URL(loc, "http://localhost").pathname
+export function contentPagePath(loc: string, site?: string): string {
+  const path = new URL(loc, "http://localhost").pathname
+  // A site mounted below a path, such as `https://example.com/docs`, keeps the path out of page paths.
+  const base = site ? new URL(site).pathname.replace(/\/+$/, "") : ""
+  return base && (path === base || path.startsWith(`${base}/`)) ? path.slice(base.length) || "/" : path
 }
 
 /**
@@ -62,7 +66,7 @@ export function contentPageKey(path: string): string {
 
 /** The summary of a routed page. A page without a title shows its path. */
 export function contentPageSummary(page: ContentRoutedPage, site: string): ContentPageSummary {
-  const path = contentPagePath(page.loc)
+  const path = contentPagePath(page.loc, site)
   // Keys in the order of the `@vite-hub/docs` MCP server, so `list-pages` gives the same JSON.
   return { title: page.title ?? path, path, ...page.description ? { description: page.description } : {}, url: new URL(page.loc, site).href }
 }
@@ -127,7 +131,7 @@ export function defineContentMcpHandler(content: ContentMcpRuntime): ContentHand
     async fetch(request) {
       const mcp = content.seo?.mcp
       if (mcp === undefined || mcp === false) return new Response("Not Found", { status: 404 })
-      return await serveMcp(request, contentMcpServer(content, content.seo?.site ? new URL(content.seo.site).origin : new URL(request.url).origin))
+      return await serveMcp(request, contentMcpServer(content, content.seo?.site ? siteOrigin(content.seo.site) : new URL(request.url).origin))
     },
   }
 }

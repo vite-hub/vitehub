@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
 import { documents, singleton } from "../src/collections.ts"
-import { acceptsMarkdown, defineContent, defineContentLlmsHandler, defineContentMarkdownHandler, renderContentLlms, renderContentMarkdownNotFound, renderContentSitemapMarkdown, seo } from "../src/index.ts"
+import { files } from "@vite-hub/source"
+
+import { acceptsMarkdown, contentSource, defineContent, defineContentLlmsHandler, defineContentMarkdownHandler, renderContentLlms, renderContentMarkdownNotFound, renderContentSitemapMarkdown, seo } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
 import type { DefineContentSeoOptions } from "../src/index.ts"
@@ -151,6 +153,88 @@ describe("llms files", { timeout: 30_000 }, () => {
       expect(text).toContain(file === "llms-full.txt" ? "# Self\n" : "[Self](https://example.com/blog/self.md)")
       expect(text).not.toContain("Elsewhere")
     }
+  })
+})
+
+describe("llms files of Sources", { timeout: 30_000 }, () => {
+  /** A docs Source with its own frontmatter for "not indexed" and its own Markdown copy with a footer. */
+  function docsSite() {
+    const pages: Record<string, string> = {
+      "index.md": "---\ntitle: Home\n---\nWelcome.\n",
+      "guide.md": "---\ntitle: Guide\ndescription: Start here.\n---\n::note\nRead [this](/guide).\n::\n",
+      "about.md": "---\ntitle: About\n---\nAbout us.\n",
+      "errors/e1.md": "---\ntitle: E1\nindex: false\n---\nAn error.\n",
+    }
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: {
+        docs: contentSource(files(pages), {
+          url: "/:id",
+          label: "Docs",
+          seo: ({ data }) => data.index === false ? { noindex: true } : undefined,
+          markdown: ({ text, path, site }) => ({ markdown: `# Copy of ${path}\n\n${text.replace(/^---[\s\S]*?---\n/, "").replace(/^::.*\n/gm, "")}`, footer: `\nAll pages: ${site}/llms.txt\n` }),
+        }),
+      },
+      seo: {
+        site: "https://example.com",
+        markdown: { prefix: "/raw" },
+        llms: { title: "Example", description: "Notes.", details: "Rules for agents.", sections: [{ title: "Links", links: [{ title: "API", href: "https://example.com/openapi.json" }] }] },
+        mcp: true,
+      },
+    })
+    cleanup.push(() => content.dispose())
+    return content
+  }
+
+  it("lists Source pages under the Source label, with the extra sections and details", async () => {
+    const content = docsSite()
+    expect(await content.llms()).toBe([
+      "# Example",
+      "> Notes.\n\nRules for agents.",
+      "## Overview",
+      "- [Example](https://example.com/raw/index.md)",
+      "## Documentation Sets",
+      "- [Example](https://example.com/llms-full.txt): Notes.",
+      "## Links",
+      "- [API](https://example.com/openapi.json)",
+      "## Docs",
+      "Every page below is available as raw markdown.",
+      "- [About](https://example.com/raw/about.md)\n- [Guide](https://example.com/raw/guide.md): Start here.",
+    ].join("\n\n"))
+    expect(await content.llms({ file: "sitemap.md" })).toContain("- [Guide](https://example.com/raw/guide.md)")
+  })
+
+  it("serves the copy with its footer at the page URL and below the prefix, and joins copies without it", async () => {
+    const content = docsSite()
+    const copy = "# Copy of /guide\n\nRead [this](/guide).\n\nAll pages: https://example.com/llms.txt\n"
+    expect(await content.markdown("/guide.md")).toBe(copy)
+    expect(await content.markdown("/raw/guide.md")).toBe(copy)
+    // A page that indexes leave out keeps its copy.
+    expect(await content.markdown("/raw/errors/e1.md")).toContain("An error.")
+    expect(await content.markdown("/raw/missing.md")).toBeNull()
+    const full = await content.llms({ file: "llms-full.txt" })
+    expect(full).toBe(["# Copy of /\n\nWelcome.\n", "# Copy of /about\n\nAbout us.\n", "# Copy of /guide\n\nRead [this](/guide).\n"].join("\n\n"))
+    expect((await content.pages()).map(page => page.path).sort()).toEqual(["/", "/about", "/guide"])
+    expect(await content.page("/errors/e1")).toMatchObject({ path: "/errors/e1", content: "# Copy of /errors/e1\n\nAn error.\n" })
+  })
+
+  it("keeps the path of a mounted site in every URL, but not in page paths", async () => {
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(files({ "guide.md": "---\ntitle: Guide\n---\nBody.\n" }), { url: "/:id" }) },
+      seo: { site: "https://example.com/portal/", markdown: { prefix: "/raw" }, llms: true, mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.llms({ file: "sitemap.md" })).toContain("- [Guide](https://example.com/portal/raw/guide.md)")
+    expect(await content.pages()).toEqual([{ title: "Guide", path: "/guide", url: "https://example.com/portal/guide" }])
+    expect(await content.page("/guide")).toMatchObject({ url: "https://example.com/portal/guide" })
+  })
+
+  it("rejects page options without a url, and a prefix with a trailing slash", () => {
+    expect(() => contentSource(files({}), { label: "Docs" })).toThrow(/needs a url/)
+    expect(() => defineContent({ seo: { markdown: { prefix: "/raw/" } }, logger: false })).toThrow(/prefix starts with \//)
   })
 })
 

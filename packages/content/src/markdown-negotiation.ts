@@ -5,10 +5,10 @@ import type { DefineContentSeoOptions } from "./sitemap.ts"
 /** The `Vary` value of every response that depends on the `Accept` header. */
 export const contentMarkdownVary = "Accept"
 
-/** The `.md` copy of a page URL: `/blog/hello.md` for `/blog/hello`, and `/index.md` for `/`. */
-export function markdownCopyUrl(url: string): string {
+/** The `.md` copy of a page URL: `/blog/hello.md` for `/blog/hello`, and `/index.md` for `/`, below `prefix` if any. */
+export function markdownCopyUrl(url: string, prefix = ""): string {
   const path = url.replace(/\/+$/, "")
-  return path ? `${path}.md` : "/index.md"
+  return `${prefix}${path ? `${path}.md` : "/index.md"}`
 }
 
 interface AcceptEntry {
@@ -165,7 +165,7 @@ function markdownVary(...values: (string | null | undefined)[]): string {
  */
 export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>)): ContentMiddleware {
   return async (event, next) => {
-    if (typeof content !== "function" && content.seo?.markdown !== true) return
+    if (typeof content !== "function" && !content.seo?.markdown) return
     const request = event.req
     if (request.method !== "GET" && request.method !== "HEAD") return
     const url = new URL(request.url)
@@ -195,7 +195,7 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     if (!copy && !negotiated) return await downstream()
     const runtime = typeof content === "function" ? await content() : content
     const seo = runtime.seo
-    if (seo?.markdown !== true) return
+    if (!seo?.markdown) return
     const site = seo.site ?? url.origin
     const respond = (body: string, status = 200) => new Response(request.method === "HEAD" ? null : body, {
       status,

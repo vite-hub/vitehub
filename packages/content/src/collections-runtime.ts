@@ -61,7 +61,7 @@ const titleFieldNames = ["title", "name", "label", "heading"]
 const lineageDigestPattern = /^sha256-[0-9a-f]{64}$/
 
 /** `blog-posts` → `Blog Posts`. */
-function titleCase(name: string): string {
+export function titleCase(name: string): string {
   return name.split(/[-_/\s]+/).filter(Boolean).map(part => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ")
 }
 

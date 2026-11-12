@@ -129,16 +129,18 @@ describe("seo.mcp for collections", () => {
     }
   })
 
-  it("answers an unknown, draft, or noindex page with the error text of the docs MCP server", async () => {
+  it("answers an unknown or draft page with the error text of the docs MCP server, and reads a noindex page", async () => {
     const content = await site()
-    await content.collection("posts").save("hidden", { data: { title: "Hidden", seo: { noindex: true } }, body: "Secret\n" })
+    await content.collection("posts").save("hidden", { data: { title: "Hidden", seo: { noindex: true } }, body: "Unlisted\n" })
     await content.collection("posts").save("draft", { data: { title: "Draft" }, body: "Not yet\n" })
     await content.publish({ collection: "posts", ids: ["hidden"] })
     const handler = defineContentMcpHandler(content)
-    for (const path of ["/blog/missing", "/blog/draft", "/blog/hidden", "/data/numbers"]) {
+    for (const path of ["/blog/missing", "/blog/draft", "/data/numbers"]) {
       expect(await tool(handler, "get-page", { path })).toEqual({ content: [{ type: "text", text: `[404] No page at ${path}` }], isError: true })
     }
-    expect(await content.page("/blog/hidden")).toBeNull()
+    // A noindex page has a `.md` copy, so get-page reads it by its path. list-pages does not list it.
+    expect(await content.page("/blog/hidden")).toMatchObject({ path: "/blog/hidden", content: "# Hidden\n\nUnlisted\n" })
+    expect((await content.pages()).map(page => page.path)).not.toContain("/blog/hidden")
     expect((await tool(handler, "get-page", {})).isError).toBe(true)
   })
 
@@ -177,7 +179,7 @@ describe("seo.mcp for collections", () => {
 })
 
 describe("seo.mcp for Sources", () => {
-  it("excludes Source noindex and differing canonical pages from both tools", async () => {
+  it("lists no Source noindex or differing canonical page, but reads them by path", async () => {
     fake.commit("main", {
       "content/public.md": "---\ntitle: Public\nseo:\n  canonical: https://example.com/docs/public\n---\nPublic body.\n",
       "content/hidden.md": "---\ntitle: Hidden\nseo:\n  noindex: true\n---\nHidden body.\n",
@@ -194,8 +196,8 @@ describe("seo.mcp for Sources", () => {
     expect((await content.pages()).map(page => page.path)).toEqual(["/docs/public"])
     expect(JSON.parse((await tool(handler, "list-pages")).content![0]!.text).map((page: { path: string }) => page.path)).toEqual(["/docs/public"])
     for (const path of ["/docs/hidden", "/docs/elsewhere"]) {
-      expect(await content.page(path)).toBeNull()
-      expect(await tool(handler, "get-page", { path })).toEqual({ content: [{ type: "text", text: `[404] No page at ${path}` }], isError: true })
+      expect(await content.page(path)).toMatchObject({ path })
+      expect(JSON.parse((await tool(handler, "get-page", { path })).content![0]!.text)).toMatchObject({ path })
     }
   })
 
