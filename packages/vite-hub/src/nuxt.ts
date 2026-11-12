@@ -33,7 +33,7 @@ import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./inter
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
-import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -1555,6 +1555,9 @@ viteHubNuxtModule.getMeta = async () => ({
 })
 
 viteHubNuxtModule.getModuleDependencies = async () => {
+  // Nuxt asks for the dependencies first on each start of the app, also after a start that failed before Vite closed
+  // its plugins. Forget the package checks of an earlier start, so a reload sees the packages installed since then.
+  startPackageChecks()
   if (!isPackageInstalled("@nuxt/ui")) return {}
   const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
   return ui?.viteHubUIIconDependencies ?? {}
