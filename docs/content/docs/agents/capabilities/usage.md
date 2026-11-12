@@ -147,6 +147,6 @@ Default pricing downloads the public Models.dev catalog without sending prompts,
 ## Related pages
 
 - [Agent Invocations](/docs/agents/invocations)
-- [Runtime events](/docs/reference/runtime-events)
+- [Runtime events](/docs/runtime/events)
 - [Custom Capabilities](/docs/agents/capabilities/custom)
 - [Official Capabilities](/docs/agents/capabilities/official)

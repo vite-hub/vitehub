@@ -528,6 +528,10 @@
   --vh-primitive-icon-motion: translateX(1.5px);
 }
 
+.vh-primitive-icon[data-icon="runtime"] {
+  --vh-primitive-icon-motion: scale(0.6);
+}
+
 .vh-primitive-icon[data-icon="sandbox"] {
   --vh-primitive-icon-motion: scale(0.7);
 }

@@ -141,7 +141,7 @@ run. It returns `[undefined, result]` on success or `[error, undefined]` on
 failure. Check the error before you read `result.text`.
 
 For request metadata or host bindings, pass the public
-[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) as
+[`getRuntimeContext(event)` adapter](/docs/runtime/context) as
 `runAgent(agent, input, { runtimeContext: getRuntimeContext(event) })`. The
 greeting needs only its prompt.
 

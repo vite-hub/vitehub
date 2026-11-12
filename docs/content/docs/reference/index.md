@@ -48,7 +48,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/queue` | Queue Definitions, dispatch helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
-| `@vite-hub/runtime` | Runtime Host Context, Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
+| `@vite-hub/runtime` | [Runtime](/docs/runtime): Runtime Host Context, Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell execution providers and Workspace shell helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Loaders for file, glob, markdown, GitHub, custom, and MCP resources | `@vite-hub/source`, `@vite-hub/source/*` |

@@ -126,5 +126,5 @@ Run once with the default reporter and find an `agent.invocation.terminal` objec
 
 - [OTLP](/docs/agents/capabilities/otlp)
 - [Invocations](/docs/agents/invocations)
-- [Runtime context](/docs/reference/runtime-context)
+- [Runtime context](/docs/runtime/context)
 - [Official capabilities](/docs/agents/capabilities/official)

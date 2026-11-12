@@ -260,7 +260,7 @@ Show AI SDK tool parts. Map the part state to the title and status: "Ran" when o
 
 ## Trace Runs
 
-`TraceRun` renders one run from `deriveTraceRuns()` in `@vite-hub/runtime` with these parts:
+`TraceRun` renders one run from [`deriveTraceRuns()`](/docs/runtime/server-api#traces) in `@vite-hub/runtime` with these parts:
 
 - One line with the run title, status, and duration.
 - It expands into one line per timed step.
