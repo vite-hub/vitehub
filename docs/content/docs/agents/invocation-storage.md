@@ -248,7 +248,22 @@ const record = await invocations.get(invocationId, {
 })
 ```
 
-Names match exactly and keep journal order. Other fields stay the same. An empty array returns no observations; omitting it returns all. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter in storage. Custom stores can ignore the read options, because the wrapper still filters the result.
+Names match exactly and keep journal order. Other fields stay the same. An empty array returns no observations; omitting it returns all. Both forms return `undefined` for a missing Invocation.
+
+To read only new observations, pass `afterSequence`. Each observation has a `sequence` number. Give the `sequence` of the last observation that you read:
+
+```ts fragment
+const record = await invocations.get(invocationId, {
+  afterSequence: lastSequence,
+})
+const next = record?.observations.at(-1)?.sequence ?? lastSequence
+```
+
+The result has only observations with a greater `sequence`. `0` returns all observations. A reader on another instance, such as the Console or a stream reader, can poll a running Invocation this way and not read the whole record again. You can use `afterSequence` with `observationNames`; the result then matches both. A value that is not a non-negative integer fails with `AGENT_R1039` before the store reads.
+
+The store can still add an observation with a lower `sequence` later, for example from a second writer, and size limits can drop observations. A follower can miss these observations. If you need every observation, read the whole record once when the Invocation ends.
+
+D1 and libSQL filter in storage, so only the selected observations leave the database. The memory store filters before it copies the record. Custom stores can ignore the read options, because the wrapper still filters the result.
 
 ## Set retention limits
 
@@ -623,7 +638,7 @@ When using a stable D1 binding without request sessions, you can omit `migrate: 
 - After 32 write conflicts, an update rejects instead of overwriting.
 - Retention defaults and observation deduplication match libSQL.
 - `maxSize` fails with `AGENT_R0911`, because D1 reports whole-database size. Use `maxAge` and `maxRecords`.
-- It supports Agent, Capability, triggering-person, status, and text filters, `listTriggeredBy()`, summaries without observations, and `get(id, { observationNames })`.
+- It supports Agent, Capability, triggering-person, status, and text filters, `listTriggeredBy()`, summaries without observations, and `get(id, { observationNames, afterSequence })`.
 
 [D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/), so the adapter caps observations at 1,000,000 UTF-8 bytes, shown in `observationLimits`, even if the journal asks for more. It also checks the full row, including summary and search text. If the row is too large, it drops ordinary observations and marks `observationsTruncated`, keeping lifecycle fields and appended evidence. If it still cannot fit, the update rejects before writing. Use another store for complete long traces.
 
