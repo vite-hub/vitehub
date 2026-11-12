@@ -193,7 +193,7 @@ describe("vitehub database up", () => {
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
     const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
 
-    expect(() => renderMigrateOnStartPlugin(config, { allowDataLoss: false, databases: ["default"], drizzleImport: "db", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
+    expect(() => renderMigrateOnStartPlugin(config, { allowDataLoss: false, databases: ["default"], registryImport: "db", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
       code: "DATABASE_MIGRATIONS_OLD_LAYOUT",
       why: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`),
     }))
