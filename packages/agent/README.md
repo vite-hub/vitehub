@@ -554,7 +554,7 @@ The child gets a fresh runtime from the parent's configuration. `name` is not in
 
 Child configuration overrides parent defaults. Channels, Sources, and Skills merge by key, replacing each matching definition as a whole. Hooks merge by name: when both layers define a hook, the parent's hook runs first, then the child's. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
-Three options compose with the parent, so the child does not restate it:
+Four options compose with the parent, so the child does not restate it:
 
 ```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -563,8 +563,12 @@ import bot from '../bot/agent'
 
 export default defineAgent({
   extends: bot,
-  // Receives the parent's list. An array replaces it.
-  driver: { requirements: inherited => [...inherited, 'kubectl'] },
+  driver: {
+    // Receives the parent's instruction document. A string replaces it.
+    instructions: { extend: inherited => `${inherited}\n\n## Development\n\nYou run as bot-dev.` },
+    // Receives the parent's list. An array replaces it.
+    requirements: inherited => [...inherited, 'kubectl'],
+  },
   // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
   capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
   // Sets the mode of every Source that does not set its own, including inherited Sources.
@@ -572,12 +576,13 @@ export default defineAgent({
 })
 ```
 
+- `driver.instructions: { extend }` gets the parent's instructions as one string and returns the child's complete document. It can append text or edit the inherited text. Without a parent, it receives `''`. When the parent's instructions are static strings, ViteHub applies the function once. When they use a callback or a template, it applies the function for each Invocation, after the parent's document resolves. Template slots such as `{{{ context.customInstructions }}}` and `data.context.*` bindings in the returned document render as usual. A plain function is not an extension: it stays a per-Invocation callback that receives the Invocation context. A colocated `instructions.md` cannot extend the parent's document.
 - `driver.requirements` can be a function of the inherited list. Without a parent, it receives `[]`.
 - A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` by server name into the parent's `mcp()` Capability. The child's entry for a server wins as a whole, and options that the child leaves unset, such as `unavailableNotice`, are inherited. Set `inherit: false` to replace the parent's `mcp()` Capability.
 - `workspace.materialize` is the default [`materialize` mode](https://vitehub.dev/docs/workspace/configure) for every Source in `workspace.sources` that does not set its own. Sources that Capabilities contribute keep their own mode.
 Child configuration overrides parent defaults. Channels, Sources, and Skills merge by key, replacing each matching definition as a whole. Hooks merge by name: when both layers define a hook, the parent's hook runs first, then the child's. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
-`extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Compose shared instruction strings in TypeScript, or import Markdown with `?raw` and assign the composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
+`extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Build on the parent's instructions with `driver.instructions: { extend }`, or import Markdown with `?raw` and assign a composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
 
 A definition that is not discovered, such as one created in a Schedule, uses the colocated Skills of the discovered Agent it extends. It reads them when it runs, so module import order does not matter. Use `agentWithSkills()` to add Skills to such a definition without an Agent folder:
 
@@ -858,7 +863,8 @@ be loaded through the existing instruction resolver or Markdown import path.
 To discard the inherited template, use
 `instructions: { mode: "replace", value: "A complete instruction document." }`.
 A new `{ template, content }` object also replaces the inherited template.
-Without a template, extending instructions replaces the inherited document.
+Without a template, extending instructions replaces the inherited document. To add to
+the inherited document instead, use `instructions: { extend: inherited => ... }`.
 
 ### Process hosts
 

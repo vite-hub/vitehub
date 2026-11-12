@@ -1,6 +1,6 @@
 {
   "rawErrors": {
-    "packages/agent/src/agent-layers.ts": 13,
+    "packages/agent/src/agent-layers.ts": 14,
     "packages/agent/src/agent-presets.ts": 5,
     "packages/agent/src/ai-sdk.ts": 1,
     "packages/agent/src/capabilities/browser.ts": 1,

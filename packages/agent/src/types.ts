@@ -1644,6 +1644,13 @@ export type AgentAdapterInstructions<
     mode: "replace"
     value: AgentInstructionsContent<TRuntimeConfig, Name>
   }
+  | {
+    /**
+     * Receive the inherited instructions as one document and return the new document.
+     * Without a parent, `inherited` is an empty string.
+     */
+    extend: (inherited: string) => string
+  }
 
 export type AgentInstructionsContent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

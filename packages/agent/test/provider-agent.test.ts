@@ -79,7 +79,7 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -5701,6 +5701,30 @@ cli_auth_credentials_store = "keyring"
     expect(first!.launchArgs).toBe(second!.launchArgs)
     expect(first!.launchArgs).not.toContain(first!.root)
     expect(launchedCodexDeveloperInstructions()).toBe("Repair one \"PR\" with `git` and $HOME.\nThen stop.")
+  })
+
+  it.each([
+    { provider: "codex" as const, driver: codexDriver },
+    { provider: "claude-code" as const, driver: claudeCodeDriver },
+  ])("gives $provider the instructions that a child extend function returns", async ({ provider, driver }) => {
+    const threadId = `thread-${provider}-extended-instructions`
+    let prompt: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        if (provider === "codex") return
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        prompt = await readFile(args.split("--append-system-prompt-file ")[1]!.replace(/^['"]|['"]$/g, ""), "utf8")
+      },
+    })
+    const base = defineAgent({ workspace: {}, driver: driver({ instructions: ["Base rules.", () => "Answer {{{ context.customInstructions }}}"] }) })
+    const child = defineAgent({ extends: base, driver: { instructions: { extend: inherited => `${inherited}\n\nChild rules.` } } })
+    const invocation = context(threadId)
+    invocation.context.set("customInstructions", "in English.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ instructions: child.__vitehubWorkspaceAgentOptions.driver.instructions, provider }).generate(invocation as never)
+    const expected = "Base rules.\n\nAnswer in English.\n\nChild rules."
+    if (provider === "codex") expect(launchedCodexDeveloperInstructions()).toBe(expected)
+    else expect(prompt).toBe(expected)
   })
 
   it("resumes a Codex session only with the developer instructions it started with", async () => {
