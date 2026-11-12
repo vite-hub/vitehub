@@ -68,6 +68,7 @@ export default defineConfig({
 | `database.cli.export` | `false` | enabled | Turns off `database export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
+| `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `d1` selects Cloudflare D1 output for all databases. |
 | `database.binding` | `string` | `DB` | D1 binding of the default database. Named databases get their own binding names. |
@@ -184,9 +185,9 @@ Postgres tables use `snakeCase.table()` from `drizzle-orm/pg-core`. `defineDatab
 
 ## Apply migrations
 
-A migration is a folder that changes your tables. `vitehub database generate` writes one next to the Definition, as Drizzle Kit 1.0 does: `migrations/<YYYYMMDDHHmmss>_<name>/` with `migration.sql` and `snapshot.json`. `vitehub database migrate` first reads each database's migrations table and checks the SQL of each pending migration, then applies them with Drizzle Kit. For Postgres, it applies them with the migrator that a server runs [on start](#migrate-when-the-server-starts): it writes the same rows as Drizzle Kit and holds the same advisory lock as a starting server. A migration is pending when the `name` column of the table does not list its folder.
+A migration is a folder that changes your tables. `vitehub database generate` writes one next to the Definition, as Drizzle Kit 1.0 does: `migrations/<YYYYMMDDHHmmss>_<name>/` with `migration.sql` and `snapshot.json`. `vitehub database migrate` first reads each database's migrations table and checks the SQL of each pending migration, then applies them with Drizzle Kit. For Postgres, it applies them with the migrator that a server runs [on start](#migrate-when-the-server-starts): it writes the same rows as Drizzle Kit and holds the same advisory lock as a starting server. A Postgres Database on [PGlite](#run-postgres-locally-with-pglite) has no server to lock, so Drizzle Kit applies its migrations. A migration is pending when the `name` column of the table does not list its folder.
 
-Drizzle Kit 0.x wrote flat `.sql` files and a `migrations/meta/_journal.json`. Drizzle 1.0 cannot read them, and `vitehub database migrate` fails until you convert them. Run `npx drizzle-kit up --dialect sqlite --out server/databases/default/migrations` once (`postgresql` for Postgres), and commit the new folders. The next migrate adds the `name` column to the migrations table and fills it for the applied migrations.
+A folder from Drizzle Kit 0.x needs `vitehub database up` once. Read [Upgrade to Drizzle 1.0](#upgrade-to-drizzle-10).
 
 The CLI and startup refuse the ledger upgrade when overlapping timestamp or hash updates would assign different folder names to one row. Drizzle Kit can replay applied SQL in that case. Verify and repair the ledger upgrade on a database copy before retrying.
 
@@ -230,6 +231,24 @@ The check reads the database that Drizzle Kit migrates:
 A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehub database migrate`, so this check does not run.
 
 For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied file, so Wrangler and ViteHub can take turns. Wrangler reads flat `.sql` files, so each migration folder counts as `NNNN_<name>.sql`, and a Cloudflare build writes it as that file next to the Wrangler config. `vitehub database generate` and the build keep these names in `d1-migrations.json` next to the migrations. Commit it: a listed folder keeps its name, and a new folder takes the next number, even when a merge brings a folder with an earlier timestamp. Without the file, the numbers follow the folder order. These are the names that Drizzle Kit 0.x used, so a folder that `drizzle-kit up` converted keeps its row in `d1_migrations` and does not run again. When a name in `d1_migrations` moved to another number, `vitehub database migrate` fails the check with `DATABASE_MIGRATION_CHECK_FAILED`. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
+
+### Upgrade to Drizzle 1.0
+
+ViteHub uses `drizzle-orm` and `drizzle-kit` 1.0. Install `drizzle-orm@1.0.0-rc.5` and `drizzle-kit@1.0.0-rc.5`. Four things change for an app that used Drizzle 0.x:
+
+- **Migrations folders.** Drizzle Kit 0.x wrote flat `.sql` files and `meta/_journal.json`. Drizzle Kit 1.0 writes one `<YYYYMMDDHHmmss>_<name>/` folder per migration and cannot read the old layout. Until you convert it, `vitehub database generate`, `vitehub database migrate`, the build with `migrateOnStart`, and test mode fail with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
+- **Applied migrations.** The next `vitehub database migrate` adds the `name` column to the migrations table and fills it for the migrations that 0.x applied. They do not run again. On D1, each converted folder keeps the file name that Wrangler applied, such as `0000_init.sql`.
+- **Casing.** `defineDatabase()` has no `drizzle` option. Drizzle 1.0 has no `casing` for a database. Declare each table with `snakeCase.table()`, as in [Name columns in snake_case](#name-columns-in-snake_case). A `drizzle` option throws `DATABASE_DRIZZLE_OPTION_REMOVED`.
+- **Relational queries.** `db.query` uses Drizzle's relational queries v2: filters are objects, such as `where: { id: 1 }`, and `with` follows the `relations` of the Definition. Read [Query related tables](#query-related-tables).
+
+Convert the migrations folder of each Database once, and commit the result:
+
+```bash [Terminal]
+pnpm vitehub database up
+pnpm vitehub database migrate --dry-run
+```
+
+`vitehub database up` runs `drizzle-kit up` on the migrations folder of each Database Definition, with the `sqlite` or `postgresql` dialect of the Definition. It removes `meta/` and leaves folders that already use the 1.0 layout as they are, so you can run it again. Then `vitehub database migrate --dry-run` lists no pending migrations for a database that 0.x had migrated.
 
 ## Migrate when the server starts
 
@@ -279,9 +298,11 @@ export default defineConfig({
 :::
 ::
 
-The build copies each migrations folder into a Nitro plugin, so the output needs no folder. Nitro loads the plugin before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub database migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
+The build copies each migrations folder into the server output, so the output needs no folder. A Nitro plugin applies them, and Nitro loads it before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub database migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
 When a migration fails, the database keeps none of the pending migrations of that start, and the server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. A migration that loses data, by the `vitehub database migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
+
+To apply the same migrations from a Nitro task, a test, or a build without the start plugin, call [`ensureMigrations()`](/docs/database/server-api#apply-migrations-from-server-code). It shares the run of the start plugin, so the process applies each migration once.
 
 ### Several instances on Postgres
 
@@ -580,9 +601,40 @@ export default defineDatabase({
 | `connection.url` | `DatabaseConfigValue` | No | Postgres URL for Node, Vercel, local development, and `vitehub database migrate`. |
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
+| `driver` | `'pglite'` | No | Runs the Database on PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
 
-A Postgres Definition has its own connection. It ignores the top-level `connection`, the D1 options, and the local SQLite default. With a Hyperdrive binding at runtime, ViteHub uses its connection string, else `connection.url`. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. A query fails with `DATABASE_MISSING_CONNECTION` when none is set.
+A Postgres Definition has its own connection. It ignores the top-level `connection`, the D1 options, and the local SQLite default. With a Hyperdrive binding at runtime, ViteHub uses its connection string, else `connection.url`. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. When none is set, development uses PGlite, and a production query fails with `DATABASE_MISSING_CONNECTION`.
 
 The client drops the notices of the server, such as `relation already exists, skipping` for each `CREATE ... IF NOT EXISTS`, and prints each Postgres warning with `console.warn`. Errors still reject the query.
 
 Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.
+
+### Run Postgres locally with PGlite
+
+[PGlite](https://pglite.dev) is Postgres that runs in the Node process and keeps its data in a folder. With it, you develop and test a Postgres Database without a Postgres server. Install it as a development dependency:
+
+```bash pm
+pnpm add -D @electric-sql/pglite
+```
+
+Keep `connection: { url: process.env.DATABASE_URL }`, and do not set `DATABASE_URL` or PG* variables on your computer. In development, the Database then runs on PGlite. In production, it connects to `DATABASE_URL`.
+
+- `vite dev` and `nuxt dev` keep the data in `.vitehub/data/database/pglite`, or in `.vitehub/data/database/<name>.pglite` for a named database. The first query prints `[vitehub] Database "default" runs on PGlite in <folder>`.
+- `vitehub database generate` and `vitehub database migrate` use the same rule, so `vitehub database migrate` applies the migrations to that folder. Its output names the target, for example `Database "default" (PGlite .vitehub/data/database/pglite)`.
+- App tests with `vite-hub/test` get an empty in-memory PGlite with the migrations of the Definition, again after each reset.
+- `vitehub inspect definitions --kind database` shows the folder in the `Development` field.
+
+> [!NOTE]
+> PGlite opens its folder in one process only. Stop the dev server before you run `vitehub database migrate`.
+
+To use PGlite also when a URL or PG* variables are set, set `driver: 'pglite'`:
+
+```ts [server/databases/default.ts] fragment
+export default defineDatabase({
+  dialect: 'postgresql',
+  driver: 'pglite',
+  schema,
+})
+```
+
+Production output never includes PGlite. A production build fails with [`DATABASE_PGLITE_IN_BUILD`](/docs/database/limits-and-errors#database_pglite_in_build) when a Definition sets `driver: 'pglite'`. Remove `driver` and set `connection.url` before you build. Without `driver`, a production Database without a connection fails with `DATABASE_MISSING_CONNECTION` on its first query, as before.

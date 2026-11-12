@@ -65,6 +65,7 @@ export interface DatabaseIntegrationOptions {
     export?: false
     generate?: false
     migrate?: false
+    up?: false
   }
   /**
    * Applies pending migrations when a Node server build starts, before it handles requests. It uses the ledger and
@@ -118,6 +119,12 @@ export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
 }
 
+/**
+ * `pglite` runs a Postgres Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ * `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ */
+export type PostgresDatabaseDriver = "pglite"
+
 export interface PostgresDatabaseDefinitionOptions<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
@@ -125,6 +132,8 @@ export interface PostgresDatabaseDefinitionOptions<
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
+  /** Without it, a Database that has no URL or PG* variables still runs on PGlite in development. */
+  driver?: PostgresDatabaseDriver
   name?: string
   /** Relations between tables, from Drizzle's `defineRelations()`. See `DatabaseDefinitionOptions.relations`. */
   relations?: TRelations
@@ -140,6 +149,7 @@ export interface PostgresDatabaseDefinition<
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
+  driver?: PostgresDatabaseDriver
   name: string
   relations: TRelations
   schema: TSchema
@@ -263,6 +273,8 @@ export interface ResolvedCloudflareHyperdriveConfig {
 export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseConfig {
   cloudflare?: ResolvedCloudflareD1BindingConfig
   dialect: DatabaseDialect
+  /** Postgres Definitions only. */
+  driver?: PostgresDatabaseDriver
   generatedSchemaFile: string
   /** Postgres Definitions only. */
   hyperdrive?: ResolvedCloudflareHyperdriveConfig

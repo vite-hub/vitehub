@@ -63,6 +63,25 @@ describe("internal Forge client", () => {
     }
   })
 
+  it("replaces a cached token that expires within the requested lifetime", async () => {
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+    try {
+      let calls = 0
+      const fetcher: typeof fetch = async () => Response.json({ token: `token-${++calls}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+      const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+      await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-1" })
+      clock.mockReturnValue(now + 50 * 60_000)
+      await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-1" })
+      await expect(credentials.installationToken(1, { minLifetime: 55 * 60_000 })).resolves.toMatchObject({ token: "token-2" })
+      await expect(credentials.installationToken(1, { minLifetime: 55 * 60_000 })).resolves.toMatchObject({ token: "token-2" })
+      expect(calls).toBe(2)
+    }
+    finally {
+      clock.mockRestore()
+    }
+  })
+
   it("renews tokens at the 60-second expiry margin", async () => {
     const now = Date.now()
     const clock = vi.spyOn(Date, "now").mockReturnValue(now)

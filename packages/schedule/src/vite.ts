@@ -76,6 +76,8 @@ export interface ScheduleProcessRuntimeOptions {
   concurrency?: number
   driver: "process"
   intervalMs?: number
+  /** Milliseconds that a server holds an occurrence after it stops, before another server may run it. Defaults to `60000`. */
+  leaseTtlMs?: number
   prefix?: string
 }
 
@@ -105,11 +107,15 @@ export interface ScheduleNitroConfigOptions extends ScheduleOptions {
 interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions {
   /** Contributions that the Vite plugin already collected, so factories run once per config pass. */
   contributions?: readonly CollectedScheduleContribution[]
+  /** The module that exports the app's `databases`, when the app has the Database plugin. The Process Runtime claims occurrences there. */
+  leaseDatabaseImport?: string
   /** Set in Vite's `config` hook, where plugins added later can still contribute the Schedule that `cron` names. */
   preliminary?: boolean
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleOptions {
+  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/drizzle`. */
+  databaseImport?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
   runtimeImport?: string
@@ -179,13 +185,23 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
   if (value.concurrency !== undefined && (typeof value.concurrency !== "number" || !Number.isInteger(value.concurrency) || value.concurrency < 1)) {
     throw scheduleErrorDiagnostics.SCHEDULE_B0004({ message: "Schedule Process Runtime concurrency must be a positive integer." })
   }
+  if (value.leaseTtlMs !== undefined && (typeof value.leaseTtlMs !== "number" || !Number.isFinite(value.leaseTtlMs) || value.leaseTtlMs <= 0)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_B0009({ message: "Schedule Process Runtime leaseTtlMs must be a positive number." })
+  }
   return {
     ...(value.catchUpMs !== undefined ? { catchUpMs: value.catchUpMs } : {}),
     ...(value.concurrency !== undefined ? { concurrency: value.concurrency } : {}),
     driver: "process",
     ...(value.intervalMs !== undefined ? { intervalMs: value.intervalMs } : {}),
+    ...(value.leaseTtlMs !== undefined ? { leaseTtlMs: value.leaseTtlMs } : {}),
     ...(value.prefix !== undefined ? { prefix: value.prefix } : {}),
   }
+}
+
+const databaseVitePluginName = "@vite-hub/database/vite"
+
+function hasVitePlugin(plugins: readonly unknown[] | undefined, name: string): boolean {
+  return (plugins ?? []).some(plugin => Array.isArray(plugin) ? hasVitePlugin(plugin, name) : isRecord(plugin) && plugin.name === name)
 }
 
 /**
@@ -314,6 +330,8 @@ function mergeNitroVercelCrons(
 interface RenderNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
   timeZoneCrons: ScheduleTimeZoneCrons
+  /** The module that exports the app's `databases`. The Process Runtime claims occurrences in its Default Database. */
+  leaseDatabaseImport?: string
   pluginFile: string
   /** Set when a Definition has no `cron`: the registry of those Definitions, for `startSchedule()` and the tick. */
   startedRegistryFile?: string
@@ -340,9 +358,12 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
         ...(processRuntime.catchUpMs !== undefined ? { catchUpMs: processRuntime.catchUpMs } : {}),
         ...(processRuntime.concurrency !== undefined ? { concurrency: processRuntime.concurrency } : {}),
         ...(processRuntime.intervalMs !== undefined ? { intervalMs: processRuntime.intervalMs } : {}),
+        ...(processRuntime.leaseTtlMs !== undefined ? { leaseTtlMs: processRuntime.leaseTtlMs } : {}),
+        ...(processRuntime.prefix !== undefined ? { prefix: processRuntime.prefix } : {}),
         ...(options.processTimings && Object.keys(options.processTimings).length ? { timings: options.processTimings } : {}),
       }
     : undefined
+  const leaseDatabaseImport = processRuntime ? options.leaseDatabaseImport : undefined
   const scheduleStoreOptions = processRuntime?.prefix !== undefined ? { prefix: processRuntime.prefix } : {}
   return [
     "import { definePlugin } from 'nitro'",
@@ -357,7 +378,8 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
           `import { createKVScheduleRunStore } from ${JSON.stringify(scheduleRuntimeModule)}`,
           `import { scheduleKVStorage } from ${JSON.stringify(scheduleKVRuntimeModule)}`,
-          `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
+          `import { installProcessScheduleRuntime, onShutdown${leaseDatabaseImport ? ", scheduleLeaseStoreFromDatabase" : ""} } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
+          ...(leaseDatabaseImport ? [`import { databases } from ${JSON.stringify(leaseDatabaseImport)}`] : []),
           `import staticScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.staticRegistryFile))}`,
         ]
       : []),
@@ -418,8 +440,16 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "    }",
           "    catch {}",
           "  }",
+          ...(leaseDatabaseImport
+            ? [
+                // Every server of the app claims each occurrence in the Default Database, so one server runs it.
+                "  const leases = scheduleLeaseStoreFromDatabase(databases.default.db)",
+                "  if (!leases) console.warn('[vitehub:schedule] The Default Database has no postgres.js or libSQL client, so each server process runs every Schedule. Use a Postgres or remote libSQL Default Database to run more than one server.')",
+              ]
+            : []),
           "  const runtimeInstallation = installProcessScheduleRuntime({",
           "    ...processRuntimeOptions,",
+          ...(leaseDatabaseImport ? ["    ...(leases ? { leases } : {}),"] : []),
           "    onError: captureRuntimeError,",
           "    registry: staticScheduleRegistry,",
           "    scheduleRunStore: createKVScheduleRunStore(scheduleStoreOptions),",
@@ -573,6 +603,7 @@ function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
 
 interface WriteNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
+  leaseDatabaseImport?: string
   startableDefinitions: DiscoveredScheduleDefinition[]
   timeZoneCrons: ScheduleTimeZoneCrons
   crons: string[]
@@ -597,6 +628,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
     writeFileIfChanged(pluginFile, renderNitroSchedulePlugin({
       cronOverrides: options.cronOverrides,
       timeZoneCrons: options.timeZoneCrons,
+      leaseDatabaseImport: options.leaseDatabaseImport,
       pluginFile,
       startedRegistryFile,
       processRuntime: options.processRuntime,
@@ -701,6 +733,10 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   }
   if (!installNitroPlugin) return nitro as NitroConfig
 
+  const internal = options as InternalScheduleNitroConfigOptions
+  if (processRuntime && options.command === "build" && !internal.preliminary && !internal.leaseDatabaseImport) {
+    console.warn("[vitehub:schedule] The Process Runtime claims each Schedule occurrence in memory, because the app has no Database. Run one server only, or add a Postgres Database so that more than one server runs each occurrence once.")
+  }
   const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
   const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
   const timeZoneCrons = options.command === "build" ? readTimeZoneCrons(nitroDefinitions, cronOverrides) : {}
@@ -723,6 +759,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
     crons,
     importBase: (options as InternalScheduleVitePluginOptions).importBase,
+    leaseDatabaseImport: (options as InternalScheduleNitroConfigOptions).leaseDatabaseImport,
     netlifySchedules,
     timeZoneCrons,
     processRuntime,
@@ -757,6 +794,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
+  const leaseDatabaseImport = (plugins: readonly unknown[] | undefined) => hasVitePlugin(plugins, databaseVitePluginName)
+    ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database/drizzle" }
+    : {}
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
     return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
@@ -800,6 +840,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         contributions,
         nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
+        ...leaseDatabaseImport(config.plugins),
         preliminary: true,
         root: config.root || process.cwd(),
         serverDirs,
@@ -826,6 +867,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
           contributions,
           nitro: (config as ResolvedConfig & { nitro?: unknown }).nitro,
           nitroOwnsPaths: hasNitroConfigContext(config),
+          ...leaseDatabaseImport(config.plugins),
           root: config.root,
           serverDirs,
         } as InternalScheduleNitroConfigOptions)

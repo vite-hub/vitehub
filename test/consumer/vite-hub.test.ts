@@ -1097,6 +1097,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             "@vite-hub/agent": specs["@vite-hub/agent"],
             "@vite-hub/database": specs["@vite-hub/database"],
             "@vite-hub/workflow": specs["@vite-hub/workflow"],
+            "drizzle-orm": "1.0.0-rc.5",
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -1240,8 +1241,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
 
       const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
-        const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
-          body: JSON.stringify({ operation: "sections.list", input: {} }),
+        const sections = await fetch(`${origin}/_vitehub/rpc`, {
+          body: JSON.stringify({ m: "sections.list", a: [{}], t: "q", i: "sections" }),
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
           method: "POST",
         })
@@ -1251,7 +1252,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
 
       expect(server.value.sections.status, server.value.sections.body).toBe(200)
-      expect(JSON.parse(server.value.sections.body)).toMatchObject({ ok: true, value: { sections: expect.arrayContaining(["env", "kv"]) } })
+      // The app declares no Server Env, so the navigation hides the empty Env section.
+      const sections = JSON.parse(server.value.sections.body)
+      expect(sections).toMatchObject({ i: "sections", r: { sections: expect.arrayContaining(["kv"]) }, t: "s" })
+      expect(sections.r.sections).not.toContain("env")
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -1295,7 +1299,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/database": specs["@vite-hub/database"],
-            "drizzle-orm": "0.45.3",
+            "drizzle-orm": "1.0.0-rc.5",
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -1304,7 +1308,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
-          devDependencies: { "drizzle-kit": "0.31.11", "vite-plus": "0.1.24" },
+          devDependencies: { "drizzle-kit": "1.0.0-rc.5", "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           scripts: { build: "nuxt build" },

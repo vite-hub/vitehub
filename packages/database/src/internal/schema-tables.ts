@@ -80,8 +80,12 @@ async function importDrizzleSchemaTools() {
 
 let drizzleSchemaTools: Promise<DrizzleSchemaTools> | undefined
 
+// A failed load lets the next schema try again.
 function loadDrizzleSchemaTools() {
-  drizzleSchemaTools ??= importDrizzleSchemaTools()
+  drizzleSchemaTools ??= importDrizzleSchemaTools().catch((error: unknown) => {
+    drizzleSchemaTools = undefined
+    throw error
+  })
   return drizzleSchemaTools
 }
 

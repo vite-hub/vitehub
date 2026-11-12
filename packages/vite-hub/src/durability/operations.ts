@@ -22,7 +22,7 @@ const list = defineOperation<Record<string, never>, DurabilityReport>({
   name: "durability.list",
   run: () => {
     const report = getDurabilityReport()
-    if (!report) throw viteHubErrorDiagnostics.VITE_HUB_R0142()
+    if (!report) throw viteHubErrorDiagnostics.VITE_HUB_R0143()
     return report
   },
   section: "durability",

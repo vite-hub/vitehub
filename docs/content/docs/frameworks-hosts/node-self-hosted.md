@@ -98,6 +98,93 @@ Copy the whole `.output` directory to the server. With a built-in coding
 provider, build on the server's operating system and CPU type, because the
 build packages only the build machine's native binaries.
 
+## Run the server with systemd
+
+A production build on the `node` preset also writes a systemd unit to
+`.output/<name>.service`. The name is the deployment name: `vitehub({ name })`,
+else the `package.json` name.
+
+```ini [.output/my-app.service]
+[Unit]
+Description=my-app (ViteHub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/my-app
+ExecStart=/usr/bin/env node .output/server/index.mjs
+EnvironmentFile=-/srv/my-app/.env
+Environment="NODE_ENV=production"
+SyslogIdentifier=my-app
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target default.target
+```
+
+The unit starts the server in the project root of the build, so relative data
+paths such as `.vitehub/data` stay where they were. It reads `.env` from that
+directory when the file exists. `node` comes from the unit's `PATH`, so a
+Node.js upgrade does not make the unit stale. On stop, systemd sends `SIGTERM`
+and ViteHub [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+`TimeoutStopSec` is the `agent.shutdown.drainMs` budget (0 by default) plus 30 seconds, which
+covers the 15-second settle time, the 10-second close hooks, and 5 seconds more.
+
+Link the unit and start it:
+
+```bash [Terminal]
+sudo systemctl link /srv/my-app/.output/my-app.service
+sudo systemctl enable --now my-app
+```
+
+`systemctl restart my-app` drains the old process before it starts the new one.
+After a new build, run `sudo systemctl daemon-reload` before the restart, so
+systemd reads the new file. As a user service, use `systemctl --user` with the
+same commands; the unit then starts at login, or at boot with
+`loginctl enable-linger`.
+
+Set the deploy path, the system user, and fixed variables in `vitehub()`. Use
+`systemd: false` to write no unit:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: { shutdown: { drainMs: 45_000 } },
+      systemd: {
+        user: 'app',
+        workingDirectory: '/srv/my-app',
+        environment: { PORT: '3000' },
+      },
+    }),
+  ],
+})
+```
+
+Each build replaces the unit, so put other settings in a drop-in. A drop-in
+stays when the unit changes:
+
+```bash [Terminal]
+sudo systemctl edit my-app
+```
+
+```ini [/etc/systemd/system/my-app.service.d/override.conf]
+[Service]
+Environment="PATH=/opt/node/bin:/usr/bin"
+MemoryMax=2G
+```
+
+Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
+`.env`, because the build cannot read that file.
+
 ## Defaults on the node preset
 
 "Several instances" means two or more Node processes behind one load balancer,
@@ -214,8 +301,13 @@ at boot.
 The [table above](#defaults-on-the-node-preset) shows which features have a
 remote store today.
 
-Keep runtime secrets in [Server Env](/docs/env). Check the deployed app by
-starting the built server, not only by typechecking.
+The Schedule Process Runtime runs each occurrence on one server when the app has
+a Postgres or remote libSQL Default Database. The servers claim each occurrence in the
+`vitehub_leases` table. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server).
+
+Keep runtime secrets in [Server Env](/docs/env). Verify the
+deployed application by starting the built server, not only by typechecking
+package code.
 
 ## Next steps
 

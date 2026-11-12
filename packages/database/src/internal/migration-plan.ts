@@ -6,8 +6,9 @@ import { join, resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
+import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
 import { migratePostgres } from "../runtime/migrate-on-start.ts"
+import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
@@ -45,6 +46,7 @@ type MigrationTarget =
   | ({ kind: "d1-http" } & D1HttpTarget)
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "local", path: string }
+  | { kind: "pglite", path: string }
   | { kind: "postgres", url?: string }
 
 // Drizzle Kit uses these defaults because the generated config sets no `migrations` option. D1 HTTP uses Wrangler's ledger.
@@ -52,7 +54,12 @@ const sqliteMigrationsTable = "__drizzle_migrations"
 const postgresMigrationsTable = "\"drizzle\".\"__drizzle_migrations\""
 
 function resolveTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot }: MigrationPlanOptions): MigrationTarget | undefined {
-  if (database.dialect === "postgresql") return { kind: "postgres", url: resolveConfigValue(database.connection?.url, env)?.trim() || undefined }
+  if (database.dialect === "postgresql") {
+    const url = resolveConfigValue(database.connection?.url, env)?.trim() || undefined
+    // Like the generated Kit config: PGlite for `driver: "pglite"`, or without a URL and PG* variables.
+    if (runsOnPglite(database.driver, url, env)) return { kind: "pglite", path: resolve(projectRoot, localPgliteDir(database.name)) }
+    return { kind: "postgres", url }
+  }
   if (database.cloudflare?.http && database.cloudflare.databaseId !== undefined) {
     const http = database.cloudflare.http
     return {
@@ -87,10 +94,16 @@ function describeTarget(target: MigrationTarget, projectRoot: string): string {
     case "libsql":
       return `libSQL ${withoutCredentials(target.url)}`
     case "local":
-      return `local SQLite ${target.path.startsWith(`${projectRoot}/`) ? target.path.slice(projectRoot.length + 1) : target.path}`
+      return `local SQLite ${withinProject(target.path, projectRoot)}`
+    case "pglite":
+      return `PGlite ${withinProject(target.path, projectRoot)}`
     case "postgres":
       return target.url ? `Postgres ${withoutCredentials(target.url)}` : "Postgres from the PG* environment variables"
   }
+}
+
+function withinProject(path: string, projectRoot: string) {
+  return path.startsWith(`${projectRoot}/`) ? path.slice(projectRoot.length + 1) : path
 }
 
 export function withoutCredentials(url: string): string {
@@ -113,6 +126,8 @@ async function readLedgerRows(target: Exclude<MigrationTarget, { kind: "d1-http"
     }
     case "libsql":
       return await readSqliteLedger(target.url, target.authToken)
+    case "pglite":
+      return await readPgliteLedger(target.path, options.projectRoot)
     case "postgres":
       return await readPostgresLedger(target, options.projectRoot, options.env)
   }
@@ -167,6 +182,30 @@ async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "post
   }
 }
 
+async function readPgliteLedger(path: string, projectRoot: string): Promise<LedgerRow[]> {
+  let PGlite: typeof import("@electric-sql/pglite").PGlite
+  try {
+    // Drizzle Kit loads PGlite from the project too.
+    ({ PGlite } = createRequire(join(projectRoot, "package.json"))("@electric-sql/pglite") as typeof import("@electric-sql/pglite"))
+  }
+  catch (error) {
+    // Check it before the folder exists too: Drizzle Kit needs it to apply the first migration.
+    throw new Error("It runs on PGlite, because the Definition sets `driver: \"pglite\"` or has no `connection.url` and no PG* variables, but the project cannot load `@electric-sql/pglite`. Set `connection.url` to migrate a Postgres server, or install PGlite with `pnpm add -D @electric-sql/pglite`.", { cause: error })
+  }
+  // A missing folder has no applied migrations. Do not let PGlite create it.
+  if (!existsSync(path)) return []
+  const client = new PGlite(path)
+  try {
+    const { rows: [table] } = await client.query<{ name: string | null }>("select to_regclass('drizzle.__drizzle_migrations')::text as name")
+    if (!table?.name) return []
+    const { rows } = await client.query<Record<string, unknown>>(`select * from ${postgresMigrationsTable}`)
+    return rows.map(row => toLedgerRow(row))
+  }
+  finally {
+    await client.close()
+  }
+}
+
 /**
  * Lists the migrations that `vitehub database migrate` would apply to one database, with their statements that lose data.
  * It reads the Drizzle migrations table, or Wrangler's `d1_migrations` table for D1 HTTP, and changes nothing.
@@ -184,7 +223,7 @@ export async function readMigrationPlan(
     return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
   }
   try {
-    const entries = readMigrations(database.migrationsDir)
+    const entries = readMigrations(database.migrationsDir, database.name)
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, options.fetch), database, entries)
       const pending = listD1Migrations(database.migrationsDir)
@@ -227,7 +266,7 @@ export async function migrateD1Http(
   if (target?.kind !== "d1-http") return `The database "${database.name}" does not use D1 HTTP.`
   try {
     const query = createD1Query(target, options.fetch)
-    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir))
+    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir, database.name))
     await applyD1Migrations(query, ledger, database.migrationsDir, onApplied)
   }
   catch (error) {
@@ -237,7 +276,7 @@ export async function migrateD1Http(
 
 /**
  * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
- * runs on start. It holds the same advisory lock, so `vitehub db migrate` and a starting server never migrate at the
+ * runs on start. It holds the same advisory lock, so `vitehub database migrate` and a starting server never migrate at the
  * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
  */
 export async function migratePostgresDatabases(
