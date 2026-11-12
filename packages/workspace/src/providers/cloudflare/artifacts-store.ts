@@ -554,7 +554,11 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #ensure(): Promise<void> {
-    this.#ready ||= this.#load()
+    // A failed load, such as a network error, lets the next call try again.
+    this.#ready ||= this.#load().catch((error: unknown) => {
+      this.#ready = undefined
+      throw error
+    })
     await this.#ready
   }
 
