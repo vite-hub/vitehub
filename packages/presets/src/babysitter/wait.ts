@@ -46,9 +46,14 @@ export interface BabysitterWaitPolicy {
    * wait. Undefined disables the budget.
    */
   reviewPushBudget?: number;
+  /** Unresolved review threads with only bot comments never wake a wait. New bot comments still change the feedback. */
+  ignoreAssessedBotThreads?: boolean;
 }
 
-/** The PR made `reviewPushBudget` review-driven pushes. Automated review then no longer needs a pass. */
+/**
+ * The PR made `reviewPushBudget` review-driven pushes, or `minorReviewRounds` heads in a row had no
+ * automated finding above P2, which spends the budget too. Automated review then no longer needs a pass.
+ */
 export function reviewPushBudgetSpent(s: Pick<Snapshot, "reviewPushBudget">, policy: Pick<BabysitterWaitPolicy, "reviewPushBudget">): boolean {
   return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= policy.reviewPushBudget;
 }
@@ -136,8 +141,9 @@ function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
   return [...latest.values()];
 }
 
-/** A configured review check still runs on the current head. */
-export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): boolean {
+/** A configured review check still runs on the current head. Once automated review is settled, none holds a pass. */
+export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks" | "reviewPushBudget">): boolean {
+  if (reviewPushBudgetSpent(s, policy)) return false;
   return latestCheckSignals(s).some(signal => policy.pendingReviewChecks.has(String(signal.name).toLowerCase())
     && pending.has(String(signal.status ?? signal.state)));
 }
@@ -146,10 +152,12 @@ export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolic
  * A current-head check is still queued or running. A required check that has not reported yet counts
  * only through the workflow jobs that run before it. A GitHub Actions check run is stuck after 24 hours
  * in the queue or 8 hours running. Other check runs and commit statuses are stuck after half an hour.
+ * With `policy`, the review checks of a PR whose automated review is settled do not count.
  */
-export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
+export function checksStillRunning(s: Snapshot, now = Date.now(), policy?: Pick<BabysitterWaitPolicy, "pendingReviewChecks" | "reviewPushBudget">): boolean {
+  const settledReviews = policy && reviewPushBudgetSpent(s, policy) ? policy.pendingReviewChecks : undefined;
   return latestCheckSignals(s).some(signal => {
-    if (!pending.has(String(signal.status ?? signal.state))) return false;
+    if (!pending.has(String(signal.status ?? signal.state)) || settledReviews?.has(String(signal.name).toLowerCase())) return false;
     const timestamp = Date.parse(String(signal.started_at ?? signal.created_at ?? ""));
     // External commit statuses often have no timestamp. They cannot prove a
     // currently running check, so they must not defer a pass forever.
@@ -253,7 +261,7 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
     // started on it missed their findings and needed another pass. The deferral recorded no
     // assessment, so the PR wakes when its checks stop running.
     const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
-    if (!conflict && checksStillRunning(s)) return [];
+    if (!conflict && checksStillRunning(s, Date.now(), policy)) return [];
     const failure = actionableFailureKeys(s, policy).some(key => !known.has(key));
     return [...conflict ? ["merge-conflict"] : [], ...failure ? ["new-failure"] : [], ...conflict || failure ? [] : ["gates-settled"]];
   }
@@ -263,8 +271,8 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   // Maintainer feedback or PR intent/base changes still resume the work.
   if (wait.kind === "external" || wait.wake) return reasons;
   if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
-  const settled = reviewPushBudgetSpent(s, policy);
-  if (s.threads.some(thread => thread.isResolved !== true && (!settled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
+  const botThreadsSettled = policy.ignoreAssessedBotThreads === true || reviewPushBudgetSpent(s, policy);
+  if (s.threads.some(thread => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
   if (actionableFailureKeys(s, policy).some(key => !known.has(key))) reasons.push("new-failure");
   if (reasons.length) return reasons;
   // The same failures are not new repair work. A later green result wakes below.
