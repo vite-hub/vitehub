@@ -126,7 +126,11 @@ export function connectGitHubRepository(repository: string, token: string): GitH
     blobReadKey: (sha) => JSON.stringify([repository, token, sha]),
     provider: async () => {
       splitGitHubRepository(repository);
-      return await (provider ||= forgeProvider({ fetch: requestGitHub, forge: "github", token, userAgent: "vitehub-workspace" }));
+      // A failed load lets the next request try again.
+      return await (provider ||= forgeProvider({ fetch: requestGitHub, forge: "github", token, userAgent: "vitehub-workspace" }).catch((error: unknown) => {
+        provider = undefined;
+        throw error;
+      }));
     },
     ref: (client) => {
       const { owner, repo } = splitGitHubRepository(repository);

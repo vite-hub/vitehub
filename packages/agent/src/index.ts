@@ -275,6 +275,7 @@ export type {
   AgentInvocationAnnotationValue,
   AgentInvocationCancelResult,
   AgentInvocationDeleteOutcome,
+  AgentInvocationGetOptions,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
@@ -2276,7 +2277,11 @@ function defineBaseAgent<
             requirements: driver.requirements,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
-          })))
+          })).catch((error: unknown) => {
+            // A failed load lets the next Invocation try again.
+            providerAdapter = undefined
+            throw error
+          }))
         : undefined
     if (!resolvedAdapter) {
       throw agentDiagnostics.AGENT_R0427({ message: "[vitehub] Agent Driver is required unless the agent uses driver.run." })
@@ -2602,9 +2607,13 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
     : TCapabilities
 
 // Only the provider Driver factories reference the provider runtime, so apps that never call one do not bundle it.
-// One promise for every load, so an Invocation and its concurrent title run share one module instance.
+// One promise for every load, so an Invocation and its concurrent title run share one module instance. A failed load
+// lets the next Invocation try again.
 let providerAgentRuntimeModule: ReturnType<ProviderAgentRuntimeLoader> | undefined
-const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent")
+const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent").catch((error: unknown) => {
+  providerAgentRuntimeModule = undefined
+  throw error
+})
 
 /** Run the Agent with Codex. Codex starts as a local process, so the Agent needs a Node.js host. */
 export function codexDriver<TOutput = unknown>(
