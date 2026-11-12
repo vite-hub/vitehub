@@ -131,7 +131,9 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass.
+other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
+PR from an author without write access only after a reviewer with write access
+approves its current head and no such reviewer's latest review requests changes.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when

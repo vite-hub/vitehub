@@ -63,6 +63,8 @@ export interface BabysitterOptions {
   /**
    * Merge policy. Defaults to `false`. `"auto"` lets the worker request GitHub native auto-merge.
    * `"direct"` merges a ready PR into its default branch before any model pass.
+   * `{ strategy: "direct", ready: "approved-if-outside" }` also holds a PR from someone without write
+   * access until a reviewer with write access approves its current head.
    */
   merge: BabysitterMerge;
   /**

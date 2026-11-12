@@ -80,7 +80,7 @@ Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. |
+| `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. |
@@ -99,6 +99,24 @@ Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it
 | `placement` | None | Runs each pass on this host or in a Sandbox on another host ([Bound local verification](#bound-local-verification)). |
 
 For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capabilities/budget). `admission` is a host gate over time windows that can delay a new pass, based on journal usage. You can use both.
+
+## Gate outside contributors
+
+With `ready: 'approved-if-outside'`, the host merges a pull request from someone without write access only after a maintainer approves it:
+
+```ts
+merge: { strategy: 'direct', ready: 'approved-if-outside' },
+```
+
+- A pull request whose author's GitHub `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR` merges as usual.
+- Any other pull request waits until a reviewer with one of those associations approves its current head.
+- Each reviewer's latest `APPROVED` or `CHANGES_REQUESTED` review counts. Comments and dismissed reviews leave it standing.
+- A maintainer whose latest review requests changes blocks the merge, even when another maintainer approved.
+- A push after the approval, including the Babysitter's own repair, needs a new approval.
+
+The Babysitter still repairs the pull request while it waits.
+
+For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits.
 
 ## Control work with labels
 
