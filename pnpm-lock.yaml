@@ -509,15 +509,6 @@ catalogs:
     '@google-cloud/storage':
       specifier: ^8.4.0
       version: 8.4.0
-    '@googleapis/drive':
-      specifier: ^26.0.2
-      version: 26.0.2
-    '@microsoft/microsoft-graph-client':
-      specifier: ^3.0.7
-      version: 3.0.7
-    '@supabase/storage-js':
-      specifier: ^2.117.2
-      version: 2.117.2
     '@upstash/redis':
       specifier: ^1.39.0
       version: 1.39.0
@@ -527,27 +518,15 @@ catalogs:
     aws4fetch:
       specifier: ^1.0.20
       version: 1.0.20
-    box-typescript-sdk-gen:
-      specifier: ^1.19.1
-      version: 1.19.1
-    dropbox:
-      specifier: ^10.47.0
-      version: 10.47.0
     files-sdk:
       specifier: ^3.1.1
       version: 3.1.1
-    google-auth-library:
-      specifier: ^11.3.1
-      version: 11.3.1
     ioredis:
       specifier: ^5.11.1
       version: 5.11.1
     unstorage:
       specifier: 2.0.0-beta.0
       version: 2.0.0-beta.0
-    uploadthing:
-      specifier: ^7.7.4
-      version: 7.7.4
   tooling:
     '@types/node':
       specifier: ^24.19.1
@@ -1345,15 +1324,6 @@ importers:
       '@google-cloud/storage':
         specifier: catalog:storage
         version: 8.4.0(supports-color@8.1.1)
-      '@googleapis/drive':
-        specifier: catalog:storage
-        version: 26.0.2(supports-color@8.1.1)
-      '@microsoft/microsoft-graph-client':
-        specifier: catalog:storage
-        version: 3.0.7(@azure/identity@4.13.3(supports-color@8.1.1))(@azure/msal-browser@5.24.0)(buffer@6.0.3)(stream-browserify@3.0.0)
-      '@supabase/storage-js':
-        specifier: catalog:storage
-        version: 2.117.2
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -1366,24 +1336,15 @@ importers:
       birpc:
         specifier: catalog:runtime
         version: 4.2.0
-      box-typescript-sdk-gen:
-        specifier: catalog:storage
-        version: 1.19.1(supports-color@8.1.1)
       cjs-module-lexer:
         specifier: 2.3.0
         version: 2.3.0
       defu:
         specifier: catalog:unjs
         version: 6.1.7
-      dropbox:
-        specifier: catalog:storage
-        version: 10.47.0
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
-      google-auth-library:
-        specifier: catalog:storage
-        version: 11.3.1(supports-color@8.1.1)
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -1393,9 +1354,6 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
-      uploadthing:
-        specifier: catalog:storage
-        version: 7.7.4(express@5.2.1(supports-color@8.1.1))(fastify@5.12.5)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3)
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -3716,9 +3674,6 @@ importers:
       '@google-cloud/storage':
         specifier: catalog:storage
         version: 8.4.0(supports-color@8.1.1)
-      '@googleapis/drive':
-        specifier: catalog:storage
-        version: 26.0.2(supports-color@8.1.1)
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.139
@@ -3737,18 +3692,12 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
-      '@microsoft/microsoft-graph-client':
-        specifier: catalog:storage
-        version: 3.0.7(@azure/identity@4.13.3(supports-color@8.1.1))(@azure/msal-browser@5.24.0)(buffer@6.0.3)(stream-browserify@3.0.0)
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.32.2(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.7)
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(55a529452483d682fa45cee0a25abc13)
-      '@supabase/storage-js':
-        specifier: catalog:storage
-        version: 2.117.2
       '@tiptap/core':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/pm@3.31.4)
@@ -3902,9 +3851,6 @@ importers:
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
-      box-typescript-sdk-gen:
-        specifier: catalog:storage
-        version: 1.19.1(supports-color@8.1.1)
       comark:
         specifier: catalog:markdown-ui
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
@@ -3914,15 +3860,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
-      dropbox:
-        specifier: catalog:storage
-        version: 10.47.0
       evalite:
         specifier: catalog:ai
         version: 1.0.0-beta.16(ai@7.0.130(zod@4.6.7))(better-sqlite3@12.9.0)
-      google-auth-library:
-        specifier: catalog:storage
-        version: 11.3.1(supports-color@8.1.1)
       h3-v1:
         specifier: npm:h3@^1.15.11
         version: h3@1.15.11
@@ -3959,9 +3899,6 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
-      uploadthing:
-        specifier: catalog:storage
-        version: 7.7.4(express@5.2.1(supports-color@8.1.1))(fastify@5.12.5)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3)
       vite-doctor:
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt-nightly@5.0.0-2611052317-a04317f(3df4ad0caf161eaf65a0cd6430b0a1b7))(supports-color@8.1.1)
