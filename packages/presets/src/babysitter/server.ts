@@ -765,7 +765,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!wake) {
       await statusRecovery.recordWorkerBlocker(observed, reason);
       const wait = { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
-      return isWorkerBlocker({ lastResult: observed.lastResult, wait }) ? wait : { ...wait, retryAt };
+      return isWorkerBlocker({ lastResult: observed.lastResult, wait: { ...wait, headSha: observed.pr?.head?.sha ?? "" } }) ? wait : { ...wait, retryAt };
     }
     if (!options.repositories.includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
     const evidence = await dependencyEvidence(wake);
