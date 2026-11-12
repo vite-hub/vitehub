@@ -7,7 +7,7 @@ import * as v from "valibot"
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
 import { console } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
 import { consoleHttpError } from "./http-error.ts"
 
@@ -135,10 +135,10 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  const actor = consoleAccessActor(access.user)
+  const invoker = consoleAccessInvoker(access.user)
   const start = (inputMessages: Message[] | undefined, onInputHandoff?: () => void) => startAgentInvocation(agent, context, {
     context: {
-      ...(actor ? { actor } : {}),
+      ...(invoker ? { invoker } : {}),
       ...(profileId ? { invokerProfileId: profileId } : {}),
     },
     ...inputMessages ? { messages: inputMessages } : {},

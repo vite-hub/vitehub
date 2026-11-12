@@ -30,6 +30,9 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_SIGNATURE_MISSING"
   | "CONSOLE_SIGNATURE_ORIGIN"
   | "CONSOLE_SIGNATURE_STALE"
+  | "CONSOLE_TICKET_INVALID"
+  | "CONSOLE_TICKET_MISMATCH"
+  | "CONSOLE_TICKET_STORE_MISSING"
   | "CONSOLE_UNAVAILABLE"
 
 export type ConsoleDiagnosticData = {
@@ -138,6 +141,24 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "A `VITEHUB_CONSOLE_KEY_<NAME>` variable is not an Ed25519 public key.",
       "Set the value to the 43 base64url characters that the Console setup page or `vitehub secret console-key` prints, with no quotes or spaces. Then restart or deploy the server.",
       `${consoleGuide}#sign-console-requests`,
+      "docs",
+    ),
+    CONSOLE_TICKET_INVALID: code(
+      "This one-time link expired, was used, or was changed.",
+      "Open the page again from the ViteHub Console. Each link works once, within 60 seconds.",
+      `${consoleGuide}#one-time-links`,
+      "docs",
+    ),
+    CONSOLE_TICKET_MISMATCH: code(
+      "This one-time link was made for another person or another app.",
+      "Open the page from the ViteHub Console in the browser where you are signed in to the app with the email of your Console account.",
+      `${consoleGuide}#one-time-links`,
+      "docs",
+    ),
+    CONSOLE_TICKET_STORE_MISSING: code(
+      "One-time links need a store that every instance of the app shares, and the app has none.",
+      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used.",
+      `${consoleGuide}#one-time-links`,
       "docs",
     ),
     CONSOLE_LOOPBACK_ONLY: code(

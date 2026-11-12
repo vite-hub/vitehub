@@ -685,7 +685,8 @@ function discoverViteDatabases(rootDir: string) {
   return [...defaultDefinitions, ...suffixDefinitions]
 }
 
-const schemaOnlyDefinitionKeys = new Set(["name", "schema"])
+// Relations merge across layers like the schema, so they are not database options.
+const schemaOnlyDefinitionKeys = new Set(["name", "relations", "schema"])
 
 /** Lists the database options that a Definition sets, or returns `undefined` when ViteHub cannot read them. */
 function readDefinitionOptionKeys(file: string): Set<string> | undefined {

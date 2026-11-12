@@ -3,7 +3,7 @@ import { Diagnostic } from "nostics"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { defineCapability, normalizeCapabilities } from "../src/capability-runtime.ts"
-import { getAgentFromRegistry } from "../src/index.ts"
+import { loadAgent } from "../src/index.ts"
 import { formatAgentError, toAgentPublicError } from "../src/agent-error.ts"
 import { withAgentToolStepReporting } from "../src/tool-runtime.ts"
 import { agentGeneratedRuntimeError } from "../src/server/internal.ts"
@@ -68,19 +68,19 @@ describe("Agent diagnostics", () => {
   })
 
   it("keeps registry suggestions and supplies a repair instruction", async () => {
-    await expect(getAgentFromRegistry("triage", { triager: () => ({}) })).rejects.toMatchObject({
+    await expect(loadAgent("triage", { triager: () => ({}) })).rejects.toMatchObject({
       code: "AGENT_R0001",
       message: expect.stringContaining('Did you mean "triager"?'),
       fix: expect.stringContaining("Use a discovered Agent name"),
     })
-    await expect(getAgentFromRegistry("triager", { triager: () => ({ default: undefined }) })).rejects.toMatchObject({
+    await expect(loadAgent("triager", { triager: () => ({ default: undefined }) })).rejects.toMatchObject({
       code: "AGENT_R0002",
       fix: expect.stringContaining("default export"),
     })
   })
 
   it.each(["constructor", "toString", "__proto__"])("rejects inherited registry entry %s", async (name) => {
-    await expect(getAgentFromRegistry(name, {})).rejects.toMatchObject({ code: "AGENT_R0001" })
+    await expect(loadAgent(name, {})).rejects.toMatchObject({ code: "AGENT_R0001" })
   })
 
   it("preserves tool diagnostic guidance and the original failure", async () => {
