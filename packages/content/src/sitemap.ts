@@ -1,5 +1,6 @@
 import { parseMarkdown } from "comark/parse"
 import type { ComarkPlugin } from "comark"
+import type { LeaseStore } from "@vite-hub/runtime"
 
 import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -32,6 +33,12 @@ export interface DefineContentSeoOptions {
    * the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
    */
   mcp?: boolean | ContentMcpOptions
+  /**
+   * Atomic leases for Source date refreshes across server instances. Use a shared LeaseStore, such as
+   * `createSqlLeaseStore()` from `@vite-hub/runtime`. Without it, work is shared only within this Content instance.
+   * Cloudflare KV cannot provide these leases. A held lease serves cached dates until a later read sees the new set.
+   */
+  dateLeases?: LeaseStore
 }
 
 /** `defineContent({ seo: { rss } })`. */
@@ -62,6 +69,7 @@ export interface ContentSitemapOptions {
    * The `waitUntil` of the request, such as `getStandardContext(request).waitUntil`. After a `github()` Source head
    * moves, the answer then uses the page dates of the previous head at once, and Content computes the new dates after
    * the response. Without it, the first answer after a head move waits for GitHub.
+   * When another instance holds `seo.dateLeases`, either form serves cached dates until the new set is visible.
    */
   waitUntil?: (promise: Promise<unknown>) => void
 }
@@ -73,10 +81,13 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots, markdown, rss, mcp } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown, rss, mcp, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) throw invalid("markdown must be true or false.")
+  if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
+    throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")
+  }
   if (rss !== undefined && rss !== true && rss !== false) {
     const shape = "rss must be true, false, or { title, description, limit }."
     if (rss === null || Object(rss) !== rss || Array.isArray(rss)) throw invalid(shape)
@@ -186,6 +197,10 @@ export async function contentRoutedPages(collections: readonly AnyContentCollect
       const url = contentDocumentUrl(source.url, { id, data: document.data })
       if (url === null) continue
       const loc = absolute(url, site)
+      const seo: unknown = document.data.seo
+      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true) continue
+      const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
+      if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
       if (seen.has(loc)) continue
       seen.add(loc)
       const entry: ContentRoutedPage = { collection: source.name, id, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }

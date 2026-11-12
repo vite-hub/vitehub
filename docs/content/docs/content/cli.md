@@ -19,7 +19,7 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/development/console) on. Put the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
+The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/development/console) on, and [sign each call](/docs/development/console#sign-console-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 
 ## Commands
 
@@ -192,7 +192,7 @@ Fix them with `vitehub content edit <collection> <id>`, then run the command aga
 
 With `--json`, the error is `CONTENT_INVALID` and `details.documents` lists `{ collection, id, path, issues }`.
 
-The operations call `content.can()` with the signed-in Console user, like the Console editor. One exception: under `vite dev` without Console sign-in (`local` access, or `console: { auth: false }`), the CLI has no user and skips the policy. This applies only to a dev server, which serves only loopback requests (`localhost`, `127.0.0.1`, `[::1]`). A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
+The operations call `content.can()` with the user of the call: the person that the Console signed, or no user for the CLI. One exception: under `vite dev` without signed calls (`local` access, or `console: { auth: false }`), the CLI has no user and skips the policy. This applies only to a dev server, which serves only loopback requests (`localhost`, `127.0.0.1`, `[::1]`). A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
 
 ## Schedule
 
@@ -293,6 +293,8 @@ docs/kv/index.md:2  warning  CONTENT_R0065  /docs/kv has a title of 2 characters
 ```
 
 `check` reads the parsed documents, not built HTML, and makes no network calls. A `github()` Source is checked at `--sha`, or at the latest commit of its branch. The head does not move. `advance` runs the same error rules before it moves a head.
+
+Links can target pages and headings in any configured Source. A check of one Source and a head change use the published heads of the other Sources, or their branch commits when no head exists. A check of all Sources uses their checked commits. Pages removed from a checked commit cannot resolve against its previous head.
 
 | Code | Severity | Finds |
 | --- | --- | --- |

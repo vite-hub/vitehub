@@ -65,6 +65,8 @@ export interface GeneratedSourcePlugin {
   handler: string
   method?: never
   plugin: true
+  /** Install request interception before an async plugin can let the server accept requests. */
+  position?: "start" | "end"
   route?: never
 }
 
@@ -244,7 +246,7 @@ export function mergeGeneratedSourceNitroConfig(
 
   for (const handler of generatedHandlers) {
     if (handler.plugin) {
-      kit.addPlugin(handler.handler)
+      kit.addPlugin(handler.handler, handler.position)
       continue
     }
     const exact = handlers.some(candidate =>
@@ -401,8 +403,8 @@ export interface ContentEntryFeatures {
   markdown: boolean
   /** `seo: { rss }` that is not literally false. */
   rss: boolean
-  /** `seo: { mcp }` that is not literally false. */
-  mcp: boolean
+  /** Whether `seo.mcp` is enabled, or unknown when discovery cannot follow its value. */
+  mcp: boolean | "unknown"
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
   /** `previews` that is set and not literally false: Content serves refs of its `github()` Source at `/tree`, `/blob`, and `/pr` URLs. */
@@ -544,7 +546,7 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: true, live: true, previews: true }
+  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", live: true, previews: true }
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
@@ -566,11 +568,12 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
   }
   if (options.has("seo")) {
     const seo = properties(resolveNode(options.get("seo")))
-    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true, rss: true, mcp: true }
+    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown" }
     for (const key of ["sitemap", "robots", "markdown", "rss", "mcp"] as const) {
       if (!seo.has(key)) continue
-      const value = unwrapAst(seo.get(key))
-      features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
+      const value = key === "mcp" ? resolveNode(seo.get(key)) : unwrapAst(seo.get(key))
+      if (key === "mcp" && (!isAstNode(value) || (value.type !== "Literal" && value.type !== "ObjectExpression"))) features.mcp = "unknown"
+      else features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
     }
   }
   return features
@@ -682,7 +685,7 @@ async function writeContentArtifact(
       `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default))`,
       "",
     ].join("\n"))
-    handlers.push({ handler: previewRoutes, plugin: true })
+    handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
   }
   else await rm(previewRoutes, { force: true })
   // `defineContent({ seo: { sitemap, robots, markdown, rss, mcp } })` adds the site-wide SEO routes. Markdown copies sit
@@ -699,14 +702,22 @@ async function writeContentArtifact(
       await rm(path, { force: true })
       continue
     }
+    // Unknown configuration must not reserve /mcp: a disabled Content server passes through to the app's handler.
+    const conditionalMcp = route === "/mcp" && enabled === "unknown"
     await writeFileIfChanged(path, [
       `import { ${helper} } from ${importBase}`,
       `import content from ${contentModule}`,
       "",
-      `export default ${helper}(content)`,
+      ...conditionalMcp ? [
+        `const handler = ${helper}(content)`,
+        "export default async event => {",
+        "  if (!content.seo?.mcp) return",
+        "  return await handler.fetch(event.req)",
+        "}",
+      ] : [`export default ${helper}(content)`],
       "",
     ].join("\n"))
-    handlers.push(route === "/**" ? { handler: path, middleware: true, route } : route === "/mcp" ? { handler: path, route } : { handler: path, method: "get", route })
+    handlers.push(route === "/**" || conditionalMcp ? { handler: path, middleware: true, route } : route === "/mcp" ? { handler: path, route } : { handler: path, method: "get", route })
   }
   return handlers
 }
@@ -754,7 +765,7 @@ function generatedSourceNitroContribution(
   const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
   const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
   const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
-  const plugins = merged.plugins?.slice(Array.isArray(existing.plugins) ? existing.plugins.length : 0)
+  const plugins = merged.plugins?.filter(plugin => !existing.plugins?.includes(plugin))
   if (!handlers?.length && !modules?.length && !plugins?.length) return
   const contribution: NitroGeneratedConfig = {}
   if (handlers?.length) contribution.handlers = handlers

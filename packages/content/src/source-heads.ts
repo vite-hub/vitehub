@@ -16,7 +16,7 @@ import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
 import { openCommitSnapshot } from "./snapshots.ts"
 import { parseContentRef } from "./source-refs.ts"
 
-import type { ContentCheckFinding, ContentCheckOptions } from "./check.ts"
+import type { ContentCheckInput, ContentCheckOptions } from "./check.ts"
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
 import type { ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -359,10 +359,10 @@ interface ContentSourceHeadsRuntime {
    */
   read<T>(target: ContentSourceRef, read: (view: ComarkContent) => Promise<T>): Promise<T>
   /**
-   * Run every rule of `vitehub content check` on one commit of a `github()` Source: `sha`, or the latest commit of its
-   * branch. It reads the commit through the commit cache and does not move the head.
+   * Load check documents from `sha` or the latest branch commit through the commit cache, without moving the head.
+   * `published` selects the accepted head for link targets of another Source, when one exists.
    */
-  inspect(name: string, sha?: string): Promise<{ sha: string, pages: number, findings: ContentCheckFinding[] }>
+  inspect(name: string, sha?: string, published?: boolean): Promise<{ sha: string, input: ContentCheckInput }>
   /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
   /** Run `work` after the push webhook moves the head of a Source, such as computing page dates. */
@@ -379,7 +379,7 @@ export function contentSourceHeadsRuntime(api: object): ContentSourceHeadsRuntim
 }
 
 /** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
-export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[], check?: ContentCheckOptions } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
+export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[], check?: ContentCheckOptions, targets?: (source: string) => Promise<NonNullable<ContentCheckInput["targets"]>> } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
   /** `defineContent({ check })`, for the link rule of `check()`. */
   const checkOptions: ContentCheckOptions = access.check ?? {}
   const states = new Map<string, HeadState>()
@@ -472,11 +472,11 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     return { files, failure, reason: failure.path ? `${failure.path}: ${failure.message}` : failure.message }
   }
 
-  /** The rules of `vitehub content check` on one loaded commit. */
-  function inspectCommit(state: HeadState, loaded: LoadedCommit): { pages: number, findings: ContentCheckFinding[] } {
+  /** The documents for `vitehub content check` from one loaded commit. */
+  function commitCheckInput(state: HeadState, loaded: LoadedCommit): ContentCheckInput {
     const { schema } = contentSource(state.input)
     const url = contentSourceUrl(state.input)
-    return checkContentDocuments({
+    return {
       source: state.name,
       files: loaded.files,
       items: loaded.commit?.items ?? [],
@@ -484,7 +484,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       ...(schema ? { schema } : {}),
       ...(url === undefined ? {} : { url }),
       options: checkOptions,
-    })
+    }
   }
 
   function hashOf(state: HeadState): Promise<string> {
@@ -586,12 +586,13 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     let loaded: LoadedCommit
     try {
       loaded = await load(state, revision)
+      if (!loaded.commit) return loaded.reason
+      const targets = await access.targets?.(state.name)
+      return contentCheckReason(checkContentDocuments({ ...commitCheckInput(state, loaded), targets }).findings)
     }
     catch (error) {
       return error instanceof Error ? error.message : String(error)
     }
-    if (!loaded.commit) return loaded.reason
-    return contentCheckReason(inspectCommit(state, loaded).findings)
   }
 
   /** Move the head to the latest valid commit of the branch, and record a completed check separately. */
@@ -1110,9 +1111,21 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
       return await readAt(state, target.sha, (_hub, view) => read(view))
     },
-    async inspect(name, sha) {
+    async inspect(name, sha, published = false) {
       const state = states.get(name)
       if (!state) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] Content source ${JSON.stringify(name)} is no github() Source, so it has no commits to check.` })
+      // Read other Sources without advancing them: validation must not recursively wait on another head gate.
+      if (published) {
+        sha = state.served?.sha
+        if (await isLive(state)) {
+          try {
+            sha = (await read(state))?.sha ?? sha
+          }
+          catch (error) {
+            if (!isKVFailure(error)) throw error
+          }
+        }
+      }
       let revision: SourceRevision | undefined
       if (sha !== undefined) {
         if (!fullSha.test(sha)) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] content.check({ sha }) needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
@@ -1129,7 +1142,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       catch (error) {
         throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] Content could not read commit ${revision.id} of Content source ${JSON.stringify(name)}: ${error instanceof Error ? error.message : String(error)}`, cause: error })
       }
-      return { sha: revision.id, ...inspectCommit(state, loaded) }
+      return { sha: revision.id, input: commitCheckInput(state, loaded) }
     },
     match(repo, ref, defaultBranch) {
       const result: { repository: boolean, sources: string[] } = { repository: false, sources: [] }

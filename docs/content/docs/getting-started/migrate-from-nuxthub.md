@@ -27,7 +27,7 @@ through [Capabilities](/docs/agents/capabilities).
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
 | `hosting` auto-detection | `preset` | You must select the host. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
-| Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | The module adds them for each enabled feature when Nitro auto-imports are on. Explicit imports also work. |
+| Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
 
 NuxtHub v0.10 removed `hubAI()`, AutoRAG, Vectorize, and `hubBrowser()`.
 ViteHub has no AI or Vectorize feature either. For browser work on Cloudflare,
@@ -225,7 +225,7 @@ generated SQL alone does not create a baseline.
 `vitehub database generate --custom` creates a migration you write by hand. NuxtHub
 applied migrations during `nuxt dev` and `nuxt build`, except at build time for
 D1 binding deployments. ViteHub never applies app migrations during
-development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, and D1 HTTP migrations. A Node server build can apply them at startup with [`migrateOnStart`](/docs/database/configure#migrate-when-the-server-starts).
+development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, D1 HTTP, and Postgres migrations. A Node server build applies Postgres migrations when it starts, and SQLite migrations with `migrateOnStart: true`. See [Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts). Until the Postgres baseline is in place, build with `migrateOnStart: false`.
 
 ### Baseline an existing SQLite database
 

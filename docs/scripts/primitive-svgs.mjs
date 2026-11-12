@@ -15,7 +15,7 @@ const readmePath = join(repoRoot, "README.md");
 export const svgDirectory = ".github/assets/primitives";
 const tableStart = "<!-- primitives:start -->";
 const tableEnd = "<!-- primitives:end -->";
-const columns = 3;
+const columns = 4;
 
 // GitHub's muted text, so the icons match the README in both themes.
 const themeStyle = `<style>
@@ -41,7 +41,7 @@ export async function renderPrimitiveSvgs() {
 /** Returns the README table of primitives, between its start and end markers. */
 export function renderPrimitivesTable() {
   const cells = landingPrimitives.map((primitive) =>
-    `    <td width="33%" valign="top"><a href="https://vitehub.dev${primitive.to}"><img src="${svgDirectory}/${primitive.id}.svg" alt="" height="24"><br><b>${primitive.name}</b></a><br>${primitive.description}</td>`);
+    `    <td width="${100 / columns}%" valign="top"><a href="https://vitehub.dev${primitive.to}"><img src="${svgDirectory}/${primitive.id}.svg" alt="" height="24"><br><b>${primitive.name}</b></a><br>${primitive.description}</td>`);
   const rows = [];
   for (let index = 0; index < cells.length; index += columns) {
     rows.push(`  <tr>\n${cells.slice(index, index + columns).join("\n")}\n  </tr>`);

@@ -4,6 +4,7 @@ import type { SourceItem } from "@vite-hub/source"
 
 import { contentSource, createContentInstance } from "./content-source.ts"
 import { contentDocumentUrl } from "./documents.ts"
+import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ContentCommit } from "./commit-cache.ts"
 import type { ContentSourceInput } from "./content-source.ts"
@@ -106,6 +107,11 @@ export interface ContentCheckInput {
   schema?: JsonSchema
   url?: ContentDocumentUrl
   options?: ContentCheckOptions
+  /** Other configured Sources. The candidate's own documents remain authoritative. */
+  targets?: readonly (Pick<ContentCheckInput, "items" | "url"> & {
+    /** An incomplete target set stays unknown unless its configured URL scope excludes the unresolved link. */
+    unavailable?: string
+  })[]
 }
 
 /** Parsed documents of one Source, and the files that did not parse. */
@@ -307,6 +313,16 @@ function withTemplate(title: string | undefined, template: string | undefined): 
   return around && title.toLowerCase().includes(around.toLowerCase()) ? title : template.replace("%s", title)
 }
 
+function pageUrl(item: ContentFile, pattern: ContentDocumentUrl | undefined): string | null {
+  if (pattern === undefined) return item.path
+  try {
+    return contentDocumentUrl(pattern, { id: item.path.replace(/^\/+/, ""), data: item.data })
+  }
+  catch {
+    return null
+  }
+}
+
 /** Run every rule on the documents of one Source, in memory and with no network. `pages` counts the Markdown pages with a URL. */
 export function checkContentDocuments(input: ContentCheckInput): { pages: number, findings: ContentCheckFinding[] } {
   const { source, options = {} } = input
@@ -325,15 +341,7 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
     if (item.meta.kind !== "document") continue
     const path = item.meta.key.startsWith(`${source}/`) ? item.meta.key.slice(source.length + 1) : item.meta.key
     const raw = fileText(files.get(path))
-    let url: string | null = item.path
-    if (input.url !== undefined) {
-      try {
-        url = contentDocumentUrl(input.url, { id: item.path.replace(/^\/+/, ""), data: item.data })
-      }
-      catch {
-        url = null
-      }
-    }
+    const url = pageUrl(item, input.url)
     documents.push({ item, path, url, text: raw })
     if (input.schema) {
       for (const issue of validateSourceFile(item, input.schema, { source }).issues) {
@@ -347,7 +355,20 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
   // A missing target is an error below a first path segment that holds pages, and a warning elsewhere, where another
   // route may serve it. Links outside the static part of the URL pattern, such as `/about` for `/blog/:id`, belong to
   // other routes.
-  const scope = new Set([...pages.keys()].map(firstSegment))
+  const targets = new Map<string, { ids: Set<string> }>()
+  for (const source of input.targets ?? []) {
+    for (const item of source.items) {
+      if (item.meta.kind !== "document" || !markdownExtension.test(item.meta.extension)) continue
+      const url = pageUrl(item, source.url)
+      if (url === null || targets.has(normalizePath(url))) continue
+      const ids = new Set<string>()
+      walk(item.nodes ?? [], [], ids, [])
+      targets.set(normalizePath(url), { ids })
+    }
+  }
+  // A page in the checked commit takes precedence over another Source with the same URL.
+  for (const [url, page] of pages) targets.set(url, page)
+  const scope = new Set([...targets.keys()].map(firstSegment))
   const base = urlBase(input.url)
   const ignored = linkMatcher(options.ignoreLinks)
   let origin: string | undefined
@@ -392,8 +413,20 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
       const target = normalizePath(url.pathname)
       const hash = url.hash.length > 1 ? url.hash.slice(1) : ""
       if (ignored(url.pathname) || ignored(`${url.pathname}${url.hash}`) || ignored(link)) continue
-      if (!target.startsWith(base) && `${target}/` !== base) continue
-      const found = pages.get(target)
+      const found = targets.get(target)
+      if (!found) {
+        const unavailable = input.targets?.find(source => {
+          if (!source.unavailable) return false
+          // A reader's paths, a function URL, and a root pattern can serve any internal path. Without their
+          // documents, only a known fixed URL or prefix can prove that this Source is irrelevant to the link.
+          if (typeof source.url !== "string") return true
+          if (!source.url.includes(":")) return target === normalizePath(source.url)
+          const base = normalizePath(urlBase(source.url))
+          return base === "/" || target === base || target.startsWith(`${base}/`)
+        })
+        if (unavailable) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] ${page.path}: ${page.url} links to ${url.pathname}, but Source "${unavailable.unavailable}" could not load its link targets. Retry the check when that Source is available.` })
+      }
+      if (!found && !target.startsWith(base) && `${target}/` !== base) continue
       if (!found) {
         if (scope.has(firstSegment(target))) add("link", at, `${page.url} links to ${url.pathname}, which is no page of Source "${source}". Fix the link, or add the path to \`check.ignoreLinks\` when another route serves it.`)
         else add("route", at, `${page.url} links to ${url.pathname}, which no page of Source "${source}" serves. Add the path to \`check.ignoreLinks\` when another route of the app serves it, or fix the link.`)

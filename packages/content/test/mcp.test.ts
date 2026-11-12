@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
-import { github } from "@vite-hub/source"
+import { files, github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
@@ -176,7 +176,55 @@ describe("seo.mcp for collections", () => {
   })
 })
 
-describe("seo.mcp for github() Sources", () => {
+describe("seo.mcp for Sources", () => {
+  it("excludes Source noindex and differing canonical pages from both tools", async () => {
+    fake.commit("main", {
+      "content/public.md": "---\ntitle: Public\nseo:\n  canonical: https://example.com/docs/public\n---\nPublic body.\n",
+      "content/hidden.md": "---\ntitle: Hidden\nseo:\n  noindex: true\n---\nHidden body.\n",
+      "content/elsewhere.md": "---\ntitle: Elsewhere\nseo:\n  canonical: https://elsewhere.test/original\n---\nElsewhere body.\n",
+    })
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", root: "content" }), { url: "/docs/:id" }) },
+      seo: { site: "https://example.com", mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    const handler = defineContentMcpHandler(content)
+    expect((await content.pages()).map(page => page.path)).toEqual(["/docs/public"])
+    expect(JSON.parse((await tool(handler, "list-pages")).content![0]!.text).map((page: { path: string }) => page.path)).toEqual(["/docs/public"])
+    for (const path of ["/docs/hidden", "/docs/elsewhere"]) {
+      expect(await content.page(path)).toBeNull()
+      expect(await tool(handler, "get-page", { path })).toEqual({ content: [{ type: "text", text: `[404] No page at ${path}` }], isError: true })
+    }
+  })
+
+  it.each(["files", "items"] as const)("reads the refreshed Markdown of a %s Source", async (kind) => {
+    let text = "---\ntitle: One\n---\nBody one.\n"
+    let added = false
+    const input = kind === "files"
+      ? files({ "a.md": () => text })
+      : { async items() { return added ? [{ key: "b.md", content: "---\ntitle: B\n---\nBody B.\n" }] : [{ key: "a.md", content: text }] } }
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { notes: contentSource(input, { url: "/notes/:id" }) },
+      seo: { mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect((await content.page("/notes/a"))?.content).toBe("# One\n\nBody one.\n")
+    text = "---\ntitle: Two\n---\nBody two.\n"
+    await content.cache.refresh("notes")
+    expect(await content.page("/notes/a")).toMatchObject({ title: "Two", content: "# Two\n\nBody two.\n" })
+    if (kind === "items") {
+      added = true
+      await content.cache.refresh("notes")
+      expect((await content.pages()).map(page => page.path)).toEqual(["/notes/b"])
+      expect((await content.page("/notes/b"))?.content).toBe("# B\n\nBody B.\n")
+      expect(await content.page("/notes/a")).toBeNull()
+    }
+  })
+
   it("reads the file of the head commit without its frontmatter", async () => {
     fake.commit("main", {
       "content/guide.md": "---\ntitle: Guide\ndescription: Start here\n---\n\nSee [intro](/docs/intro).\n\n::note\nKept as written.\n::\n",

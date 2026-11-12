@@ -72,6 +72,151 @@ async function cli(cwd: string, args: string[], fetch?: typeof globalThis.fetch)
 }
 
 describe("content.sources.advance() with the check", { timeout: 30_000 }, () => {
+  const targetMappings = [
+    { mapping: "prefix", url: "/blog/:id", key: "post.md" },
+    { mapping: "no URL", url: undefined, key: "blog/post.md" },
+    { mapping: "root pattern", url: "/:id", key: "blog/post.md" },
+    { mapping: "function", url: ({ id }: { id: string }) => `/${id}`, key: "blog/post.md" },
+  ]
+
+  it.each(targetMappings)("keeps a failed linked Source from weakening selected checks, advances, and pins ($mapping)", async ({ url, key }) => {
+    let unavailable = false
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      blog: contentSource({ items: async () => {
+        if (unavailable) throw new Error("Reader unavailable")
+        return [{ key, content: page("Blog introduction") }]
+      } }, { url }),
+    } })
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    const bad = fake.commit("main", { "docs/guide.md": page("Updated guide", "See [missing](/blog/missing).\n") })
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1, findings: [{ code: "CONTENT_R0062" }] })
+
+    unavailable = true
+    await expect(content.check({ source: "docs" })).rejects.toMatchObject({ code: "CONTENT_R0069" })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: first, rejected: { sha: bad, reason: expect.stringContaining('Source "blog"') } })
+    await expect(content.sources.pin(bad, "docs")).rejects.toMatchObject({ code: "CONTENT_R0019" })
+    // Valid links into the unavailable namespace also require a successful dependency check.
+    const valid = fake.commit("main", { "docs/guide.md": page("Updated guide", "See [post](/blog/post).\n") })
+    await expect(content.check({ source: "docs" })).rejects.toMatchObject({ code: "CONTENT_R0069" })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: first, rejected: { sha: valid } })
+
+    unavailable = false
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: valid, rejected: null })
+    await expect(content.sources.pin(bad, "docs")).rejects.toMatchObject({ code: "CONTENT_R0019" })
+  })
+
+  it.each([
+    ...targetMappings.map(target => ({ ...target, kind: "reader" })),
+    { mapping: "GitHub", kind: "github", url: "/blog/:id" },
+  ])("does not initialize a head with links into an unavailable Source ($mapping)", async ({ kind, url }) => {
+    fake.commit("main", { "docs/guide.md": page("Getting started", "See [missing](/blog/missing).\n") })
+    fake.commit("blog", { "post.md": page("Blog introduction") })
+    fake.respond(request => request.path.endsWith("/commits/blog") ? new Response("rate limited", { status: 429 }) : undefined)
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      blog: contentSource(kind === "github" ? github({ repo: "acme/docs", ref: "blog", auth: false }) : { items: async () => { throw new Error("Reader unavailable") } }, { url }),
+    } })
+    expect(await content.sources.head("docs")).toMatchObject({ sha: null, rejected: { reason: expect.stringContaining('Source "blog"') } })
+    await expect(content.check({ source: "docs" })).rejects.toMatchObject({ code: "CONTENT_R0069" })
+  })
+
+  it.each(targetMappings.flatMap(({ mapping, url }) => [
+    "Body\n",
+    "See [setup](/docs/setup#installation).\n",
+    "See [ignored](/blog/missing) and [external](https://example.com/missing).\n",
+  ].map(body => ({ mapping, url, body }))))("isolates an unavailable target Source when checking $body ($mapping)", async ({ url, body }) => {
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started", body) })
+    const generated = [{ key: "docs/setup.md", content: page("Project setup", "## Installation\n") }]
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource({ items: async () => generated }, { url: "/:id" }),
+      unavailable: contentSource({ items: async () => { throw new Error("Reader unavailable") } }, { url }),
+    }, check: { ignoreLinks: ["/blog/missing"] } })
+
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    expect(await content.list("docs")).toHaveLength(1)
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    const next = fake.commit("main", { "docs/guide.md": page("Updated guide", body) })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: next, rejected: null })
+    expect(await content.sources.pin(first, "docs")).toMatchObject({ sha: first, rejected: null })
+    // A Source explicitly selected for checking must still report its retrieval failure.
+    await expect(content.check({ source: "unavailable" })).rejects.toThrow("Reader unavailable")
+    await expect(content.check()).rejects.toThrow("Reader unavailable")
+    if (url === "/blog/:id" && body.includes("[setup]")) {
+      generated.splice(0)
+      expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1 })
+    }
+  })
+
+  it("keeps head changes and selected checks usable when an unrelated GitHub Source is rate limited", async () => {
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started") })
+    fake.commit("blog", { "post.md": page("Blog introduction") })
+    fake.respond(request => request.path.endsWith("/commits/blog") ? new Response("rate limited", { status: 429 }) : undefined)
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      blog: contentSource(github({ repo: "acme/docs", ref: "blog", auth: false }), { url: "/blog/:id" }),
+    } })
+
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    const next = fake.commit("main", { "docs/guide.md": page("Updated guide") })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: next, rejected: null })
+    expect(await content.sources.pin(first, "docs")).toMatchObject({ sha: first, rejected: null })
+    await expect(content.check({ source: "blog" })).rejects.toMatchObject({ code: "CONTENT_R0069" })
+  })
+
+  it("resolves links and headings across Sources for checks, initial heads, advances, and pins", async () => {
+    const generated = [{ key: "docs/setup.md", path: "docs/setup.md", content: page("Project setup", "## Installation\n") }]
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started", "See [setup](/docs/setup#installation).\n") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource({ items: async () => generated }, { url: "/:id" }),
+    } })
+    expect(await content.check()).toMatchObject({ ok: true, errors: 0, warnings: 0, sources: [{ source: "docs", pages: 1 }, { source: "generated", pages: 1 }] })
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    expect(await content.get("/docs/setup")).toBeTruthy()
+
+    const next = fake.commit("main", { "docs/guide.md": page("Updated guide", "See [setup](/docs/setup#installation).\n") })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: next, rejected: null })
+    expect(await content.sources.pin(first, "docs")).toMatchObject({ sha: first, rejected: null })
+
+    generated.splice(0)
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1 })
+  })
+
+  it("uses the other GitHub Source's published head for a gate and selected checks", async () => {
+    const docs = fake.commit("main", { "docs/guide.md": page("Getting started", "See [setup](/docs/setup#installation).\n") })
+    const generated = fake.commit("generated", { "docs/setup.md": page("Project setup", "## Installation\n") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource(github({ repo: "acme/docs", ref: "generated" }), { url: "/:id" }),
+    } })
+    expect(await content.check()).toMatchObject({ ok: true, warnings: 0 })
+    expect((await content.sources.head("generated")).sha).toBe(generated)
+    await content.sources.pin(generated, "generated")
+    fake.commit("generated", { "docs/setup.md": null })
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    expect((await content.sources.head("docs")).sha).toBe(docs)
+    // Aggregate checks inspect both branch candidates, even when one published head is pinned.
+    expect(await content.check()).toMatchObject({ ok: false, errors: 1 })
+  })
+
+  it("does not use the previous head to resolve a page removed by the candidate commit", async () => {
+    const first = fake.commit("main", { "docs/setup.md": page("Project setup") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource({ items: async () => [{ key: "extra.md", content: page("Extra document") }] }, { url: "/:id" }),
+    } })
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    const bad = fake.commit("main", { "docs/setup.md": null, "docs/guide.md": page("Getting started", "See [setup](/docs/setup).\n") })
+    expect(await content.check()).toMatchObject({ ok: false, errors: 1 })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: first, rejected: { sha: bad } })
+  })
+
   it("keeps the head when a push links to a page that does not exist", async () => {
     const first = fake.commit("main", { "docs/guide.md": page("Getting started") })
     const content = server()

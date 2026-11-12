@@ -1,8 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { cmsConsoleAuthorize } from "vite-hub/cms/access"
-import { authForRequest } from "@vite-hub/auth/runtime/console"
-import { createConsoleAppAuthPages, defineConsoleAuthorize } from "vite-hub/console/auth"
+import { defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
 import type { ConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -21,15 +20,8 @@ describe("Console access types", () => {
         return context.user.email?.endsWith("@example.com") ?? false
       }
       if (context.via === "cli") expectTypeOf(context.user).toEqualTypeOf<undefined>()
-      // Session-based users keep their extensible fields.
-      if (context.via === undefined) expectTypeOf(context.user?.role).toEqualTypeOf<unknown>()
       return false
     })
-  })
-
-  it("accepts synchronous and lazy app Auth resolvers", () => {
-    createConsoleAppAuthPages(authForRequest)
-    createConsoleAppAuthPages(async (...input) => authForRequest(...input))
   })
 
   it("type checks", () => {
@@ -68,6 +60,8 @@ describe("Console access types", () => {
     installConsoleAccess({ mode: "public" })
     // @ts-expect-error The open policy has no check to replace.
     installConsoleAccess({ mode: "open", check: async () => undefined })
+    // @ts-expect-error App Auth sessions no longer open the Console.
+    installConsoleAccess({ mode: "auth" })
 
     defineConsoleAuthorize(({ request }) => request.headers.get("x-role") === "admin")
     defineConsoleAuthorize(() => new Response("Sign in at the host.", { status: 401 }))
