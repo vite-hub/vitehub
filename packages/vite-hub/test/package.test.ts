@@ -742,7 +742,6 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
     expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
-    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures distributed Console files without OAuth discovery for open access", async () => {

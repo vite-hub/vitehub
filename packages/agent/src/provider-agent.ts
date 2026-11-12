@@ -85,6 +85,7 @@ import type {
   AgentRunCallbackContext,
   CodexReasoningEffort,
   CodexReasoningSummary,
+  CodexWorkspaceWriteAccess,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
@@ -98,6 +99,7 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
+import { codexWorkspaceWritePolicy } from "./internal/codex-workspace-write.ts"
 import { sandboxSharesHostNetwork, setActiveProviderSandbox, openProviderSandbox, providerSandboxEnvironment, startProviderSandboxRelay } from "./internal/provider-box.ts"
 import type { ProviderSandboxRelay, ProviderSandboxSession } from "./internal/provider-box.ts"
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
@@ -132,6 +134,8 @@ export interface ProviderAgentAdapterOptions<
   sessionStorePath?: string
   /** Provision project-pinned Node.js and a package manager for the provider and its commands. */
   toolchain?: SandboxToolchain
+  /** Network and package cache access for Codex's `workspace-write` sandbox. */
+  workspaceWrite?: CodexWorkspaceWriteAccess
 }
 
 interface GeneratedProviderFile {
@@ -3765,6 +3769,13 @@ async function* runProvider<
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     effectiveSignal?.throwIfAborted()
+    const permissions = options.permissions ?? defaultAgentProviderPermissions
+    const sandboxPolicy = options.provider === "codex" && (permissions === "allow-edits" || permissions === "allow-edits-unattended")
+      ? await codexWorkspaceWritePolicy(options.workspaceWrite, providerSandbox
+        ? { sandbox: providerSandbox.session, signal: effectiveSignal }
+        : { environment: providerRuntimeEnvironment })
+      : undefined
+    effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: providerCwd,
       // ChatGPT's launcher consumes the private thread configuration and restores
@@ -3777,9 +3788,10 @@ async function* runProvider<
       } : undefined) : nativeUnattendedTools ? undefined : toolServer?.mcp,
       model: options.model,
       resumeCursor,
-      runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
+      runtimeMode: providerRuntimeMode[permissions],
       // Deny native permission escalation without removing the edit-mode boundary.
-      ...(options.permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
+      ...(permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
+      ...(sandboxPolicy ? { sandboxPolicy } : {}),
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor

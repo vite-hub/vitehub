@@ -576,6 +576,7 @@ export type {
   CodexDriverOptions,
   CodexReasoningEffort,
   CodexReasoningSummary,
+  CodexWorkspaceWriteAccess,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -2277,6 +2278,7 @@ function defineBaseAgent<
             requirements: driver.requirements,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
+            workspaceWrite: driver.workspaceWrite,
           })).catch((error: unknown) => {
             // A failed load lets the next Invocation try again.
             providerAdapter = undefined

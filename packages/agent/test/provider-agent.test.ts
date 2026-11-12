@@ -79,7 +79,7 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -562,6 +562,28 @@ describe("Provider Agent Driver", () => {
       GITHUB_TOKEN: "installation-token",
       GIT_CONFIG_COUNT: "2",
       GIT_CONFIG_KEY_0: "http.https://github.com/acme/portal.git.extraheader",
+    })
+  })
+
+  it("gives the Driver the forge access commit identity before its own environment", async () => {
+    const threadId = "thread-github-identity"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const access = vi.fn(async () => ({ token: "installation-token", identity: { login: "bot[bot]", email: "1+bot[bot]@users.noreply.github.com" } }))
+    const base = context(threadId)
+    base.context.set("pullRequest", {
+      pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    await createProviderAgentAdapter({
+      env: { GIT_AUTHOR_EMAIL: "user@example.com" },
+      provider: "codex",
+    }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
+
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GIT_AUTHOR_NAME: "bot[bot]",
+      GIT_AUTHOR_EMAIL: "user@example.com",
+      GIT_COMMITTER_NAME: "bot[bot]",
+      GIT_COMMITTER_EMAIL: "1+bot[bot]@users.noreply.github.com",
     })
   })
 
@@ -2912,6 +2934,43 @@ cli_auth_credentials_store = "keyring"
     const session = provider.startSession.mock.calls[0]?.[0]
     if (permissions === "allow-edits-unattended") expect(session).toHaveProperty("approvalPolicy", "never")
     else expect(session).not.toHaveProperty("approvalPolicy")
+  })
+
+  it("gives Codex edit sandboxes the network and package caches that driver.workspaceWrite grants", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-write-"))
+    const store = join(home, "store")
+    try {
+      for (const [permissions, expected] of [["allow-edits-unattended", true], ["allow-edits", true], ["allow-all", false], ["ask", false]] as const) {
+        const threadId = `thread-workspace-write-${permissions}`
+        const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+        await createProviderAgentAdapter({
+          provider: "codex",
+          permissions,
+          env: { HOME: home, npm_config_store_dir: store },
+          workspaceWrite: { network: true, packageCaches: true },
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        }).generate(context(threadId) as never)
+        const session = provider.startSession.mock.calls[0]?.[0]
+        if (!expected) {
+          expect(session).not.toHaveProperty("sandboxPolicy")
+          continue
+        }
+        expect(session).toHaveProperty("sandboxPolicy", {
+          type: "workspaceWrite",
+          networkAccess: true,
+          writableRoots: [store, join(home, ".local/share/pnpm"), join(home, ".cache/pnpm"), join(home, ".cache/node/corepack"), join(home, ".npm")],
+        })
+        await expect(stat(join(home, ".cache/node/corepack"))).resolves.toMatchObject({})
+      }
+      const threadId = "thread-workspace-write-network-only"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex", permissions: "allow-edits-unattended", workspaceWrite: { network: true } }).generate(context(threadId) as never)
+      expect(provider.startSession.mock.calls[0]?.[0]).toHaveProperty("sandboxPolicy", { type: "workspaceWrite", networkAccess: true, writableRoots: [] })
+    }
+    finally {
+      await rm(home, { recursive: true, force: true })
+    }
   })
 
   it("preauthorizes only assigned host tools for unattended Codex edits", async () => {
@@ -5679,6 +5738,30 @@ cli_auth_credentials_store = "keyring"
     expect(first!.launchArgs).toBe(second!.launchArgs)
     expect(first!.launchArgs).not.toContain(first!.root)
     expect(launchedCodexDeveloperInstructions()).toBe("Repair one \"PR\" with `git` and $HOME.\nThen stop.")
+  })
+
+  it.each([
+    { provider: "codex" as const, driver: codexDriver },
+    { provider: "claude-code" as const, driver: claudeCodeDriver },
+  ])("gives $provider the instructions that a child extend function returns", async ({ provider, driver }) => {
+    const threadId = `thread-${provider}-extended-instructions`
+    let prompt: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        if (provider === "codex") return
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        prompt = await readFile(args.split("--append-system-prompt-file ")[1]!.replace(/^['"]|['"]$/g, ""), "utf8")
+      },
+    })
+    const base = defineAgent({ workspace: {}, driver: driver({ instructions: ["Base rules.", () => "Answer {{{ context.customInstructions }}}"] }) })
+    const child = defineAgent({ extends: base, driver: { instructions: { extend: inherited => `${inherited}\n\nChild rules.` } } })
+    const invocation = context(threadId)
+    invocation.context.set("customInstructions", "in English.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ instructions: child.__vitehubWorkspaceAgentOptions.driver.instructions, provider }).generate(invocation as never)
+    const expected = "Base rules.\n\nAnswer in English.\n\nChild rules."
+    if (provider === "codex") expect(launchedCodexDeveloperInstructions()).toBe(expected)
+    else expect(prompt).toBe(expected)
   })
 
   it("resumes a Codex session only with the developer instructions it started with", async () => {

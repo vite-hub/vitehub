@@ -1647,6 +1647,13 @@ export type AgentAdapterInstructions<
     mode: "replace"
     value: AgentInstructionsContent<TRuntimeConfig, Name>
   }
+  | {
+    /**
+     * Receive the inherited instructions as one document and return the new document.
+     * Without a parent, `inherited` is an empty string.
+     */
+    extend: (inherited: string) => string
+  }
 
 export type AgentInstructionsContent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1929,6 +1936,21 @@ type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" 
 export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
 export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 
+/**
+ * Access that Codex's `workspace-write` sandbox adds for `permissions: "allow-edits"` and `"allow-edits-unattended"`.
+ * Without it, sandboxed commands have no network and can write only inside the working directory.
+ */
+export interface CodexWorkspaceWriteAccess {
+  /** Let sandboxed commands use the network, for example to download packages. Defaults to `false`. */
+  network?: boolean
+  /**
+   * Let sandboxed commands write the package manager store and caches where the provider runs:
+   * `npm_config_store_dir`, `npm_config_cache_dir`, `~/.local/share/pnpm`, `~/.cache/pnpm`,
+   * `~/.cache/node/corepack`, and `~/.npm`. ViteHub creates missing directories. Defaults to `false`.
+   */
+  packageCaches?: boolean
+}
+
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
@@ -1938,6 +1960,8 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /** Network and package cache access for Codex's `workspace-write` sandbox. Other permissions ignore it. */
+  workspaceWrite?: CodexWorkspaceWriteAccess
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -1999,6 +2023,7 @@ export interface AgentModelDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -2029,6 +2054,7 @@ export interface AgentRunDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -2092,6 +2118,7 @@ export interface AgentAskDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never

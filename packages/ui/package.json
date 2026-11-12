@@ -347,7 +347,6 @@
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
     "@types/markdown-it": "^14.2.0",
-    "@vite-hub/agent": "workspace:*",
     "comark-ui": "catalog:markdown-ui",
     "@vite-hub/content": "workspace:*",
     "playwright-core": "catalog:browser",
