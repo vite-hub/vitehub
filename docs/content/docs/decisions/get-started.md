@@ -17,7 +17,7 @@ In this tutorial, you build a filter box. A person types "nord parts except vak 
 >
 > Until the last step, you need no API key and no network. A small offline stand-in answers in place of the model. The last step uses a real model, which needs an API key and can cost money.
 
-Install the Decisions and Gateways packages. This app has a Vue page, so also install Vue and its Vite plugin:
+Install the Decisions and [AI Gateways](/docs/gateways) packages. This app has a Vue page, so also install Vue and its Vite plugin:
 
 ```bash pm [commands/install-vue]
 pnpm add @vite-hub/decisions @vite-hub/gateways vue

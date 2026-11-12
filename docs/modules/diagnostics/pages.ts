@@ -19,7 +19,7 @@ export const diagnosticSections: Record<string, string> = {
   "env": "env",
   "forms": "forms",
   "forge": "agents",
-  "gateways": "agents",
+  "gateways": "gateways",
   "i18n": "i18n",
   "internal": "development",
   "kv": "kv",

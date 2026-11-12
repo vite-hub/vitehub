@@ -50,7 +50,7 @@ The model says the options cannot express the text. Show a message and let the p
 
 ### DECISIONS_R0005
 
-The gateway request failed. For known, client-safe gateway diagnostics, the `message` gives the reason, such as a missing or rejected API key or a missing `advocaat` package, and `fix` gives the gateway fix when it has one. Other custom, provider, model, or abort failures use a generic message. The `cause` keeps the original error for server-side inspection; do not send it to the client. See [AI gateways](/docs/agents/ai-gateways#errors).
+The gateway request failed. For known, client-safe gateway diagnostics, the `message` gives the reason, such as a missing or rejected API key or a missing `advocaat` package, and `fix` gives the gateway fix when it has one. Other custom, provider, model, or abort failures use a generic message. The `cause` keeps the original error for server-side inspection; do not send it to the client. See [AI gateways](/docs/gateways/limits-and-errors#errors).
 
 ### DECISIONS_R0006
 

@@ -55,7 +55,7 @@ export default defineAgent({
 
 `chatgpt()` uses the `chatgpt` Connection, and `chatgpt({ connection: 'personal' })` another one. The provider needs an explicit access map. Give each account or workspace its own Connection name. A later sign-in must match the linked account.
 
-Libraries can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateways`. Gateways live in `vite-hub/gateways`, not `vite-hub/agent/gateways`.
+Libraries can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateways`. [AI Gateways](/docs/gateways) live in `vite-hub/gateways`, not `vite-hub/agent/gateways`.
 
 ## Sign in and inspect
 

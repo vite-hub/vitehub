@@ -8,7 +8,7 @@ const dynamicError = {
 
 // Each code identifies one AI gateway failure site. Keep published codes stable.
 export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/agents/diagnostics",
+  docsBase: "https://vitehub.dev/docs/gateways/diagnostics",
   reporters: [recordPublicAiGatewayDiagnostic],
   codes: {
     /** An AI gateway definition is invalid. */
