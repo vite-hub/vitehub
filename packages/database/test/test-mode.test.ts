@@ -7,7 +7,8 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
-import { db } from "../src/runtime/drizzle-runtime.ts"
+import { databases, db } from "../src/runtime/drizzle-runtime.ts"
+import { ensureDatabaseMigrations } from "../src/runtime/migrate-on-start.ts"
 
 const fixture = vi.hoisted(() => ({ enabled: true }))
 vi.mock("#vitehub/database/databases", async () => {
@@ -64,6 +65,15 @@ it("gives the default database an in-memory SQLite with the app's migrations, em
   await mode.reset()
 
   expect(await db.all(sql`SELECT id, title FROM notes`)).toEqual([])
+})
+
+it("skips a SQLite database in ensureMigrations(), because the test database already has its migrations", async () => {
+  const mode = enableViteHubTestMode({ root })
+  await mode.reset()
+  const notes = { dataLoss: [], hash: "notes", name: "20260901000000_notes", statements: ["CREATE TABLE `notes` (`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `title` text NOT NULL)"], when: 1 }
+  await ensureDatabaseMigrations({ databases, load: async () => ({ allowDataLoss: false, databases: { default: { dialect: "sqlite", migrations: [notes] } } }) })
+  await db.run(sql`INSERT INTO notes (title) VALUES ('kept')`)
+  expect(await db.all(sql`SELECT title FROM notes`)).toEqual([{ title: "kept" }])
 })
 
 it("keeps disabled and unconfigured databases unavailable in test mode", async () => {

@@ -139,7 +139,7 @@ describe("packed Source capability closures", () => {
           type: "module",
           dependencies: { "@modelcontextprotocol/sdk": "1.32.2", "vite-hub": overrides["vite-hub"] },
           // The facade also exports table(), whose documented peer is Drizzle.
-          devDependencies: { "drizzle-orm": "0.45.3", typescript: "6.0.3", wrangler: "4.112.0" },
+          devDependencies: { "drizzle-orm": "1.0.0-rc.5", typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(overrides)),
         writeFile(join(appDir, "tsconfig.json"), JSON.stringify({
