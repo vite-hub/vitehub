@@ -64,7 +64,7 @@ A Queue enqueue result means accepted, not done. A retry can repeat a side effec
 
 For external effects, use the service's idempotency support. A welcome-email job can send and then fail before acknowledgement, so the retry must reuse the same idempotency key. If the service cannot deduplicate, decide how your app handles an unknown delivery result before it retries. The same rule applies to retryable Workflow steps and scheduled targets.
 
-Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/reference/runtime-context#background-work-and-cleanup). A promise started after the response is not durable work.
+Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/runtime/context#background-work-and-cleanup). A promise started after the response is not durable work.
 
 ## Exercise the deployed application
 

@@ -39,6 +39,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |
+| `runtime` | Runtime |
 | `sandbox` | Sandbox and Sandbox Tasks |
 | `schedule` | Schedule |
 | `shell` | Shell |

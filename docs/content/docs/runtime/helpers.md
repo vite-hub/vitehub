@@ -1,9 +1,9 @@
 ---
 title: Runtime Helpers and stable imports
-navigation.title: Runtime Helpers and stable imports
+navigation.title: Runtime Helpers
 description: Learn which ViteHub imports your server code calls at runtime, and how to fix import failures.
-navigation.order: 51.5
-navigation.group: Setup
+navigation.order: 2
+navigation.group: Start
 icon: i-lucide-code-2
 ---
 

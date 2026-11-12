@@ -158,7 +158,7 @@ describe("docs product navigation", () => {
   });
 
   it("groups every navigable page of a large section", () => {
-    for (const sectionId of ["agents", "cli", "development", "frameworks-hosts", "reference", "ui"]) {
+    for (const sectionId of ["agents", "cli", "development", "frameworks-hosts", "reference", "runtime", "ui"]) {
       const groups = docsSidebarGroups(section(sectionId));
 
       expect(groups.length, sectionId).toBeGreaterThan(0);

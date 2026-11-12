@@ -8,7 +8,7 @@
 
 `@vite-hub/runtime` provides the shared Runtime Host Context, Runtime Capability,
 policy, approval, trace, error, lease, and execution-authority contracts used by
-ViteHub packages and custom host integrations.
+ViteHub packages and custom host integrations. User docs: [Runtime](https://vitehub.dev/docs/runtime).
 
 ## Choose an import
 
@@ -354,9 +354,10 @@ Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 
 ## Go deeper
 
-- [Runtime Context](https://vitehub.dev/docs/reference/runtime-context)
+- [Runtime Context](https://vitehub.dev/docs/runtime/context)
 - [Runtime policy, approvals, and traces](https://vitehub.dev/docs/agents/runtime-policy)
-- [Runtime events](https://vitehub.dev/docs/reference/runtime-events)
+- [Runtime events](https://vitehub.dev/docs/runtime/events)
+- [Runtime error contract](https://vitehub.dev/docs/runtime/errors)
 - [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
 - [Node Runtime diagnostics](https://vitehub.dev/docs/agents/capabilities/diagnostics)
 - [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)

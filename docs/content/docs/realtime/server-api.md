@@ -264,7 +264,7 @@ export default defineRealtime({
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
-`event` is the request event of the WebSocket upgrade or HTTP request, a `RealtimeRequestEvent`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/reference/runtime-context#standard-context).
+`event` is the request event of the WebSocket upgrade or HTTP request, a `RealtimeRequestEvent`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/runtime/context#standard-context).
 
 An identified user replaces the client's `user` presence field, so nobody can
 fake names and avatars. Without an identity, the client sets its own presence.

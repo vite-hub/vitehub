@@ -101,7 +101,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for who owns the lifetime.
+This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/runtime/context#background-work-and-cleanup) for who owns the lifetime.
 
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Invoker identity, session selection, or trusted metadata into the Trigger input.
 
