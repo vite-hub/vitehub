@@ -323,13 +323,43 @@ function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
   return request.method === "GET" && request.headers.get("accept")?.includes("text/html") === true
 }
 
+/** The stable code of an Auth refusal, in `data.code` of the error body. */
+type AuthRefusalCode = "SIGNED_OUT" | "FORBIDDEN"
+
+// The inline guards read the code of a text refusal from here, so their HTTPError carries it too.
+const refusalCodes = new WeakMap<Response, AuthRefusalCode>()
+
+function refusal(response: Response, code: AuthRefusalCode): Response {
+  refusalCodes.set(response, code)
+  return response
+}
+
+/**
+ * A refusal in H3's JSON error format, the same body that `requireAuth()` and H3 errors send. The phrase also goes on
+ * the status line.
+ */
+function createRefusalResponse(code: AuthRefusalCode): Response {
+  const status = code === "SIGNED_OUT" ? 401 : 403
+  const statusText = code === "SIGNED_OUT" ? "Unauthorized" : "Forbidden"
+  return refusal(Response.json({ status, statusText, message: `${statusText}.`, data: { code } }, { status, statusText }), code)
+}
+
+/**
+ * A text 403 for an HTML request. The phrase on the status line is also the `statusText` of the error that the inline
+ * guards throw.
+ */
+function createTextRefusalResponse(text: string, code: AuthRefusalCode): Response {
+  return refusal(new Response(text, {
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    status: 403,
+    statusText: "Forbidden",
+  }), code)
+}
+
 function createForbiddenResponse(request: Pick<Request, "headers" | "method">): Response {
   return wantsHtml(request)
-    ? new Response("Forbidden.", {
-        headers: { "content-type": "text/plain; charset=utf-8" },
-        status: 403,
-      })
-    : Response.json({ error: "Forbidden." }, { status: 403 })
+    ? createTextRefusalResponse("Forbidden.", "FORBIDDEN")
+    : createRefusalResponse("FORBIDDEN")
 }
 
 function authAccessRoutes(
@@ -652,24 +682,21 @@ async function checkAuthRequest(
   }
 
   if (!wantsHtml(request)) {
-    return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+    return reject(createRefusalResponse("SIGNED_OUT"))
   }
 
   if (!redirectToSignIn) {
-    return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+    return reject(createRefusalResponse("SIGNED_OUT"))
   }
 
   if (new URL(request.url).searchParams.has("auth_error")) {
-    return reject(new Response("Unauthorized.", {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-      status: 403,
-    }))
+    return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return reject(signIn
     ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
-    : Response.json({ error: "Unauthorized." }, { status: 401 }))
+    : createRefusalResponse("SIGNED_OUT"))
 }
 
 async function checkAuthorizeRequest(
@@ -678,7 +705,7 @@ async function checkAuthorizeRequest(
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { request, session } = await readRequestSession(input, definition)
-  if (!session) return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+  if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
@@ -707,7 +734,7 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
       ? Object.freeze({ request, session: session.session, user: session.user })
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
-    const deny = session ? undefined : () => Response.json({ error: "Unauthorized." }, { status: 401 })
+    const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
     const rejection = await runAccessAuthorize(authorize, authorization, deny)
     if (rejection.response) return rejection.response
     return handler(input, authorization)
@@ -779,9 +806,10 @@ async function rejectionError(response: Response): Promise<HTTPError> {
     if ("error" in body && typeof body.error === "string") message = body.error
     else if ("message" in body && typeof body.message === "string") message = body.message
   }
+  const code = refusalCodes.get(response)
   return new HTTPError({
     body: jsonBody,
-    data: jsonBody === undefined ? body : undefined,
+    data: code ? { code } : jsonBody === undefined ? body : undefined,
     headers,
     message: message || undefined,
     status: response.status,
