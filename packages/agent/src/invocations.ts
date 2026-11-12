@@ -19,6 +19,7 @@ import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
 const recoverInterruptedAgentInvocationsSymbol = Symbol.for("vitehub.recoverInterruptedAgentInvocations")
+const agentInvocationClaimStateSymbol = Symbol.for("vitehub.agentInvocationClaimState")
 const agentInvocationsBrand: unique symbol = Symbol.for("vitehub.agentInvocations")
 
 const MAX_ANNOTATIONS = 32
@@ -392,7 +393,15 @@ interface BoundAgentInvocations extends AgentInvocations {
     options?: AgentInvocationBindOptions,
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
   [recoverInterruptedAgentInvocationsSymbol](options: Parameters<typeof failInterruptedAgentInvocations>[1]): Promise<number>
+  [agentInvocationClaimStateSymbol](id: string): Promise<AgentInvocationClaimState>
 }
+
+/**
+ * `held`: a live run in this or another process holds the journal claim.
+ * `free`: the claim is absent or expired.
+ * `missing`: the journal has no record with this id.
+ */
+type AgentInvocationClaimState = "free" | "held" | "missing"
 
 export const exclusiveAgentInvocation: unique symbol = Symbol("vitehub.exclusiveAgentInvocation")
 /** Marks a queued attempt and whether earlier/later attempts can reuse this Invocation. */
@@ -2127,6 +2136,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
     },
+    async [agentInvocationClaimStateSymbol](id) {
+      if (!await publicStore(() => store.getSummary(id))) return "missing"
+      // The store gives the claim only when it is absent or expired. A live run renews its claim before it expires.
+      const claimId = `probe_${globalThis.crypto.randomUUID()}`
+      const claimTask = Promise.resolve().then(() => store.claim(id, claimId, CLAIM_LEASE_MS))
+      try {
+        if (!await publicStore(() => claimTask)) return "held"
+      }
+      catch (error) {
+        // Timing out does not cancel the store operation. Release a late claim by its unique probe id.
+        void claimTask.then(owned => owned ? publicStore(() => store.release(id, claimId)) : undefined).catch(() => undefined)
+        throw error
+      }
+      await publicStore(() => store.release(id, claimId))
+      return "free"
+    },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
       bindOptions: AgentInvocationBindOptions = {},
@@ -3188,6 +3213,19 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
+}
+
+/**
+ * Tells if a live run holds the journal claim of an Invocation. Processes that share one journal use it to tell an
+ * interrupted record from a record that another process runs. The test takes the claim and releases it at once.
+ */
+export async function agentInvocationClaimState(invocations: AgentInvocations, id: string): Promise<AgentInvocationClaimState> {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const read = (invocations as Partial<BoundAgentInvocations>)[agentInvocationClaimStateSymbol]
+  if (typeof read !== "function") {
+    throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
+  }
+  return await read.call(invocations, id)
 }
 
 /** Fails interrupted invocations in a journal created by defineAgentInvocations(). */
