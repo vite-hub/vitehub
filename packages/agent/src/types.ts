@@ -410,6 +410,9 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
+    /** Retained Workspace head resolved before the Driver starts. */
+    revision?: string
+    ref?: string
     sources?: Array<string | { id: string, repository?: string }>
   }
 }

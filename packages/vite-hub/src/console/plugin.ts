@@ -40,6 +40,8 @@ export interface ConsoleAccessBuild {
   authorize?: string
   /** `console.impersonation`. */
   impersonation?: true
+  /** `console.sections`: the sections that the app leaves out of its Console. */
+  hiddenSections?: readonly ConsoleSectionId[]
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -122,6 +124,7 @@ function renderConsoleNitroPlugin(
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
+    .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const agentSkills = agents.map(agent => requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler))

@@ -34,12 +34,21 @@ export type BabysitterMerge =
   | false
   | "auto"
   | "direct"
-  | { strategy: "direct"; method?: BabysitterMergeMethod; ready?: BabysitterMergeReady | "approved-if-outside" };
+  | {
+    strategy: "direct";
+    method?: BabysitterMergeMethod;
+    ready?: BabysitterMergeReady | "approved-if-outside";
+    /**
+     * Logins whose reviewed drafts the host marks ready for review. Only drafts whose head
+     * branch is in the repository itself qualify, so a fork's draft stays a draft.
+     */
+    markDraftsReady?: readonly string[];
+  };
 
 export type ResolvedBabysitterMerge =
   | { mode: "off" }
   | { mode: "auto" }
-  | { mode: "direct"; method: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | { mode: "direct"; method: BabysitterMergeMethod; ready?: BabysitterMergeReady; markDraftsReady?: ReadonlySet<string> };
 
 export type MergeDecision = { ready: true; head: string } | { ready: false; reason: string };
 
@@ -61,10 +70,12 @@ export interface BabysitterMergeEvidence {
   /** Host-recorded evidence from an explicit assessment of this exact head and feedback. */
   reviewedEvidenceKey?: string;
   /**
-   * The PR spent its review push budget. Bot feedback, bot-only review threads and failed
+   * The PR spent its review push budget. Bot feedback, bot-only review threads and running or failed
    * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
    */
   automatedReviewSettled?: boolean;
+  /** Unresolved review threads with only bot comments do not block once their comments are assessed. */
+  ignoreAssessedBotThreads?: boolean;
 }
 
 type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
@@ -203,9 +214,14 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     if (merge.ready !== undefined && merge.ready !== "approved-if-outside" && !hasRuntimeType(merge.ready, "function")) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.ready", expected: 'a function or "approved-if-outside"' });
     }
+    const drafts = merge.markDraftsReady;
+    if (drafts !== undefined && (!Array.isArray(drafts) || !drafts.every(login => hasRuntimeType(login, "string") && login.trim()))) {
+      throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
+    }
     // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
     const ready = merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
-    return ready ? { mode: "direct", method, ready } : { mode: "direct", method };
+    return { mode: "direct", method, ...ready ? { ready } : {},
+      ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {} };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
 }
@@ -244,11 +260,11 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   if (requiredChecks !== "passed") return no(`required checks ${requiredChecks}`);
   const evidence = snapshotCheckEvidence(snapshot);
   const reviewChecks = assessment.pendingReviewChecks ?? new Set<string>();
-  if (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
-    || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) {
+  const settled = assessment.automatedReviewSettled === true;
+  if (!settled && (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
+    || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase())))) {
     return no("a current-head review is still running");
   }
-  const settled = assessment.automatedReviewSettled === true;
   const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase())))
     || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
   const assessed = assessment.assessedFeedback ?? new Set<string>();
@@ -258,7 +274,8 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
-  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!settled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  const botThreadsSettled = settled || assessment.ignoreAssessedBotThreads === true;
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
   return { ready: true, head };
 }
 
