@@ -115,6 +115,14 @@ describe("Console access policies", () => {
     expect(() => resolveConsoleOptions("yes")).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
   })
 
+  it("hides the sections that console.sections turns off, and accepts only false", () => {
+    const root = process.cwd()
+    expect(resolveConsoleAccessBuild(resolveConsoleOptions({ auth: false, sections: { content: false } })!, { root })).toEqual({ hiddenSections: ["content"], mode: "open" })
+    expect(resolveConsoleAccessBuild(resolveConsoleOptions({ auth: false, sections: {} })!, { root })).toEqual({ mode: "open" })
+    expect(() => resolveConsoleOptions({ auth: false, sections: { content: true } })).toThrow(/console\.sections maps a section id to false/)
+    expect(() => resolveConsoleOptions({ auth: false, sections: ["content"] })).toThrow(/console\.sections/)
+  })
+
   it("accepts access callbacks created in another runtime realm", async () => {
     const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as unknown as ConsoleAuthorize
     const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
