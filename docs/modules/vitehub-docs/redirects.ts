@@ -115,6 +115,7 @@ const movedDiagnostics = {
       "forge_r0009",
     ],
   },
+  mcp: { from: "development", codes: ["mcp_b0001", "mcp_b0002"] },
 } satisfies Record<string, { from: string, codes: string[] }>;
 
 export const docsPageRedirects = {
@@ -141,6 +142,7 @@ export const docsPageRedirects = {
   "/docs/concepts/channels-api": "/docs/agents/channels",
   "/docs/concepts/server-primitives-for-any-host": "/docs/getting-started/server-primitives",
   "/docs/console/usage": "/docs/development/console",
+  "/docs/development/app-mcp": "/docs/mcp",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
@@ -231,6 +233,13 @@ export const docsLegacyFragmentRedirects = {
     forge_invalid_env: "/docs/forge/limits-and-errors",
     forge_missing_installation: "/docs/forge/limits-and-errors",
     forge_not_app: "/docs/forge/limits-and-errors",
+  },
+  "/docs/mcp": {
+    "turn-it-on": "/docs/mcp/get-started#turn-it-on",
+    "write-a-tool": "/docs/mcp/get-started#write-a-tool",
+    "sign-in-with-mcp-oauth": "/docs/mcp/configure#sign-in-with-mcp-oauth",
+    "connect-an-agent": "/docs/mcp/get-started#connect-an-agent",
+    "inspect-the-tools": "/docs/mcp/get-started#inspect-the-tools",
   },
   "/docs/cms": {
     "set-up": "/docs/cms/get-started#install-and-turn-on-vitehub",
