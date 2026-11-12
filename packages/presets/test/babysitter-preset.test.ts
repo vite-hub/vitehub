@@ -895,6 +895,22 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("doubles the merge gate timer while a reviewed head stays blocked", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      await f.reconcile();
+      const delays: number[] = [];
+      for (let retry = 0; retry < 6; retry++) {
+        const clock = (await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! + 1;
+        const now = vi.spyOn(Date, "now").mockReturnValue(clock);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        delays.push((await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! - clock);
+      }
+      expect(f.passes).toHaveLength(1);
+      expect(delays).toEqual([240_000, 480_000, 960_000, 1_800_000, 1_800_000, 1_800_000]);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("does not retain a merge assessment for an external wait", async () => {
     const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
     try {

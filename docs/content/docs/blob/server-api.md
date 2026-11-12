@@ -121,9 +121,9 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 
 Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
-Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
+Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
-With `folded: true`, drivers whose provider has folders (S3 and S3-compatible stores, R2, GCS, Azure, Google Drive, Dropbox, Box, OneDrive, and Supabase) ask the provider for them, so each page is one request. A page holds at most `limit` blobs and folders together. UploadThing has no folders, so ViteHub reads every key under `prefix` and folds them itself.
+With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.
 
