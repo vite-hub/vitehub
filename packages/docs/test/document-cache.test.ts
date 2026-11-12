@@ -7,6 +7,8 @@ const { getItem, parsed, useKV } = vi.hoisted(() => ({ getItem: vi.fn(), parsed:
 vi.mock("nitro/kv", () => ({ useKV }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")

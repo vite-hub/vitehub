@@ -37,6 +37,8 @@ vi.mock("#docs/manifest", async () => {
 })
 vi.mock("#docs/content", () => ({ content }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: {}, githubRepo: null }))
 
 const { default: page } = await import("../src/runtime/server/page.ts")
