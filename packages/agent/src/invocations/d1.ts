@@ -4,7 +4,7 @@ import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObs
 import { countRetentionDue } from "./retention.ts"
 import { d1AgentInvocationRetention } from "./d1-retention.ts"
 import { searchableAgentInvocationText } from "./search.ts"
-import { filteredObservationRecord } from "./observation-projection.ts"
+import { observationRecordProjection } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type { AgentRetentionPolicy } from "../retention.ts"
@@ -211,9 +211,8 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
     },
     async get(id, options) {
       const db = await database()
-      const args = options?.observationNames ? [JSON.stringify(options.observationNames), id] : [id]
-      const projection = options?.observationNames ? filteredObservationRecord : "record"
-      const result = await db.prepare(`SELECT sequence, ${projection} AS record, revision FROM ${table} WHERE id = ?`).bind(...args).all<RecordRow>()
+      const projection = observationRecordProjection(options)
+      const result = await db.prepare(`SELECT sequence, ${projection.sql} AS record, revision FROM ${table} WHERE id = ?`).bind(...projection.args, id).all<RecordRow>()
       return result.results[0] ? record(result.results[0]) : undefined
     },
     async getSummary(id) {

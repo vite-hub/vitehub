@@ -5,6 +5,11 @@
 const { site } = useDocsConfig()
 // Nuxt turns a `null` in runtime config into "", so an empty value means no logo.
 const logo = site.logo || null
+// A mask image is fetched only once the CSS applies to the mark, after the text around it has painted. The preload
+// fetches it with the HTML, in CORS mode like a mask.
+if (logo?.mask) {
+  useHead({ link: [{ key: "vh-docs-logo", rel: "preload", as: "image", href: logo.src, crossorigin: "anonymous", fetchpriority: "high" }] })
+}
 </script>
 
 <template>
@@ -35,12 +40,13 @@ const logo = site.logo || null
   object-fit: contain;
 }
 
+/* `:global(.dark) .a` compiles to `.dark` alone, so each rule names the whole selector inside `:global()`. */
 .vh-docs-mark .is-dark,
-:global(.dark) .vh-docs-mark .is-light {
+:global(.dark .vh-docs-mark .is-light) {
   display: none;
 }
 
-:global(.dark) .vh-docs-mark .is-dark {
+:global(.dark .vh-docs-mark .is-dark) {
   display: block;
 }
 </style>

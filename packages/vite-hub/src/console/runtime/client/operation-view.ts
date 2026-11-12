@@ -1,4 +1,5 @@
-import type { ConsoleOperationColumn, ConsoleOperationView } from "../definitions"
+import type { ConsoleOperationColumn, ConsoleOperationTone, ConsoleOperationView } from "../definitions"
+import { resolveProjectUrl } from "./project"
 import { requestConsoleOperation } from "./request"
 
 /** The value at a dot path, such as `messages.0.body`. Paths joined by `|` fall back in order: `author.name|author.id`. */
@@ -20,7 +21,7 @@ export function operationValue(item: unknown, path: string): unknown {
 
 const excerptLength = 90
 
-/** The text of one cell: `datetime` shows a date, `excerpt` cuts a long text. */
+/** The text of one cell: `datetime` shows a date, `excerpt` cuts a long text. Search matches this text. */
 export function operationCell(item: unknown, column: ConsoleOperationColumn): string {
   const value = operationValue(item, column.key)
   if (value === undefined || value === null) return ""
@@ -39,7 +40,7 @@ const pageHref = /^\/(?![/\\])[^\s\\#]*$/
  * The link of one row, or undefined when the view has none, the row does not match `when`, or a value is missing.
  * `{path}` fills a value with `encodeURIComponent`. `{path:path}` fills an app path: each segment is encoded, and a value
  * that is not an app path, such as `//evil.com/x`, gives no link. `{page:href}` fills an app URL that is already encoded,
- * with its query, as it is.
+ * with its query, as it is. An app path gets the app origin, so the link opens the app from an `account` Console too.
  */
 export function operationLink(item: unknown, view: ConsoleOperationView): string | undefined {
   const link = view.link
@@ -67,7 +68,21 @@ export function operationLink(item: unknown, view: ConsoleOperationView): string
     }
     return text.split("/").map(segment => encodeURIComponent(segment)).join("/")
   })
-  return complete ? href : undefined
+  return complete ? resolveProjectUrl(href) : undefined
+}
+
+/** The ISO time of a `datetime` cell, or undefined when the value is not a time. */
+export function operationTime(item: unknown, column: ConsoleOperationColumn): string | undefined {
+  const value = operationValue(item, column.key)
+  return typeof value === "number" && Number.isFinite(value) ? new Date(value).toISOString() : undefined
+}
+
+/** The label and tone of a `status` cell, such as `Open` in `info`. */
+export function operationStatus(item: unknown, column: ConsoleOperationColumn): { label: string, tone: ConsoleOperationTone } | undefined {
+  const text = operationCell(item, column)
+  if (!text) return undefined
+  const tone = column.tones && Object.hasOwn(column.tones, text) ? column.tones[text]! : "neutral"
+  return { label: `${text.charAt(0).toUpperCase()}${text.slice(1)}`, tone }
 }
 
 /** The items of an operation result. Anything else is a failure of the owner operation. */
