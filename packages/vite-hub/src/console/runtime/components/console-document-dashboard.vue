@@ -30,6 +30,7 @@ import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentP
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions";
 import ConsoleSection from "./console-section.vue";
 import ConsoleStatGrid from "./console-stat-grid.vue";
+import ConsoleState from "./console-state.vue";
 
 /**
  * The dashboard of a document editor section: counts by state, the changes that wait for a publish, the scheduled
@@ -142,6 +143,8 @@ const activity = computed(() => {
 });
 const writable = computed(() => listed.value.filter(collection => collection.access.write));
 const firstLoad = computed(() => props.loading && !props.overview);
+// Without an overview the counts, the changes, and the activity are unknown, so the page shows the failure instead of zeros.
+const failed = computed(() => Boolean(props.error) && !props.loading && !props.overview);
 // Without an access policy no one reads anything, so "Everything is published" would not be true.
 const noAccess = computed(() => !props.collections.length ? props.setup?.access : undefined);
 
@@ -229,17 +232,10 @@ async function publishAll(): Promise<void> {
 
   <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
     <div class="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:px-6">
-      <UAlert
-        v-if="error && !overview"
-        color="error"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load the dashboard"
-        :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: () => emit('reload') }]"
-      />
+      <ConsoleState v-if="failed" class="py-6" :error="error" title="Couldn't load the dashboard" :retry="() => emit('reload')" />
 
       <!-- Counts: the numbers lead and the labels follow quietly. -->
-      <UCard as="section" aria-label="Documents by state">
+      <UCard v-else as="section" aria-label="Documents by state">
         <ConsoleStatGrid :items="stats" size="lg" :columns="4">
           <template #label="{ item }"><Status :tone="consoleDocumentStateColor(item.state)" :label="item.label" /></template>
           <template #value="{ item }">
@@ -250,7 +246,7 @@ async function publishAll(): Promise<void> {
         </ConsoleStatGrid>
       </UCard>
 
-      <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+      <div class="grid grid-cols-1 items-start gap-8" :class="failed ? undefined : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]'">
         <div class="grid grid-cols-1 gap-8">
           <ConsoleSection v-if="openNow.length" title="Open now" :count="openNow.length">
             <!-- These lists do not clip their rows, so the focus ring around a row stays visible. The end rows take the corners. -->
@@ -265,7 +261,7 @@ async function publishAll(): Promise<void> {
             </ul>
           </ConsoleSection>
 
-          <ConsoleSection title="Needs publishing" :count="pending.length || undefined" :description="pending.length && !canPublishAny ? 'An editor publishes these.' : undefined">
+          <ConsoleSection v-if="!failed" title="Needs publishing" :count="pending.length || undefined" :description="pending.length && !canPublishAny ? 'An editor publishes these.' : undefined">
             <!-- One line, the height of "Everything is published": most visits find nothing to publish. -->
             <USkeleton v-if="firstLoad" class="h-24" />
             <UEmpty v-else-if="!pending.length && noAccess" icon="i-lucide-lock" title="No one can read documents yet">
@@ -337,13 +333,16 @@ async function publishAll(): Promise<void> {
               title="No collections you can read"
               description="Ask an admin for read access to a collection."
             />
-            <ul v-else class="divide-y divide-default rounded-lg border border-default">
+            <!-- min-w-0 lets the grid narrow the list, so long names truncate instead of pushing the counts past the column. -->
+            <ul v-else class="min-w-0 divide-y divide-default rounded-lg border border-default">
               <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
                 <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 hover:text-highlighted">
                   <span class="truncate text-sm font-medium text-highlighted">{{ collection.label }}</span>
                   <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ collection.path }}</span>
                 </RouterLink>
-                <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
+                <!-- Counts show only when the overview is known. While it loads, a placeholder holds their place. -->
+                <USkeleton v-if="firstLoad" class="h-4 w-20" />
+                <span v-else-if="overview" class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
                   <Status v-for="count in collectionCounts([collection.name])" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
                   <span>{{ statesOf([collection.name]).published }} published</span>
                 </span>
@@ -362,7 +361,8 @@ async function publishAll(): Promise<void> {
                   <span class="truncate text-sm font-medium text-highlighted">Settings</span>
                   <span class="hidden truncate text-xs text-dimmed sm:inline">{{ singletons.length === 1 ? "1 singleton" : `${singletons.length} singletons` }}</span>
                 </RouterLink>
-                <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
+                <USkeleton v-if="firstLoad" class="h-4 w-20" />
+                <span v-else-if="overview" class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
                   <Status v-for="count in collectionCounts(singletons.map(entry => entry.name))" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
                   <span>{{ statesOf(singletons.map(entry => entry.name)).published }} published</span>
                 </span>
@@ -372,7 +372,7 @@ async function publishAll(): Promise<void> {
           </ConsoleSection>
         </div>
 
-        <ConsoleSection title="Recent activity">
+        <ConsoleSection v-if="!failed" title="Recent activity">
           <div v-if="firstLoad" class="grid gap-3">
             <USkeleton v-for="index in 5" :key="index" class="h-9" />
           </div>
