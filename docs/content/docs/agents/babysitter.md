@@ -8,6 +8,43 @@ navigation.kind: Guides
 
 The Babysitter preset (an Agent Definition that your Agent extends) fixes review feedback and failing checks on your pull requests, waits for new results without another model run, and can merge ready ones. One model run on a pull request is a *pass*.
 
+## Minimal setup
+
+Without options, the Babysitter repairs pull requests from people with write access to the repository, skips a pull request labelled `babysitter:skip`, and merges a ready one into the default branch. Name the repositories it serves:
+
+```ts [server/agents/babysitter/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { babysitter } from 'vite-hub/presets/babysitter'
+
+export default defineAgent({
+  extends: babysitter,
+  options: { filter: { repository: { allow: ['acme/app'] } } },
+})
+```
+
+Then:
+
+1. Turn on the Agent integration with the Node preset ([Enable the Agent integration](#enable-the-agent-integration)).
+2. Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events, and set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`. Install it on the repositories.
+3. Set these variables on the host:
+
+| Variable | Value |
+| --- | --- |
+| `VITEHUB_GITHUB_APP_ID` | The App ID. |
+| `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | The App private key, or the path of its PEM file. |
+| `VITEHUB_GITHUB_WEBHOOK_SECRET` | The App's webhook secret. |
+| `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. |
+
+4. Sign in the provider CLI on the host, such as `codex login` for the default `codex` driver ([Agent Drivers](/docs/agents/agent-drivers)).
+
+When a GitHub variable is missing, the host does not start and logs `PRESETS_BABYSITTER_ENV_MISSING` with every missing name. It retries with backoff, so a fixed variable needs no restart. At startup, the host creates the labels that the filter names, such as `babysitter:skip`, in each repository that lacks them.
+
+| Default | Change it with |
+| --- | --- |
+| Only authors whose `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR` | Any `filter.author` or `filter.authorAssociation` rule replaces it. `filter.authorAssociation: {}` selects every author. |
+| A pull request labelled `babysitter:skip` gets no work | `lifecycle.labels` or `filter.labels` replace it. `lifecycle: { labels: {} }` turns it off. |
+| Ready pull requests merge directly, and a pull request from someone without write access waits for a maintainer's approval ([Gate outside contributors](#gate-outside-contributors)) | `merge: false` never merges. `merge: { strategy: 'direct', ready: () => true }` drops the approval gate. |
+
 ## Enable the Agent integration
 
 Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host preset:
@@ -79,10 +116,10 @@ The preset prompt already carries the generic repair rules: it classes findings 
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
-| `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
+| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. Without an `author` or `authorAssociation` rule, only authors with write access are selected. |
+| `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. Without them or `filter.labels`, `babysitter:skip` pauses a pull request. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
+| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. `ready` is a callback or `'approved-if-outside'`, the default for a direct merge ([Gate outside contributors](#gate-outside-contributors)). |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. |
@@ -105,7 +142,7 @@ For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capab
 
 ## Gate outside contributors
 
-With `ready: 'approved-if-outside'`, the host merges a pull request from someone without write access only after a maintainer approves it:
+A direct merge uses `ready: 'approved-if-outside'` unless you pass another `ready`. The host then merges a pull request from someone without write access only after a maintainer approves it:
 
 ```ts fragment
 merge: { strategy: 'direct', ready: 'approved-if-outside' },
@@ -119,11 +156,11 @@ merge: { strategy: 'direct', ready: 'approved-if-outside' },
 
 The Babysitter still repairs the pull request while it waits.
 
-For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits.
+For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits. `ready: () => true` merges every ready pull request, including bot pull requests, whose author has no write access.
 
 ## Control work with labels
 
-Create the configured labels in your repositories. With the example above, add `agent:repair` to start work, add `agent:paused` to pause, and remove it to resume.
+At startup, the host creates the configured labels in repositories that lack them. With the example above, add `agent:repair` to start work, add `agent:paused` to pause, and remove it to resume.
 
 | Pull request labels | Eligible for work |
 | --- | --- |
@@ -315,6 +352,8 @@ It starts with the server. A development server starts it only with `VITEHUB_AGE
 | `GET /api/_vitehub/host/drain` | Drain status: `accepting`, `draining`, or `drained`. |
 
 To replace the process, send SIGUSR2, wait for the drain route to report `drained`, then restart. Running passes finish first.
+
+SIGTERM, such as `systemctl restart`, does not wait for running passes. It stops new claims and gives the passes the shared [`agent.shutdown.drainMs`](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) budget (default `0`) plus 15 seconds, then the process exits and the passes stop. Commits that a pass already pushed stay. The next process releases the stopped claims, removes their workspaces, and claims those pull requests again from their current head.
 
 ## How it works
 

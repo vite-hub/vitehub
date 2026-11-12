@@ -79,6 +79,14 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+With only `filter.repository.allow`, the Babysitter serves pull requests whose
+author is an owner, member, or collaborator, skips those labelled
+`babysitter:skip`, and merges ready ones directly. A direct merge holds a pull
+request from someone without write access until a maintainer approves its head.
+Any `filter.author` or `filter.authorAssociation` rule replaces the author
+default, `lifecycle.labels` or `filter.labels` replace the label, and
+`merge: false` turns merging off.
+
 `driver` selects the provider Driver that repairs each checkout: `"codex"` (the
 default) or `"claude-code"`. Set its model and other provider settings with the
 ordinary `driver` field. Model and custom run Drivers cannot repair a checkout.

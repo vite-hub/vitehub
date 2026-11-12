@@ -7,6 +7,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ option, expected }: { option: string; expected: string }) => `Babysitter ${option} must be ${expected}.`,
       fix: ({ option, expected }: { option: string; expected: string }) => `Set ${option} to ${expected} in the Babysitter options, or leave it out to keep the default.`,
     },
+    PRESETS_BABYSITTER_ENV_MISSING: {
+      why: ({ variables }: { variables: string[] }) => `The Babysitter cannot start without ${variables.join(", ")}.`,
+      fix: "Set each listed variable on the host, or declare it in env.server.github. Create the GitHub App, its private key and its webhook secret as the Babysitter guide's Minimal setup shows.",
+    },
     PRESETS_BABYSITTER_PLACEMENT_CAPACITY: {
       why: ({ reason }: { reason: string }) => reason,
       fix: "The Babysitter retries the pull request after `retryAfterMs`. To run more passes at once, add hosts or slots to the placement.",

@@ -50,7 +50,7 @@ import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
-import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
+import { approvedIfOutside, feedbackFingerprints, liveMergeReadiness, resolveBabysitterMerge } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../src/github/pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 import * as githubInstalls from "../src/github/install.ts";
@@ -68,7 +68,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; authorAssociation?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -115,6 +115,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     title: "Fix value",
     body: "Repair the exported value.",
     user: { login: "developer" },
+    author_association: preset.authorAssociation ?? "MEMBER",
     labels: [{ name: "repair" }],
     head: { sha: head, ref: "fix", repo: { full_name: "acme/app" } },
     base: { sha: baseHead, ref: preset.base ?? "main", repo: { full_name: "acme/app", default_branch: "main", owner: { login: "acme" } } },
@@ -141,7 +142,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         title: "Fix value",
         body: "Repair the exported value.",
         author: { login: "developer", __typename: "User" },
-        authorAssociation: "MEMBER",
+        authorAssociation: preset.authorAssociation ?? "MEMBER",
         isCrossRepository: false,
         headRepository: { nameWithOwner: "acme/app" },
         labels: { nodes: [{ name: "repair" }], pageInfo },
@@ -172,7 +173,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         const node = {
           number: current.number, title: current.title, isDraft: false, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
-          authorAssociation: "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
+          authorAssociation: preset.authorAssociation ?? "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
         };
         return { stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: openPullRequests ? [node] : [], pageInfo } } } }), stderr: "" };
@@ -335,7 +336,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       },
     })] as never,
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
-    options: { filter: { labels: { allow: ["repair"] } }, ...(autoMerge ? { merge: "auto" as const } : {}), ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
+    options: { filter: { labels: { allow: ["repair"] } }, merge: (preset.merge ?? (autoMerge ? "auto" : false)) as false, ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.sandbox ? { sandbox: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.sandboxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
     driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
@@ -1512,18 +1513,44 @@ describe("Babysitter preset runtime", () => {
   });
 
   it("maps lifecycle labels into the shared PR filter", () => {
-    const filter = { repository: { allow: ["acme/app"] } };
+    const filter = { repository: { allow: ["acme/app"] }, author: { allow: ["octocat"] } };
     expect(resolveBabysitterLifecycleFilter(filter, { labels: { require: ["agent:repair"], deny: ["agent:paused"] } })).toEqual({
-      repository: { allow: ["acme/app"] },
+      ...filter,
       labels: { allow: ["agent:repair"], deny: ["agent:paused"] },
     });
-    expect(resolveBabysitterLifecycleFilter(filter, undefined)).toBe(filter);
+    expect(resolveBabysitterLifecycleFilter({ ...filter, labels: { deny: ["hold"] } }, undefined)).toEqual({ ...filter, labels: { deny: ["hold"] } });
     expect(() => resolveBabysitterLifecycleFilter(filter, null as never)).toThrow(/lifecycle must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: null as never })).toThrow(/must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { deny: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter({ labels: { allow: ["repair"] } }, { labels: { require: ["agent:repair"] } })).toThrow(/lifecycle labels or filter\.labels/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: [""] } })).toThrow(/non-empty strings/);
+  });
+
+  it("selects only PRs from people with write access and skips babysitter:skip by default", () => {
+    const writeAccess = { allow: ["OWNER", "MEMBER", "COLLABORATOR"] };
+    expect(resolveBabysitterLifecycleFilter({}, {})).toEqual({ authorAssociation: writeAccess, labels: { deny: ["babysitter:skip"] } });
+    expect(resolveBabysitterLifecycleFilter({ author: { allow: ["renovate[bot]"] } }, {})).toEqual({ author: { allow: ["renovate[bot]"] }, labels: { deny: ["babysitter:skip"] } });
+    expect(resolveBabysitterLifecycleFilter({ authorAssociation: {} }, { labels: {} })).toEqual({ authorAssociation: {} });
+    expect(resolveBabysitterLifecycleFilter({}, { labels: { require: ["agent:repair"] } })).toEqual({ authorAssociation: writeAccess, labels: { allow: ["agent:repair"] } });
+  });
+
+  it("leaves an outside contributor's PR alone without an author rule", async () => {
+    const outside = await fixture(false, false, { authorAssociation: "NONE", options: { filter: {} } });
+    try {
+      await outside.reconcile();
+      expect(outside.passes).toHaveLength(0);
+    } finally { await outside.runtime.inbox.close(); }
+    const member = await fixture(false, false, { options: { filter: {} } });
+    try {
+      await member.reconcile();
+      expect(member.passes).toHaveLength(1);
+    } finally { await member.runtime.inbox.close(); }
+  });
+
+  it("merges directly and holds outside contributors for approval by default", () => {
+    expect(resolveBabysitterMerge(babysitter.options.merge)).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
+    expect(resolveBabysitterMerge({ strategy: "direct", method: "rebase" })).toEqual({ mode: "direct", method: "rebase", ready: approvedIfOutside });
   });
 
   it("applies lifecycle labels before admitting a model pass", async () => {
@@ -1562,7 +1589,8 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
-    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: false } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: "direct" } })).not.toThrow();
     for (const modelConcurrency of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);

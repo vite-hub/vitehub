@@ -269,9 +269,9 @@ test('a newly opened PR is admitted when its lifecycle label is present', async 
     filter: resolveBabysitterLifecycleFilter({}, { labels: { require: ['repair'], deny: ['paused'] } }),
   })
   t.onTestFinished(() => inbox.close())
-  await post(inbox, 'opened-with-label', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ labels: ['repair'] }) })
+  await post(inbox, 'opened-with-label', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ labels: ['repair'], author_association: 'OWNER' }) })
   assert.equal((await inbox.claim(1)).length, 1)
-  await post(inbox, 'opened-paused', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ number: 8, labels: ['repair', 'paused'] }) })
+  await post(inbox, 'opened-paused', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ number: 8, labels: ['repair', 'paused'], author_association: 'OWNER' }) })
   assert.equal((await inbox.claim(1)).length, 0)
 })
 

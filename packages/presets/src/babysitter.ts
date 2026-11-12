@@ -62,17 +62,23 @@ export interface BabysitterOptions {
    * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
    */
   placement?: BabysitterPlacement;
-  /** Select PRs with the same rules as the GitHub Channel. */
+  /**
+   * Select PRs with the same rules as the GitHub Channel. Without `author` or `authorAssociation` rules,
+   * only PRs whose author is an owner, member or collaborator of the repository are selected.
+   */
   filter: GitHubPullRequestFilter;
-  /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
+  /**
+   * Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter.
+   * Without these labels or `filter.labels`, a PR labelled `babysitter:skip` is skipped. `{ labels: {} }` turns that off.
+   */
   lifecycle: BabysitterLifecycleOptions;
   /** Provider Driver that repairs each PR in its checkout. Defaults to `"codex"`. Set the model with `driver.model`. */
   driver: BuiltInAgentDriverName;
   /**
-   * Merge policy. Defaults to `false`. `"auto"` lets the worker request GitHub native auto-merge.
-   * `"direct"` merges a ready PR into its default branch before any model pass.
-   * `{ strategy: "direct", ready: "approved-if-outside" }` also holds a PR from someone without write
-   * access until a reviewer with write access approves its current head.
+   * Merge policy. Defaults to `"direct"`. `false` never merges, and `"auto"` lets the worker request
+   * GitHub native auto-merge. `"direct"` merges a ready PR into its default branch before any model
+   * pass, and holds a PR from someone without write access until a reviewer with write access approves
+   * its current head. Pass `{ strategy: "direct", ready }` with another callback to change that gate.
    */
   merge: BabysitterMerge;
   /**
@@ -310,17 +316,28 @@ function lifecycleLabels(labels: unknown): GitHubPullRequestFilterRules {
   return rules;
 }
 
-/** Combines explicit lifecycle labels with the shared GitHub PR filter. */
+/** Authors that a filter without `author` or `authorAssociation` rules selects: people with write access. */
+const defaultAuthorAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
+/** The label that pauses a PR when neither `lifecycle.labels` nor `filter.labels` is configured. */
+const defaultSkipLabel = "babysitter:skip";
+
+/**
+ * Combines explicit lifecycle labels with the shared GitHub PR filter. A filter without author rules
+ * selects only PRs from people with write access, and one without label rules skips PRs labelled
+ * `babysitter:skip`.
+ */
 export function resolveBabysitterLifecycleFilter(
-  filter: GitHubPullRequestFilter,
+  configured: GitHubPullRequestFilter,
   lifecycle: BabysitterLifecycleOptions | undefined,
 ): GitHubPullRequestFilter {
-  if (lifecycle === undefined) return filter;
-  if (!isRuntimeRecord(lifecycle)) {
+  const filter = configured.author || configured.authorAssociation
+    ? configured
+    : { ...configured, authorAssociation: { allow: [...defaultAuthorAssociations] } };
+  if (lifecycle !== undefined && !isRuntimeRecord(lifecycle)) {
     throw new TypeError("[vitehub] Babysitter lifecycle must be an object.");
   }
-  const labels = lifecycle.labels;
-  if (labels === undefined) return filter;
+  const labels = lifecycle?.labels;
+  if (labels === undefined) return filter.labels ? filter : { ...filter, labels: { deny: [defaultSkipLabel] } };
   if (filter.labels) {
     throw new TypeError("[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.");
   }
@@ -332,7 +349,7 @@ export const babysitter: BabysitterAgent = defineAgent({
   options: {
     filter: {} as GitHubPullRequestFilter,
     driver: "codex" as BuiltInAgentDriverName,
-    merge: false as BabysitterMerge,
+    merge: "direct" as BabysitterMerge,
     reviewChecks: [] as string[],
     noFindingsReviews: [] as string[],
     ignoreFeedbackAuthors: [] as string[],
