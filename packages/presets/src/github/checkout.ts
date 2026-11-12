@@ -1,11 +1,51 @@
 import { execFile } from 'node:child_process'
-import { appendFile, cp, lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { appendFile, cp, lstat, mkdtemp, readdir, realpath, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { recordProviderCheckout } from '@vite-hub/agent'
 
 const exec = promisify(execFile)
+
+type Git = (cwd: string, args: string[]) => Promise<string>
+
+/** Credentials belong to the host. Never carry saved clone authentication into a worker. */
+async function sanitizeProviderGitConfig(git: Git, destination: string): Promise<void> {
+  const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath|worktree)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^gitcvs\.dbpass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
+  const sanitize = async (scope: '--local' | '--worktree') => {
+    let config = ''
+    try {
+      config = await git(destination, ['config', scope, '--name-only', '--list'])
+    } catch (error) {
+      if (scope === '--local') throw error
+      const message = error instanceof Error ? error.message : String(error)
+      // Git reports this specific condition when worktree-scoped config is disabled;
+      // there is no separate worktree file to inspect in that case. Any other
+      // inspection failure must fail closed so credentials cannot leak.
+      if (!/worktree.*config.*(?:not enabled|disabled)|extensions\.worktreeconfig/i.test(message)) throw error
+    }
+    for (const key of new Set(config.split('\n').filter(Boolean))) {
+      let remove = sensitive(key)
+      if (!remove && /^url\..+\.(?:insteadOf|pushInsteadOf)$/i.test(key)) {
+        const base = key.slice(4, key.lastIndexOf('.'))
+        if (URL.canParse(base)) {
+          const baseUrl = new URL(base)
+          remove = Boolean(baseUrl.username || baseUrl.password)
+        }
+        const values = await git(destination, ['config', scope, '--get-all', key]).catch(() => '')
+        remove ||= values.split('\n').some(value => {
+          if (!URL.canParse(value)) return false
+          const url = new URL(value)
+          return Boolean(url.username || url.password)
+        })
+      }
+      if (remove) await git(destination, ['config', scope, '--unset-all', key])
+    }
+  }
+  await sanitize('--local')
+  // Authentication can also live in config.worktree when extensions.worktreeConfig is enabled.
+  await sanitize('--worktree')
+}
 
 /** Restore PR checkout history in a separate materialized provider workspace. */
 export async function prepareGitHubPullRequestWorkspace(checkout: string, target: string, options: { signal?: AbortSignal, restoreInstructions?: boolean } = {}): Promise<void> {
@@ -79,41 +119,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     await rm(join(destination, '.git', 'hooks'), { recursive: true, force: true })
     await git(destination, ['read-tree', expected])
     options.signal?.throwIfAborted()
-    // Credentials belong to the host. Never carry saved clone authentication into a worker.
-    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath|worktree)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^gitcvs\.dbpass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
-    const sanitize = async (scope: '--local' | '--worktree') => {
-      let config = ''
-      try {
-        config = await git(destination, ['config', scope, '--name-only', '--list'])
-      } catch (error) {
-        if (scope === '--local') throw error
-        const message = error instanceof Error ? error.message : String(error)
-        // Git reports this specific condition when worktree-scoped config is disabled;
-        // there is no separate worktree file to inspect in that case. Any other
-        // inspection failure must fail closed so credentials cannot leak.
-        if (!/worktree.*config.*(?:not enabled|disabled)|extensions\.worktreeconfig/i.test(message)) throw error
-      }
-      for (const key of new Set(config.split('\n').filter(Boolean))) {
-        let remove = sensitive(key)
-        if (!remove && /^url\..+\.(?:insteadOf|pushInsteadOf)$/i.test(key)) {
-          const base = key.slice(4, key.lastIndexOf('.'))
-          if (URL.canParse(base)) {
-            const baseUrl = new URL(base)
-            remove = Boolean(baseUrl.username || baseUrl.password)
-          }
-          const values = await git(destination, ['config', scope, '--get-all', key]).catch(() => '')
-          remove ||= values.split('\n').some(value => {
-            if (!URL.canParse(value)) return false
-            const url = new URL(value)
-            return Boolean(url.username || url.password)
-          })
-        }
-        if (remove) await git(destination, ['config', scope, '--unset-all', key])
-      }
-    }
-    await sanitize('--local')
-    // Authentication can also live in config.worktree when extensions.worktreeConfig is enabled.
-    await sanitize('--worktree')
+    await sanitizeProviderGitConfig(git, destination)
     if (materializedPaths) {
       const trackedPaths = new Set((await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean))
       const instructions = (path: string) => /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path)
@@ -145,4 +151,98 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   finally {
     await rm(baselineBackup, { recursive: true, force: true })
   }
+}
+
+/** Why a persistent provider workspace was kept or emptied. */
+export type GitHubWorkspaceReuse = 'warm' | 'cold' | 'dirty' | 'missing-metadata' | (string & {})
+
+/**
+ * Prepares a provider workspace that stays between passes on one PR. Its Git metadata is always a
+ * fresh sanitized copy of the trusted host checkout, so nothing a pass left in `.git` survives
+ * except the host install's package-manager home. With `reuse`, ignored files such as node_modules
+ * and build caches stay when the tracked tree already matches the head. Otherwise the workspace is
+ * emptied and checked out again, and the next install links from the kept package store.
+ * `reason` names why the caller did not ask for reuse.
+ */
+export async function preparePersistentGitHubPullRequestWorkspace(
+  checkout: string,
+  target: string,
+  options: { signal?: AbortSignal, reuse?: boolean, reason?: string } = {},
+): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse }> {
+  options.signal?.throwIfAborted()
+  const source = await realpath(checkout)
+  const destination = await realpath(target)
+  const overlaps = (left: string, right: string) => {
+    const relation = relative(left, right)
+    return !relation || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation))
+  }
+  if (overlaps(source, destination) || overlaps(destination, source)) {
+    throw new Error('Provider workspace must be separate from prepared checkout.')
+  }
+  if (!(await lstat(join(source, '.git'))).isDirectory()) {
+    throw new Error('Expected independent prepared Git clone.')
+  }
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) if (key.startsWith('GIT_') || key === 'GH_TOKEN' || key === 'GITHUB_TOKEN') delete env[key]
+  env.GIT_CONFIG_GLOBAL = '/dev/null'
+  env.GIT_CONFIG_NOSYSTEM = '1'
+  env.GIT_TERMINAL_PROMPT = '0'
+  const git: Git = async (cwd, args) => (await exec('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args], { cwd, env, signal: options.signal, maxBuffer: 64 * 1024 * 1024 })).stdout.trim()
+  const remoteUrls = async (cwd: string) => {
+    const urls: string[] = []
+    for (const name of (await git(cwd, ['remote'])).split('\n').filter(Boolean)) {
+      urls.push(`${name}=${await git(cwd, ['remote', 'get-url', '--all', name])}`, `${name}.push=${await git(cwd, ['remote', 'get-url', '--all', '--push', name])}`)
+    }
+    return urls
+  }
+  const expected = await git(source, ['rev-parse', 'HEAD'])
+  const remotes = await remoteUrls(source)
+  for (const remote of remotes) {
+    for (const url of remote.slice(remote.indexOf('=') + 1).split('\n')) {
+      if (URL.canParse(url) && (new URL(url).username || new URL(url).password)) throw new Error('Prepared checkout remotes must not contain credentials.')
+    }
+  }
+  const metadata = join(destination, '.git')
+  const previous = `${destination}.previous-git`
+  await rm(previous, { recursive: true, force: true })
+  const existing = await lstat(metadata).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+    return undefined
+  })
+  let reason: GitHubWorkspaceReuse | undefined = !options.reuse ? options.reason ?? 'cold' : existing?.isDirectory() ? undefined : 'missing-metadata'
+  const keep = async (name: string) => await rename(join(previous, name), join(metadata, name)).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+  })
+  if (existing) await rename(metadata, previous)
+  try {
+    await cp(join(source, '.git'), metadata, { recursive: true })
+    await rm(join(metadata, 'objects', 'info', 'alternates'), { force: true })
+    await rm(join(metadata, 'hooks'), { recursive: true, force: true })
+    await sanitizeProviderGitConfig(git, destination)
+    // The install HOME holds pnpm's content-addressed store, which a reset workspace links from again.
+    await keep('vitehub-install-home')
+    if (!reason) {
+      // The install record describes the node_modules that stay.
+      await keep('vitehub-install.json')
+      if (await git(destination, ['status', '--porcelain', '--untracked-files=all'])) reason = 'dirty'
+    }
+    if (reason) {
+      await rm(join(metadata, 'vitehub-install.json'), { force: true })
+      const entries = (await readdir(destination)).filter(entry => entry !== '.git')
+      await Promise.all(entries.map(entry => rm(join(destination, entry), { recursive: true, force: true, maxRetries: 3 })))
+      await git(destination, ['reset', '--hard', '--quiet', expected])
+    }
+    if (await git(destination, ['rev-parse', 'HEAD']) !== expected || JSON.stringify(await remoteUrls(destination)) !== JSON.stringify(remotes)) {
+      throw new Error('Provider checkout head or remote mismatch.')
+    }
+    await recordProviderCheckout(destination, expected)
+  }
+  catch (error) {
+    await rm(metadata, { recursive: true, force: true })
+    throw error
+  }
+  finally {
+    await rm(previous, { recursive: true, force: true })
+  }
+  return { reused: !reason, reason: reason ?? 'warm' }
 }
