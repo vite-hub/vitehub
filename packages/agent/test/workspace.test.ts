@@ -130,7 +130,7 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
   return readonlyWorkspaceTestFixture({
     fs: { exists, list, readFile, stat },
     history: createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: `agent-inspection-${crypto.randomUUID()}`,
     }).history,
     tools: Object.assign(vi.fn(() => ({})), {
@@ -494,13 +494,13 @@ describe("defineAgent workspace option", () => {
     const registeredDefinition: {
       name: string
       sources: Record<string, WorkspaceSourceInput>
-      store: { provider: "memory" }
+      store: { driver: "memory" }
     } = {
       name: workspaceName,
       sources: {
         instructions: { path: "AGENTS.md" } as never,
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     }
     registerWorkspace(workspaceName, {
       sources: registeredDefinition.sources,
@@ -541,7 +541,7 @@ describe("defineAgent workspace option", () => {
             },
           },
         },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       }),
       mode: "write",
     })
@@ -551,7 +551,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const workspaceName = `review-${Math.random().toString(36).slice(2)}`
-    const registeredDefinition = { name: workspaceName, sources: {}, store: { provider: "memory" as const } }
+    const registeredDefinition = { name: workspaceName, sources: {}, store: { driver: "memory" as const } }
     resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(registeredDefinition)
     exists.mockResolvedValue(true)
 
@@ -625,7 +625,7 @@ describe("defineAgent workspace option", () => {
       sources: {
         instructions: { path: "AGENTS.md" } as never,
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     })
     const agent = defineAgent({
       capabilities: [
@@ -805,13 +805,13 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never },
       workspace: {
         commit: "chore: update workspace",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
     })
 
     expect(agent.workspace).toEqual({
       mode: "read",
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
   })
 
@@ -1632,7 +1632,7 @@ describe("defineAgent workspace option", () => {
       sources: {
         summaryInstructions: { name: "summary" } as never,
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     }
     registerWorkspace(workspaceName, workspaceDefinition)
     resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(workspaceDefinition)

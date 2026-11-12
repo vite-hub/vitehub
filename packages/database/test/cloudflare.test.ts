@@ -225,7 +225,7 @@ describe("Cloudflare D1 binding projections", () => {
     for (const name of ["alpha", "beta"]) {
       await writeDefinition(rootDir, name, `databaseId: '${name}-id', databaseName: '${name}-db',`)
     }
-    const config = resolveDBViteConfig({ driver: "d1", binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db" }, rootDir)!
+    const config = resolveDBViteConfig({ driver: "cloudflare", binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db" }, rootDir)!
 
     expect(resolveCloudflareD1Bindings(config).d1Databases).toMatchObject([
       { binding: "DB_ALPHA", database_id: "alpha-id", database_name: "alpha-db" },

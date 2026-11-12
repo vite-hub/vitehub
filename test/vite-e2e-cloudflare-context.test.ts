@@ -8,7 +8,7 @@ it.each(["fetch", "queue", "scheduled"] as const)("scopes generated %s bindings 
     rootDir: "/app",
     clientOutDir: "/app/dist/client",
     hosting: "cloudflare",
-    queue: { provider: "cloudflare" },
+    queue: { driver: "cloudflare" },
   }, {
     alias: {},
     generatedDir: "/app/generated",
@@ -37,7 +37,7 @@ it.each(["fetch", "queue", "scheduled"] as const)("scopes generated %s bindings 
     runWithWorkflowRuntimeEvent: scope,
     appHandler: handle,
     defaultHandler: handle,
-    queueConfig: { provider: "cloudflare" },
+    queueConfig: { driver: "cloudflare" },
     queueDefinitionNames: {},
     loadQueueDefinition: async () => ({ options: {}, handler: handle }),
     createQueueJob: () => ({}),

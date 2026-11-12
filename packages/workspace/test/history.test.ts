@@ -66,7 +66,7 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
     cleanup.push(() => worker.dispose())
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
-    blob = createBlobStorage(createR2Driver({ driver: "cloudflare-r2", binding: "HISTORY_R2" }))
+    blob = createBlobStorage(createR2Driver({ driver: "cloudflare", binding: "HISTORY_R2" }))
     database = driver === "d1" ? drizzleD1(await worker.getD1Database("DB")) : createCloudflareD1HttpResolver({
       name: "history", cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
     }, defineRelations(workspaceHistorySchema), async (url, options) => {

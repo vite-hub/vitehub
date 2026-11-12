@@ -150,9 +150,9 @@ describe("upstash", () => {
   })
 })
 
-describe("cloudflare-kv-binding", () => {
+describe("cloudflare", () => {
   it("does not offer the operation and points to D1 or a Durable Object", () => {
-    const storage = createHostedKVStorage({ store: { driver: "cloudflare-kv-binding", binding: "KV" } })
+    const storage = createHostedKVStorage({ store: { driver: "cloudflare", binding: "KV" } })
     expect(storage.setIfAbsentItem).toBeUndefined()
 
     const error = kvUnsupportedOperationError("setIfAbsent", "default")

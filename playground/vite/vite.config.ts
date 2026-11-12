@@ -95,10 +95,10 @@ export default defineConfig(async ({ mode }) => {
         withoutProviderOutput(hubSchedule()),
         withoutProviderOutput(hubKv(moduleOptions.kv ?? {})),
         withoutProviderOutput(hubWorkflow(moduleOptions.workflow)),
-        hubBlob(composerOptions.hosting.includes("vercel") ? { access: "private", driver: "vercel-blob" } : {}),
+        hubBlob(composerOptions.hosting.includes("vercel") ? { access: "private", driver: "vercel" } : {}),
         withoutProviderOutput(hubDb()),
         hubSandboxTask(composerOptions.sandbox),
-        withoutProviderOutput(hubWorkspace({ store: { provider: "memory" } })),
+        withoutProviderOutput(hubWorkspace({ store: { driver: "memory" } })),
         createViteE2EComposer({
           ...composerOptions,
           clientOutDir: "dist/client",

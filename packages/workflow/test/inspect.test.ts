@@ -11,7 +11,7 @@ import { hubWorkflow } from "../src/vite.ts"
 import { nitroOrderPlugins } from "../../vite-hub/src/nitro-order.ts"
 
 it("inspects the published Cloudflare worker bundle", async () => {
-  const plugin = hubWorkflow({ provider: "cloudflare" })
+  const plugin = hubWorkflow({ driver: "cloudflare" })
 
   expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([{
     description: "Generated Cloudflare Workflow worker",

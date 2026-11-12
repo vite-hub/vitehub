@@ -52,7 +52,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 
 ## Limits
 
-A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare preset checks the same limits.
+A store with the `cloudflare` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare preset checks the same limits.
 
 | Limit | Cloudflare KV | Code |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ The serialized value is larger than 25 MiB, the Cloudflare KV limit. Store large
 
 ### KV_DATABASE_UNAVAILABLE
 
-A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare-kv-binding`.
+A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare`.
 
 ### KV_DENO_KV_UNAVAILABLE
 
@@ -128,7 +128,7 @@ The runtime has no KV config. Add `hubKv()` to the Vite config and do not set `k
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
+`kv.driver` is not `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
 
 ### KV_INVALID_REMOTE
 

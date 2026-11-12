@@ -27,7 +27,7 @@ describe("vitehub status", () => {
   })
 
   it.each([
-    ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
+    ["workflow", '{ driver: "openworkflow" }', ["openworkflow"]],
     ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
     ["workflow", '{ postgres: { url: "postgres://localhost/workflows" } }', ["openworkflow"]],
     ["workflow", '{ postgres: { url: { kind: "env-variable", source: { kind: "env", name: "DATABASE_URL" } } } }', ["openworkflow"]],
@@ -60,7 +60,7 @@ describe("vitehub status", () => {
       packageManager: "pnpm",
       schemaVersion: 1,
     })
-    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { adapter: "cloudflare-kv-binding", level: "native" } })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { driver: "cloudflare", level: "native" } })
   })
 
   it.each([

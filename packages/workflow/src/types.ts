@@ -1,4 +1,4 @@
-export type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
+export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
   createBatch: (batch: Array<{ id: string, params?: TPayload }>) => Promise<CloudflareWorkflowInstance[]>
@@ -15,12 +15,12 @@ export interface WorkflowSharedOptions {
   name?: string
 }
 
-export interface CloudflareWorkflowProviderOptions extends WorkflowSharedOptions {
-  provider: "cloudflare"
+export interface CloudflareWorkflowDriverOptions extends WorkflowSharedOptions {
+  driver: "cloudflare"
 }
 
-export interface VercelWorkflowProviderOptions extends WorkflowSharedOptions {
-  provider: "vercel"
+export interface VercelWorkflowDriverOptions extends WorkflowSharedOptions {
+  driver: "vercel"
 }
 
 export interface OpenWorkflowPostgresOptions {
@@ -52,40 +52,40 @@ export interface OpenWorkflowWorkerOptions {
   concurrency?: number
 }
 
-export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
+export interface OpenWorkflowDriverOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
-  provider: "openworkflow"
+  driver: "openworkflow"
   sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOptions
 }
 
-export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
+export interface InferredWorkflowDriverOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
-  provider?: undefined
+  driver?: undefined
   sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOptions
 }
 
-export type WorkflowProviderOptions =
-  | CloudflareWorkflowProviderOptions
-  | OpenWorkflowProviderOptions
-  | VercelWorkflowProviderOptions
+export type WorkflowDriverOptions =
+  | CloudflareWorkflowDriverOptions
+  | OpenWorkflowDriverOptions
+  | VercelWorkflowDriverOptions
 
-export type WorkflowModuleProviderOptions =
-  | InferredWorkflowProviderOptions
-  | WorkflowProviderOptions
+export type WorkflowModuleDriverOptions =
+  | InferredWorkflowDriverOptions
+  | WorkflowDriverOptions
 
 export type WorkflowOptions =
   | false
-  | WorkflowModuleProviderOptions
+  | WorkflowModuleDriverOptions
 
-export type ResolvedWorkflowOptions = WorkflowProviderOptions
+export type ResolvedWorkflowOptions = WorkflowDriverOptions
 
 export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
   completedAt?: Date
   createdAt?: Date
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   result?: TResult
   startedAt?: Date
   status: WorkflowRunStatus
@@ -146,7 +146,7 @@ export interface WorkflowProviderContext<TPayload = unknown> {
   id?: string
   name: string
   payload: TPayload
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   step?: WorkflowProviderStep
 }
 
@@ -213,7 +213,7 @@ export interface WorkflowStartOptions {
 
 export interface WorkflowSignalResult {
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
 }
 
 /**

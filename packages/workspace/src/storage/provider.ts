@@ -80,7 +80,7 @@ export function resolveCloudflareArtifactsStore(
     {
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts" as const,
+      driver: "cloudflare" as const,
     },
   )
 }
@@ -94,7 +94,7 @@ export function resolveVercelBlobWorkspaceStore(
   return {
     access: config.access ?? "private",
     ...(prefix === undefined ? {} : { prefix }),
-    provider: "vercel-blob",
+    driver: "vercel",
     token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
@@ -112,7 +112,7 @@ export function resolveGitHubWorkspaceStore(
   return {
     branch: branch ?? (input.runtime ? undefined : "main"),
     ...(config.database === undefined ? {} : { database: config.database }),
-    provider: "github",
+    driver: "github",
     ...(config.refs ? { refs: { ...config.refs } } : {}),
     repository: gitHubWorkspaceOption(config.repository)
       ?? gitHubWorkspaceOption(config.repo)
@@ -137,23 +137,23 @@ export function normalizeWorkspaceStoreOptions(
 ): ResolvedWorkspaceStoreOptions | undefined {
   if (isWorkspaceStore(store)) return
 
-  if (input.dev && !store) return { provider: "local" as const }
+  if (input.dev && !store) return { driver: "local" as const }
 
   const env = input.env || process.env
   const hosting = input.hosting || ""
 
-  if (store?.provider === "cloudflare-artifacts") return resolveCloudflareArtifactsStore(store, env)
-  if (store?.provider === "github") return resolveGitHubWorkspaceStore(store, env, input)
-  if (store?.provider === "memory") return store
-  if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
-  if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
-  if (store && "provider" in store) throw workspaceError(`[vitehub] Unsupported workspace store provider: ${String(store.provider)}.`)
+  if (store?.driver === "cloudflare") return resolveCloudflareArtifactsStore(store, env)
+  if (store?.driver === "github") return resolveGitHubWorkspaceStore(store, env, input)
+  if (store?.driver === "memory") return store
+  if (store?.driver === "vercel") return resolveVercelBlobWorkspaceStore(store, env)
+  if (store?.driver === "local" || store?.root) return defu(store, { driver: "local" as const }) as ResolvedWorkspaceStoreOptions
+  if (store && "driver" in store) throw workspaceError(`[vitehub] Unsupported workspace store driver: ${String(store.driver)}.`)
 
-  if (hosting.includes("cloudflare")) return { provider: "memory" as const }
+  if (hosting.includes("cloudflare")) return { driver: "memory" as const }
   if (hasVercelWorkspaceBlobEnv(env)) return resolveVercelBlobWorkspaceStore({}, env)
-  if (hosting.includes("vercel")) return { provider: "memory" as const }
+  if (hosting.includes("vercel")) return { driver: "memory" as const }
 
-  return { provider: "local" as const }
+  return { driver: "local" as const }
 }
 
 export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition): WorkspaceStore {
@@ -169,12 +169,12 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
     runtime: true,
   })
 
-  if (store?.provider === "memory") return createMemoryWorkspaceStore()
-  if (store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob") {
+  if (store?.driver === "memory") return createMemoryWorkspaceStore()
+  if (store?.driver === "cloudflare" || store?.driver === "github" || store?.driver === "vercel") {
     const hostedStore = getWorkspaceHostedStoreLoader()?.(store, definition.name)
     if (hostedStore) return hostedStore
-    if (store.provider === "github") return createGitHubWorkspaceStore(store, definition.name)
-    throw workspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)
+    if (store.driver === "github") return createGitHubWorkspaceStore(store, definition.name)
+    throw workspaceError(`[vitehub] Hosted workspace store "${store.driver}" is not available in this runtime.`)
   }
 
   const root = store?.root

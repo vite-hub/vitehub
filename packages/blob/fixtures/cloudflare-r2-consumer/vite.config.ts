@@ -13,6 +13,6 @@ export default defineConfig({
   nitro: { preset: "cloudflare_module" },
   plugins: [
     { name: "nitro:main" },
-    hubBlob({ binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" }),
+    hubBlob({ binding: "BLOB", bucketName: "assets", driver: "cloudflare" }),
   ],
 })

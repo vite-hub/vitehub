@@ -57,7 +57,7 @@ describe("blob pathname validation", () => {
     { name: "missing", pathname: "missing.txt", status: 404 },
     { name: "over the R2 key limit", pathname: "a".repeat(1025), status: 400 },
   ])("returns a bodyless HEAD response for a pathname that is $name", async ({ pathname, status }) => {
-    const storage = createBlobStorage(spyDriver("cloudflare-r2"), "default")
+    const storage = createBlobStorage(spyDriver("cloudflare"), "default")
     const get = await storage.serve(new Request("https://example.test/x"), pathname)
     const head = await storage.serve(new Request("https://example.test/x", { method: "HEAD" }), pathname)
 
@@ -153,7 +153,7 @@ describe("reserved serve pathnames", () => {
     const files = createBlobStorage(createFilesSdkDriver({ base: ".data/blob", driver: "fs" }, () => memory()), "default")
     setActiveCloudflareEnv({ BLOB: { get: vi.fn(async () => { throw new Error("driver called") }), head: vi.fn(async () => { throw new Error("driver called") }) } })
     try {
-      const r2 = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default")
+      const r2 = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default")
       for (const store of [files, r2]) {
         for (const pathname of [".vitehub/blob-meta/x.json", "_vitehub/derived/x"]) {
           expect((await store.serve(new Request("https://example.test/x"), pathname)).status, pathname).toBe(404)
@@ -178,7 +178,7 @@ describe("reserved serve pathnames", () => {
   })
 
   it("answers 400 to a pathname above the R2 key limit", async () => {
-    const driver = spyDriver("cloudflare-r2")
+    const driver = spyDriver("cloudflare")
     const response = await createBlobStorage(driver, "default").serve(new Request("https://example.test/x"), "a".repeat(1025))
     expect(response.status).toBe(400)
     expect(driver.head).not.toHaveBeenCalled()
@@ -255,7 +255,7 @@ describe("Cloudflare R2 native signed requests", () => {
     accountId: "account",
     binding: "BLOB",
     bucketName: "media",
-    driver: "cloudflare-r2" as const,
+    driver: "cloudflare" as const,
     secretAccessKey: "secret-key",
   }
 

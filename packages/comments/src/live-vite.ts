@@ -99,7 +99,7 @@ export interface CommentsVitePluginOptions {
 }
 
 export interface CommentsRealtimeContributionContext {
-  authority: "cloudflare" | "memory"
+  driver: "cloudflare" | "memory"
   directory: string
   projectRoot: string
   serverDirs?: string[]

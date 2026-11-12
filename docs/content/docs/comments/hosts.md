@@ -25,14 +25,14 @@ The [`comments()` plugin](/docs/comments/get-started) keeps threads in the datab
 
 ## In a ViteHub app
 
-Presence and cursors also need a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority). Without one, everything else works.
+Presence and cursors also need a [Realtime room driver](/docs/realtime/configure#choose-a-driver). Without one, everything else works.
 
 ### Host support
 
 | Host | Threads, replies, resolve | Edits in place | Presence and cursors |
 | --- | --- | --- | --- |
 | `vite dev` | Yes | Yes, with Content | Yes, with Realtime on. Rooms run in the dev server. |
-| Node, Docker (one process) | Yes | Yes, with Content | Yes, with `realtime: { authority: 'memory' }` |
+| Node, Docker (one process) | Yes | Yes, with Content | Yes, with `realtime: { driver: 'memory' }` |
 | Cloudflare Workers | Yes, with D1 | Yes, with Content | Yes, with Durable Objects |
 | Vercel, Netlify | Yes | Yes, with Content | No. Pages reload threads on focus and every 30 seconds. |
 
@@ -40,7 +40,7 @@ The overlay works in Nitro 3 apps, including Nuxt 5, on each of these hosts.
 
 ### Node
 
-Use a SQLite file or libSQL Database, and the memory room authority:
+Use a SQLite file or libSQL Database, and the `memory` driver:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -50,7 +50,7 @@ export default defineNuxtConfig({
   vitehub: {
     preset: 'node',
     database: true,
-    realtime: { authority: 'memory' },
+    realtime: { driver: 'memory' },
   },
 })
 ```
@@ -67,7 +67,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       database: true,
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
     nitro(),
   ],
@@ -85,7 +85,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       database: true,
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
   ],
 })
@@ -93,7 +93,7 @@ export default defineConfig({
 :::
 ::
 
-The memory authority keeps presence rooms in one process. With several processes or machines, people see only others on their process. Comments still reach everyone when the processes share a libSQL Database, but a local SQLite file is not shared between machines.
+The memory driver keeps presence rooms in one process. With several processes or machines, people see only others on their process. Comments still reach everyone when the processes share a libSQL Database, but a local SQLite file is not shared between machines.
 
 ### Cloudflare
 
@@ -106,7 +106,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'cloudflare',
-    database: { driver: 'd1', databaseName: 'site' },
+    database: { driver: 'cloudflare', databaseName: 'site' },
     realtime: true,
   },
 })
@@ -123,7 +123,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'cloudflare',
-      database: { driver: 'd1', databaseName: 'site' },
+      database: { driver: 'cloudflare', databaseName: 'site' },
       realtime: true,
     }),
     nitro(),
@@ -141,7 +141,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'cloudflare',
-      database: { driver: 'd1', databaseName: 'site' },
+      database: { driver: 'cloudflare', databaseName: 'site' },
       realtime: true,
     }),
   ],
@@ -154,7 +154,7 @@ Run `pnpm vitehub provision run --provider cloudflare` to create the D1 Database
 
 ### Vercel and Netlify
 
-Use a hosted Database, such as libSQL. Do not turn on Realtime. These hosts have no room authority, so the build fails with `REALTIME_MISSING_AUTHORITY`. Comments runs without avatars or cursors. Each page reloads its threads on tab focus and every 30 seconds while visible.
+Use a hosted Database, such as libSQL. Do not turn on Realtime. These hosts have no room driver, so the build fails with `REALTIME_MISSING_DRIVER`. Comments runs without avatars or cursors. Each page reloads its threads on tab focus and every 30 seconds while visible.
 
 ## Proxies that end TLS
 
@@ -193,4 +193,4 @@ The page gets one same-origin script: the page tools loader at `/_vitehub/page/a
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime authority, the presence line reads `off: the host has no Realtime authority`. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the two Comments tables as contributed tables.

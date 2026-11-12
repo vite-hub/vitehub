@@ -24,7 +24,7 @@ through [Capabilities](/docs/agents/capabilities).
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the preset's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
-| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
+| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. |
 | `hosting` auto-detection | `preset` | You must select the host. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
 | Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
@@ -132,8 +132,8 @@ Check client return values, not only imports:
 - Multipart options use `concurrency` instead of NuxtHub's `concurrent`.
 - Update the multipart client and server together, because their request and response formats differ.
 
-Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
-`vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
+Multipart uploads work with the `fs`, `cloudflare` (binding), and
+`vercel` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
 also need `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` at
 runtime, because an R2 binding alone cannot sign requests. To serve files
 without your own route, set `blob: { serve: true }`.
@@ -357,7 +357,7 @@ export default defineNuxtConfig({
   vitehub: {
     preset: "cloudflare",
     cache: {
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       binding: "CACHE",
       namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,
     },
@@ -383,12 +383,12 @@ export default defineNuxtConfig({
     preset: "cloudflare",
     database: true,
     kv: {
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       binding: "KV",
       namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
     },
     blob: {
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       binding: "BLOB",
       bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,
     },

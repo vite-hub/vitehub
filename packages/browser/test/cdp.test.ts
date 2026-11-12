@@ -41,7 +41,7 @@ describe("cdp controller", () => {
       kind: "cloudflare-binding",
       sessionId: "provider-session",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      driver: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
       sessionId: "public-id",
     })
 
@@ -63,7 +63,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
     socket.readyState = readyState
@@ -96,7 +96,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
 
@@ -129,7 +129,7 @@ describe("cdp controller", () => {
         endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
         kind: "cdp",
       }, {
-        provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
         sessionId: "public-id",
       })
       socket.dispatchEvent(new Event(event))
@@ -169,7 +169,7 @@ describe("cdp controller", () => {
         endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
         kind: "cdp",
       }, {
-        provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
         sessionId: "public-id",
       })
       socket.readyState = 1
@@ -199,7 +199,7 @@ describe("cdp controller", () => {
     const controller = cdp({ connect: async () => socket })
     const providerClose = vi.fn()
     const session = await createBrowser({
-      provider: {
+      driver: {
         features: { liveHandoff: true },
         isolation: "provider",
         name: "cloudflare",
@@ -237,7 +237,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
     socket.readyState = 2
@@ -262,7 +262,7 @@ describe("cdp controller", () => {
       engine: "kitesurf",
       kind: "cloudflare-binding",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      driver: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
       sessionId: "public-id",
     })
 
@@ -278,7 +278,7 @@ describe("cdp controller", () => {
       kind: "cloudflare-binding",
       sessionId: "provider-secret",
     }, {
-      provider: {
+      driver: {
         features: { liveHandoff: true },
         isolation: "provider",
         name: "cloudflare",
@@ -314,7 +314,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
 
@@ -338,7 +338,7 @@ describe("cdp controller", () => {
       kind: "cloudflare-binding",
       sessionId: "provider-secret",
     }, {
-      provider: { features: { liveHandoff: true }, isolation: "provider", name: "cloudflare" },
+      driver: { features: { liveHandoff: true }, isolation: "provider", name: "cloudflare" },
       sessionId: "public-id",
     })
     const listener = vi.fn()
@@ -362,7 +362,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
     try {
@@ -398,7 +398,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
     const listener = vi.fn()
@@ -418,7 +418,7 @@ describe("cdp controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
       sessionId: "public-id",
     })
     const first = attached.client.send("Target.getTargets")

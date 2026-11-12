@@ -42,7 +42,7 @@ function assertR2Key(pathname: string): string {
 
 /** Checks each pathname before an R2 driver gets it, so dev and production return the same code. Other drivers are unchanged. */
 export function withHostPathnameLimits<TOptions>(driver: BlobDriverAdapter<TOptions>): BlobDriverAdapter<TOptions> {
-  if (driver.name !== "cloudflare-r2") return driver
+  if (driver.name !== "cloudflare") return driver
   const { createMultipartUpload, getStream, resumeMultipartUpload, sign } = driver
   return {
     ...driver,

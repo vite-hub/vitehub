@@ -411,7 +411,7 @@ describe("kv runtime", () => {
     const driver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     })
 
@@ -432,7 +432,7 @@ describe("kv runtime", () => {
     const lazyDriver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     })
     const lazyStorage = createStorage({ driver: lazyDriver })
@@ -454,7 +454,7 @@ describe("kv runtime", () => {
     const driver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     }) as Driver & Record<string, unknown>
 

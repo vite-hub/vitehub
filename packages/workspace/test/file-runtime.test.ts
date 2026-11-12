@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe("Workspace file runtime", () => {
   it("reads, writes, and snapshots files without constructing Agent tools", async () => {
-    registerWorkspace("files", workspace.defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("files", workspace.defineWorkspace({ store: { driver: "memory" } }))
     const files = open("files", { mode: "write" })
     await files.fs.writeFile("guide.md", "# Guide")
     const snapshot = await files.history.checkpoint({ message: "Guide" })

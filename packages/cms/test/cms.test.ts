@@ -440,7 +440,7 @@ describe("the cms preset on the GitHub store", () => {
     const plan = resolveCmsPresetPlan({ file, options: { store: "github", repo: "onmax/docs", draftBranch: "cms/drafts" } }, choices([]), "/app")
     const module = renderCmsWorkspaceModule(plan, imports)
     expect(module).toContain("try { database = useDatabase(\"default\").db }")
-    expect(module).toContain("provider: \"github\",")
+    expect(module).toContain("driver: \"github\",")
     expect(module).toContain("repository: \"onmax/docs\",")
     expect(module).toContain("root: \"\",")
     expect(module).toContain("refs: { published: \"main\", draft: \"cms/drafts\" },")
@@ -485,7 +485,7 @@ describe("the cms preset on the GitHub store", () => {
     const plugin = hubCms({ imports: { blob: "vite-hub/blob" } })
     const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     expect(workspaces).toMatchObject([{ name: "content", definition: { export: "contentWorkspace" } }])
-    await expect(readFile(join(root, ".vitehub/content/workspace.mjs"), "utf8")).resolves.toContain("provider: \"github\"")
+    await expect(readFile(join(root, ".vitehub/content/workspace.mjs"), "utf8")).resolves.toContain("driver: \"github\"")
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
     // Workspace and Database are on, Blob is not.
     const configResolved = plugin.configResolved as (config: ResolvedConfig) => Promise<void>

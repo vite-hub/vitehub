@@ -67,7 +67,7 @@ it.each([undefined, "vite-hub/workflow"])("retains a deferred start from a Nitro
         throw new Error(`Unexpected middleware import: ${id}`)
       },
     })
-    workflowState.setWorkflowRuntimeConfig({ provider: "cloudflare", binding: "WORKFLOW_CUSTOM" })
+    workflowState.setWorkflowRuntimeConfig({ driver: "cloudflare", binding: "WORKFLOW_CUSTOM" })
     let resolveDefinition!: () => void
     const definition = new Promise<void>((resolve) => { resolveDefinition = resolve })
     workflowState.setWorkflowRuntimeRegistry({
@@ -230,9 +230,9 @@ it.each<{
   workflow: WorkflowOptions
   cloudflare: boolean
 }>([
-  { workflow: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { workflow: { driver: "cloudflare", binding: "FINAL" }, cloudflare: true },
   { workflow: false, cloudflare: false },
-  { workflow: { provider: "openworkflow" }, cloudflare: false },
+  { workflow: { driver: "openworkflow" }, cloudflare: false },
 ])("uses the Workflow options for Nitro: $workflow", async ({ workflow, cloudflare }) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-final-nitro-"))
   try {

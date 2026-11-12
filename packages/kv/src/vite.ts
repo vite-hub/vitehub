@@ -134,12 +134,12 @@ function serializeVirtualConfig(config: KVViteRuntimeConfig, databaseImport: str
 function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVModuleOptions {
   if (!kv) return false
   return Object.values(kv.stores || { default: kv.store })
-    .every(store => store.driver === "cloudflare-kv-binding")
+    .every(store => store.driver === "cloudflare")
 }
 
 function hasCloudflareKVStore(kv: KVViteRuntimeConfig["kv"]): boolean {
   if (!kv) return false
-  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "cloudflare-kv-binding")
+  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "cloudflare")
 }
 
 /**

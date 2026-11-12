@@ -20,7 +20,7 @@ export function inspectBlobResources(
   if (config.blob === false) return []
   const resources: ViteHubResourceSummary[] = []
   for (const [storeName, store] of Object.entries(config.blob.stores ?? { default: config.blob.store })) {
-    if (store.driver === "cloudflare-r2") {
+    if (store.driver === "cloudflare") {
       resources.push({
         binding: store.binding,
         definition: storeName,
@@ -32,7 +32,7 @@ export function inspectBlobResources(
           : { note: "No bucket name. Set `bucketName` or `BLOB_BUCKET_NAME`." }),
       })
     }
-    else if (store.driver === "vercel-blob") {
+    else if (store.driver === "vercel") {
       const storeId = readEnv(env, "BLOB_STORE_ID")
       resources.push({
         definition: storeName,

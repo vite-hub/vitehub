@@ -216,7 +216,7 @@ describe("hubDb", () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`)
     // `vitehub({ preset: "cloudflare", database: true })` passes this to the Database plugin.
-    const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
+    const buildStart = await buildStartForCloudflare(hubDb({ driver: "cloudflare" }), rootDir)
 
     expect(buildStart).toThrow(expect.objectContaining({
       code: "DATABASE_MISSING_D1_RESOURCE",
@@ -233,7 +233,7 @@ describe("hubDb", () => {
     for (const name of ["default", "orders"]) {
       const rootDir = await createTempProject()
       await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`, "notes", { cloudflare })
-      const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
+      const buildStart = await buildStartForCloudflare(hubDb({ driver: "cloudflare" }), rootDir)
 
       expect(buildStart).toThrow(expect.objectContaining({
         code: "DATABASE_MISSING_D1_RESOURCE",
@@ -255,7 +255,7 @@ describe("hubDb", () => {
       await mkdir(join(rootDir, ".vitehub"), { recursive: true })
       await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
     }
-    const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
+    const buildStart = await buildStartForCloudflare(hubDb({ driver: "cloudflare" }), rootDir)
 
     expect(buildStart).not.toThrow()
   })
@@ -265,7 +265,7 @@ describe("hubDb", () => {
     try {
       const rootDir = await createTempProject()
       await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare, connection: "url: process.env.VITEHUB_VITE_TEST_REMOTE_URL," })
-      const plugin = hubDb({ driver: "d1" })
+      const plugin = hubDb({ driver: "cloudflare" })
       const buildStart = await buildStartForCloudflare(plugin, rootDir)
 
       expect(plugin.api.getConfig()?.databases.default?.connection?.url).toEqual({
@@ -289,7 +289,7 @@ describe("hubDb", () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/default.ts")
 
-    expect(await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir, [], "serve")).not.toThrow()
+    expect(await buildStartForCloudflare(hubDb({ driver: "cloudflare" }), rootDir, [], "serve")).not.toThrow()
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ build: { outDir: "dist" }, command: "build", nitro: { preset: "node-server" }, plugins: [{ name: "nitro:main" }], root: rootDir })
     // SAFETY: hubDb exposes buildStart as a callable Vite hook.
@@ -301,7 +301,7 @@ describe("hubDb", () => {
     ["a Database use", { name: "@vite-hub/connections/vite", vitehub: { databases: () => [{ database: "default", name: "connections", reason: "Stores Connection grants." }] } }],
   ])("checks the implicit default D1 Database in a Vite build only when a plugin needs it: %s", async (_case, use) => {
     const rootDir = await createTempProject()
-    const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir, use ? [use] : [])
+    const buildStart = await buildStartForCloudflare(hubDb({ driver: "cloudflare" }), rootDir, use ? [use] : [])
     if (!use) return expect(buildStart).not.toThrow()
 
     expect(buildStart).toThrow(expect.objectContaining({
@@ -637,7 +637,7 @@ describe("hubDb", () => {
   it.each([true, { url: "https://d1.example.com" }] as const)("inspects inherited cloudflare.http as remote: %j", async (http) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/default.ts")
-    const plugin = hubDb({ cloudflare: { http }, driver: "d1" })
+    const plugin = hubDb({ cloudflare: { http }, driver: "cloudflare" })
     await resolveConfigResolved(plugin)({ root: rootDir })
     const inspect = plugin.vitehub?.inspect
     const inspection = typeof inspect === "function" ? await inspect() : undefined
@@ -719,7 +719,7 @@ describe("hubDb", () => {
         return { bind: () => ({ raw: async () => [["host note"]] }) }
       },
     }
-    const plugin = hubDb({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "d1" })
+    const plugin = hubDb({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "cloudflare" })
     const server = await createViteServer({ configFile: false, plugins: [plugin], root: rootDir, server: { host: "127.0.0.1", port: 0, watch: null } })
     try {
       await server.listen()
@@ -1234,7 +1234,7 @@ describe("hubDb", () => {
     const definition = await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
       cloudflare: "binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application',",
     })
-    const plugin = hubDb({ driver: "d1", binding: "HOST_DB", databaseId: "host-id", databaseName: "host" })
+    const plugin = hubDb({ driver: "cloudflare", binding: "HOST_DB", databaseId: "host-id", databaseName: "host" })
     const server = await createViteServer({
       configFile: false,
       plugins: [plugin],

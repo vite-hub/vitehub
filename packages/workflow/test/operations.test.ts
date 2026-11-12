@@ -19,7 +19,7 @@ async function call(name: string, input: unknown, sections: "all" | readonly str
 
 beforeEach(() => {
   resetWorkflowRuntime()
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
     welcome: async () => ({ default: { handler: async (payload) => ({ reply: String((payload as { name?: string } | undefined)?.name ?? "nobody").toUpperCase() }) } }),
   })
@@ -184,7 +184,7 @@ describe("workflow operations", () => {
   })
 
   it("reports operations that a provider does not support", async () => {
-    setWorkflowRuntimeConfig({ provider: "cloudflare" } as never)
+    setWorkflowRuntimeConfig({ driver: "cloudflare" } as never)
     expect(await call("workflow.cancel", { runId: "wrun_1", workflow: "welcome" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
     expect(await call("workflow.resume", { token: "token" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
   })

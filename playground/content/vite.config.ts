@@ -14,8 +14,8 @@ export default defineConfig({
       database: true,
       console: { auth: false },
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
-      // Content edits posts live in one Node process. `vite dev` uses the memory authority; a Node build needs
-      // `realtime: { authority: "memory" }`, and hosts without a room authority keep one editor at a time.
+      // Content edits posts live in one Node process. `vite dev` uses the `memory` driver; a Node build needs
+      // `realtime: { driver: "memory" }`, and hosts without a Realtime driver keep one editor at a time.
       realtime: true,
       // `server/schedules/content-publish.ts` runs scheduled Content publishes in this process every minute.
       schedule: { runtime: { driver: "process" } },

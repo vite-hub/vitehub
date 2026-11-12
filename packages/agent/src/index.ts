@@ -1134,16 +1134,16 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
       const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
-      if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
-      if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
+      if (!dispatch && recoveryConfig && recoveryConfig.driver === "vercel") throw new AgentInvocationClaimConflict()
+      if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.driver) || dispatch.name !== workflowName)) {
         throw new Error("Workflow dispatch identity changed; replay cannot safely submit this Invocation again.")
       }
-      if ((recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch) {
+      if ((recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch) {
         if (!dispatch.id) {
           throw new Error("Workflow dispatch acknowledgement is unknown; replay cannot safely submit this Invocation again.")
         }
       }
-      const providerId = (recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch?.id ? dispatch.id : recoveryConfig && recoveryConfig.provider === "cloudflare" ? await portableAgentWorkflowRunId(stableId) : stableId
+      const providerId = (recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch?.id ? dispatch.id : recoveryConfig && recoveryConfig.driver === "cloudflare" ? await portableAgentWorkflowRunId(stableId) : stableId
       const accepted = await handle.getRun(providerId)
       if (accepted.status !== "unknown") {
         if (!await journal.confirmWorkflowDispatch()) throw new Error("Could not confirm the accepted Workflow Invocation.")
@@ -1155,7 +1155,7 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
       if (await journal.getWorkflowDispatchAttempted() !== false) {
         throw new Error("Workflow dispatch acknowledgement is unknown; replay cannot safely submit this Invocation again.")
       }
-      if ((recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch) {
+      if ((recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch) {
         throw new Error("The acknowledged Workflow run is unavailable; replay cannot safely submit this Invocation again.")
       }
     } catch (error) {
@@ -1233,11 +1233,11 @@ async function runAgentAsWorkflow<
   let activateCloudflareWorkflow = false
   if ("discoveryDefault" in binding && workflowConfig === undefined) {
     if (input.context?.[requireAgentWorkflowContextKey] !== true || !cloudflareEnv) return undefined
-    workflowConfig = { provider: "cloudflare" }
+    workflowConfig = { driver: "cloudflare" }
     activateCloudflareWorkflow = true
   }
   if ("discoveryDefault" in binding && workflowConfig === false) return undefined
-  if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare") {
+  if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.driver === "cloudflare") {
     if (!cloudflareEnv) return undefined
     if (!exclusive) await activity?.update("queued")
     try {
@@ -1264,7 +1264,7 @@ async function runAgentAsWorkflow<
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
   await ensureActivity()
-  if (exclusive || !(input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare")) {
+  if (exclusive || !(input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.driver === "cloudflare")) {
     await activity?.update("queued")
   }
   let workflowName: string
@@ -1354,9 +1354,9 @@ async function runAgentAsWorkflow<
     ? `${context.run.runId}:${channelDeliveryBinding.steer.claimId}${options.fresh ? `:${crypto.randomUUID()}` : ""}`
     : context.run?.runId
   const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
-    ? exclusive && (workflowConfig && workflowConfig.provider) === "vercel"
+    ? exclusive && (workflowConfig && workflowConfig.driver) === "vercel"
       ? undefined
-      : workflowConfig && workflowConfig.provider === "cloudflare"
+      : workflowConfig && workflowConfig.driver === "cloudflare"
       ? await portableAgentWorkflowRunId(workflowProviderRunId ?? context.run.runId)
       : workflowProviderRunId ?? context.run.runId
     : undefined
@@ -1378,7 +1378,7 @@ async function runAgentAsWorkflow<
           workflowName,
         },
         ...(context.trace ? { trace: context.trace } : {}),
-      }, (workflowConfig && workflowConfig.provider) === "vercel" ? {} : { id: recoveryId }))
+      }, (workflowConfig && workflowConfig.driver) === "vercel" ? {} : { id: recoveryId }))
       return true
     }
     catch {
@@ -1393,7 +1393,7 @@ async function runAgentAsWorkflow<
     try {
       await replayJournal.watchCancellation(invocationCancellationDriver(agent))
       replayJournal.abortSignal.throwIfAborted()
-      if (!await replayJournal.prepareWorkflowDispatch({ name: workflowName, provider: (workflowConfig && workflowConfig.provider) || "unknown" })) {
+      if (!await replayJournal.prepareWorkflowDispatch({ name: workflowName, provider: (workflowConfig && workflowConfig.driver) || "unknown" })) {
         throw new Error("Could not persist the Workflow dispatch intent.")
       }
       payload.invocationClaimToken = await replayJournal.handoffClaim({ workflowDispatch: true })
@@ -1417,14 +1417,14 @@ async function runAgentAsWorkflow<
   catch (error) {
     const status = invocationFailureWasCancelled(error, input.abortSignal) || invocationFailureWasCancelled(error, replayJournal?.abortSignal) ? "cancelled" : "failed"
     await activity?.update(status, error)
-    const ambiguous = Boolean(replayJournal && (workflowConfig && workflowConfig.provider) === "vercel" && inputHandedOff)
+    const ambiguous = Boolean(replayJournal && (workflowConfig && workflowConfig.driver) === "vercel" && inputHandedOff)
       || isAmbiguousAgentWorkflowStartFailure(error)
     const failedRunId = !options.fresh && context.run?.runId
       ? context.run.runId
       : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
       const recoveryAccepted = !ambiguous
-        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
+        || !(workflowConfig && workflowConfig.driver === "cloudflare" && workflowRunId)
         || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
       if (recoveryAccepted) {
         const invocationJournal = await bindAgentInvocations(agent.invocations, {

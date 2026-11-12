@@ -198,7 +198,7 @@ describe("vitehub init", () => {
   })
 
   it.each(["vite", "nuxt"] as const)("leaves host migration of an existing %s stack manual", async (framework) => {
-    for (const options of ["browser: true", 'cache: { driver: "cloudflare-kv-binding" }', "browser: browserOptions"]) {
+    for (const options of ["browser: true", 'cache: { driver: "cloudflare" }', "browser: browserOptions"]) {
       const config = framework === "nuxt"
         ? `export default { modules: [["vite-hub/nuxt", { preset: "cloudflare", ${options} }]] }\n`
         : `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ preset: "cloudflare", ${options} })] }\n`

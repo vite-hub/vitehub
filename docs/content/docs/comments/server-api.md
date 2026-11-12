@@ -342,7 +342,7 @@ Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An i
 
 ## Presence rooms
 
-When the host has a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
+When the host has a [Realtime room driver](/docs/realtime/configure#choose-a-driver), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
 
 The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`, and the server checks that the room is `commentRoom(page)` before it grants access. After a change, the overlay sends other browsers a data-free hint, and they reload threads over HTTP.
 
@@ -356,6 +356,6 @@ With `server/comments.ts` or `comments()`, the integration writes these build fi
 - `.vitehub/nitro/comments/plugin.mjs` installs Comments with its Database at server start. It registers the overlay and sign-in prompt as the `comments` page tool.
 - `.vitehub/nitro/comments/page-session.mjs` serves `GET /_vitehub/page/session`.
 - `definition.mjs`, only from `comments()` without `server/comments.ts`, exports `defineComments()` with no options.
-- `comments.mjs`, with a room authority, is the Realtime presence room definition.
+- `comments.mjs`, with a room driver, is the Realtime presence room definition.
 
 The package serves the page tools loader at `/_vitehub/page/assets/loader.js`. These routes work without the Console. A root-relative Vite `base` or Nuxt `app.baseURL` prefixes them. Absolute and protocol-relative Vite asset URLs leave them at root, unless you set an explicit ViteHub application base.

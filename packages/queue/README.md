@@ -67,7 +67,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   nitro: { preset: "cloudflare-module", serverEntry: "./src/server.ts" },
-  plugins: [hubQueue({ provider: "cloudflare" }), nitro()],
+  plugins: [hubQueue({ driver: "cloudflare" }), nitro()],
 });
 ```
 
@@ -81,7 +81,7 @@ A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email`
 
 That build proves discovery and generated output only. In the built Worker, `sendQueue()` needs a deployed Cloudflare binding and an existing queue before it can return `[undefined, { status: "queued" }]`. In `vite dev`, it needs neither: see [Run jobs in vite dev](#run-jobs-in-vite-dev). Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
-## Choose a provider
+## Choose a driver
 
 | Provider   | Choose it when                                                                                        | Generated output                                                    | Enqueue options                                                |
 | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -89,7 +89,7 @@ That build proves discovery and generated output only. In the built Worker, `sen
 | Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | One Nitro route per Queue Definition, with a Vercel queue trigger | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
 | Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, or a WebContainer               | A Nitro plugin that runs stored jobs in the server process         | `delaySeconds`, `idempotencyKey`                               |
 
-The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"`, Vercel for `preset: "vercel"`, and the local provider for `preset: "node"`. The owner package selects the local provider for a Nitro `node-server` preset. Set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"`, Vercel for `preset: "vercel"`, and the local driver for `preset: "node"`. The owner package selects the local driver for a Nitro `node-server` preset. Set `driver` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue driver for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
 Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retentionSeconds`.
 
@@ -111,7 +111,7 @@ export default defineConfig({
 })
 ```
 
-`hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
+`hubQueue({ driver: "local", base: "data/queue" })` selects it explicitly and changes the directory.
 
 Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `useQueue()` in the dev server, or give the direct client a separate `base` directory.
 

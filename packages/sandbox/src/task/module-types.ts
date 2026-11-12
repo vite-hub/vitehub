@@ -1,7 +1,7 @@
 import type { VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
 
-export type SandboxTaskProvider = 'cloudflare' | 'vercel'
+export type SandboxTaskDriver = 'cloudflare' | 'vercel'
 
 export interface CloudflareSandboxTaskOptions {
   sleepAfter?: string | number
@@ -9,8 +9,8 @@ export interface CloudflareSandboxTaskOptions {
   normalizeId?: boolean
 }
 
-export interface VercelSandboxTaskProviderOptions {
-  provider: 'vercel'
+export interface VercelSandboxTaskDriverOptions {
+  driver: 'vercel'
   runtime?: string
   timeout?: number
   cpu?: number
@@ -22,8 +22,8 @@ export interface VercelSandboxTaskProviderOptions {
   projectId?: string
 }
 
-export interface CloudflareSandboxTaskDefinitionProviderOptions {
-  provider: 'cloudflare'
+export interface CloudflareSandboxTaskDefinitionDriverOptions {
+  driver: 'cloudflare'
   binding?: string
   className?: string
   migrationTag?: string
@@ -34,13 +34,13 @@ export interface CloudflareSandboxTaskDefinitionProviderOptions {
   normalizeId?: CloudflareSandboxTaskOptions['normalizeId']
 }
 
-export type SandboxTaskDefinitionProviderOptions
-  = VercelSandboxTaskProviderOptions
-    | CloudflareSandboxTaskDefinitionProviderOptions
+export type SandboxTaskDefinitionDriverOptions
+  = VercelSandboxTaskDriverOptions
+    | CloudflareSandboxTaskDefinitionDriverOptions
 
 export type AgentSandboxTaskConfig =
-  | SandboxTaskDefinitionProviderOptions
-  | { provider?: undefined, name?: string }
+  | SandboxTaskDefinitionDriverOptions
+  | { driver?: undefined, name?: string }
 
 export interface SandboxTaskDefinitionBundle {
   entry: string
@@ -103,9 +103,9 @@ export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) =
  * successful values and failures. */
 export type SandboxTaskRunResult = Response
 
-export function getSandboxTaskFeatureProvider(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionProviderOptions | undefined {
-  if (!config || typeof config !== 'object' || typeof config.provider !== 'string')
+export function getSandboxTaskFeatureDriver(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionDriverOptions | undefined {
+  if (!config || typeof config !== 'object' || typeof config.driver !== 'string')
     return undefined
 
-  return config as SandboxTaskDefinitionProviderOptions
+  return config as SandboxTaskDefinitionDriverOptions
 }

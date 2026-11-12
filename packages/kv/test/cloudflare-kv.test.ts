@@ -22,7 +22,7 @@ describe("Cloudflare KV binding", () => {
   it("reads the binding from the request-scoped Cloudflare env without a global env", async () => {
     expect((globalThis as { __env__?: unknown }).__env__).toBeUndefined()
     // SAFETY: The Cloudflare storage factory supplies the RuntimeStorage read, write, and list methods.
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const first = createNamespace()
     const second = createNamespace()
 
@@ -35,7 +35,7 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("keeps continuation namespaces stable when request bindings are recreated", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", namespaceId: "stable-id", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", namespaceId: "stable-id", driver: "cloudflare" }) as RuntimeStorage
     const cursors: Array<string | undefined> = []
     const createPagedNamespace = () => {
       const namespace = createNamespace()
@@ -56,7 +56,7 @@ describe("Cloudflare KV binding", () => {
   it("finds the binding after the Nitro middleware installs the request's env", async () => {
     // `vite dev` with the workerd runner gives only the request its env. Nitro does not set a global env there.
     const { default: middleware } = await import("../src/runtime/cloudflare-request-env.ts")
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
 
     try {
@@ -76,13 +76,13 @@ describe("Cloudflare KV binding", () => {
 
   it("reports a missing binding outside a Cloudflare request", async () => {
     // SAFETY: The Cloudflare storage factory supplies the RuntimeStorage read, write, and list methods.
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
 
     await expect(storage.getItem("smoke")).rejects.toThrow("Invalid binding `KV`")
   })
 
   it("rejects a continuation resumed against a different request binding", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const first = createNamespace()
     first.list = async () => ({ cursor: "next", keys: [], list_complete: false })
     const second = createNamespace()
@@ -95,7 +95,7 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("rejects an incomplete page without a cursor", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
     namespace.list = async () => ({ keys: [{ name: "smoke" }], list_complete: false })
 
@@ -105,7 +105,7 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("rejects an incomplete page whose cursor does not advance", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
     namespace.list = async ({ cursor }: { prefix?: string, cursor?: string }) => ({
       cursor: cursor || "next",
@@ -120,7 +120,7 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("rejects a provider cursor echoed on a raw-cursor resume", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
     namespace.list = async ({ cursor }: { prefix?: string, cursor?: string }) => ({
       cursor,
@@ -134,8 +134,8 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("rejects a prior provider cursor after resuming on another instance", async () => {
-    const firstStorage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
-    const secondStorage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const firstStorage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
+    const secondStorage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
     const suppliedCursors: Array<string | undefined> = []
     namespace.list = async ({ cursor }: { prefix?: string, cursor?: string }) => {
@@ -152,7 +152,7 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("fails closed at the cursor history limit without discarding earlier cursors", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
     let page = 0
     namespace.list = async () => ({ cursor: String(++page), keys: [], list_complete: false })

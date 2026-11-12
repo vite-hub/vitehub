@@ -182,7 +182,7 @@ describe("discoverViteWorkspaceDefinitions contributions", () => {
   it("applies resolved store overrides to contributed definitions", async () => {
     const root = await createRoot()
     const definitions = discoverViteWorkspaceDefinitions(root, { contributions: [collected("content", "content-owner/workspace")] })
-    const store = { binding: "CONTENT", namespace: "content", provider: "cloudflare-artifacts" }
+    const store = { binding: "CONTENT", namespace: "content", driver: "cloudflare" }
 
     const contents = createWorkspaceRegistryContents(join(root, "registry.mjs"), definitions, new Map([["content", { store }]]))
 
@@ -220,7 +220,7 @@ describe("inspectWorkspaceDefinitions contributions", () => {
 
 describe("hubWorkspace contributions", () => {
   it.each(["vite", "nitro"] as const)("keeps package-imported Artifacts stores in %s dev config", async (host) => {
-    const root = await createPackageStoreRoot(`export const store = { provider: "cloudflare-artifacts", binding: "CONTENT_FILES", namespace: "content" }\n`)
+    const root = await createPackageStoreRoot(`export const store = { driver: "cloudflare", binding: "CONTENT_FILES", namespace: "content" }\n`)
     const plugins = [contributor([{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }])]
     let nitro: unknown
     if (host === "vite") {
@@ -242,7 +242,7 @@ describe("hubWorkspace contributions", () => {
     const root = await createPackageStoreRoot([
       `import { writeFileSync } from "node:fs"`,
       `writeFileSync(new URL("./loaded", import.meta.url), "loaded")`,
-      `export const store = { provider: "memory" }`,
+      `export const store = { driver: "memory" }`,
       ``,
     ].join("\n"))
     const nitro = await createWorkspaceNitroConfig({

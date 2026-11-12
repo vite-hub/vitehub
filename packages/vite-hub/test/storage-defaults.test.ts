@@ -78,9 +78,9 @@ describe("Node storage defaults", () => {
   })
 
   it("gives named local stores separate directories and preserves remote stores", () => {
-    const result = withDataDir({ preset: "node", dataDir: "/var/lib/app", kv: { stores: { first: { driver: "fs-lite" }, second: { driver: "fs-lite" } } }, blob: { stores: { uploads: { driver: "fs" }, external: { driver: "vercel-blob", token: "fixture" } } } })
+    const result = withDataDir({ preset: "node", dataDir: "/var/lib/app", kv: { stores: { first: { driver: "fs-lite" }, second: { driver: "fs-lite" } } }, blob: { stores: { uploads: { driver: "fs" }, external: { driver: "vercel", token: "fixture" } } } })
     expect(result.kv).toEqual({ stores: { first: { driver: "fs-lite", base: "/var/lib/app/kv/first" }, second: { driver: "fs-lite", base: "/var/lib/app/kv/second" } } })
-    expect(result.blob).toEqual({ stores: { uploads: { driver: "fs", base: "/var/lib/app/blob/uploads" }, external: { driver: "vercel-blob", token: "fixture" } } })
+    expect(result.blob).toEqual({ stores: { uploads: { driver: "fs", base: "/var/lib/app/blob/uploads" }, external: { driver: "vercel", token: "fixture" } } })
   })
 
   it("ignores inherited named stores when applying local defaults", () => {
@@ -90,12 +90,12 @@ describe("Node storage defaults", () => {
       token: "token",
     })
     const blob = Object.assign(Object.create({ stores: { inherited: { driver: "fs" as const } } }), {
-      driver: "vercel-blob" as const,
+      driver: "vercel" as const,
       token: "token",
     })
     const result = withDataDir({ preset: "node", dataDir: "/tmp/app", kv, blob } as ViteHubOptions)
     expect(result.kv).toEqual({ driver: "upstash", url: "https://kv.example.com", token: "token" })
-    expect(result.blob).toEqual({ driver: "vercel-blob", token: "token" })
+    expect(result.blob).toEqual({ driver: "vercel", token: "token" })
   })
 
   it("rejects local storage on hosted ephemeral presets through the public API", () => {
@@ -121,7 +121,7 @@ describe("Node storage defaults", () => {
 
 describe("Default Agent journal host defaults", () => {
   // The Console is off: the default journal does not depend on it.
-  const cloudflare = { preset: "cloudflare", agent: true, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
+  const cloudflare = { preset: "cloudflare", agent: true, database: { driver: "cloudflare", binding: "DB" } } satisfies ViteHubOptions
 
   it("does not select an unprovisioned explicit D1 binding", async () => {
     const { info, plugin } = await generatedJournalPlugin(cloudflare, "build")
@@ -162,7 +162,7 @@ describe("Default Agent journal host defaults", () => {
     ['cloudflare: { databaseName: "app" },', "JOURNAL_DB"],
     ["", "JOURNAL_DB"],
   ])("selects the effective D1 binding with Definition config %s", async (config, binding) => {
-    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { driver: "d1", binding: "JOURNAL_DB" } }, "build", {
+    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { driver: "cloudflare", binding: "JOURNAL_DB" } }, "build", {
       "server/databases/default.ts": `export default defineDatabase({ ${config} schema: {} })\n`,
     })
     expect(plugin).toContain(`d1: { binding: "${binding}",`)
@@ -208,11 +208,11 @@ describe("Default Agent journal host defaults", () => {
   })
 
   it("resolves the D1 binding from the Database options", () => {
-    expect(defaultDatabaseD1Binding("cloudflare", { driver: "d1" })).toBeUndefined()
-    expect(defaultDatabaseD1Binding("cloudflare", { driver: "d1", binding: " JOURNAL " })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { driver: "cloudflare" })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { driver: "cloudflare", binding: " JOURNAL " })).toBeUndefined()
     expect(defaultDatabaseD1Binding("cloudflare", true)).toBeUndefined()
     expect(defaultDatabaseD1Binding("cloudflare", { connection: { url: "libsql://db.example.com" } })).toBeUndefined()
-    expect(defaultDatabaseD1Binding("vercel", { driver: "d1" })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("vercel", { driver: "cloudflare" })).toBeUndefined()
   })
 })
 
@@ -308,7 +308,7 @@ describe("Connections database default", () => {
   it("reads the D1 binding of the implicit default Database on Cloudflare", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-connections-d1-"))
     try {
-      const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "d1" as const }
+      const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "cloudflare" as const }
       expect(defaultDatabaseD1Binding("cloudflare", database, { implicitDefault: true, root })).toBe("APP_DB")
     }
     finally {

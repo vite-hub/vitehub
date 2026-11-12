@@ -143,7 +143,7 @@ describe("Postgres build configuration", () => {
       connection: { url: "libsql://integration.example" },
       databaseId: "d1-id",
       databaseName: "d1-name",
-      driver: "d1",
+      driver: "cloudflare",
     }, rootDir)!
 
     expect(config.databases.default).toMatchObject({

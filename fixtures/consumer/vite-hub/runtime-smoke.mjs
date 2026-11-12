@@ -65,7 +65,7 @@ assert.equal(crossOwnerResult.text, "blob owner edge ok")
 
 const workspaceAgent = defineAgent({
   runtime: false,
-  workspace: { mode: "write", store: { provider: "memory" } },
+  workspace: { mode: "write", store: { driver: "memory" } },
   driver: {
     async run({ workspace }) {
       await workspace.fs.writeFile("owner-edge.txt", "workspace owner edge ok")
@@ -118,8 +118,8 @@ const declaration = env({ default: "runtime" })
 assert.equal(declaration.kind, "env-variable")
 assert.equal(declaration.default, "runtime")
 
-const workspace = defineWorkspace({ store: { provider: "memory" } })
-assert.equal(workspace.store?.provider, "memory")
+const workspace = defineWorkspace({ store: { driver: "memory" } })
+assert.equal(workspace.store?.driver, "memory")
 
 const workspaceTools = createWorkspaceTools({})
 const pwd = await workspaceTools.shell.execute({ command: "pwd" })

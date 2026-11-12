@@ -74,7 +74,7 @@ it("generates the live handler after Realtime contributes its presence room", as
       name: "realtime-contribution",
       enforce: "pre",
       async config() {
-        await comments.api.contributeRealtime({ authority: "memory", projectRoot: root, directory: join(root, ".vitehub/realtime") })
+        await comments.api.contributeRealtime({ driver: "memory", projectRoot: root, directory: join(root, ".vitehub/realtime") })
       },
     },
     comments,

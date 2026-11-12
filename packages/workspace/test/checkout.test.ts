@@ -641,7 +641,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const github = createFakeGitHub()
     vi.stubGlobal("fetch", github.fetch)
     github.commit("main", { "run.sh": { content: "echo published\n", mode: "100755" } })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "vitehub/content" } }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "vitehub/content" } }, "content")
     const attributes: unknown[] = []
     registerWorkspace("content", { store, rules: { "**": { write: true, validate: (input) => {
       attributes.push(input.metadata)

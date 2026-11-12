@@ -75,8 +75,8 @@ function getRequestScope(input: RateLimitRequestEvent): RateLimitRequestScope {
   }
 }
 
-function getRequestKey(scope: RateLimitRequestScope, provider: "cloudflare" | "memory"): string | undefined {
-  return provider === "cloudflare"
+function getRequestKey(scope: RateLimitRequestScope, driver: "cloudflare" | "memory"): string | undefined {
+  return driver === "cloudflare"
     ? scope.headers.get("cf-connecting-ip") || scope.clientAddress
     : scope.clientAddress
 }
@@ -116,14 +116,14 @@ async function consumeRateLimit(
   }
 
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
-  const { provider } = getRateLimitRuntimeConfig()
+  const { driver } = getRateLimitRuntimeConfig()
   const scope = getRequestScope(event)
   // A test request has no client address, so in app tests all requests without a key count as one client.
-  const key = options.key ?? getRequestKey(scope, provider) ?? (getViteHubTestMode() ? "test-client" : undefined)
+  const key = options.key ?? getRequestKey(scope, driver) ?? (getViteHubTestMode() ? "test-client" : undefined)
   if (!key) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: `[vitehub] \`${guard}()\` could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.` })
   }
-  const limiter = provider === "cloudflare"
+  const limiter = driver === "cloudflare"
     ? getCloudflareRateLimiter(scope, id, policy)
     : getMemoryRateLimiter(id, policy)
   return await limiter.consume({ key })

@@ -5,13 +5,13 @@ import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub
 import type { ESTree, parseSync } from "vite"
 import type { DiscoveredRealtimeDefinition } from "./types.ts"
 
-export type RealtimeInspectionAuthority = "auto" | "cloudflare" | "memory" | "unsupported"
+export type RealtimeInspectionDriver = "auto" | "cloudflare" | "memory" | "unsupported"
 
-const authorityLabels: Record<RealtimeInspectionAuthority, string> = {
+const driverLabels: Record<RealtimeInspectionDriver, string> = {
   auto: "auto: Cloudflare Durable Objects on Cloudflare, memory in development, build error elsewhere",
   cloudflare: "cloudflare: one Durable Object per document, Yjs state in SQLite",
   memory: "memory: one Node process, rooms lost on restart",
-  unsupported: "none: this host has no Realtime room authority",
+  unsupported: "none: this host has no Realtime driver",
 }
 
 function propertyName(property: ESTree.ObjectProperty | ESTree.SpreadElement | ESTree.Node): string | undefined {
@@ -117,7 +117,7 @@ function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string,
 export async function summarizeRealtimeDefinitions(
   projectRoot: string,
   definitions: readonly DiscoveredRealtimeDefinition[],
-  authority: RealtimeInspectionAuthority,
+  driver: RealtimeInspectionDriver,
 ): Promise<ViteHubDefinitionSummary[]> {
   // Vite is an optional peer: load its parser only when inspection runs inside a Vite project.
   const { parseSync } = await import("vite")
@@ -130,7 +130,7 @@ export async function summarizeRealtimeDefinitions(
     return {
       fields: [
         ...describeRealtimeDefinitionSource(parseSync, definition.handler, source),
-        { label: "Authority", value: authorityLabels[authority] },
+        { label: "Driver", value: driverLabels[driver] },
       ],
       file: relativeDefinitionFile(projectRoot, definition.handler),
       name: definition.name,

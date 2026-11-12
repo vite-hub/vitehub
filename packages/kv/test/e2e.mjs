@@ -19,7 +19,7 @@ const assertKvWrite = async (f) =>
   });
 
 const providerProbe = {
-  cloudflare: { provider: "cloudflare-kv-binding" },
+  cloudflare: { provider: "cloudflare" },
   vercel: { provider: "upstash" },
 };
 

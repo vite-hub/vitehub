@@ -17,7 +17,7 @@ export function configureCloudflareArtifacts(
 ): void {
   if (!config) return
   const store = config.store
-  if (store.provider !== "cloudflare-artifacts") return
+  if (store.driver !== "cloudflare") return
 
   target.cloudflare ||= {}
   target.cloudflare.wrangler ||= {}

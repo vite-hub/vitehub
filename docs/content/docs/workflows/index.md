@@ -85,7 +85,7 @@ icon: i-lucide-workflow
   `getWorkflowRun()` returns the status (queued, running, completed, or failed) and the result.
   :::
 
-  :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#providers"}
+  :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#drivers"}
   Use Cloudflare, Vercel, or OpenWorkflow with Postgres or SQLite on your own server. Routes stay the same.
   :::
 

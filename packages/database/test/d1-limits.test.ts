@@ -135,7 +135,7 @@ describe("the Vite databases module", () => {
       "export default defineDatabase({ schema: { notes: sqliteTable('notes', { title: text('title') }) } })",
       "",
     ].join("\n"))
-    const plugin = hubDb({ driver: "d1" })
+    const plugin = hubDb({ driver: "cloudflare" })
     // SAFETY: These are Vite hook handlers returned by hubDb.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, ...config })
     // SAFETY: These are Vite hook handlers returned by hubDb.

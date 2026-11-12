@@ -6,7 +6,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { RateLimiter, RateLimitPolicy, RateLimitRuntimeConfig } from "../types.ts"
 
-let runtimeConfig: RateLimitRuntimeConfig = { provider: "memory" }
+let runtimeConfig: RateLimitRuntimeConfig = { driver: "memory" }
 const runtimeMemoryLimiters = new Map<string, Map<string, RateLimiter>>()
 
 /** The memory counters of this process, or in app tests the counters of the current test. */
@@ -22,7 +22,7 @@ export function setRateLimitRuntimeConfig(config: RateLimitRuntimeConfig): void 
 
 /** In app tests, Rate Limit counts in memory for the current test, whatever the host. */
 export function getRateLimitRuntimeConfig(): RateLimitRuntimeConfig {
-  return getViteHubTestMode() ? { provider: "memory" } : runtimeConfig
+  return getViteHubTestMode() ? { driver: "memory" } : runtimeConfig
 }
 
 function normalizeRateLimitWindowKey(policy: RateLimitPolicy): number {

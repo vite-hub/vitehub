@@ -195,7 +195,7 @@ export async function runWorkflowOperation<Name extends WorkflowOperationName>(o
     throw new WorkflowOperationError("Workflow is disabled in this runtime.", 409, "WORKFLOW_DISABLED", "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.")
   }
   // The runtime uses inline Vercel execution when the app installs no Workflow configuration.
-  const provider = runtimeConfig?.provider ?? "vercel"
+  const provider = runtimeConfig?.driver ?? "vercel"
   const support = resolveWorkflowOperationSupport(provider)[operation]
   if (!support.supported) {
     throw new WorkflowOperationError(`workflow ${operation} is not supported by the ${provider} provider. ${support.note}`, 501, "WORKFLOW_OPERATION_UNSUPPORTED")

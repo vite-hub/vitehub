@@ -835,16 +835,16 @@ export interface LocalWorkspaceStoreOptions {
    * write locks in memory. Use it only when one process owns the root.
    */
   locks?: "filesystem" | "process"
-  provider?: "local"
+  driver?: "local"
   root?: string
 }
 
 export interface MemoryWorkspaceStoreOptions {
-  provider: "memory"
+  driver: "memory"
 }
 
 export interface CloudflareArtifactsWorkspaceStoreOptions {
-  provider: "cloudflare-artifacts"
+  driver: "cloudflare"
   binding?: string
   namespace?: string
   repo?: string
@@ -853,7 +853,7 @@ export interface CloudflareArtifactsWorkspaceStoreOptions {
 }
 
 export interface VercelBlobWorkspaceStoreOptions {
-  provider: "vercel-blob"
+  driver: "vercel"
   token?: string
   /**
    * A namespace under `_vitehub/workspaces/`. For example, `handbook`
@@ -875,7 +875,7 @@ export interface GitHubWorkspaceRefs {
 }
 
 export interface GitHubWorkspaceStoreOptions {
-  provider: "github"
+  driver: "github"
   branch?: GitHubWorkspaceOption
   /**
    * An opaque value that the store target carries for consumers that keep their own rows next to the Workspace, such as a

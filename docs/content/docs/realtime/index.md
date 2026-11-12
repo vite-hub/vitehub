@@ -75,7 +75,7 @@ icon: i-lucide-radio
   // The files that the docs room saves to.
   // Memory is for development only.
   export default defineWorkspace({
-    store: { provider: 'memory' },
+    store: { driver: 'memory' },
     rules: {
       '/**': { write: true, mediaType: 'text/markdown' },
     },
@@ -89,7 +89,7 @@ icon: i-lucide-radio
     vitehub: {
       preset: 'node',
       // Keep rooms in this server process
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
       workspace: true,
     },
   })
@@ -109,7 +109,7 @@ icon: i-lucide-radio
       vitehub({
         preset: 'node',
         // Keep rooms in this server process
-        realtime: { authority: 'memory' },
+        realtime: { driver: 'memory' },
         workspace: true,
       }),
     ],
@@ -128,7 +128,7 @@ icon: i-lucide-radio
       vitehub({
         preset: 'node',
         // Keep rooms in this server process
-        realtime: { authority: 'memory' },
+        realtime: { driver: 'memory' },
         workspace: true,
       }),
     ],
@@ -181,11 +181,11 @@ icon: i-lucide-radio
 ::
 
 ::agent-only{skill="realtime"}
-Use Realtime for collaborative state that changes while clients are connected. Realtime keeps room authority, document format, and durable checkpoints explicit.
+Use Realtime for collaborative state that changes while clients are connected. Realtime keeps the driver, document format, and durable checkpoints explicit.
 
-The Configure page describes host authority and persistence.
+The Configure page describes the driver of each host and persistence.
 
-Choose Cloudflare authority for multi-instance production. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
+Choose the `cloudflare` driver for multi-instance production. The `memory` driver is single-process. Vercel, Netlify, and Deno have no Realtime driver.
 
 Rooms save through a document adapter: `document: { workspace }` writes Markdown files, or pass `{ load, save }` for your own storage and throw `RealtimeDocumentConflict` on a stale `ifDigest`. The Yjs state is the source of truth while a room is open; an external write re-seeds the room and resets clients. Use `editor` for a custom schema and async Markdown codec, `fields` for structured values, `identify()` and `authorize()` for identity and access. Inspect definitions with `vitehub inspect definitions`.
 

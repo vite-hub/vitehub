@@ -336,7 +336,7 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
     }
     else if (name === "sandboxTask" && isObject) {
       report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the provider.",
+        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the driver.",
         fix: "Set `sandboxTask: true`.",
       }
     }

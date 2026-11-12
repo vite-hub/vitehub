@@ -31,7 +31,7 @@ describe("normalizeKVOptions", () => {
 
   it("ignores REDIS_URL and the Database at build time on hosted presets", () => {
     const env = { REDIS_URL: "redis://localhost:6379" }
-    expect(normalizeKVOptions(undefined, { env, hosting: "cloudflare-module", postgresDatabase: true })?.store.driver).toBe("cloudflare-kv-binding")
+    expect(normalizeKVOptions(undefined, { env, hosting: "cloudflare-module", postgresDatabase: true })?.store.driver).toBe("cloudflare")
     expect(normalizeKVOptions(undefined, { env, hosting: "vercel", postgresDatabase: true })?.store.driver).toBe("upstash")
     expect(normalizeKVOptions(undefined, { env, hosting: "deno-deploy", postgresDatabase: true })?.store.driver).toBe("deno-kv")
   })
@@ -117,7 +117,7 @@ describe("normalizeKVOptions existing behavior", () => {
     })).toEqual({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceId: "namespace-from-env",
       },
     })
@@ -404,7 +404,7 @@ describe("Cloudflare integration", () => {
       }
     } = {}
     const config = normalizeKVOptions({
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       namespaceId: "namespace-id",
     }, {
       env: {},
@@ -424,9 +424,9 @@ describe("Cloudflare integration", () => {
     const target: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } } = {}
     const config = normalizeKVOptions({
       stores: {
-        default: { binding: "CACHE", driver: "cloudflare-kv-binding", namespaceName: "app-cache" },
-        pinned: { binding: "PINNED", driver: "cloudflare-kv-binding", namespaceId: "configured-id", namespaceName: "pinned" },
-        unrecorded: { binding: "UNRECORDED", driver: "cloudflare-kv-binding", namespaceName: "unrecorded" },
+        default: { binding: "CACHE", driver: "cloudflare", namespaceName: "app-cache" },
+        pinned: { binding: "PINNED", driver: "cloudflare", namespaceId: "configured-id", namespaceName: "pinned" },
+        unrecorded: { binding: "UNRECORDED", driver: "cloudflare", namespaceName: "unrecorded" },
       },
     }, {
       env: {},

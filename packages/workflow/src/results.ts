@@ -1,4 +1,4 @@
-import type { WorkflowProvider, WorkflowRunStatus } from "./types.ts"
+import type { WorkflowDriver, WorkflowRunStatus } from "./types.ts"
 
 /** One Workflow run as the operations return it. The start payload is not included. */
 export interface WorkflowRunView {
@@ -7,7 +7,7 @@ export interface WorkflowRunView {
   error?: { code?: string, message: string, name?: string }
   id: string
   metadata?: unknown
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   result?: unknown
   startedAt?: string
   status: WorkflowRunStatus
@@ -17,7 +17,7 @@ export interface WorkflowRunView {
 /** The signal that `workflow.resume` delivered. */
 export interface WorkflowSignalView {
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
 }
 
 export interface WorkflowRunResult {
@@ -76,7 +76,7 @@ function unsupported(note: string): WorkflowOperationSupport {
  * Operations that each provider supports. A supported operation can still fail when the runtime decides, for example
  * cancel on an inline Vercel run.
  */
-export function resolveWorkflowOperationSupport(provider: WorkflowProvider): Record<WorkflowOperationName, WorkflowOperationSupport> {
+export function resolveWorkflowOperationSupport(provider: WorkflowDriver): Record<WorkflowOperationName, WorkflowOperationSupport> {
   if (provider === "cloudflare") {
     return {
       cancel: unsupported("Cloudflare Workflows do not support cancellation through ViteHub."),

@@ -68,18 +68,18 @@ export default defineConfig({
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `driver` | `'resend' \| 'cloudflare-email'` | Required | Picks a built-in Email driver. |
+| `driver` | `'resend' \| 'cloudflare'` | Required | Picks a built-in Email driver. |
 | `options` | `EnvRuntimeConfigOptions` | `{}` | Plain non-secret values and `env()` declarations. The server reads `env()` sources on every send. Plain values and non-secret defaults go into the build output. A default on a secret is rejected. |
 | `remote` | `boolean` | `false` | `true` makes `vite dev` send real email through the provider. Else a dev send stays in the [development outbox](/docs/email/hosts#development-outbox). Builds ignore it. |
 | `outbox` | `false \| { limit?: number }` | `{ limit: 50 }` | Sets up the [development outbox](/docs/email/hosts#development-outbox) in `vite dev`. `false` needs `remote: true`. Never in build output. |
 
-No `email`, or `email: false`, keeps Email off. `email: true` picks `cloudflare-email`, which needs Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. On other presets, set `driver: 'resend'`.
+No `email`, or `email: false`, keeps Email off. `email: true` picks `cloudflare`, which needs Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. On other presets, set `driver: 'resend'`.
 
 ViteHub writes the driver name, plain options, and `env()` declarations into a generated server-only module. A credential from an `env()` source without a default stays in the runtime environment.
 
 ## Configure another provider
 
-Keep credentials in Server Env or your host's secret store, and pass them as `env()` declarations without defaults. For a provider other than `resend` or `cloudflare-email`, implement the exported `EmailDriver` interface and pass it to `createEmail()`.
+Keep credentials in Server Env or your host's secret store, and pass them as `env()` declarations without defaults. For a provider other than `resend` or `cloudflare`, implement the exported `EmailDriver` interface and pass it to `createEmail()`.
 
 - A driver object starts once per client. Sends at the same time share the pending start. After a failed start, the next send tries again.
 - A driver factory creates and starts a driver for each send.

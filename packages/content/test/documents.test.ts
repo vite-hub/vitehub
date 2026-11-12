@@ -673,7 +673,7 @@ describe("document collections", { timeout: 30_000 }, () => {
   })
 
   it("fails clearly without retained history", async () => {
-    registerWorkspace("memory-content", { store: { provider: "memory" } })
+    registerWorkspace("memory-content", { store: { driver: "memory" } })
     const content = defineContent({ workspace: "memory-content", collections: { posts: documents({ path: "posts/*.md", fields }) } })
     cleanup.push(() => content.dispose())
     await expect(content.collection("posts").save("hello", hello)).rejects.toMatchObject({ code: "CONTENT_R0007" })

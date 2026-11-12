@@ -250,7 +250,7 @@ describe("KV Vite output", () => {
       },
       configFile: false,
       logLevel: "silent",
-      plugins: [hubKv({ driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
+      plugins: [hubKv({ driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -304,7 +304,7 @@ describe("KV Vite output", () => {
       logLevel: "silent",
       plugins: [hubKv({
         binding: "KV_CUSTOM",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceId: "namespace-id",
       })],
       root: rootDir,
@@ -354,7 +354,7 @@ describe("KV Vite output", () => {
       },
       configFile: false,
       logLevel: "silent",
-      plugins: [hubKv({ driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
+      plugins: [hubKv({ driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -395,7 +395,7 @@ describe("KV Vite output", () => {
       },
       configFile: false,
       logLevel: "silent",
-      plugins: [hubKv({ driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
+      plugins: [hubKv({ driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -433,7 +433,7 @@ describe("KV Vite output", () => {
       },
       configFile: false,
       logLevel: "silent",
-      plugins: [hubKv({ binding: "KV_CUSTOM", driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
+      plugins: [hubKv({ binding: "KV_CUSTOM", driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -444,7 +444,7 @@ describe("KV Vite output", () => {
     }
 
     expect(output).not.toMatch(/import\(["']#vitehub\/kv\/config["']\)/)
-    expect(worker.listKVDevStores()).toEqual([{ driver: "cloudflare-kv-binding", name: "default" }])
+    expect(worker.listKVDevStores()).toEqual([{ driver: "cloudflare", name: "default" }])
   })
 
   it("merges configured Cloudflare KV namespaces into provider output", async () => {
@@ -477,7 +477,7 @@ describe("KV Vite output", () => {
       logLevel: "silent",
       plugins: [hubKv({
         binding: "SETTINGS",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceId: "11111111111111111111111111111111",
       })],
       root: rootDir,
@@ -527,7 +527,7 @@ describe("KV Vite output", () => {
       logLevel: "silent",
       plugins: [hubKv({
         binding: "SETTINGS",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceName: "app-settings",
       })],
       root: rootDir,
@@ -575,7 +575,7 @@ describe("KV Vite output", () => {
         },
         hubKv({
           binding: "SETTINGS",
-          driver: "cloudflare-kv-binding",
+          driver: "cloudflare",
           namespaceId: "22222222222222222222222222222222",
         }),
       ],
@@ -695,7 +695,7 @@ describe("KV Vite output", () => {
       logLevel: "silent",
       plugins: [hubKv({
         binding: "NEW",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceId: "new-namespace",
       })],
       root: rootDir,

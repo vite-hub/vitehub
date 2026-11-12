@@ -29,7 +29,7 @@ pnpm vitehub provision run --provider vercel
 
 Provisioning creates the same Database and Blob resources as without the preset. The preset adds no resources of its own.
 
-- **Cloudflare.** An R2 bucket, plus a D1 database once you name one, for example with `vitehub({ database: { driver: 'd1', databaseName: 'content' } })`.
+- **Cloudflare.** An R2 bucket, plus a D1 database once you name one, for example with `vitehub({ database: { driver: 'cloudflare', databaseName: 'content' } })`.
 - **Vercel.** A Blob store. See [Select a hosted database for Vercel](/docs/database/hosts#select-a-hosted-database-for-vercel).
 
 The hosted Database needs the preset's tables before the first save. Apply the migrations from `vitehub database generate` when you deploy, as [Database hosts](/docs/database/hosts) shows for each provider.

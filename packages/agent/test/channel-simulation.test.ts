@@ -296,7 +296,7 @@ describe("simulated chat Channels", () => {
       channels: { telegram: telegram({ messages: { durable, final: { delivery: "new-message" }, loading: { text: "Thinking" }, state } }) },
       driver: { run },
     })
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     try {
       const response = await createChannelWebhookRouteHandler(agent)(chatRequest("telegram", "hi"), "telegram", {
         agentIdentity: { name: "support" },

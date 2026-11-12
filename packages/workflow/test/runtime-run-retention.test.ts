@@ -19,7 +19,7 @@ afterEach(() => {
 
 describe("inline Workflow run retention", () => {
   it("keeps completed runs distinct when workflow names and IDs contain delimiters", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     const first = createWorkflow("tenant", () => "first result")
     const second = createWorkflow("tenant\0admin", () => "second result")
 
@@ -135,7 +135,7 @@ describe("inline Workflow run retention", () => {
   })
 
   it("keeps more than 1024 active runs inspectable through completion", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     const first = gate()
     const remaining = gate()
     const workflow = createWorkflow<boolean, string>("pending", async (payload) => {

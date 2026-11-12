@@ -19,7 +19,7 @@ beforeAll(async () => {
   const baseDir = new URL("../.vitest-tmp/", import.meta.url)
   await mkdir(baseDir, { recursive: true })
   rootDir = await mkdtemp(join(baseDir.pathname, "cloudflare-errors-"))
-  const artifacts = await writeProviderEntries(rootDir, { provider: "cloudflare" })
+  const artifacts = await writeProviderEntries(rootDir, { driver: "cloudflare" })
   generatedSource = await readFile(artifacts.cloudflareWorkerFile, "utf8")
   // The VM below has no ESM loader, so dynamic imports become require calls.
   generatedCode = (await transform(generatedSource, { format: "cjs", supported: { "dynamic-import": false } })).code

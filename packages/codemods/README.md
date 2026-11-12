@@ -33,6 +33,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | Codemod | Moves |
 | --- | --- |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+| `driver-key` | A ViteHub app to `driver` as the one key that selects a backend |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
@@ -127,6 +128,27 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 ```sh
 corepack pnpm exec vp run codemods:e2e
 ```
+
+## `driver-key`
+
+`driver` is the only key that selects the backend of a resource. The codemod renames the old keys and the old names of host drivers:
+
+| Before | After |
+| --- | --- |
+| `queue`, `workflow`, `rateLimit`, `sandboxTask`: `provider` | `driver` |
+| `realtime: { authority }` | `realtime: { driver }` |
+| Workspace `store: { provider }` | `store: { driver }` |
+| `createBrowser({ provider })` | `createBrowser({ driver })` |
+| Blob `driver: "cloudflare-r2"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+| KV `driver: "cloudflare-kv-binding"` | `"cloudflare"` |
+| Email `driver: "cloudflare-email"` | `"cloudflare"` |
+| Cache `driver: "cloudflare-kv-binding"`, `"vercel-runtime-cache"` | `"cloudflare"`, `"vercel"` |
+| Database `driver: "d1"` | `"cloudflare"` |
+| Workspace Store `"cloudflare-artifacts"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+
+It rewrites the options object of `vitehub()`, framework config helpers (also under `vitehub`), the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`. Calls must use an import from the owning package, including an alias or a namespace import. The default config in a `nuxt.config` or `nitro.config` file can use its framework's global helper. Plain default config objects are supported too. Names with another declaration in the file stay unchanged, so check shadowed imports by hand.
+
+Workspace `store` objects change only in Workspace config, `defineWorkspace()` or `hubWorkspace()` options, or the `workspace` option of `defineAgent()`. Unrelated objects and member methods stay unchanged. Blob and KV `stores` entries change too. A driver value that is not a string literal stays, and the report names it. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
 
 ## `t3-env`
 

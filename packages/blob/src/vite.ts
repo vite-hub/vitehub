@@ -72,7 +72,7 @@ const mergeNoExternal = createNoExternalAddition(blobPackageName)
 function describeDevelopmentStore(store: ResolvedBlobStoreConfig): string {
   if (store.remote) return "Remote. `vite dev` uses the real store, so writes change real data."
   if (store.driver === "fs") return `Local. \`vite dev\` uses the \`fs\` driver in ${store.base}.`
-  if (store.driver === "cloudflare-r2" && store.localFallback) {
+  if (store.driver === "cloudflare" && store.localFallback) {
     return `Local. \`vite dev\` uses the R2 binding of the dev runner, or the \`fs\` driver in ${store.localFallback.base} when the runner has none.`
   }
   return `\`vite dev\` uses the configured \`${store.driver}\` driver.`
@@ -440,12 +440,12 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
   // The native module is selected only when every configured R2 store has a
   // binding. Keep the SDK check for mixed configurations that still import
   // the HTTP/S3 implementation.
-  const cloudflareR2Stores = stores.filter(store => store.driver === "cloudflare-r2")
+  const cloudflareR2Stores = stores.filter(store => store.driver === "cloudflare")
   const nativeR2 = nativeCloudflareR2
     && cloudflareR2Stores.length > 0
     && cloudflareR2Stores.every(store => Boolean(store.bucketName))
   const skipDrivers = nativeR2
-    ? ["cloudflare-r2" as const]
+    ? ["cloudflare" as const]
     : []
   const missing = findMissingFilesSdkPeers(stores.map(store => store.driver), undefined, skipDrivers)
   if (!missing.length) return

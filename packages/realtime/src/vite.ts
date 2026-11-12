@@ -16,15 +16,15 @@ import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
-import type { RealtimeInspectionAuthority } from "./inspect.ts"
+import type { RealtimeInspectionDriver } from "./inspect.ts"
 import type { DiscoveredRealtimeDefinition, RealtimeOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import unavailable from "./internal/runtime/unavailable.ts"
 
 /** Where a contributed definition runs. */
 export interface RealtimeContributionContext {
-  /** The room authority of this build. Contributions only run when there is one. */
-  authority: "cloudflare" | "memory"
+  /** The driver that runs the rooms of this build. Contributions only run when there is one. */
+  driver: "cloudflare" | "memory"
   /** `.vitehub/nitro/realtime`, for generated definition files. */
   directory: string
   projectRoot: string
@@ -42,8 +42,8 @@ export interface RealtimeContribution {
 export interface RealtimeVitePluginOptions extends RealtimeOptions {
   importBase?: string
   /**
-   * Adds definitions owned by another package. It runs only when the build has a room authority (Cloudflare Durable
-   * Objects, or memory in development or with `authority: 'memory'`). Without one, Realtime leaves the contribution
+   * Adds definitions owned by another package. It runs only when the build has a room driver (Cloudflare Durable
+   * Objects, or memory in development or with `driver: 'memory'`). Without one, Realtime leaves the contribution
    * out without an error, so the contributing feature can fall back.
    */
   contribute?: (context: RealtimeContributionContext) => Promise<RealtimeContribution | undefined> | RealtimeContribution | undefined
@@ -52,8 +52,8 @@ export interface RealtimeVitePluginOptions extends RealtimeOptions {
 export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
 
 export interface RealtimeInspectionOptions {
-  /** Resolved room authority. Defaults to `auto`. */
-  authority?: RealtimeInspectionAuthority
+  /** Resolved driver. Defaults to `auto`. */
+  driver?: RealtimeInspectionDriver
   projectRoot: string
   serverDirs?: string[]
   /** Definitions other packages contributed to this build, such as Content live editing. */
@@ -62,13 +62,13 @@ export interface RealtimeInspectionOptions {
 
 /**
  * Lists Realtime Definitions with their document adapter, editor codec, identity, authorization,
- * persistence, and room authority, read statically from each definition file.
+ * persistence, and driver, read statically from each definition file.
  */
 export async function inspectRealtimeDefinitions(options: RealtimeInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
   return await summarizeRealtimeDefinitions(
     options.projectRoot,
     [...discoverRealtimeDefinitions(options.projectRoot, options.serverDirs), ...options.contributed ?? []],
-    options.authority ?? "auto",
+    options.driver ?? "auto",
   )
 }
 
@@ -119,7 +119,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
   let inspectionServerDirs: string[] | undefined
-  let inspectionAuthority: RealtimeInspectionAuthority = options.authority ?? "auto"
+  let inspectionDriver: RealtimeInspectionDriver = options.driver ?? "auto"
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
   let hasRoomAuthority = false
   return {
@@ -131,7 +131,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           kind: "realtime",
           label: "Realtime",
           list: () => inspectRealtimeDefinitions({
-            authority: inspectionAuthority,
+            driver: inspectionDriver,
             projectRoot: inspectionRoot ?? resolveViteHubProjectRoot(process.cwd(), options),
             serverDirs: inspectionServerDirs,
             contributed: inspectionContributed,
@@ -149,17 +149,17 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const nitro = { ...(config as { nitro?: NitroConfig }).nitro }
       const deploymentPreset = resolveHost({ nitro })
       const provider = getHostingProvider(deploymentPreset)
-      const authority = options.authority || "auto"
+      const driver = options.driver || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
-      // The authority a contribution may rely on. Configurations that fail below have none.
-      const available: RealtimeContributionContext["authority"] | undefined
-        = authority === "cloudflare" ? (!deploymentPreset || deploymentPreset === "cloudflare" ? "cloudflare" : undefined)
-          : authority === "auto" && provider === "cloudflare" ? "cloudflare"
-            : authority === "memory" ? (!deploymentPreset || deploymentPreset === "node" ? "memory" : undefined)
+      // The driver a contribution may rely on. Configurations that fail below have none.
+      const available: RealtimeContributionContext["driver"] | undefined
+        = driver === "cloudflare" ? (!deploymentPreset || deploymentPreset === "cloudflare" ? "cloudflare" : undefined)
+          : driver === "auto" && provider === "cloudflare" ? "cloudflare"
+            : driver === "memory" ? (!deploymentPreset || deploymentPreset === "node" ? "memory" : undefined)
               : environment?.command !== "build" ? "memory" : undefined
       hasRoomAuthority = Boolean(available)
       const contribution = available && options.contribute
-        ? await options.contribute({ authority: available, directory, projectRoot: root, serverDirs })
+        ? await options.contribute({ driver: available, directory, projectRoot: root, serverDirs })
         : undefined
       const definitions = [
         ...discovered,
@@ -206,12 +206,12 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
         ].join("\n")),
       ])
 
-      if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", preset: deploymentPreset })
+      if (driver === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
+        throw realtimeErrorDiagnostics.REALTIME_DRIVER_CONFLICT({ driver: "cloudflare", preset: deploymentPreset })
       }
       let durablePlugin: string | undefined
-      if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
-        inspectionAuthority = "cloudflare"
+      if (driver === "cloudflare" || (driver === "auto" && provider === "cloudflare")) {
+        inspectionDriver = "cloudflare"
         configureCloudflareRealtime(nitro, (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: number })[VITEHUB_NITRO_MAJOR_VERSION] === 2)
         // Nitro 2 upgrades sockets in the Durable Object with only the request in hand: give Realtime its storage.
         durablePlugin = resolve(directory, "durable-object.mjs")
@@ -228,14 +228,14 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           "",
         ].join("\n"))
       }
-      else if (isProductionBuild(config, environment) && authority === "auto") {
-        throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
+      else if (isProductionBuild(config, environment) && driver === "auto") {
+        throw realtimeErrorDiagnostics.REALTIME_MISSING_DRIVER()
       }
-      else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "memory", preset: deploymentPreset })
+      else if (driver === "memory" && deploymentPreset && deploymentPreset !== "node") {
+        throw realtimeErrorDiagnostics.REALTIME_DRIVER_CONFLICT({ driver: "memory", preset: deploymentPreset })
       }
-      if (authority === "memory" || (authority === "auto" && environment?.command !== "build" && inspectionAuthority !== "cloudflare")) {
-        inspectionAuthority = "memory"
+      if (driver === "memory" || (driver === "auto" && environment?.command !== "build" && inspectionDriver !== "cloudflare")) {
+        inspectionDriver = "memory"
       }
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)

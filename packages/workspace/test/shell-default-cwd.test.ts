@@ -13,7 +13,7 @@ describe("Workspace Shell working directory", () => {
     { provider: "/workspace/docs", exec: "/workspace", cwd: "/workspace", content: "root" },
   ])("executes and reports cwd $cwd with provider $provider and exec $exec", async ({ provider, exec, cwd, content }) => {
     const name = `shell-default-cwd-${provider}-${exec}`
-    registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(name, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(name, { mode: "write" })
     await workspace.fs.writeFile("notes.md", "root")
     await workspace.fs.writeFile("docs/notes.md", "nested")

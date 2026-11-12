@@ -12,7 +12,7 @@ const handler = vi.fn()
 beforeEach(async () => {
   await mode.reset()
   handler.mockClear()
-  setWorkflowRuntimeConfig({ provider: "openworkflow" })
+  setWorkflowRuntimeConfig({ driver: "openworkflow" })
   setWorkflowRuntimeRegistry({ onboarding: async () => ({ handler }), digest: async () => ({ handler }) })
 })
 
@@ -84,14 +84,14 @@ it("rejects unknown Definitions before starts and cancellations, and logs deferr
 })
 
 it.each(["cloudflare", "vercel"] as const)("preserves unsupported %s cancellation", async (provider) => {
-  setWorkflowRuntimeConfig({ provider })
+  setWorkflowRuntimeConfig({ driver: provider })
   const run = await startWorkflow("onboarding", {})
   await expect(cancelWorkflow("onboarding", run.id)).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider } })
   expect(await getWorkflowRun("onboarding", run.id)).toMatchObject({ status: "queued" })
 })
 
 it("rejects caller run IDs for native Vercel Workflows but captures supported starts and cancellations", async () => {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({ onboarding: async () => ({ handler, options: { native: handler } }) })
   await expect(startWorkflow("onboarding", {}, { id: "custom" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
   expect(mode.peek("workflow")).toBeUndefined()
@@ -100,7 +100,7 @@ it("rejects caller run IDs for native Vercel Workflows but captures supported st
 })
 
 it.each(["cloudflare", "openworkflow", "vercel"] as const)("rejects %s signals without loading a provider", async (provider) => {
-  setWorkflowRuntimeConfig({ provider })
+  setWorkflowRuntimeConfig({ driver: provider })
   const loadProvider = vi.fn(async () => { throw new Error("provider must not load") })
   setVercelWorkflowRuntimeLoader(loadProvider)
   await expect(resumeWorkflow("valid-hook-token", {})).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider } })

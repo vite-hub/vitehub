@@ -58,7 +58,7 @@ function readRemote(config: KVStoreConfig | InferredKVStoreConfig, store: string
 /** Applies `vite dev` mode: hosted stores are marked remote, and a Cloudflare store gets its local fallback. */
 function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefined): ResolvedKVStoreConfig {
   if (store.driver === "upstash") return { ...store, remote: true }
-  if (store.driver !== "cloudflare-kv-binding") return store
+  if (store.driver !== "cloudflare") return store
   return remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
@@ -96,7 +96,7 @@ function resolveCloudflareStore(
       namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID"),
       namespaceName: trimmed(config.namespaceName),
     },
-    { driver: "cloudflare-kv-binding" as const, binding: "KV" },
+    { driver: "cloudflare" as const, binding: "KV" },
   )
 }
 
@@ -117,7 +117,7 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
 
 function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>, name: string): ResolvedKVStoreConfig {
   switch (store.driver) {
-    case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "cloudflare": return resolveCloudflareStore(store, env)
     case "database": return resolveDatabaseStore(store, name)
     case "deno-kv": return resolveDenoStore(store)
     case "fs-lite": return resolveFsLiteStore(store)

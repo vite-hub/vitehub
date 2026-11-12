@@ -127,7 +127,7 @@ describe("kv operations", () => {
   it("reports the effective Cloudflare TTL when fractional seconds are rounded", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handle({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }, [{ driver: "cloudflare-kv-binding", name: "default" }])
+      const response = await handle({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }, [{ driver: "cloudflare", name: "default" }])
       expect(set).toHaveBeenCalledWith("fractional", "x", { ttl: 61 })
       expect(await response.json()).toMatchObject({ ttl: 61, notice: expect.stringContaining("61 seconds") })
     }
@@ -230,7 +230,7 @@ describe("kv operations", () => {
   it("says whether a key can expire, since no driver reports the time left", async () => {
     await run({ key: "ephemeral", operation: "set", value: "x" })
     expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "none" })
-    for (const driver of ["cloudflare-kv-binding", "upstash", "deno-kv"] as const) {
+    for (const driver of ["cloudflare", "upstash", "deno-kv"] as const) {
       const response = await handle({ key: "ephemeral", operation: "get" }, [{ driver, name: "default" }])
       expect(await response.json()).toMatchObject({ expiry: "unknown", found: true })
     }
@@ -240,7 +240,7 @@ describe("kv operations", () => {
   it("clamps Cloudflare TTL before calling storage", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handle({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }, [{ driver: "cloudflare-kv-binding", name: "default" }])
+      const response = await handle({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }, [{ driver: "cloudflare", name: "default" }])
       expect(response.status).toBe(200)
       expect(set).toHaveBeenCalledWith("clamped", "x", { ttl: 60 })
       expect(await response.json()).toMatchObject({ ttl: 60, notice: expect.stringContaining("60 seconds") })

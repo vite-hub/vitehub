@@ -2,7 +2,7 @@ import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
-import type { QueueEnqueueOptions, QueueProvider } from "./types.ts"
+import type { QueueDriver, QueueEnqueueOptions } from "./types.ts"
 import { queueErrorDiagnostics, type QueueProviderOperation } from "./error-diagnostics.ts"
 
 export type { QueueProviderOperation }
@@ -17,7 +17,7 @@ const unsupportedEnqueueOptions = {
 } as const
 
 /** Shared pre-dispatch option validation for provider clients and the test backend. */
-export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueProvider, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
+export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueDriver, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
   const unsupported = names.filter(option => options[option] !== undefined)
   return unsupported.length
     ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider })
@@ -51,7 +51,7 @@ export function normalizePublicQueueIdentifier(value: unknown): string | undefin
  * Any failure becomes `QUEUE_PROVIDER_FAILED` with the failure in `cause`.
  */
 export async function queueProviderResult<TData>(
-  provider: QueueProvider,
+  provider: QueueDriver,
   operation: QueueProviderOperation,
   run: () => Promise<TData> | TData,
 ): Promise<Result<TData, "QUEUE_PROVIDER_FAILED">> {

@@ -168,20 +168,20 @@ function babelStaticObjectProperties(node: BabelNode | undefined): BabelNode[] |
 }
 
 /**
- * Reads a store from the source of a Definition's default export when its provider cannot change when the module runs
- * again: `{}` for no store or a custom Store, `{ provider }` for a hosted store, and `undefined` when the source does not
+ * Reads a store from the source of a Definition's default export when its driver cannot change when the module runs
+ * again: `{}` for no store or a custom Store, `{ driver }` for a hosted store, and `undefined` when the source does not
  * show it. Comments do not count, because this reads the syntax tree.
  */
 async function readStaticWorkspaceStore(
   file: string,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   exportedName = "default",
-): Promise<{ provider?: string } | undefined> {
+): Promise<{ driver?: string } | undefined> {
   // Indirect and contributed exports keep every loader unless we can establish their store contract here.
   if (exportedName !== "default") return
   const loaded = await readSourceModule(file)
   if (!loaded) return
-  let staticStore: { provider?: string } | undefined
+  let staticStore: { driver?: string } | undefined
   loader.transform({
     filename: loaded.file,
     jsx: extname(loaded.file).endsWith("x"),
@@ -218,10 +218,10 @@ async function readStaticWorkspaceStore(
               if (readFile.type === "ObjectMethod" && readFile.kind === "method") staticStore = {}
               return
             }
-            const provider = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "provider")
+            const driver = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "driver")
             // SAFETY: An ObjectProperty's value is an expression node.
-            const providerValue = provider?.type === "ObjectProperty" ? unwrapBabelExpression(provider.value as BabelNode) : undefined
-            if (providerValue?.type === "StringLiteral" && typeof providerValue.value === "string") staticStore = { provider: providerValue.value }
+            const driverValue = driver?.type === "ObjectProperty" ? unwrapBabelExpression(driver.value as BabelNode) : undefined
+            if (driverValue?.type === "StringLiteral" && typeof driverValue.value === "string") staticStore = { driver: driverValue.value }
           },
         },
       })],
@@ -258,7 +258,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     }
     catch (error) {
       const store = await readStaticWorkspaceStore(definitionFile, loader, definition.export)
-      if (!store || store.provider === "cloudflare-artifacts") {
+      if (!store || store.driver === "cloudflare") {
         throw workspaceErrorDiagnostics.WORKSPACE_B0005({
           cause: error,
           message: `[vitehub] Workspace "${definition.name}" sets a store that may need a Cloudflare Artifacts binding, but the build cannot load ${definitionFile} to read it: ${error instanceof Error ? error.message : String(error)}`,
@@ -279,8 +279,8 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
       rootDir: workspace.rootDir || rootDir,
     })
-    if (config && isHostedWorkspaceStore(config.store)) options.storeUsage?.add(config.store.provider)
-    if (config && config.store.provider === "cloudflare-artifacts") {
+    if (config && isHostedWorkspaceStore(config.store)) options.storeUsage?.add(config.store.driver)
+    if (config && config.store.driver === "cloudflare") {
       configs.push(config)
       options.definitionOverrides?.set(definition.name, config)
     }
@@ -301,7 +301,7 @@ async function resolveCloudflareArtifactsConfigs(
   } = {},
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   return [
-    ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
+    ...(config.store.driver === "cloudflare" ? [config] : []),
     ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, options),
   ]
 }
@@ -446,18 +446,18 @@ function workspaceDefinitionLoaderAliases(aliases: AliasOptions): Record<string,
   ))
 }
 
-type HostedWorkspaceStoreProvider = "cloudflare-artifacts" | "github" | "vercel-blob"
+type HostedWorkspaceStoreDriver = "cloudflare" | "github" | "vercel"
 
-const hostedWorkspaceStoreProviders: readonly HostedWorkspaceStoreProvider[] = ["cloudflare-artifacts", "github", "vercel-blob"]
+const hostedWorkspaceStoreDrivers: readonly HostedWorkspaceStoreDriver[] = ["cloudflare", "github", "vercel"]
 
 /**
- * What a build learned about the stores of the discovered definitions: a hosted provider, `default` for a definition
+ * What a build learned about the stores of the discovered definitions: a hosted driver, `default` for a definition
  * without a store, or `unknown` for a definition the build could not load or whose store may change at runtime.
  */
-type WorkspaceDefinitionStoreUsage = Set<HostedWorkspaceStoreProvider | "default" | "unknown">
+type WorkspaceDefinitionStoreUsage = Set<HostedWorkspaceStoreDriver | "default" | "unknown">
 
-function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): store is Extract<ResolvedWorkspaceModuleOptions["store"], { provider: HostedWorkspaceStoreProvider }> {
-  return store.provider === "cloudflare-artifacts" || store.provider === "github" || store.provider === "vercel-blob"
+function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): store is Extract<ResolvedWorkspaceModuleOptions["store"], { driver: HostedWorkspaceStoreDriver }> {
+  return store.driver === "cloudflare" || store.driver === "github" || store.driver === "vercel"
 }
 
 /**
@@ -468,16 +468,16 @@ function resolveNitroHostedStoreProviders(
   config: false | ResolvedWorkspaceModuleOptions,
   definitionCount: number,
   storeUsage: WorkspaceDefinitionStoreUsage | undefined,
-): Set<HostedWorkspaceStoreProvider> {
-  const configProvider = config && isHostedWorkspaceStore(config.store) ? config.store.provider : undefined
-  if (!storeUsage) return new Set(configProvider || definitionCount > 0 ? hostedWorkspaceStoreProviders : [])
-  if (storeUsage.has("unknown")) return new Set(hostedWorkspaceStoreProviders)
-  const providers = new Set<HostedWorkspaceStoreProvider>(configProvider ? [configProvider] : [])
+): Set<HostedWorkspaceStoreDriver> {
+  const configProvider = config && isHostedWorkspaceStore(config.store) ? config.store.driver : undefined
+  if (!storeUsage) return new Set(configProvider || definitionCount > 0 ? hostedWorkspaceStoreDrivers : [])
+  if (storeUsage.has("unknown")) return new Set(hostedWorkspaceStoreDrivers)
+  const providers = new Set<HostedWorkspaceStoreDriver>(configProvider ? [configProvider] : [])
   for (const usage of storeUsage) {
     if (usage === "unknown") continue
     // A definition without a store uses the runtime config. Without one, `BLOB_STORE_ID` at runtime selects Vercel Blob.
     if (usage === "default") {
-      if (!config) providers.add("vercel-blob")
+      if (!config) providers.add("vercel")
       continue
     }
     providers.add(usage)
@@ -698,9 +698,9 @@ function runtimeWorkspaceConfig(
   options: false | WorkspaceOptions | undefined,
   cloudflareRuntime: boolean,
 ): false | ResolvedWorkspaceModuleOptions {
-  if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
+  if (!cloudflareRuntime || !config || config.store.driver !== "github" || !options) return config
   const store = options.store
-  if (!store || isWorkspaceStore(store) || store.provider !== "github") return config
+  if (!store || isWorkspaceStore(store) || store.driver !== "github") return config
   const runtimeStore = { ...config.store }
   const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
   for (const key of ["branch", "root", "token"] as const) {
@@ -725,31 +725,31 @@ function runtimeWorkspaceConfig(
   return { ...config, store: runtimeStore }
 }
 
-const hostedStoreInstallers: Record<HostedWorkspaceStoreProvider, { entry: string, name: string }> = {
-  "cloudflare-artifacts": { entry: "hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
+const hostedStoreInstallers: Record<HostedWorkspaceStoreDriver, { entry: string, name: string }> = {
+  "cloudflare": { entry: "hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
   "github": { entry: "hosted", name: "installHostedGitHubWorkspaceStore" },
-  "vercel-blob": { entry: "hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
+  "vercel": { entry: "hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
 }
 
 function renderNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   registryImport: string,
-  hostedStores: ReadonlySet<HostedWorkspaceStoreProvider>,
+  hostedStores: ReadonlySet<HostedWorkspaceStoreDriver>,
   cloudflareRuntime: boolean,
 ): string {
   // A light module: the Workspace core loads on the first Workspace call, not at server startup.
   const runtimeImport = ownModule(import.meta.url, "runtime/registry")
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
-  const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
+  const isVercelBlobStore = hostedConfig?.store.driver === "vercel"
   const configure = hostedConfig
     ? isVercelBlobStore
       ? { entry: "hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
       : { entry: "hosted", name: "configureHostedWorkspaceRuntime" }
     : undefined
   // `configure*` installs the store of the runtime config itself.
-  const installers = hostedWorkspaceStoreProviders
-    .filter(provider => hostedStores.has(provider) && provider !== hostedConfig?.store.provider)
-    .map(provider => hostedStoreInstallers[provider])
+  const installers = hostedWorkspaceStoreDrivers
+    .filter(driver => hostedStores.has(driver) && driver !== hostedConfig?.store.driver)
+    .map(driver => hostedStoreInstallers[driver])
   const importsByEntry = new Map<string, string[]>()
   for (const { entry, name } of [...(configure ? [configure] : []), ...installers]) {
     importsByEntry.set(entry, [...importsByEntry.get(entry) ?? [], name])
@@ -942,7 +942,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
         hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
-      const runtimeOptions = resolvedHosting && normalized && normalized.store.provider !== "local"
+      const runtimeOptions = resolvedHosting && normalized && normalized.store.driver !== "local"
         ? { ...workspaceOptions, store: workspaceOptions && workspaceOptions.store ? workspaceOptions.store : normalized.store }
         : workspaceOptions
       const viteConfig: Omit<UserConfig, "plugins"> = {

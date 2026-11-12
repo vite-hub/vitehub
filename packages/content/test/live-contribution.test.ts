@@ -30,7 +30,7 @@ describe("contributeContentRealtime", () => {
     const root = await project(`{ ${collections} }`)
     const directory = join(root, ".vitehub/nitro/realtime")
     const contribution = await contributeContentRealtime({
-      authority: "memory",
+      driver: "memory",
       console: { module: "vite-hub/console/sections", section: "content" },
       contentImport: "vite-hub/content/realtime",
       directory,
@@ -48,14 +48,14 @@ describe("contributeContentRealtime", () => {
   it("reaches the Durable Object of each room on Cloudflare, and uses the app session without the Console", async () => {
     const root = await project(`{ ${collections} }`)
     const directory = join(root, ".vitehub/nitro/realtime")
-    await contributeContentRealtime({ authority: "cloudflare", contentImport: "vite-hub/content/realtime", directory, projectRoot: root, realtimeImport: "vite-hub/realtime/server" })
+    await contributeContentRealtime({ driver: "cloudflare", contentImport: "vite-hub/content/realtime", directory, projectRoot: root, realtimeImport: "vite-hub/realtime/server" })
     expect(await readFile(join(directory, "content.mjs"), "utf8")).toContain("export default contentRealtime(content)")
     expect(await readFile(join(directory, "content-live.mjs"), "utf8")).toContain("{ durableObjects: env.$DurableObject }")
   })
 
   it("contributes nothing with live: false or without collections", async () => {
     const off = await project(`{ ${collections}, live: false }`)
-    const options = { authority: "memory" as const, contentImport: "x", realtimeImport: "y" }
+    const options = { driver: "memory" as const, contentImport: "x", realtimeImport: "y" }
     await expect(contributeContentRealtime({ ...options, directory: join(off, "out"), projectRoot: off })).resolves.toBeUndefined()
     const sourcesOnly = await project("{}")
     await expect(contributeContentRealtime({ ...options, directory: join(sourcesOnly, "out"), projectRoot: sourcesOnly })).resolves.toBeUndefined()

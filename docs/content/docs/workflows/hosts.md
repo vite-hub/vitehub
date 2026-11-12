@@ -6,13 +6,13 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
-| Provider | Configure with | Provider output | Nuance |
+| Driver | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. |
-| Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
-| OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker and runtime. | Choose Postgres or SQLite for deployment. Set `postgres.url` or `sqlite.path`, not both. |
+| Cloudflare | `workflow: { driver: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. |
+| Vercel | `workflow: { driver: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
+| OpenWorkflow | `workflow: { driver: 'openworkflow', postgres: { url } }` or `workflow: { driver: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker and runtime. | Choose Postgres or SQLite for deployment. Set `postgres.url` or `sqlite.path`, not both. |
 
 ### Install Vercel dependencies
 

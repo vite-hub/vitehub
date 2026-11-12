@@ -83,7 +83,7 @@ export function defaultDatabaseD1Binding(
   const definition = config?.definitions.find(item => item.name === target.name)
   if (definition && isImplicitDefaultDatabase(definition)) return config?.definitionDefaults.cloudflareProjections[target.name]?.binding
   return config?.databases[target.name]?.cloudflare?.binding
-    ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
+    ?? (options?.driver === "cloudflare" ? options.binding?.trim() || "DB" : undefined)
 }
 
 /**

@@ -32,7 +32,7 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Deploy to Cloudflare
 
-With the `cloudflare` preset, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
+With the `cloudflare` preset, ViteHub uses the Cloudflare driver and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

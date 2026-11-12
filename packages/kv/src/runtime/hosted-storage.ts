@@ -59,7 +59,7 @@ export function kvRemoteNotice(name: string, store: ResolvedKVStoreConfig): stri
   if (store.driver === "upstash" && store.remote) {
     return `[vitehub] KV store "${name}" is remote: \`vite dev\` uses the real Upstash database. Writes change real data.`
   }
-  if (store.driver === "cloudflare-kv-binding" && store.remote) {
+  if (store.driver === "cloudflare" && store.remote) {
     const namespace = store.namespaceId ? ` ${store.namespaceId}` : ""
     return `[vitehub] KV store "${name}" is remote: \`vite dev\` uses the real Cloudflare KV namespace${namespace} through the \`${store.binding}\` binding. Writes change real data.`
   }

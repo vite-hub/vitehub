@@ -6,14 +6,14 @@ navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
 Choose the provider in app or host config, not in the task.
 
-| Provider | Configure with | Host support |
+| Driver | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | `hubSandboxTask({ provider: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, with Vercel credentials set. |
-| Cloudflare Sandbox | `hubSandboxTask({ provider: 'cloudflare' })` or the `cloudflare` preset | Cloudflare Workers with the generated Container and Durable Object binding. |
+| Vercel Sandbox | `hubSandboxTask({ driver: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, with Vercel credentials set. |
+| Cloudflare Sandbox | `hubSandboxTask({ driver: 'cloudflare' })` or the `cloudflare` preset | Cloudflare Workers with the generated Container and Durable Object binding. |
 
 The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails at config time. Without a `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote machines that may bill you. There is no local provider.
 

@@ -268,7 +268,7 @@ describe("workflow runtime", () => {
     expect(load).not.toHaveBeenCalled()
   })
 
-  it.each([false, undefined, { provider: "vercel" }] satisfies Parameters<typeof setWorkflowRuntimeConfig>[0][])("validates signal tokens before configuration %j", async (config) => {
+  it.each([false, undefined, { driver: "vercel" }] satisfies Parameters<typeof setWorkflowRuntimeConfig>[0][])("validates signal tokens before configuration %j", async (config) => {
     setWorkflowRuntimeConfig(config)
 
     await expect(resumeWorkflow("", {})).rejects.toMatchObject({
@@ -281,7 +281,7 @@ describe("workflow runtime", () => {
     ["startWorkflow", () => startWorkflow("missing", {})],
     ["cancelWorkflow", () => cancelWorkflow("missing", "run-1")],
   ])("rejects missing definitions before %s provider dispatch", async (_operation, call) => {
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     setWorkflowRuntimeRegistry({})
 
     await expect(call()).rejects.toMatchObject({
@@ -344,7 +344,7 @@ describe("workflow runtime", () => {
   }
 
   it("defines inline workflows and returns a typed runtime handle", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     const workflow = createWorkflow<{ message: string }, { reply: string }>("inline-reply", async (payload) => ({
       reply: payload.message.toUpperCase(),
@@ -366,7 +366,7 @@ describe("workflow runtime", () => {
   })
 
   it("deduplicates inline runs with the same explicit id", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     let calls = 0
     let release!: () => void
     const pending = new Promise<void>(resolve => {
@@ -395,7 +395,7 @@ describe("workflow runtime", () => {
   })
 
   it("preserves failure metadata for repeated inline runs", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     const failure = new Error("inline failure")
     const workflow = createWorkflow("inline-failure-idempotent", async () => {
       throw failure
@@ -416,7 +416,7 @@ describe("workflow runtime", () => {
   })
 
   it("registers object-form handlers for named workflows", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     const workflow = createWorkflow<{ message: string }, { reply: string }>("object-inline-reply", {
       handler: async (payload) => ({
@@ -440,7 +440,7 @@ describe("workflow runtime", () => {
   })
 
   it("returns handles for discovered workflows without redefining them", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async (payload, { step }) => {
@@ -465,7 +465,7 @@ describe("workflow runtime", () => {
   })
 
   it("derives stable run ids from workflow handle options", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     const workflow = createWorkflow<
       { messageId: string, placeholderMessageId: string, threadId: string },
@@ -485,7 +485,7 @@ describe("workflow runtime", () => {
   })
 
   it("lets explicit run ids override workflow handle id resolvers", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     const workflow = createWorkflow("stable-id", async () => "ok", {
       id: () => "derived",
@@ -497,7 +497,7 @@ describe("workflow runtime", () => {
   })
 
   it("supports id resolvers on discovered workflow handles", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async (payload) => ({ payload }) },
@@ -518,7 +518,7 @@ describe("workflow runtime", () => {
   })
 
   it("rejects inline and discovered workflow duplicates", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       duplicate: async () => ({ default: { handler: async () => "discovered" } }),
     })
@@ -531,7 +531,7 @@ describe("workflow runtime", () => {
     const discovered = vi.fn(async () => "discovered")
     const inline = vi.fn(async () => "inline")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       mixed: async () => {
         createWorkflow("mixed", inline)
@@ -557,7 +557,7 @@ describe("workflow runtime", () => {
   it("uses a single inline definition registered by a discovered location entry", async () => {
     const inline = vi.fn(async () => "inline")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
         const chat = createWorkflow("legacy-chat-name", inline)
@@ -579,7 +579,7 @@ describe("workflow runtime", () => {
     const inline = vi.fn(async () => "inline")
     const helper = vi.fn(async () => "helper")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
         const chat = createWorkflow("legacy-chat-name", inline)
@@ -604,7 +604,7 @@ describe("workflow runtime", () => {
     const first = vi.fn(async () => "first")
     const second = vi.fn(async () => "second")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       first: async () => {
         const workflow = createWorkflow("legacy-name", first)
@@ -635,7 +635,7 @@ describe("workflow runtime", () => {
   it("does not resolve discovered workflows to unexported helper handles", async () => {
     const helper = vi.fn(async () => "helper")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
         createWorkflow("helper", helper)
@@ -650,7 +650,7 @@ describe("workflow runtime", () => {
   it("does not resolve non-object module loads to unexported inline handles", async () => {
     const helper = vi.fn(async () => "helper")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
         createWorkflow("helper", helper)
@@ -667,7 +667,7 @@ describe("workflow runtime", () => {
     const discovered = vi.fn(async () => "discovered")
     const helper = vi.fn(async () => "helper")
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       mixed: async () => {
         createWorkflow("helper", helper)
@@ -693,7 +693,7 @@ describe("workflow runtime", () => {
       releaseAlpha = resolve
     })
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       alpha: async () => {
         const workflow = createWorkflow("legacy-alpha", alpha)
@@ -728,7 +728,7 @@ describe("workflow runtime", () => {
       },
     }
     const options = {
-      config: { provider: "cloudflare" as const },
+      config: { driver: "cloudflare" as const },
       env: {},
       event: { id: "durable-1" },
       name: "durable",
@@ -758,7 +758,7 @@ describe("workflow runtime", () => {
   })
 
   it("persists serialized OpenWorkflow responses and decodes completed runs", async () => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("durable-open", async () => new Response("saved", {
       status: 201, headers: { "x-workflow": "durable" },
     }))
@@ -777,7 +777,7 @@ describe("workflow runtime", () => {
   })
 
   it("cancels pending OpenWorkflow runs of the same Workflow through the OpenWorkflow client", async () => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("cancel-open", async () => "done")
     const other = createWorkflow("cancel-other", async () => "done")
     const started = await workflow.start()
@@ -797,7 +797,7 @@ describe("workflow runtime", () => {
   })
 
   it("reports finished OpenWorkflow runs as they are instead of cancelling them", async () => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("cancel-finished", async () => "done")
     const started = await workflow.start()
     await vi.waitFor(() => expect(openWorkflowMock.runs.get(started.id)).toMatchObject({ output: expect.anything(), status: "completed" }))
@@ -807,7 +807,7 @@ describe("workflow runtime", () => {
   })
 
   it.each(["completed", "failed", "canceled"])("returns the terminal OpenWorkflow run when it becomes %s during cancellation", async (status) => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("cancel-race", async () => "done")
     const started = await workflow.start()
     const stored = openWorkflowMock.runs.get(started.id)
@@ -827,7 +827,7 @@ describe("workflow runtime", () => {
   })
 
   it.each(["pending", "running", "unknown", "missing", "foreign", "unreadable"])("preserves the OpenWorkflow cancellation error when the fresh read is %s", async (state) => {
-    const config = { provider: "openworkflow", sqlite: { path: ":memory:" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    const config = { driver: "openworkflow", sqlite: { path: ":memory:" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
     setWorkflowRuntimeConfig(config)
     const workflow = createWorkflow("cancel-error", async () => "done")
     const started = await workflow.start()
@@ -859,7 +859,7 @@ describe("workflow runtime", () => {
     const step = { do: stepDo } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { id: "run-1", payload: { message: "hello" } },
       name: "welcome",
@@ -883,7 +883,7 @@ describe("workflow runtime", () => {
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: { REQUEST_ID: "step" },
       event: { id: "run-1" },
       name: "welcome",
@@ -923,7 +923,7 @@ describe("workflow runtime", () => {
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       createNonRetryableError,
       env: {},
       event: { id: "run-1" },
@@ -988,8 +988,8 @@ describe("workflow runtime", () => {
     }
 
     const [first, second] = await Promise.all([
-      runCloudflareWorkflow({ config: { provider: "cloudflare" }, env: { REQUEST_ID: "first" }, event: { id: "first", payload: "first" }, name: "welcome", registry }),
-      runCloudflareWorkflow({ config: { provider: "cloudflare" }, env: { REQUEST_ID: "second" }, event: { id: "second", payload: "second" }, name: "welcome", registry }),
+      runCloudflareWorkflow({ config: { driver: "cloudflare" }, env: { REQUEST_ID: "first" }, event: { id: "first", payload: "first" }, name: "welcome", registry }),
+      runCloudflareWorkflow({ config: { driver: "cloudflare" }, env: { REQUEST_ID: "second" }, event: { id: "second", payload: "second" }, name: "welcome", registry }),
     ])
 
     expect(first).toEqual(await serializeResponse(toResponse({ after: "first", before: "first", payload: "first" })))
@@ -1002,7 +1002,7 @@ describe("workflow runtime", () => {
     const step = { do: stepDo } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { id: "run-1", payload: "start" },
       name: "pipeline",
@@ -1043,7 +1043,7 @@ describe("workflow runtime", () => {
     })
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { id: "run-after-write" },
       name: "agent",
@@ -1072,7 +1072,7 @@ describe("workflow runtime", () => {
     }
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { id: "run-1", payload: "start" },
       name: "flat",
@@ -1089,7 +1089,7 @@ describe("workflow runtime", () => {
     const step = { do: stepDo } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { id: "run-1", payload: "start" },
       name: "pipeline",
@@ -1130,7 +1130,7 @@ describe("workflow runtime", () => {
   })
 
   it("runs registered definitions through the Vercel provider", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async (payload, { step }) => {
@@ -1163,7 +1163,7 @@ describe("workflow runtime", () => {
         schema: "openworkflow",
         url: "postgres://localhost/vitehub",
       },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
@@ -1210,7 +1210,7 @@ describe("workflow runtime", () => {
     const config = {
       postgres: { url: "postgres://localhost/shared" },
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      provider: "openworkflow" as const,
+      driver: "openworkflow" as const,
     }
 
     const first = getOpenWorkflowRuntime(config)
@@ -1227,8 +1227,8 @@ describe("workflow runtime", () => {
   it("shares one OpenWorkflow backend for padded and unpadded Postgres URLs", async () => {
     const url = "postgres://localhost/shared%20workflow"
     const [padded, unpadded] = await Promise.all([
-      getOpenWorkflowRuntime({ provider: "openworkflow", postgres: { url: ` \t${url}\n ` } }),
-      getOpenWorkflowRuntime({ provider: "openworkflow", postgres: { url } }),
+      getOpenWorkflowRuntime({ driver: "openworkflow", postgres: { url: ` \t${url}\n ` } }),
+      getOpenWorkflowRuntime({ driver: "openworkflow", postgres: { url } }),
     ])
 
     expect(padded).toBe(unpadded)
@@ -1248,7 +1248,7 @@ describe("workflow runtime", () => {
         storage = nextStorage
         return current
       },
-      provider: "openworkflow",
+      driver: "openworkflow",
     } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
 
     const first = await getOpenWorkflowRuntime(config)
@@ -1257,7 +1257,7 @@ describe("workflow runtime", () => {
       runMigrations: false,
       schema: "first_schema",
     })
-    await expect(getOpenWorkflowRuntime({ provider: "openworkflow", postgres: firstStorage })).resolves.toBe(first)
+    await expect(getOpenWorkflowRuntime({ driver: "openworkflow", postgres: firstStorage })).resolves.toBe(first)
 
     const next = await getOpenWorkflowRuntime(config)
     expect(next).not.toBe(first)
@@ -1267,14 +1267,14 @@ describe("workflow runtime", () => {
       runMigrations: true,
       schema: "next_schema",
     })
-    await expect(getOpenWorkflowRuntime({ provider: "openworkflow", postgres: nextStorage })).resolves.toBe(next)
+    await expect(getOpenWorkflowRuntime({ driver: "openworkflow", postgres: nextStorage })).resolves.toBe(next)
   })
 
   it("resolves the current OpenWorkflow environment on each acquisition", async () => {
     process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/first"
-    const first = await getOpenWorkflowRuntime({ provider: "openworkflow" })
+    const first = await getOpenWorkflowRuntime({ driver: "openworkflow" })
     process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/next"
-    const next = await getOpenWorkflowRuntime({ provider: "openworkflow" })
+    const next = await getOpenWorkflowRuntime({ driver: "openworkflow" })
     expect(next).not.toBe(first)
     expect(openWorkflowMock.connect).toHaveBeenNthCalledWith(1, "postgres://localhost/first", {
       namespaceId: "production", schema: "openworkflow",
@@ -1283,7 +1283,7 @@ describe("workflow runtime", () => {
       namespaceId: "production", schema: "openworkflow",
     })
     process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/first"
-    await expect(getOpenWorkflowRuntime({ provider: "openworkflow" })).resolves.toBe(first)
+    await expect(getOpenWorkflowRuntime({ driver: "openworkflow" })).resolves.toBe(first)
     expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
   })
 
@@ -1291,7 +1291,7 @@ describe("workflow runtime", () => {
     const sqlite: { path?: string } = {}
     const config = {
       postgres: { url: "postgres://localhost/cached" },
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite,
     } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
     const runtime = await getOpenWorkflowRuntime(config)
@@ -1308,7 +1308,7 @@ describe("workflow runtime", () => {
     openWorkflowMock.connect.mockImplementationOnce(() => new Promise((_resolve, reject) => {
       rejectBackend = reject
     }))
-    const config = { provider: "openworkflow", postgres: { url: "postgres://localhost/reset-rejection" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    const config = { driver: "openworkflow", postgres: { url: "postgres://localhost/reset-rejection" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
     const failure = new Error("database unavailable")
     const rejected = expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ cause: failure })
     await vi.waitFor(() => expect(openWorkflowMock.connect).toHaveBeenCalledOnce())
@@ -1330,7 +1330,7 @@ describe("workflow runtime", () => {
     const config = {
       postgres: { url: "postgres://localhost/retry" },
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      provider: "openworkflow" as const,
+      driver: "openworkflow" as const,
     }
     openWorkflowMock.connect.mockRejectedValueOnce(failure)
 
@@ -1356,7 +1356,7 @@ describe("workflow runtime", () => {
 
     await Promise.all(["first", "second", "third"].map(url => getOpenWorkflowRuntime({
       postgres: { url: `postgres://localhost/${url}` },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })))
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1383,7 +1383,7 @@ describe("workflow runtime", () => {
     openWorkflowMock.connect.mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: singleStop })
     await getOpenWorkflowRuntime({
       postgres: { url: "postgres://localhost/single" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
 
     const singleFailure = await resetOpenWorkflowRuntime().catch(error => error)
@@ -1408,7 +1408,7 @@ describe("workflow runtime", () => {
     const config = {
       postgres: { url: "postgres://localhost/reset-race" },
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      provider: "openworkflow" as const,
+      driver: "openworkflow" as const,
     }
 
     const oldRuntime = getOpenWorkflowRuntime(config)
@@ -1436,7 +1436,7 @@ describe("workflow runtime", () => {
     process.env.OPENWORKFLOW_NAMESPACE_ID = "staging"
     process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/env"
     process.env.OPENWORKFLOW_SCHEMA = "workflow_schema"
-    setWorkflowRuntimeConfig({ provider: "openworkflow" })
+    setWorkflowRuntimeConfig({ driver: "openworkflow" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1451,7 +1451,7 @@ describe("workflow runtime", () => {
 
   it("runs registered definitions through the OpenWorkflow SQLite provider", async () => {
     setWorkflowRuntimeConfig({
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: {
         namespaceId: "local",
         path: ".data/workflow.sqlite",
@@ -1476,7 +1476,7 @@ describe("workflow runtime", () => {
     const path = join(root, ".data/workflow/openworkflow.sqlite")
     expect(existsSync(dirname(path))).toBe(false)
     setWorkflowRuntimeConfig({
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: {
         path,
         runMigrations: false,
@@ -1498,7 +1498,7 @@ describe("workflow runtime", () => {
   it("reads OpenWorkflow SQLite connection options from runtime environment", async () => {
     process.env.OPENWORKFLOW_NAMESPACE_ID = "local"
     process.env.OPENWORKFLOW_SQLITE_PATH = ".data/env-workflow.sqlite"
-    setWorkflowRuntimeConfig({ provider: "openworkflow" })
+    setWorkflowRuntimeConfig({ driver: "openworkflow" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1514,9 +1514,9 @@ describe("workflow runtime", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-spaced-path-"))
     const path = join(root, " workflow.sqlite ")
     try {
-      const config = normalizeWorkflowOptions({ provider: "openworkflow", sqlite: { path } })!
+      const config = normalizeWorkflowOptions({ driver: "openworkflow", sqlite: { path } })!
       const spaced = await getOpenWorkflowRuntime(config)
-      const unspaced = await getOpenWorkflowRuntime({ provider: "openworkflow", sqlite: { path: path.trim() } })
+      const unspaced = await getOpenWorkflowRuntime({ driver: "openworkflow", sqlite: { path: path.trim() } })
 
       expect(spaced).not.toBe(unspaced)
       expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledTimes(2)
@@ -1531,7 +1531,7 @@ describe("workflow runtime", () => {
   it("resolves OpenWorkflow SQLite connection options from runtime config env declarations", async () => {
     process.env.VITEHUB_WORKFLOW_DATABASE_URL = "file:.data/runtime-workflow.sqlite"
     setWorkflowRuntimeConfig({
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: {
         path: {
           default: "file:.data/default-workflow.sqlite",
@@ -1552,7 +1552,7 @@ describe("workflow runtime", () => {
   })
 
   it("uses local SQLite storage for the OpenWorkflow provider by default", async () => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow" })
+    setWorkflowRuntimeConfig({ driver: "openworkflow" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1567,7 +1567,7 @@ describe("workflow runtime", () => {
   it("rejects an unresolved database reference before opening fallback storage", async () => {
     await expect(getOpenWorkflowRuntime({
       database: "workflow",
-      provider: "openworkflow",
+      driver: "openworkflow",
     } as never)).rejects.toThrow(/workflow\.database.*not supported/)
 
     expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
@@ -1577,7 +1577,7 @@ describe("workflow runtime", () => {
   it.each(["runtime", "worker"] as const)("rejects conflicting explicit storage in the %s API before opening either backend", async (api) => {
     const config = {
       postgres: { url: "postgres://localhost/workflow" },
-      provider: "openworkflow" as const,
+      driver: "openworkflow" as const,
       sqlite: { path: ":memory:" },
     }
     const operation = api === "runtime"
@@ -1596,7 +1596,7 @@ describe("workflow runtime", () => {
       source: { kind: "env" as const, name: "VITEHUB_MISSING_WORKFLOW_STORAGE" },
     }
     await expect(getOpenWorkflowRuntime({
-      provider: "openworkflow",
+      driver: "openworkflow",
       ...(backend === "sqlite" ? { sqlite: { path: value } } : { postgres: { url: value } }),
     })).rejects.toThrow(/must resolve to a non-empty/)
 
@@ -1608,7 +1608,7 @@ describe("workflow runtime", () => {
     process.env.OPENWORKFLOW_SQLITE_PATH = ".data/other-workflow.sqlite"
     await getOpenWorkflowRuntime({
       postgres: { url: "postgres://localhost/selected" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
 
     expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
@@ -1629,7 +1629,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1643,7 +1643,7 @@ describe("workflow runtime", () => {
   it("narrows OpenWorkflow connection failures at the public boundary", async () => {
     const cause = new Error("provider-secret:connect")
     openWorkflowMock.sqliteConnect.mockImplementationOnce(() => { throw cause })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1671,7 +1671,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1699,7 +1699,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1728,7 +1728,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1759,7 +1759,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1800,7 +1800,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1847,7 +1847,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1885,7 +1885,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1915,7 +1915,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1949,7 +1949,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1961,7 +1961,7 @@ describe("workflow runtime", () => {
   })
 
   it("preserves OpenWorkflow configuration errors", async () => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: "https://provider.example/workflow.db" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: "https://provider.example/workflow.db" } })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -1978,7 +1978,7 @@ describe("workflow runtime", () => {
   it("creates an OpenWorkflow worker from the runtime registry", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
       worker: { concurrency: 3 },
     })
     setWorkflowRuntimeRegistry({
@@ -1996,7 +1996,7 @@ describe("workflow runtime", () => {
   it.each(["default", "direct"])("rejects mismatched names in %s OpenWorkflow registry definitions", async (shape) => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const definition = defineWorkflow("onboard", async () => ({ ok: true }))
     setWorkflowRuntimeRegistry({
@@ -2011,7 +2011,7 @@ describe("workflow runtime", () => {
   it("registers OpenWorkflow handlers created in another JavaScript realm", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     // SAFETY: Node's VM evaluates the exact async function literal owned by this test fixture.
     const handler = runInNewContext("(async () => ({ ok: true }))") as () => Promise<{ ok: boolean }>
@@ -2027,7 +2027,7 @@ describe("workflow runtime", () => {
   it("closes a partially started OpenWorkflow worker and normalizes startup failures", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const cause = new Error("worker startup failed")
     const stop = vi.fn(async () => {})
@@ -2048,7 +2048,7 @@ describe("workflow runtime", () => {
   it("keeps startup and cleanup failures when an OpenWorkflow worker cannot start", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const startError = new Error("worker startup failed")
     const stopError = new Error("worker cleanup failed")
@@ -2071,7 +2071,7 @@ describe("workflow runtime", () => {
   it("does not start and cleans up an OpenWorkflow worker for a pre-aborted signal", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const controller = new AbortController()
     const reason = new DOMException("cancelled", "AbortError")
@@ -2088,7 +2088,7 @@ describe("workflow runtime", () => {
   it("preserves an arbitrary abort reason while an OpenWorkflow worker starts", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const controller = new AbortController()
     const reason = new Error("cancelled")
@@ -2107,7 +2107,7 @@ describe("workflow runtime", () => {
   it("stops a partially started OpenWorkflow worker when startup is aborted", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const controller = new AbortController()
     const reason = new DOMException("cancelled", "AbortError")
@@ -2126,7 +2126,7 @@ describe("workflow runtime", () => {
   it("stops an OpenWorkflow worker again when startup succeeds after abort cleanup", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const controller = new AbortController()
     const reason = new DOMException("cancelled", "AbortError")
@@ -2148,7 +2148,7 @@ describe("workflow runtime", () => {
   it("owns OpenWorkflow worker listeners until a cached public stop fails", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const controller = new AbortController()
     const addEventListener = vi.spyOn(controller.signal, "addEventListener")
@@ -2190,7 +2190,7 @@ describe("workflow runtime", () => {
   it("reports abort-triggered OpenWorkflow worker stop failures after removing listeners", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const cause = new Error("stop failed")
     const stop = vi.fn(async () => { throw cause })
@@ -2228,7 +2228,7 @@ describe("workflow runtime", () => {
   it("reports process-triggered OpenWorkflow worker stop failures without returning a promise to the host", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const cause = new Error("stop failed")
     const stop = vi.fn(async () => { throw cause })
@@ -2264,7 +2264,7 @@ describe("workflow runtime", () => {
   it("registers inline workflow definitions in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     createWorkflow("inline-worker", async () => ({ ok: true }))
 
@@ -2276,7 +2276,7 @@ describe("workflow runtime", () => {
   it("ignores OpenWorkflow definitions whose handler is inherited", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const inherited = Object.create({ handler: async () => "inherited" })
     setWorkflowRuntimeRegistry({
@@ -2291,7 +2291,7 @@ describe("workflow runtime", () => {
   it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
@@ -2309,7 +2309,7 @@ describe("workflow runtime", () => {
   it("registers wrapped inline folder workflows in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     setWorkflowRuntimeRegistry({
       pipeline: async () => {
@@ -2335,7 +2335,7 @@ describe("workflow runtime", () => {
   it("rejects duplicate inline and discovered OpenWorkflow worker definitions", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     setWorkflowRuntimeRegistry({
       duplicate: async () => ({ default: { handler: async () => "discovered" } }),
@@ -2356,7 +2356,7 @@ describe("workflow runtime", () => {
       }
     })
 
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ welcome: entry })
 
     const firstRun = startWorkflow("welcome", { message: "first" }, { id: "first" })
@@ -2373,7 +2373,7 @@ describe("workflow runtime", () => {
   })
 
   it("throws for missing definitions", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
 
     await expect(startWorkflow("missing", {})).rejects.toMatchObject({
@@ -2382,7 +2382,7 @@ describe("workflow runtime", () => {
   })
 
   it("does not recurse when an inline registry entry registers no definition", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setWorkflowRuntimeRegistry({
       missing: async () => await startWorkflow("missing", {}),
@@ -2395,7 +2395,7 @@ describe("workflow runtime", () => {
 
   it("returns nonblocking status while local workflow runs are pending", async () => {
     let resolveRun: ((value: { ok: boolean }) => void) | undefined
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -2424,7 +2424,7 @@ describe("workflow runtime", () => {
   })
 
   it("scopes local workflow runs by name", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       one: async () => ({ default: { handler: async () => "one" } }),
       two: async () => ({ default: { handler: async () => "two" } }),
@@ -2488,7 +2488,7 @@ describe("workflow runtime", () => {
       settled: (promise: PromiseLike<unknown>) => settlementTasks.push(Promise.resolve(promise)),
       waitUntil,
     })
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -2557,7 +2557,7 @@ describe("workflow runtime", () => {
       resumeHook: vi.fn(),
       start: vi.fn(),
     }) as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => "inline", options: { native: async () => "native" } },
@@ -2592,7 +2592,7 @@ describe("workflow runtime", () => {
       resumeHook: vi.fn(),
       start: vi.fn(async () => run),
     }))
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => "inline", options: { native: Object.assign(async () => "native", { workflowId: "durable-welcome" }) } },
@@ -2621,7 +2621,7 @@ describe("workflow runtime", () => {
       resumeHook: vi.fn(),
       start: vi.fn(),
     }) as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => "inline", options: { native } } }),
     })
@@ -2645,7 +2645,7 @@ describe("workflow runtime", () => {
       workflowName: Promise.resolve(native.workflowId),
       ...overrides,
     }) as VercelRun
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => "inline", options: { native } },
@@ -2733,12 +2733,12 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => "inline" } }),
     })
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     await expect(cancelWorkflow("welcome", "inline-1")).rejects.toMatchObject({
       code: "WORKFLOW_OPERATION_UNSUPPORTED",
     })
 
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     await expect(resumeWorkflow("opaque", {})).rejects.toMatchObject({
       code: "WORKFLOW_OPERATION_UNSUPPORTED",
     })
@@ -2748,7 +2748,7 @@ describe("workflow runtime", () => {
     setVercelWorkflowRuntimeLoader(async () => {
       throw new Error("Cannot find package 'workflow'")
     })
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => "inline", options: { native: async () => "native" } },
@@ -2764,7 +2764,7 @@ describe("workflow runtime", () => {
   it("preserves custom and abort errors from the Vercel runtime loader", async () => {
     const custom = new ViteHubError("CUSTOM_RUNTIME_LOAD_FAILED", "Custom load failure.")
     const abort = new DOMException("cancelled", "AbortError")
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => "inline", options: { native: async () => "native" } },
@@ -2795,7 +2795,7 @@ describe("workflow runtime", () => {
       status: Promise.resolve("pending"),
       workflowName: Promise.resolve(native.workflowId),
     } satisfies VercelRun)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => "inline", options: { native } },
@@ -2868,7 +2868,7 @@ describe("workflow runtime", () => {
   })
 
   it("narrows every Cloudflare provider operation at the public boundary", async () => {
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -2904,7 +2904,7 @@ describe("workflow runtime", () => {
 
   it("rejects malformed Cloudflare workflow acknowledgements", async () => {
     const createBatch = vi.fn(async () => [{}])
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -2929,7 +2929,7 @@ describe("workflow runtime", () => {
 
   it("rejects Cloudflare workflow acknowledgements for a different run", async () => {
     const createBatch = vi.fn(async () => [{ id: "other-run" }])
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -2959,7 +2959,7 @@ describe("workflow runtime", () => {
       output: serialized,
       status: "complete",
     })
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
     enterWorkflowRuntimeEvent({
       req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
@@ -2977,7 +2977,7 @@ describe("workflow runtime", () => {
   })
 
   it("ignores inherited Cloudflare environment members as bindings", async () => {
-    setWorkflowRuntimeConfig({ binding: "toString", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "toString", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       inherited: async () => ({ default: { handler: async () => "inline" } }),
     })
@@ -2995,7 +2995,7 @@ describe("workflow runtime", () => {
     const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
     const get = vi.fn(async () => ({ id: "custom-run", status: async () => "complete" }))
     const generatedGet = vi.fn(async () => ({ id: "generated-run", status: async () => "failed" }))
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       [name]: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3020,7 +3020,7 @@ describe("workflow runtime", () => {
     Object.assign(load, { internalAgentInvocationRecovery: true as const })
     const status = vi.fn(async () => "complete")
     const generatedGet = vi.fn(async () => ({ id: "recovery-run", status }))
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({ [name]: load })
     enterWorkflowRuntimeEvent({
       req: { runtime: { cloudflare: { env: {
@@ -3045,7 +3045,7 @@ describe("workflow runtime", () => {
     const name = "vitehub-agent-invocation-recovery-welcome"
     const generatedCreateBatch = vi.fn(async () => [{ id: "recovery-run", status: async () => "queued" }])
     const customCreateBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       [name]: Object.assign(async () => ({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -3068,7 +3068,7 @@ describe("workflow runtime", () => {
 
   it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {
     const status = vi.fn(async () => { throw new Error("status unavailable") })
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3089,7 +3089,7 @@ describe("workflow runtime", () => {
 
   it("omits unsafe workflow names and caller run IDs from public errors", async () => {
     const unsafeName = "https://provider.example/private?token=provider-secret"
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
 
     const missing = await startWorkflow(unsafeName, {}).catch(error => error)
@@ -3114,7 +3114,7 @@ describe("workflow runtime", () => {
   })
 
   it("rejects invalid workflow module shapes as missing definitions", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       welcome: async () => ({ named: { handler: async () => ({ ok: true }) } }) as never,
@@ -3127,7 +3127,7 @@ describe("workflow runtime", () => {
 
   it("validates Cloudflare workflow names before binding dispatch", async () => {
     const createBatch = vi.fn()
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3150,7 +3150,7 @@ describe("workflow runtime", () => {
   })
 
   it("returns unknown when inline Vercel run state is unavailable", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     await expect(getWorkflowRun("welcome", "missing")).resolves.toMatchObject({
       provider: "vercel",
@@ -3159,7 +3159,7 @@ describe("workflow runtime", () => {
   })
 
   it("records synchronous workflow handler failures", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -3182,7 +3182,7 @@ describe("workflow runtime", () => {
 
   it("uses waitUntil for deferred workflow dispatch", async () => {
     const waitUntil = vi.fn()
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3201,7 +3201,7 @@ describe("workflow runtime", () => {
   it("logs a deferred start that fails and does not reject", async () => {
     const waitUntil = vi.fn()
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
     enterWorkflowRuntimeEvent({ waitUntil })
 
@@ -3226,7 +3226,7 @@ describe("workflow runtime", () => {
     }])
     const waitUntil = vi.fn()
 
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3259,7 +3259,7 @@ describe("workflow runtime", () => {
       .mockRejectedValueOnce(new Error("connection closed"))
       .mockResolvedValueOnce([])
     const get = vi.fn(async () => instance)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3287,7 +3287,7 @@ describe("workflow runtime", () => {
     const createBatch = vi.fn()
       .mockRejectedValueOnce(lostAcknowledgement)
       .mockRejectedValueOnce(retryFailure)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
@@ -3311,7 +3311,7 @@ describe("workflow runtime", () => {
     { providerStatus: "__proto__", status: "unknown" },
     { providerStatus: "COMPLETE", status: "completed" },
   ])("normalizes Cloudflare state $providerStatus to $status", async ({ providerStatus, status }) => {
-    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", driver: "cloudflare" })
     enterWorkflowRuntimeEvent({
       env: {
         WORKFLOW_CUSTOM: { get: async () => ({ status: async () => ({ status: providerStatus }) }) },
@@ -3327,7 +3327,7 @@ describe("workflow runtime", () => {
       status: vi.fn(async () => ({ status: "terminated" })),
     }))
 
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     enterWorkflowRuntimeEvent({
       req: {
         runtime: {
@@ -3350,7 +3350,7 @@ describe("workflow runtime", () => {
 describe("Workflow input dispatch", () => {
   it("does not dispatch when the definition is missing", async () => {
     const onDispatch = vi.fn()
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     enterWorkflowRuntimeEvent({ onDispatch })
     await expect(startWorkflow("missing-input-owner")).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
     expect(onDispatch).not.toHaveBeenCalled()
@@ -3358,7 +3358,7 @@ describe("Workflow input dispatch", () => {
 
   it("ignores inherited runtime observer callbacks", async () => {
     const onDispatch = vi.fn()
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     enterWorkflowRuntimeEvent(Object.create({ onDispatch }))
     const workflow = createWorkflow("inherited-observer", async () => "done")
 
@@ -3372,7 +3372,7 @@ describe("Workflow input dispatch", () => {
       expect(onDispatch).toHaveBeenCalledOnce()
       throw new Error("acknowledgement lost")
     })
-    setWorkflowRuntimeConfig({ provider: "cloudflare", binding: "INPUT_OWNER" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare", binding: "INPUT_OWNER" })
     enterWorkflowRuntimeEvent({ onDispatch, env: { INPUT_OWNER: { createBatch } } })
     const workflow = createWorkflow("input-owner", async () => "done")
     await expect(workflow.start()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
@@ -3386,7 +3386,7 @@ describe("Workflow input dispatch", () => {
       expect(openWorkflowMock.runOptions).toHaveLength(0)
     })
     if (fails) openWorkflowMock.sqliteConnect.mockImplementationOnce(() => { throw new Error("database unavailable") })
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     enterWorkflowRuntimeEvent({ onDispatch })
     const workflow = createWorkflow("input-owner", async () => "done")
     if (fails) await expect(workflow.start()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
@@ -3405,7 +3405,7 @@ describe("Workflow input dispatch", () => {
       if (fails) throw new Error("runtime unavailable")
       return { start, getRun: vi.fn(), listSteps: vi.fn(), resumeHook: vi.fn() }
     })
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       "input-owner": async () => ({ default: { handler: async () => "done", options: { native: async () => "native" } } }),
     })
@@ -3417,7 +3417,7 @@ describe("Workflow input dispatch", () => {
 
   it("dispatches before the inline fallback can execute", async () => {
     const onDispatch = vi.fn()
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     enterWorkflowRuntimeEvent({ onDispatch })
     const handler = vi.fn(async () => {
       expect(onDispatch).toHaveBeenCalledOnce()

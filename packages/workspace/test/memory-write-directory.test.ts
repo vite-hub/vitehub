@@ -9,7 +9,7 @@ afterEach(() => resetWorkspaceRegistry())
 
 describe("memory Workspace directory writes", () => {
   it.each([false, true])("preserves a directory through the public API (populated: %s)", async (populated) => {
-    registerWorkspace("directory-write", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("directory-write", defineWorkspace({ store: { driver: "memory" } }))
     const fs = useWorkspace("directory-write", { mode: "write" }).fs
     await fs.mkdir("notes")
     if (populated) await fs.writeFile("notes/keep.md", "keep")

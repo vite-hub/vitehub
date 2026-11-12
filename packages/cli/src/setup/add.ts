@@ -67,16 +67,16 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "cache.driver": { requires: "kv", values: ["kv"] },
   "email.driver": { values: ["resend"] },
   "kv.driver": { values: ["upstash"] },
-  "realtime.authority": { values: ["memory"] },
-  "workflow.provider": { values: ["openworkflow"] },
+  "realtime.driver": { values: ["memory"] },
+  "workflow.driver": { values: ["openworkflow"] },
 }
 
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
-const providerKeys = ["authority", "driver", "provider", "store"]
+const providerKeys = ["driver", "store"]
 
 function selectsProvider(id: FeatureId, value: JsonValue | undefined, host: DeploymentPreset): boolean {
   if (!isRecord(value)) return false
-  if (id === "workflow") return value.provider !== undefined || featurePackages(id, value, host).includes("openworkflow")
+  if (id === "workflow") return value.driver !== undefined || featurePackages(id, value, host).includes("openworkflow")
   return providerKeys.some(key => value[key] !== undefined)
 }
 
@@ -284,8 +284,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const support = featureSupport(id, host)
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const driver = args.options[id]?.driver ?? (current?.kind === "literal" && isRecord(current.value) ? current.value.driver : undefined)
-    if (id === "email" && driver === "cloudflare-email" && host !== "cloudflare") {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare-email driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), setupExitCodes.conflict)
+    if (id === "email" && driver === "cloudflare" && host !== "cloudflare") {
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), setupExitCodes.conflict)
     }
     if (support.level === "unsupported") {
       throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), setupExitCodes.conflict)
@@ -329,14 +329,14 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
       throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
     }
-    if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
+    if (id === "realtime" && isRecord(value) && value.driver !== undefined) {
       const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
-      if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
+      if (typeof value.driver !== "string" || !choices.includes(value.driver)) {
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.driver must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
     }
     if (id === "cache" && isRecord(value) && value.driver !== undefined) {
-      const nativeDriver = { cloudflare: "cloudflare-kv-binding", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel-runtime-cache" }[host]
+      const nativeDriver = { cloudflare: "cloudflare", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel" }[host]
       if (value.driver !== "kv" && value.driver !== nativeDriver) {
         throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }

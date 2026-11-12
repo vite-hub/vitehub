@@ -11,13 +11,13 @@ export interface HostedVercelBlobWorkspaceRuntimeOptions {
   assets?: boolean | string[]
   env?: Record<string, string | undefined>
   root?: string
-  store?: Partial<VercelBlobWorkspaceStoreOptions> & { provider: "vercel-blob" }
+  store?: Partial<VercelBlobWorkspaceStoreOptions> & { driver: "vercel" }
 }
 
 export function installHostedVercelBlobWorkspaceRuntime(): void {
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
-    if (storeOptions.provider === "vercel-blob") return createVercelBlobWorkspaceStore(storeOptions, workspaceName)
+    if (storeOptions.driver === "vercel") return createVercelBlobWorkspaceStore(storeOptions, workspaceName)
     return existingWorkspaceHostedStoreLoader?.(storeOptions, workspaceName)
   })
 }

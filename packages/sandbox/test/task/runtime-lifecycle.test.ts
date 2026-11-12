@@ -65,8 +65,8 @@ beforeEach(() => {
   runtimeMocks.resolveTaskSandbox.mockReset()
   runtimeMocks.sleep.mockClear()
   runtimeMocks.resolveTaskSandbox.mockImplementation(async ({ provider }) => ({
-    closeAfterRun: provider.provider === "cloudflare" ? provider.keepAlive === true : true,
-    provider: provider.provider,
+    closeAfterRun: provider.driver === "cloudflare" ? provider.keepAlive === true : true,
+    provider: provider.driver,
     resolveSandbox: runtimeMocks.resolveProviderSandbox,
     sandboxId: provider.sandboxId,
   }))
@@ -79,7 +79,7 @@ beforeEach(() => {
 
 describe("Sandbox runtime lifecycle", () => {
   it("rejects inherited runtime registry definitions", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry(Object.create({ inherited: definition }))
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
 
@@ -99,7 +99,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("composes Cloudflare through Sandbox and closes a unique default session", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
 
@@ -115,7 +115,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("surfaces cleanup failures for unique default Cloudflare sessions", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
     runtimeMocks.close.mockRejectedValueOnce(new Error("destroy failed"))
@@ -128,7 +128,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("rejects removed Definition options before resolving a provider", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({
       example: {
         ...definition,
@@ -144,7 +144,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("rejects invalid Definition timeouts before resolving a provider", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({
       example: {
         ...definition,
@@ -162,7 +162,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("keeps configured and per-run Cloudflare identity overrides", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "configured" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare", sandboxId: "configured" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
 
@@ -174,7 +174,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("forwards an invocation signal to Sandbox startup and execution", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
     const signal = new AbortController().signal
@@ -196,7 +196,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("preserves an external abort reason", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     const controller = new AbortController()
     const reason = new DOMException("request disconnected", "AbortError")
@@ -207,7 +207,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("runs default Cloudflare executions in distinct Sandboxes", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     const releases: Array<() => void> = []
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async () => await new Promise(resolve => {
@@ -227,7 +227,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("keeps an aborted queued run from releasing a shared Sandbox slot early", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "shared" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare", sandboxId: "shared" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     const releases: Array<() => void> = []
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async () => await new Promise(resolve => {
@@ -257,7 +257,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("holds an actively cancelled shared Sandbox until execution and destruction settle", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "active-cancellation" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare", sandboxId: "active-cancellation" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     let finishExecution!: () => void
     const execution = new Promise<void>(resolve => { finishExecution = resolve })
@@ -296,7 +296,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("closes the Sandbox session after failed definitions", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "vercel" })
+    setSandboxTaskRuntimeConfig({ driver: "vercel" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockRejectedValue(new Error("definition failed"))
 
@@ -308,7 +308,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("does not replay timed out Cloudflare definitions", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockRejectedValue(sandboxTaskError("definition timed out", {
       code: "SANDBOX_TASK_TIMEOUT",
@@ -325,7 +325,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("does not replay Cloudflare definitions whose handler errors look transient", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async (...args) => {
       const lifecycle = args[6] as { onHandlerStart?: () => void }
@@ -347,7 +347,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("retries transient Cloudflare failures while Definition staging is still safe", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition
       .mockRejectedValueOnce(new Error("[vitehub] Cloudflare Sandbox exists failed: [vitehub] Cloudflare Sandbox exists timed out after 15000ms."))
@@ -368,7 +368,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("retries Cloudflare initialization timeouts even when cleanup also times out", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.open
       .mockRejectedValueOnce(new AggregateError(
@@ -392,7 +392,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("retries transient Cloudflare failures before Definition execution starts", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.open
       .mockRejectedValueOnce(new Error("container is starting"))
@@ -410,7 +410,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("closes Cloudflare when keepAlive disables idle shutdown", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare", keepAlive: true })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare", keepAlive: true })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
 
@@ -422,7 +422,7 @@ describe("Sandbox runtime lifecycle", () => {
   })
 
   it("declares the project package manager as a Sandbox requirement", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "vercel" })
+    setSandboxTaskRuntimeConfig({ driver: "vercel" })
     setSandboxTaskRuntimeRegistry({
       example: {
         bundle: {
@@ -462,7 +462,7 @@ describe("Sandbox runtime lifecycle", () => {
         },
       },
     }
-    setSandboxTaskRuntimeConfig({ provider: "vercel" })
+    setSandboxTaskRuntimeConfig({ driver: "vercel" })
     setSandboxTaskRuntimeRegistry({ example: packageDefinition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
 

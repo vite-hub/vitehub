@@ -19,7 +19,7 @@ export default defineNuxtConfig({
     blob: {
       stores: {
         default: { driver: 'fs' },
-        reports: { driver: 'vercel-blob', access: 'private' },
+        reports: { driver: 'vercel', access: 'private' },
       },
     },
   },
@@ -39,7 +39,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -60,7 +60,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -123,7 +123,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -472,7 +472,7 @@ Use filesystem storage on one machine with one process. On a serverless host, it
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'cloudflare-r2'` | Required | Cloudflare R2. |
+| `driver` | `'cloudflare'` | Required | Cloudflare R2. |
 | `binding` | `string` | `BLOB` | Runtime R2 binding name. |
 | `bucketName` | `string` | R2 or Blob bucket env | Bucket for the generated R2 binding and HTTP fallback. |
 | `jurisdiction` | `'eu' \| 'fedramp' \| 'us'` | `R2_JURISDICTION` or `CLOUDFLARE_R2_JURISDICTION` env | Bucket [R2 jurisdiction](/docs/blob/hosts#jurisdictional-buckets) for the binding, provisioning, and the S3 API host. |
@@ -488,7 +488,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'vercel-blob'` | Required | Vercel Blob. |
+| `driver` | `'vercel'` | Required | Vercel Blob. |
 | `access` | `'private' \| 'public'` | `'public'` | Store access policy. A `blob.put()` call can override it. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |

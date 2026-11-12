@@ -5,7 +5,7 @@ import { applyCacheStorage, resolveCacheStorage } from "../src/cache.ts"
 
 describe("resolveCacheStorage", () => {
   it("applies explicit binding, namespace, and base options", () => {
-    expect(resolveCacheStorage({ binding: "PAGE_CACHE", driver: "cloudflare-kv-binding", namespaceId: "ns-1" }, "cloudflare")).toEqual({
+    expect(resolveCacheStorage({ binding: "PAGE_CACHE", driver: "cloudflare", namespaceId: "ns-1" }, "cloudflare")).toEqual({
       cloudflareNamespace: { binding: "PAGE_CACHE", id: "ns-1" },
       devStorage: { base: ".vitehub/data/cache", driver: "fs-lite" },
       storage: { binding: "PAGE_CACHE", driver: "cloudflare-kv-binding" },
@@ -15,6 +15,7 @@ describe("resolveCacheStorage", () => {
       storage: { base: "/var/cache/app", driver: "fs-lite" },
     })
     expect(resolveCacheStorage({ base: "pages", driver: "deno-kv" }, "deno").storage).toEqual({ base: "pages", driver: "deno-kv" })
+    expect(resolveCacheStorage({ driver: "vercel" }, "vercel").storage).toEqual({ driver: "vercel-runtime-cache" })
   })
 
   it("rejects unknown drivers", () => {
@@ -32,7 +33,7 @@ describe("resolveCacheStorage", () => {
 
 describe("applyCacheStorage", () => {
   it("adds the Cloudflare namespace once", () => {
-    const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
+    const cache = resolveCacheStorage({ driver: "cloudflare", namespaceId: "cache-id" }, "cloudflare")
     const once = applyCacheStorage({}, cache)
     const twice = applyCacheStorage({ ...once, kv: {} }, cache)
 
@@ -40,7 +41,7 @@ describe("applyCacheStorage", () => {
   })
 
   it("preserves an explicit Cloudflare namespace ID when the binding already exists", () => {
-    const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
+    const cache = resolveCacheStorage({ driver: "cloudflare", namespaceId: "cache-id" }, "cloudflare")
     const config = applyCacheStorage({
       cloudflare: { wrangler: { kv_namespaces: [{ binding: "CACHE" }] } },
     }, cache)
@@ -54,7 +55,7 @@ describe("applyCacheStorage", () => {
   })
 
   it("rejects a conflicting existing Cloudflare namespace ID", () => {
-    const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
+    const cache = resolveCacheStorage({ driver: "cloudflare", namespaceId: "cache-id" }, "cloudflare")
     expect(() => applyCacheStorage({
       cloudflare: { wrangler: { kv_namespaces: [{ binding: "CACHE", id: "other-id" }] } },
     }, cache)).toThrow("already uses namespace")

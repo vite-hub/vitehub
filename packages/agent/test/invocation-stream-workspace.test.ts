@@ -362,7 +362,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       driver: { run: () => "unused" },
       workspace: {
         mode: "write",
-        store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
+        store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" },
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -494,7 +494,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       driver: { run: () => "unused" },
       workspace: {
         mode: "write",
-        store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
+        store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" },
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })

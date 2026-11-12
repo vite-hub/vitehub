@@ -1,7 +1,7 @@
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 
-type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
+type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 type WorkflowProviderOperation =
   | "cancel"
@@ -49,7 +49,7 @@ export function getWorkflowProviderStatus(error: unknown): number | undefined {
 }
 
 export async function runWorkflowProviderOperation<T>(
-  provider: WorkflowProvider,
+  provider: WorkflowDriver,
   operation: WorkflowProviderOperation,
   run: () => T | PromiseLike<T>,
   options: {
@@ -65,7 +65,7 @@ export async function runWorkflowProviderOperation<T>(
 
     const status = getWorkflowProviderStatus(error)
     const acknowledgement = options.acknowledgementUnknown?.(error, status) === true ? "unknown" : undefined
-    const details: { acknowledgement?: "unknown", operation: WorkflowProviderOperation, provider: WorkflowProvider, status?: number } = {
+    const details: { acknowledgement?: "unknown", operation: WorkflowProviderOperation, provider: WorkflowDriver, status?: number } = {
       operation,
       provider,
     }

@@ -8,7 +8,7 @@ afterEach(() => {
 
 describe("workspace store cache", () => {
   it("shares one memory store between two copies of the package", async () => {
-    const definition: WorkspaceDefinition = { name: "docs", store: { provider: "memory" } }
+    const definition: WorkspaceDefinition = { name: "docs", store: { driver: "memory" } }
 
     // A second package (for example Realtime) can load its own copy of @vite-hub/workspace.
     const first = await import("../src/core/workspace.ts")

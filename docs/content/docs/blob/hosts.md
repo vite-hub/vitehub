@@ -47,7 +47,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       binding: 'BLOB',
       bucketName: 'assets',
     },
@@ -66,7 +66,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         binding: 'BLOB',
         bucketName: 'assets',
       },
@@ -86,7 +86,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         binding: 'BLOB',
         bucketName: 'assets',
       },
@@ -108,7 +108,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       bucketName: 'assets',
       jurisdiction: 'eu',
     },
@@ -127,7 +127,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         bucketName: 'assets',
         jurisdiction: 'eu',
       },
@@ -147,7 +147,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         bucketName: 'assets',
         jurisdiction: 'eu',
       },

@@ -138,7 +138,7 @@ function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) 
 
 export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
   return {
-    name: "cloudflare-r2",
+    name: "cloudflare",
     options,
     async createMultipartUpload(pathname, multipartOptions) {
       return toDriverMultipartUpload(await getBucket(options).createMultipartUpload(pathname, {

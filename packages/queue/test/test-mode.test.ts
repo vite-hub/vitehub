@@ -5,7 +5,7 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setu
 import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 
-import type { QueueEnqueueOptions, QueueProvider } from "../src/types.ts"
+import type { QueueEnqueueOptions, QueueDriver } from "../src/types.ts"
 
 const mode = enableViteHubTestMode()
 const handler = vi.fn()
@@ -14,7 +14,7 @@ const createClient = vi.fn()
 beforeEach(async () => {
   await mode.reset()
   vi.clearAllMocks()
-  setQueueRuntimeConfig({ provider: "local" }, createClient)
+  setQueueRuntimeConfig({ driver: "local" }, createClient)
   setQueueRuntimeRegistry({ welcome: async () => ({ handler }), digest: async () => ({ handler }) })
 })
 
@@ -52,13 +52,13 @@ it("rejects disabled Queues and unknown Definitions", async () => {
   setQueueRuntimeConfig(false)
   await expect(dynamicQueue.use("welcome")).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
   await expect(dynamicQueue.send("welcome", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
-  setQueueRuntimeConfig({ provider: "cloudflare" })
+  setQueueRuntimeConfig({ driver: "cloudflare" })
   await expect(dynamicQueue.send("misspelled", {})).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
   expect(mode.peek("queue")).toBeUndefined()
 })
 
-it.each<QueueProvider>(["local", "vercel"])("deduplicates %s sends and batches by Queue and idempotency key until reset", async (provider) => {
-  setQueueRuntimeConfig({ provider })
+it.each<QueueDriver>(["local", "vercel"])("deduplicates %s sends and batches by Queue and idempotency key until reset", async (provider) => {
+  setQueueRuntimeConfig({ driver: provider })
   const queue = await dynamicQueue.use("welcome")
   const [error, first] = await queue.send({ userId: 1 }, { id: "first", idempotencyKey: "signup" })
   expect(error).toBeUndefined()
@@ -89,14 +89,14 @@ it.each<QueueProvider>(["local", "vercel"])("deduplicates %s sends and batches b
   expect(mode.peek("queue")).toMatchObject([{ id: "after-reset", payload: { userId: 8 } }])
 })
 
-it.each<[QueueProvider, QueueEnqueueOptions]>([
+it.each<[QueueDriver, QueueEnqueueOptions]>([
   ["cloudflare", { idempotencyKey: "key" }],
   ["cloudflare", { region: "iad1" }],
   ["cloudflare", { retentionSeconds: 60 }],
   ["vercel", { contentType: "json" }],
   ["local", { region: "iad1" }],
 ])("preserves %s option validation in sends and batches (%j)", async (provider, options) => {
-  setQueueRuntimeConfig({ provider })
+  setQueueRuntimeConfig({ driver: provider })
   const queue = await dynamicQueue.use("welcome")
   expect(await queue.send({}, options)).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   expect(await queue.sendBatch([{ body: {} }], options)).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
@@ -104,7 +104,7 @@ it.each<[QueueProvider, QueueEnqueueOptions]>([
 })
 
 it("uses the configured local delivery rules", async () => {
-  setQueueRuntimeConfig({ provider: "local", rules: "cloudflare" })
+  setQueueRuntimeConfig({ driver: "local", rules: "cloudflare" })
   expect(await dynamicQueue.send("welcome", {}, { idempotencyKey: "key" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
 })
 
@@ -112,7 +112,7 @@ it("reports a deferred validation failure through the host task and dispatch-err
   const pending: Promise<unknown>[] = []
   const onDispatchError = vi.fn()
   const log = vi.spyOn(console, "error").mockImplementation(() => {})
-  setQueueRuntimeConfig({ provider: "cloudflare" })
+  setQueueRuntimeConfig({ driver: "cloudflare" })
   setQueueRuntimeRegistry({ welcome: async () => ({ handler, options: { onDispatchError } }) })
   setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
   try {

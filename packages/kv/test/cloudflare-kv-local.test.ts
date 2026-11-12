@@ -25,7 +25,7 @@ afterEach(async () => {
 it("serves every binding operation when the local store cannot open, including after a fallback failure", async () => {
   const localBase = join(directory, "blocked")
   await writeFile(localBase, "not a directory")
-  const driver = await createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare-kv-binding", localBase })
+  const driver = await createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare", localBase })
   const values = new Map<string, string>()
   const binding = {
     delete: async (key: string) => { values.delete(key) },
@@ -61,7 +61,7 @@ it("serves every binding operation when the local store cannot open, including a
 it("retries a failed fallback and shares one initialization across concurrent and later operations", async () => {
   const localBase = join(directory, "blocked")
   await writeFile(localBase, "not a directory")
-  const driver = await createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare-kv-binding", localBase })
+  const driver = await createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare", localBase })
   try {
     const failures = await Promise.allSettled([driver.getItem("counter"), driver.getKeys("", {})])
     expect(failures).toEqual([

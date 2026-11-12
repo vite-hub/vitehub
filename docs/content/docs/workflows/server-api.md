@@ -68,7 +68,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | `string` | Run id from the provider or ViteHub. |
-| `provider` | `WorkflowProvider` | Provider of the run. |
+| `provider` | `WorkflowDriver` | Provider of the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
 | `result` | `TResult` | Result, when completed. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |

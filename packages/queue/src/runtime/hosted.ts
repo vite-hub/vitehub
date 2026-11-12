@@ -53,7 +53,7 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
 export async function handleHostedVercelQueueCallback(request: Request, name: string, definition: QueueDefinition): Promise<Response> {
   const queue = await dynamicQueue.use(name)
   if (queue.provider !== "vercel") {
-    throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "vercel", provider: queue.provider })
+    throw queueErrorDiagnostics.QUEUE_DRIVER_MISMATCH({ driver: queue.provider, expected: "vercel" })
   }
 
   const result = await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(request)

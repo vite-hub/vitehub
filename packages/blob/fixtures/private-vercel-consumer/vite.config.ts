@@ -12,7 +12,7 @@ export default defineConfig({
     { name: "nitro:main" },
     hubBlob({
       access: "private",
-      driver: "vercel-blob",
+      driver: "vercel",
       token: "vercel_blob_rw_test",
     }),
   ],

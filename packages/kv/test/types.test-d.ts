@@ -30,7 +30,7 @@ describe("types", () => {
     const config = {
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     } satisfies ResolvedKVModuleOptions
 

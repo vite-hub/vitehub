@@ -16,14 +16,14 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
   const sent: { payload: unknown, options: unknown }[] = []
   const client = provider === "cloudflare"
     ? createCloudflareQueueClient({
-        provider,
+        driver: provider,
         binding: {
           send: async (payload, options) => { sent.push({ payload, options }) },
           sendBatch: vi.fn(async () => {}),
         },
       })
     : await createVercelQueueClient({
-        provider,
+        driver: provider,
         topic: "audit",
         client: {
           send: async (_topic, payload, options) => {
@@ -33,7 +33,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
           handleCallback: vi.fn(),
         },
       })
-  setQueueRuntimeConfig({ provider }, async () => client)
+  setQueueRuntimeConfig({ driver: provider }, async () => client)
   setQueueRuntimeRegistry({ audit: async () => defineQueue(() => {}) })
 
   const payloads = [
@@ -62,14 +62,14 @@ it.each(["cloudflare", "vercel"] as const)("uses only own enqueue ids through %s
   const sent: { options: unknown }[] = []
   const client = provider === "cloudflare"
     ? createCloudflareQueueClient({
-        provider,
+        driver: provider,
         binding: {
           send: async (_payload, options) => { sent.push({ options }) },
           sendBatch: vi.fn(async () => {}),
         },
       })
     : await createVercelQueueClient({
-        provider,
+        driver: provider,
         topic: "audit",
         client: {
           send: async (_topic, _payload, options) => {

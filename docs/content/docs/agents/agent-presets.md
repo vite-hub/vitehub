@@ -22,7 +22,7 @@ export default defineAgent({
   extends: bot,
   driver: { model: 'gpt-5.6-sol' },
   workspace: {
-    store: { provider: 'local', root: '.vitehub/workspaces/bot-dev' },
+    store: { driver: 'local', root: '.vitehub/workspaces/bot-dev' },
   },
 })
 ```
@@ -39,7 +39,7 @@ Child settings compose with parent defaults like this:
 | Capability resolver | Replaces the inherited list or resolver. |
 | Other arrays | Replace the parent array. |
 | `driver.launch` | Replaces the whole command or resolver, including `onExit`. Omitted inherits the parent launch. |
-| Driver kind or store provider | A different kind or provider replaces that configuration. |
+| Driver kind or store driver | A different kind or driver replaces that configuration. |
 
 Some settings add to inherited values instead:
 

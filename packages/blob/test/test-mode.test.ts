@@ -7,7 +7,7 @@ import { blob } from "../src/runtime/storage.ts"
 import { setBlobRuntimeConfig } from "../src/runtime/state.ts"
 
 const mode = enableViteHubTestMode()
-const store = { binding: "BLOB", driver: "cloudflare-r2" } as const
+const store = { binding: "BLOB", driver: "cloudflare" } as const
 
 beforeEach(async () => {
   await mode.reset()

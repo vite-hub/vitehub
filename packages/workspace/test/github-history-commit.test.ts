@@ -27,7 +27,7 @@ afterEach(() => {
 })
 
 function history(options: Partial<GitHubWorkspaceStoreOptions> = {}) {
-  return createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", ...options }, "content").history!
+  return createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", ...options }, "content").history!
 }
 
 const file = (path: string, content: string) => ({ path, content })
@@ -38,7 +38,7 @@ describe("GitHub history commit", () => {
   it.each([false, true])("authorizes full draft snapshots against their fork baseline (explicit start: %s)", async (explicit) => {
     const baseline = fake.commit("main", { "posts/a.md": "a" })
     if (explicit) fake.commit("main", { "posts/a.md": "new published", "posts/c.md": "c" })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
     const target = createWorkspace({ name: "content", store, rules: { "posts/a.md": { write: false } } }).history!
     const revision = await target.commit({ ref: "draft", ifHead: null, ...(explicit ? { startFrom: baseline } : {}), files: { "posts/a.md": "a", "posts/b.md": "b" } })
     expect(revision.parentId).toBe(baseline)
@@ -50,7 +50,7 @@ describe("GitHub history commit", () => {
 
   it("pins the fork baseline before write hooks can advance the published branch", async () => {
     const baseline = fake.commit("main", { "posts/a.md": "a" })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
     const target = createWorkspace({ name: "content", store, hooks: { "write:before": () => {
       fake.commit("main", { "posts/a.md": "new published", "posts/c.md": "c" })
     } } }).history!
@@ -295,10 +295,10 @@ describe("GitHub history commit", () => {
   })
 
   it("is created without a token or repository and fails at the first request", async () => {
-    const store = createGitHubWorkspaceStore({ provider: "github" }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github" }, "content")
     expect(store.history).toBeDefined()
     await expect(store.history!.head({ ref: "main" })).rejects.toMatchObject({ code: "WORKSPACE_R0072", message: expect.stringContaining("requires a repository") })
-    const noToken = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo" }, "content")
+    const noToken = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo" }, "content")
     await expect(noToken.history!.head({ ref: "main" })).rejects.toMatchObject({ code: "WORKSPACE_R0072", message: expect.stringContaining("requires a token") })
     expect(fake.requests).toHaveLength(0)
   })
@@ -306,16 +306,16 @@ describe("GitHub history commit", () => {
   it("carries the database option on the store target", async () => {
     const database = { name: "db" }
     const { resolveWorkspaceStoreTarget } = await import("../src/storage/target.ts")
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", database }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", database }, "content")
     await expect(resolveWorkspaceStoreTarget(store)).resolves.toMatchObject({ provider: "github", repository: "onmax/repo", database })
   })
 
   it("keeps root, refs, and database when it resolves the store options", () => {
     const database = { name: "db" }
-    expect(normalizeWorkspaceStoreOptions({ provider: "github", repo: "onmax/repo", root: "", refs: aliases, database }, { env: {} }))
-      .toMatchObject({ provider: "github", repository: "onmax/repo", root: "", refs: aliases, database })
-    expect(normalizeWorkspaceStoreOptions({ provider: "github", repo: "onmax/repo" }, { env: {} })).toMatchObject({ root: ".vitehub/workspaces/<workspace>" })
-    expect(normalizeWorkspaceStoreOptions({ provider: "github", repo: "onmax/repo" }, { env: {} })).not.toHaveProperty("refs")
+    expect(normalizeWorkspaceStoreOptions({ driver: "github", repo: "onmax/repo", root: "", refs: aliases, database }, { env: {} }))
+      .toMatchObject({ driver: "github", repository: "onmax/repo", root: "", refs: aliases, database })
+    expect(normalizeWorkspaceStoreOptions({ driver: "github", repo: "onmax/repo" }, { env: {} })).toMatchObject({ root: ".vitehub/workspaces/<workspace>" })
+    expect(normalizeWorkspaceStoreOptions({ driver: "github", repo: "onmax/repo" }, { env: {} })).not.toHaveProperty("refs")
   })
 
   it("reads only the last line of a message as metadata and keeps the commit's author", async () => {
@@ -367,7 +367,7 @@ describe("GitHub history commit", () => {
     const main = fake.commit("main", { "posts/a.md": "a" })
     fake.setBranch("incoming", main, fake.tree("main"))
     fake.commit("incoming", kind === "scope" ? { "README.md": "outside" } : { "posts/a.md": "changed" })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: kind === "scope" ? "posts" : "" }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: kind === "scope" ? "posts" : "" }, "content")
     const workspace = createWorkspace({ name: "content", store,
       ...(kind === "rules" ? { rules: { "posts/**": { write: false } } } : {}),
       ...(kind === "source" ? { sources: { locked: sourceFile({ workspacePath: "posts/a.md", content: "a", materialize: "lazy" }) } } : {}),
@@ -383,7 +383,7 @@ describe("GitHub history commit", () => {
     fake.setBranch("private/change", main, fake.tree("main"))
     fake.commit("private/change", { "private/secret.md": "secret" })
     const number = fake.openPull("private/change", "main", "Private change")
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
     const definition = { name: "content", store }
     const base = useWorkspace("content", { mode: "write", definition })
     const invocation = { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false } }
@@ -400,7 +400,7 @@ describe("GitHub history commit", () => {
     const main = fake.commit("main", { "posts/a.md": "a" })
     fake.setBranch("incoming", main, fake.tree("main"))
     fake.commit("incoming", { "posts/a.md": "changed" })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
     const validate = vi.fn((input: WorkspaceWriteInput) => ({ ...input, content: "normalized" }))
     const after = vi.fn(() => { expect(fake.tree("main")[0]?.sha).toBe(textSha("normalized")) })
     const definition = { name: "content", store, rules: { "**": { validate } }, hooks: { "write:after": after } }
@@ -421,7 +421,7 @@ describe("GitHub history commit", () => {
     const main = fake.commit("main", { "posts/a.md": "a" })
     fake.setBranch("incoming", main, fake.tree("main"))
     fake.commit("incoming", { "posts/a.md": { content: "changed", mode } })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
     const workspace = createWorkspace({ name: "content", store, rules: {
       "**": { validate: input => ({ ...input, metadata: { ...input.metadata, gitMode: "100644" } }) },
     } })
@@ -434,7 +434,7 @@ describe("GitHub history commit", () => {
     const main = fake.commit("main", { "posts/a.md": "a" })
     fake.setBranch("incoming", main, fake.tree("main"))
     fake.commit("incoming", { "posts/a.md": "changed" })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
     let raced: string | undefined
     const after = vi.fn()
     const workspace = createWorkspace({ name: "content", store, hooks: {

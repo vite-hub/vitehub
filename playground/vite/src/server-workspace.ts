@@ -18,7 +18,7 @@ app.get("/api/workspace", async () => {
   const generatedPath = "generated/notes.md"
   return {
     ok: true,
-    provider: runtimeConfig ? runtimeConfig.store.provider : "local",
+    provider: runtimeConfig ? runtimeConfig.store.driver : "local",
     files: await workspace.fs.list("", { recursive: true }),
     markdown: await workspace.fs.glob("**/*.md"),
     readme: await workspace.fs.readFile("README.md"),
@@ -34,7 +34,7 @@ app.post("/api/workspace/write", async (event) => {
   const runtimeConfig = getWorkspaceRuntimeConfig()
   return {
     ok: true,
-    provider: runtimeConfig ? runtimeConfig.store.provider : "local",
+    provider: runtimeConfig ? runtimeConfig.store.driver : "local",
     path,
     readBack: await workspace.fs.readFile(path),
   }
@@ -48,7 +48,7 @@ app.get("/api/workspace/read-fresh", async (event) => {
   const runtimeConfig = getWorkspaceRuntimeConfig()
   return {
     ok: true,
-    provider: runtimeConfig ? runtimeConfig.store.provider : "local",
+    provider: runtimeConfig ? runtimeConfig.store.driver : "local",
     path,
     readBack: await workspace.fs.exists(path) ? await workspace.fs.readFile(path) : null,
   }

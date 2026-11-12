@@ -10,7 +10,7 @@ import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxTaskDefinitions } from '../discovery'
 import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
-import { getSandboxTaskFeatureProvider } from '../module-types'
+import { getSandboxTaskFeatureDriver } from '../module-types'
 import {
   activateSandboxTaskRuntimeFile,
   markSandboxTaskRuntimeGeneration,
@@ -63,8 +63,8 @@ function normalizeSandboxTaskOptions(options: SandboxTaskOptions): AgentSandboxT
 }
 
 function createSandboxTaskRuntimeConfig(config: AgentSandboxTaskConfig | false, hosting?: string): SandboxTaskRuntimeConfig {
-  const provider = getSandboxTaskFeatureProvider(config)
-  const sandbox = provider?.provider === 'vercel'
+  const provider = getSandboxTaskFeatureDriver(config)
+  const sandbox = provider?.driver === 'vercel'
     ? {
         ...config,
         token: provider.token ?? '',
@@ -108,7 +108,7 @@ async function resolveSandboxTaskViteContext(
       ? resolveSandboxTaskFeatureConfig(options, hosting)
       : { ...options }
   const runtimeSandboxTaskConfig = config !== false
-    && (hasDefinitions || getSandboxTaskFeatureProvider(config)?.provider)
+    && (hasDefinitions || getSandboxTaskFeatureDriver(config)?.driver)
     ? config
     : false
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
@@ -461,7 +461,7 @@ export async function prepareSandboxTaskRuntime(options: {
       definitions,
       files: [],
       hosting: context.hosting,
-      provider: getSandboxTaskFeatureProvider(context.config)?.provider,
+      provider: getSandboxTaskFeatureDriver(context.config)?.driver,
       rootDir,
       stateModule,
       watchFiles: plan.watchFiles || [],
@@ -489,7 +489,7 @@ export async function prepareSandboxTaskRuntime(options: {
       ...(plan.artifacts || []).map(artifact => resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), artifact.filename)),
     ],
     hosting: context.hosting,
-    provider: getSandboxTaskFeatureProvider(context.config)?.provider,
+    provider: getSandboxTaskFeatureDriver(context.config)?.driver,
     rootDir,
     stateModule,
     watchFiles: plan.watchFiles || [],

@@ -38,9 +38,9 @@ export type FeatureHost = (typeof featureHosts)[number]
 
 export interface NativeHostSupport {
   level: "native"
-  /** The default provider or adapter that ViteHub selects, such as `cloudflare-r2`. */
-  adapter: string
-  /** Short provider name for tables, such as `R2`. */
+  /** The default driver that ViteHub selects, such as `cloudflare`. */
+  driver: string
+  /** Short name for tables, such as `R2`. */
   display: string
   guarantee: "native" | "single-host" | "process-local"
   detail: string
@@ -50,8 +50,8 @@ export interface NativeHostSupport {
 
 /**
  * How a host supports a feature when the app enables it in `vitehub({...})`.
- * - `native`: ViteHub selects a provider for the host. Credentials can still be needed.
- * - `explicit`: the app must set `option` to choose a provider.
+ * - `native`: ViteHub selects a driver for the host. Credentials can still be needed.
+ * - `explicit`: the app must set `option` to choose a driver.
  * - `unsupported`: `vitehub({...})` cannot provide the feature on this host.
  */
 export type HostSupport
@@ -59,7 +59,7 @@ export type HostSupport
   | {
     level: "explicit"
     display: string
-    /** The option path that selects a provider, such as `blob.driver`. */
+    /** The option path that selects a driver, such as `blob.driver`. */
     option: `${FeatureId}.${string}`
     detail: string
   }
@@ -120,8 +120,8 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
 
 const noHostLimit = "No host limit in ViteHub."
 
-function native(adapter: string, display: string, detail: string, guarantee: "native" | "single-host" | "process-local" = "native"): NativeHostSupport {
-  return { adapter, detail, display, guarantee, level: "native" }
+function native(driver: string, display: string, detail: string, guarantee: "native" | "single-host" | "process-local" = "native"): NativeHostSupport {
+  return { detail, display, driver, guarantee, level: "native" }
 }
 
 function explicit(option: `${FeatureId}.${string}`, display: string, detail: string): HostSupport {
@@ -132,8 +132,8 @@ function unsupported(detail: string): HostSupport {
   return { detail, level: "unsupported" }
 }
 
-function everywhere(adapter: string, display: string, detail = noHostLimit): Record<FeatureHost, HostSupport> {
-  const support = native(adapter, display, detail)
+function everywhere(driver: string, display: string, detail = noHostLimit): Record<FeatureHost, HostSupport> {
+  const support = native(driver, display, detail)
   return { cloudflare: support, deno: support, dev: support, netlify: support, node: support, vercel: support }
 }
 
@@ -196,12 +196,12 @@ export default defineAgent({
   blob: feature({
     docs: "/docs/blob",
     hosts: {
-      cloudflare: native("cloudflare-r2", "R2", "Cloudflare R2 binding or S3-compatible HTTP access."),
+      cloudflare: native("cloudflare", "R2", "Cloudflare R2 binding or S3-compatible HTTP access."),
       deno: explicit("blob.driver", "S3", "Use a remote S3-compatible store. No Deno-native Blob driver is provided."),
       dev: native("fs", "fs", "Local filesystem storage for development.", "single-host"),
       netlify: native("netlify-blobs", "Netlify Blobs", "Netlify Blobs selected from the detected host."),
       node: native("fs", "fs / S3", "Filesystem, S3-compatible, MinIO, or files-sdk drivers.", "single-host"),
-      vercel: native("vercel-blob", "Vercel Blob", "Vercel Blob through the vercel-blob driver."),
+      vercel: native("vercel", "Vercel Blob", "Vercel Blob through the vercel driver."),
     },
     id: "blob",
     packages: ["@vite-hub/blob"],
@@ -215,7 +215,7 @@ export default defineAgent({
     hosts: {
       cloudflare: native("cloudflare", "Browser Run", "Cloudflare Browser Run binding and provider output."),
       deno: unsupported("Browser Definitions do not have a Deno provider."),
-      dev: unsupported("Browser Definitions need the Cloudflare preset. Use createBrowser({ provider: localBrowser({ executablePath }) }) from code for a trusted local process."),
+      dev: unsupported("Browser Definitions need the Cloudflare preset. Use createBrowser({ driver: localBrowser({ executablePath }) }) from code for a trusted local process."),
       netlify: unsupported("Browser Definitions do not have a Netlify provider."),
       node: unsupported("The Node preset has no built-in Browser Provider. Use localBrowser() from code for a trusted process."),
       vercel: unsupported("Browser Definitions do not have a Vercel provider."),
@@ -230,12 +230,12 @@ export default defineAgent({
     developmentOverrides: ["cloudflare", "deno", "vercel"],
     docs: "/docs/reference/config-options",
     hosts: {
-      cloudflare: native("cloudflare-kv-binding", "Workers KV", "Workers KV binding `CACHE`."),
+      cloudflare: native("cloudflare", "Workers KV", "Workers KV binding `CACHE`."),
       deno: native("deno-kv", "Deno KV", "Native Deno KV."),
       dev: native("fs-lite", "fs-lite", "`.vitehub/data/cache` during development.", "single-host"),
       netlify: explicit("cache.driver", "KV", "`cache: true` has no default store on Netlify. Set `cache: { driver: \"kv\" }` and enable `kv`."),
       node: native("fs-lite", "fs-lite", "`.vitehub/data/cache` on the server disk.", "single-host"),
-      vercel: native("vercel-runtime-cache", "Runtime Cache", "Vercel Runtime Cache."),
+      vercel: native("vercel", "Runtime Cache", "Vercel Runtime Cache."),
     },
     id: "cache",
     summary: "Storage for Nitro's cache mount, used by defineCachedFunction() and defineCachedEventHandler().",
@@ -304,7 +304,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
     hosts: {
-      cloudflare: native("d1", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development."),
+      cloudflare: native("cloudflare", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development."),
       deno: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Deno-native database driver is provided."),
       dev: native("sqlite", "SQLite", "Local SQLite through libSQL and Drizzle.", "single-host"),
       netlify: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Netlify-native database driver is provided."),
@@ -319,7 +319,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
   email: feature({
     docs: "/docs/email",
     hosts: {
-      cloudflare: native("cloudflare-email", "Cloudflare Email", "The Cloudflare Email driver is the default. Resend is also supported."),
+      cloudflare: native("cloudflare", "Cloudflare Email", "The Cloudflare Email driver is the default. Resend is also supported."),
       deno: explicit("email.driver", "Resend", "Configure the built-in fetch-based Resend driver."),
       dev: explicit("email.driver", "Resend", "Configure the built-in Resend driver for local delivery."),
       netlify: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
@@ -351,7 +351,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     developmentOverrides: ["netlify"],
     docs: "/docs/kv",
     hosts: {
-      cloudflare: native("cloudflare-kv-binding", "Workers KV", "Cloudflare Workers KV binding."),
+      cloudflare: native("cloudflare", "Workers KV", "Cloudflare Workers KV binding."),
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
       netlify: explicit("kv.driver", "Upstash", "Configure a remote Upstash store. No Netlify-native KV output is provided."),
@@ -389,10 +389,10 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
     docs: "/docs/queue",
     hosts: {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
-      deno: unsupported("No Deno Queue provider is provided."),
-      dev: native("local", "Local provider", "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.", "single-host"),
-      netlify: unsupported("Netlify has no Queue provider, so `vitehub({ queue })` fails on Netlify."),
-      node: native("local", "Local provider", "The local provider runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "single-host"),
+      deno: unsupported("No Deno Queue driver is provided."),
+      dev: native("local", "Local driver", "The local driver stores jobs in .vitehub/data/queue and runs them in the dev server process.", "single-host"),
+      netlify: unsupported("Netlify has no Queue driver, so `vitehub({ queue })` fails on Netlify."),
+      node: native("local", "Local driver", "The local driver runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "single-host"),
       vercel: native("vercel", "Vercel Queues", "Vercel Queues callbacks and runtime client."),
     },
     id: "queue",
@@ -428,11 +428,11 @@ export default defineRealtime({
     developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/realtime",
     hosts: {
-      cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects provide the production room authority."),
+      cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects run the production rooms."),
       deno: unsupported("Realtime has no distributed Deno authority, and process memory is rejected for the Deno preset."),
-      dev: native("memory", "memory", "Process-memory authority for local development.", "process-local"),
+      dev: native("memory", "memory", "Process-memory room driver for local development.", "process-local"),
       netlify: unsupported("Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify preset."),
-      node: explicit("realtime.authority", "memory", "Set `realtime: { authority: \"memory\" }` for a single-process server. A build without it has no room authority."),
+      node: explicit("realtime.driver", "memory", "Set `realtime: { driver: \"memory\" }` for a single-process server. A build without it has no room driver."),
       vercel: unsupported("Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel preset."),
     },
     id: "realtime",
@@ -445,10 +445,10 @@ export default defineRealtime({
     docs: "/docs/sandbox",
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
-      deno: unsupported("No Deno Sandbox provider is provided."),
+      deno: unsupported("No Deno Sandbox driver is provided."),
       dev: unsupported("The default Node preset has no Sandbox Provider. Development with the Cloudflare or Vercel preset uses that preset's Sandbox."),
-      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify preset. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
-      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node preset. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify preset. Compose `hubSandboxTask({ driver: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node preset. Compose `hubSandboxTask({ driver: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
@@ -492,15 +492,15 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.provider` to \"openworkflow\" for durable runs.", "process-local"),
+      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.driver` to \"openworkflow\" for durable runs.", "process-local"),
       dev: native("vercel", "Vercel Workflow", "The default Node preset selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
-      netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
+      netlify: explicit("workflow.driver", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow driver is provided."),
       node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.sqlite.path` or `workflow.postgres.url` to select durable OpenWorkflow.", "process-local"),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
     packages: ["@vite-hub/workflow"],
-    providerPackages: { provider: { openworkflow: ["openworkflow"] } },
+    providerPackages: { driver: { openworkflow: ["openworkflow"] } },
     summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
     title: "Workflow",
   }),
@@ -517,7 +517,7 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
         ...native("memory", "memory / Blob / GitHub", "Process-local memory by default. BLOB_READ_WRITE_TOKEN selects Vercel Blob; GitHub can be selected explicitly for durable state.", "process-local"),
         envOverrides: [{
           env: "BLOB_READ_WRITE_TOKEN",
-          support: native("vercel-blob", "Blob / GitHub", "BLOB_READ_WRITE_TOKEN selects durable Vercel Blob storage by default."),
+          support: native("vercel", "Blob / GitHub", "BLOB_READ_WRITE_TOKEN selects durable Vercel Blob storage by default."),
         }],
       },
     },
@@ -557,7 +557,7 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   // Node selects OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  if (id === "workflow" && host === "node" && options && options.driver === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]

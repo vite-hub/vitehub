@@ -551,7 +551,7 @@ it("keeps generated native step imports scoped to each directory Workflow", asyn
     await writeFile(join(workflowDir, `01-${name}.ts`), `export default async function ${name}(input) { return input }\n`)
   }
 
-  const artifacts = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const artifacts = await writeProviderEntries(rootDir, { driver: "vercel" })
   const nativeContents = await Promise.all(artifacts.vercelNativeFiles.map(file => readFile(file, "utf8")))
 
   expect(nativeContents).toHaveLength(2)
@@ -566,13 +566,13 @@ it("keeps generated native module paths stable when discovery order changes", as
   await mkdir(betaDir, { recursive: true })
   await writeFile(join(betaDir, "01-beta.ts"), "export default async function beta(input) { return input }\n")
 
-  const before = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const before = await writeProviderEntries(rootDir, { driver: "vercel" })
   const [betaFile] = before.vercelNativeFiles
 
   const alphaDir = join(rootDir, "server", "workflows", "alpha")
   await mkdir(alphaDir, { recursive: true })
   await writeFile(join(alphaDir, "01-alpha.ts"), "export default async function alpha(input) { return input }\n")
-  const after = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const after = await writeProviderEntries(rootDir, { driver: "vercel" })
 
   expect(betaFile).toMatch(/\/vercel-native\/[a-f0-9]{64}\.mjs$/)
   expect(after.vercelNativeFiles).toContain(betaFile)
@@ -586,7 +586,7 @@ it("keeps astral Unicode native module identities distinct", async () => {
     await writeFile(join(workflowDir, "01-step.ts"), "export default async function step(input) { return input }\n")
   }
 
-  const artifacts = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const artifacts = await writeProviderEntries(rootDir, { driver: "vercel" })
 
   expect(artifacts.vercelNativeFiles).toHaveLength(2)
   expect(new Set(artifacts.vercelNativeFiles)).toHaveLength(2)
@@ -648,7 +648,7 @@ export async function linkWorkflow() {
       __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
     },
     rootDir,
-    workflow: { provider: "vercel" },
+    workflow: { driver: "vercel" },
   })
   const output = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8")
   const source = output.replace(/\/\/# sourceMappingURL=.*$/gm, "")
@@ -690,7 +690,7 @@ it("keeps native Workflow and step IDs stable across staged builds", { timeout: 
       roots: [rootDir],
     })
     const definitionRootDir = retained.resolve(rootDir)
-    const workflow = { provider: "vercel" as const }
+    const workflow = { driver: "vercel" as const }
     const artifacts = await writeProviderEntries(rootDir, workflow, {}, undefined, false, undefined, definitionRootDir, join(artifactDir, "output"))
     await generateWorkflowProviderOutputs({ artifacts, clientOutDir: join(rootDir, "dist"), definitionRootDir, rootDir, sourceRootDir: retained.resolve(rootDir), workflow })
     const manifest = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/manifest.json"), "utf8")
@@ -732,7 +732,7 @@ it("restores prior owned native output when Email installation fails", { timeout
     importBase: "@vite-hub/workflow",
     providerImportAliases: { "#vitehub/email/definition": join(rootDir, "missing-email-definition.mjs") },
     rootDir,
-    workflow: { provider: "vercel" },
+    workflow: { driver: "vercel" },
   })).rejects.toThrow()
 
   await expect(readFile(externalFile, "utf8")).resolves.toBe("prior owned flow\n")
@@ -881,7 +881,7 @@ it("rejects native generation that would replace unowned canonical WDK output", 
     clientOutDir: join(rootDir, "dist"),
     importBase: "@vite-hub/workflow",
     rootDir,
-    workflow: { provider: "vercel" },
+    workflow: { driver: "vercel" },
   })).rejects.toThrow(/conflicts with existing unowned Workflow DevKit functions/)
 
   await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
@@ -903,7 +903,7 @@ it("removes stale WDK output when the Vercel provider is disabled", async () => 
   await generateWorkflowProviderOutputs({
     clientOutDir: join(rootDir, "dist"),
     rootDir,
-    workflow: { provider: "openworkflow", sqlite: { path: ":memory:" } },
+    workflow: { driver: "openworkflow", sqlite: { path: ":memory:" } },
   })
 
   expect(existsSync(workflowRoot)).toBe(false)
@@ -1163,12 +1163,12 @@ it("serializes native Vercel generation with disabled-provider cleanup", async (
       clientOutDir: join(rootDir, "dist"),
       importBase: "@vite-hub/workflow",
       rootDir,
-      workflow: { provider: "vercel" },
+      workflow: { driver: "vercel" },
     }),
     generateWorkflowProviderOutputs({
       clientOutDir: join(rootDir, "dist"),
       rootDir,
-      workflow: { provider: "openworkflow", sqlite: { path: ":memory:" } },
+      workflow: { driver: "openworkflow", sqlite: { path: ":memory:" } },
     }),
   ])
 
@@ -1422,7 +1422,7 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
       .replace(`      plugins: [${playgroundWorkflowPlugin()}],`, `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, ${playgroundWorkflowPlugin()}, { name: "nitro:main", config() {} }],`)
-      .replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ provider: "vercel" }')))
+      .replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ driver: "vercel" }')))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })
     await writeFile(join(rootDir, "server", "email.ts"), "export const outboxRuntimeId = \"disabled\"\nexport default { driver: () => ({ send: async () => ({}) }) }\n")
@@ -1483,7 +1483,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ provider: "vercel" }')))
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ driver: "vercel" }')))
     await mkdir(join(rootDir, "server", "durable"), { recursive: true })
     await writeFile(join(rootDir, "server", "durable", "welcome.ts"), [
       `export async function durable() {`,
@@ -1510,7 +1510,7 @@ describe("Vite workflow provider outputs", () => {
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
         playgroundWorkflowPlugin(),
-        playgroundWorkflowPlugin('{ provider: "openworkflow", postgres: { url: "postgres://example" } }'),
+        playgroundWorkflowPlugin('{ driver: "openworkflow", postgres: { url: "postgres://example" } }'),
       ),
     )
 
@@ -1544,7 +1544,7 @@ describe("Vite workflow provider outputs", () => {
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
         playgroundWorkflowPlugin(),
-        playgroundWorkflowPlugin('{ provider: "openworkflow", postgres: { url: "postgres://example" } }'),
+        playgroundWorkflowPlugin('{ driver: "openworkflow", postgres: { url: "postgres://example" } }'),
       ),
     )
 
@@ -1582,7 +1582,7 @@ describe("Vite workflow provider outputs", () => {
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
         playgroundWorkflowPlugin(),
-        playgroundWorkflowPlugin('{ provider: "openworkflow", postgres: { url: "postgres://example" } }'),
+        playgroundWorkflowPlugin('{ driver: "openworkflow", postgres: { url: "postgres://example" } }'),
       ),
     )
 

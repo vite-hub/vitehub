@@ -247,7 +247,7 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
 
 function workspace() {
   return createWorkspace({
-    ...defineWorkspace({ store: { provider: "memory" } }),
+    ...defineWorkspace({ store: { driver: "memory" } }),
     name: "docs",
   })
 }
@@ -279,7 +279,7 @@ describe("workspace host sessions", () => {
         sources: {
           request: fetchSource({ url: "https://status.example.com/request" }),
         },
-        store: { provider: "local", root: source },
+        store: { driver: "local", root: source },
       }),
       name: "local-docs",
     })
@@ -853,7 +853,7 @@ describe("workspace host sessions", () => {
   })
 
   it("rejects one concurrent publication after its pinned revision becomes stale", async () => {
-    const definition = { ...defineWorkspace({ store: { provider: "memory" } }), name: "docs" }
+    const definition = { ...defineWorkspace({ store: { driver: "memory" } }), name: "docs" }
     const firstWorkspace = createWorkspace(definition)
     const secondWorkspace = createWorkspace(definition)
     const archive = await revisionArchive()

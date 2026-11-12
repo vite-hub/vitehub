@@ -15,7 +15,7 @@ it("authenticates the published Vercel driver with OIDC without a read-write tok
   vi.stubEnv("BLOB_READ_WRITE_TOKEN", undefined)
   const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({ blobs: [], hasMore: false }))
   vi.stubGlobal("fetch", fetchImpl)
-  const driver = createDriver({ access: "public", driver: "vercel-blob" })
+  const driver = createDriver({ access: "public", driver: "vercel" })
 
   await expect(driver.list({})).resolves.toMatchObject({ blobs: [], hasMore: false })
 

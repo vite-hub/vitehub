@@ -107,7 +107,7 @@ describe("vitehub add", () => {
 
   it.each(['{ preset: "node" }', '{ preset: "node", workspace: false }'])("enables Workspace for the Realtime starter (%s)", async (options) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
-    const args = ["realtime", "--option", "realtime.authority=memory", "--name", "docs", "--no-install", "--yes"]
+    const args = ["realtime", "--option", "realtime.driver=memory", "--name", "docs", "--no-install", "--yes"]
     const result = await add(args, root)
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.features).toContain("workspace")
@@ -233,9 +233,9 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    ["node", "realtime", "realtime.authority=cloudflare"],
-    ["node", "realtime", "realtime.authority=auto"],
-    ["cloudflare", "realtime", "realtime.authority=memory"],
+    ["node", "realtime", "realtime.driver=cloudflare"],
+    ["node", "realtime", "realtime.driver=auto"],
+    ["cloudflare", "realtime", "realtime.driver=memory"],
     ["netlify", "cache", "cache.driver=fs-lite"],
   ])("rejects conflicting provider options on %s: %s %s before installing or writing", async (host, feature, option) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
@@ -252,9 +252,9 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    ["node", "realtime", "realtime.authority=memory"],
-    ["cloudflare", "realtime", "realtime.authority=cloudflare"],
-    ["cloudflare", "realtime", "realtime.authority=auto"],
+    ["node", "realtime", "realtime.driver=memory"],
+    ["cloudflare", "realtime", "realtime.driver=cloudflare"],
+    ["cloudflare", "realtime", "realtime.driver=auto"],
     ["node", "cache", "cache.driver=fs-lite"],
   ])("preserves supported provider options on %s: %s %s", async (host, feature, option) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
@@ -573,7 +573,7 @@ describe("vitehub add", () => {
   it("rejects the Cloudflare Email driver on other hosts before writing", async () => {
     const root = await copyFixture("vercel")
     const before = await snapshot(root)
-    const result = await add(["email", "--option", "email.driver=cloudflare-email", "--yes"], root)
+    const result = await add(["email", "--option", "email.driver=cloudflare", "--yes"], root)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
     expect(await snapshot(root)).toEqual(before)
@@ -756,7 +756,7 @@ describe("vitehub add", () => {
     expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
     expect(inline.json.install.packages).toEqual(["@vite-hub/workflow"])
 
-    const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
+    const durable = await add(["workflow", "--option", "workflow.driver=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
     expect(durable.json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
   })

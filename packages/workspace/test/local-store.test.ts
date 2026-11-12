@@ -2106,7 +2106,7 @@ describe("local workspace store process locks", () => {
   it("passes the lock mode from Workspace store options", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)
-    const store = createWorkspaceStoreFromProvider({ name: "docs", store: { provider: "local", root, locks: "process" } })
+    const store = createWorkspaceStoreFromProvider({ name: "docs", store: { driver: "local", root, locks: "process" } })
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
     await expect(stat(`${root}/.vitehub/locks`)).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -2219,7 +2219,7 @@ describe("local workspace store Git ignore", () => {
     expect(paths).toContain("node_modules/pkg/index.js")
     // @ts-expect-error Runtime validation covers untyped configuration.
     expect(() => createLocalWorkspaceStore(root, { ignore: "all" })).toThrow("ignore must be \"git\"")
-    const fromProvider = createWorkspaceStoreFromProvider({ name: "docs", store: { provider: "local", root, ignore: "git" } })
+    const fromProvider = createWorkspaceStoreFromProvider({ name: "docs", store: { driver: "local", root, ignore: "git" } })
     expect((await fromProvider.list("", { recursive: true })).map(entry => entry.path)).not.toContain("dist/out.js")
   })
 

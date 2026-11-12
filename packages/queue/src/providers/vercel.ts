@@ -4,7 +4,7 @@ import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
+import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueDriverOptions, VercelQueueSDK } from "../types.ts"
 
 function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
   return [queueErrorDiagnostics.QUEUE_PROVIDER_INVALID_RESPONSE({ cause }), undefined]
@@ -144,7 +144,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_INVALID()
 }
 
-export async function createVercelQueueClient(provider: VercelQueueProviderOptions): Promise<VercelQueueClient> {
+export async function createVercelQueueClient(provider: VercelQueueDriverOptions): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
     throw queueErrorDiagnostics.QUEUE_MISSING_TOPIC()

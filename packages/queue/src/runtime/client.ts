@@ -11,8 +11,8 @@ import { createTestQueueClient } from "./test-client.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueSendResult, VercelQueueProviderOptions } from "../types.ts"
-import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "../internal/runtime/types.ts"
+import type { CloudflareQueueClient, CloudflareQueueDriverOptions, LocalQueueDriverOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueDriver, QueueSendResult, VercelQueueDriverOptions } from "../types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "../internal/runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 async function loadNamedQueueDefinition(name: string) {
@@ -35,22 +35,22 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueClient["bindi
   return resolved || bindingName
 }
 
-function toProviderOptions(name: string, config: QueueRuntimeOptions): QueueRuntimeProviderOptions {
-  if (config.provider === "cloudflare") {
+function toDriverOptions(name: string, config: QueueRuntimeOptions): QueueRuntimeDriverOptions {
+  if (config.driver === "cloudflare") {
     return {
       ...config,
       binding: resolveCloudflareBinding(config.binding, name),
-    } satisfies CloudflareQueueProviderOptions
+    } satisfies CloudflareQueueDriverOptions
   }
 
-  if (config.provider === "local") {
-    return { ...config, queue: name } satisfies LocalQueueProviderOptions
+  if (config.driver === "local") {
+    return { ...config, queue: name } satisfies LocalQueueDriverOptions
   }
 
   return {
     ...config,
     topic: getVercelQueueTopicName(name),
-  } satisfies VercelQueueProviderOptions
+  } satisfies VercelQueueDriverOptions
 }
 
 function getActiveQueueConfig(): false | QueueRuntimeOptions {
@@ -68,17 +68,17 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
     throw queueErrorDiagnostics.QUEUE_DISABLED()
   }
 
-  const provider = toProviderOptions(name, config)
+  const driverOptions = toDriverOptions(name, config)
   const createClient = getQueueRuntimeClientFactory()
   if (!createClient) {
     throw queueErrorDiagnostics.QUEUE_RUNTIME_NOT_INSTALLED()
   }
   try {
-    return await createClient(provider)
+    return await createClient(driverOptions)
   }
   catch (cause) {
     if (isQueueError(cause)) throw cause
-    throw queueErrorDiagnostics.QUEUE_PROVIDER_FAILED({ cause, operation: "create-client", provider: provider.provider })
+    throw queueErrorDiagnostics.QUEUE_PROVIDER_FAILED({ cause, operation: "create-client", provider: driverOptions.driver })
   }
 }
 
@@ -96,9 +96,9 @@ async function useDynamicQueue(name: string): Promise<QueueClient> {
   }
 
   const test = getViteHubTestMode()
-  if (test) return createTestQueueClient(test, name, config.provider === "local" ? config.rules ?? "local" : config.provider)
+  if (test) return createTestQueueClient(test, name, config.driver === "local" ? config.rules ?? "local" : config.driver)
 
-  const bypassCache = definition.options?.cache === false || config.cache === false || config.provider === "cloudflare" || (config.provider === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
+  const bypassCache = definition.options?.cache === false || config.cache === false || config.driver === "cloudflare" || (config.driver === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
   if (bypassCache) {
     return await createNamedQueueClient(name)
   }
@@ -155,7 +155,7 @@ export const dynamicQueue: {
 /**
  * Returns the QueueClient of a discovered Queue Definition, for `sendBatch()` and provider methods. Config errors, for example an unknown name, throw.
  */
-export async function useQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueProvider, QueuePayload<TName>>> {
+export async function useQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueDriver, QueuePayload<TName>>> {
   return await useDynamicQueue(name)
 }
 

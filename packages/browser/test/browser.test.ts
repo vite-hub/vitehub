@@ -5,7 +5,7 @@ import { type TraceEvent, ViteHubError } from "@vite-hub/runtime"
 import {
   createBrowser,
   type BrowserController,
-  type BrowserProvider,
+  type BrowserDriver,
 } from "../src/index.ts"
 
 interface TestConnection {
@@ -20,7 +20,7 @@ function fixture(options: { controllerHandoff?: boolean, controllerPreserves?: b
     secretEndpoint: "wss://secret.invalid/cdp?token=hidden",
     sentinel: { value: "prepared" },
   }
-  const provider: BrowserProvider<TestConnection> = {
+  const provider: BrowserDriver<TestConnection> = {
     features: {
       liveHandoff: options.providerHandoff ?? true,
     },
@@ -47,7 +47,7 @@ function fixture(options: { controllerHandoff?: boolean, controllerPreserves?: b
 describe("Browser Sessions", () => {
   it("normalizes provider expiry dates from another realm", async () => {
     const expiresAt = runInNewContext("new Date('2030-01-02T03:04:05.000Z')") as Date
-    const provider: BrowserProvider = {
+    const provider: BrowserDriver = {
       features: { liveHandoff: false },
       isolation: "provider",
       name: "fixture",
@@ -58,7 +58,7 @@ describe("Browser Sessions", () => {
         id: "session",
       }),
     }
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
 
     expect(session.inspect().expiresAt).toBe("2030-01-02T03:04:05.000Z")
     await session.close()
@@ -66,7 +66,7 @@ describe("Browser Sessions", () => {
 
   it("keeps provider termination separate from controller release", async () => {
     const { close, controller, provider, release } = fixture()
-    const browser = createBrowser({ provider })
+    const browser = createBrowser({ driver: provider })
     const session = await browser.open()
 
     const control = await session.attach(controller)
@@ -86,7 +86,7 @@ describe("Browser Sessions", () => {
     close.mockImplementation(async () => await new Promise<void>(resolve => {
       resolveClose = resolve
     }))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
 
     const first = session.close()
     const second = session.close()
@@ -103,7 +103,7 @@ describe("Browser Sessions", () => {
     release.mockImplementation(async () => await new Promise<void>(resolve => {
       resolveRelease = resolve
     }))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
     const control = await session.attach(controller)
     const completed = vi.fn()
 
@@ -125,7 +125,7 @@ describe("Browser Sessions", () => {
     const { controller, provider, release } = fixture()
     const failure = new Error("temporary detach failure")
     release.mockRejectedValueOnce(failure)
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
     const control = await session.attach(controller)
 
     await expect(control.release()).rejects.toBe(failure)
@@ -145,7 +145,7 @@ describe("Browser Sessions", () => {
   it("allows provider cleanup after controller release fails", async () => {
     const { close, controller, provider, release } = fixture()
     release.mockRejectedValueOnce(new Error("detach failed"))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
     const control = await session.attach(controller)
 
     await expect(control.release()).rejects.toThrow("detach failed")
@@ -158,7 +158,7 @@ describe("Browser Sessions", () => {
   it("keeps failed session cleanup retryable", async () => {
     const { close, controller, provider } = fixture()
     close.mockRejectedValueOnce(new Error("temporary close failure"))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
 
     await expect(session.close()).rejects.toThrow("temporary close failure")
     expect(session.inspect().state).toBe("released")
@@ -176,7 +176,7 @@ describe("Browser Sessions", () => {
     controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
       resolveAttachment = resolve
     }))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
 
     const attachment = session.attach(controller)
     const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
@@ -194,7 +194,7 @@ describe("Browser Sessions", () => {
     try {
       const { close, provider } = fixture()
       close.mockRejectedValueOnce(new Error("temporary close failure"))
-      const browser = createBrowser({ policy: { handoffTtl: 10 }, provider })
+      const browser = createBrowser({ driver: provider, policy: { handoffTtl: 10 } })
       const session = await browser.open()
       const ref = await session.handoff({ audience: "run-1", mode: "live" })
 
@@ -217,8 +217,8 @@ describe("Browser Sessions", () => {
     const { close, provider } = fixture()
     const ttl = 2_147_483_648
     const browser = createBrowser({
+      driver: provider,
       policy: source === "policy" ? { handoffTtl: ttl } : undefined,
-      provider,
     })
     const session = await browser.open()
 
@@ -237,7 +237,7 @@ describe("Browser Sessions", () => {
     vi.useFakeTimers()
     try {
       const { close, provider } = fixture()
-      const browser = createBrowser({ provider })
+      const browser = createBrowser({ driver: provider })
       const session = await browser.open()
       const ref = await session.handoff({ audience: "run-1", mode: "live", ttl: 2_147_483_647 })
 
@@ -254,7 +254,7 @@ describe("Browser Sessions", () => {
 
   it("transfers one exact live session through an opaque one-time reference", async () => {
     const { close, controller, provider } = fixture()
-    const browser = createBrowser({ policy: { handoffTtl: 5_000 }, provider })
+    const browser = createBrowser({ driver: provider, policy: { handoffTtl: 5_000 } })
     const prepared = await browser.open()
 
     const preparedControl = await prepared.attach(controller)
@@ -283,7 +283,7 @@ describe("Browser Sessions", () => {
 
   it("consumes and closes an audience-mismatched handoff", async () => {
     const { close, provider } = fixture()
-    const browser = createBrowser({ provider })
+    const browser = createBrowser({ driver: provider })
     const session = await browser.open()
     const ref = await session.handoff({ audience: "run-1", mode: "live" })
 
@@ -296,13 +296,13 @@ describe("Browser Sessions", () => {
 
   it("rejects unsupported provider and receiving-controller pairs", async () => {
     const providerFixture = fixture({ providerHandoff: false })
-    const providerBrowser = createBrowser({ provider: providerFixture.provider })
+    const providerBrowser = createBrowser({ driver: providerFixture.provider })
     const providerSession = await providerBrowser.open()
     await expect(providerSession.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
     await providerSession.close()
 
     const releaseFixture = fixture({ controllerPreserves: false })
-    const releaseBrowser = createBrowser({ provider: releaseFixture.provider })
+    const releaseBrowser = createBrowser({ driver: releaseFixture.provider })
     const releaseSession = await releaseBrowser.open()
     const releaseControl = await releaseSession.attach(releaseFixture.controller)
     await releaseControl.release()
@@ -310,7 +310,7 @@ describe("Browser Sessions", () => {
     await releaseSession.close()
 
     const controllerFixture = fixture({ controllerHandoff: false })
-    const controllerBrowser = createBrowser({ provider: controllerFixture.provider })
+    const controllerBrowser = createBrowser({ driver: controllerFixture.provider })
     const prepared = await controllerBrowser.open()
     const ref = await prepared.handoff({ audience: "run-1", mode: "live" })
     const claimed = await controllerBrowser.claim(ref, { audience: "run-1" })
@@ -320,7 +320,7 @@ describe("Browser Sessions", () => {
 
   it("prevents overlapping controllers", async () => {
     const { controller, provider } = fixture()
-    const browser = createBrowser({ provider })
+    const browser = createBrowser({ driver: provider })
     const session = await browser.open()
     const control = await session.attach(controller)
 
@@ -336,7 +336,7 @@ describe("Browser Sessions", () => {
       client: connection,
       release: async () => await new Promise<void>(() => {}),
     }))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
     const control = await session.attach(controller)
 
     void control.release()
@@ -356,7 +356,7 @@ describe("Browser Sessions", () => {
     controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
       resolveAttachment = resolve
     }))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
 
     const attachment = session.attach(controller)
     const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
@@ -380,7 +380,7 @@ describe("Browser Sessions", () => {
     const trace = vi.fn(async (event: TraceEvent) => {
       if (event.name === "browser.controller.detach") throw new Error("unexpected detach trace")
     })
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
     const attachment = session.attach(controller)
     const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
     await session.close()
@@ -402,7 +402,7 @@ describe("Browser Sessions", () => {
       controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => Promise<void> }>(resolve => {
         resolveAttachment = resolve
       }))
-      const session = await createBrowser({ provider }).open()
+      const session = await createBrowser({ driver: provider }).open()
 
       const attachment = session.attach(controller)
       const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
@@ -423,7 +423,7 @@ describe("Browser Sessions", () => {
     controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
       resolveAttachment = resolve
     }))
-    const session = await createBrowser({ provider }).open()
+    const session = await createBrowser({ driver: provider }).open()
 
     const attachment = session.attach(controller)
     await expect(session.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({
@@ -437,7 +437,7 @@ describe("Browser Sessions", () => {
 
   it("keeps session ownership explicit", async () => {
     const { close, provider } = fixture()
-    const browser = createBrowser({ provider })
+    const browser = createBrowser({ driver: provider })
     const session = await browser.open()
 
     expect(close).not.toHaveBeenCalled()
@@ -448,7 +448,7 @@ describe("Browser Sessions", () => {
   it("emits sanitized lifecycle traces", async () => {
     const { controller, provider } = fixture()
     const trace = vi.fn()
-    const browser = createBrowser({ provider, trace })
+    const browser = createBrowser({ driver: provider, trace })
 
     const session = await browser.open()
     const control = await session.attach(controller)
@@ -474,7 +474,7 @@ describe("Browser Sessions", () => {
   it("closes an acquired session when tracing fails", async () => {
     const { close, provider } = fixture()
     const traceError = new Error("trace unavailable")
-    const browser = createBrowser({ provider, trace: vi.fn().mockRejectedValue(traceError) })
+    const browser = createBrowser({ driver: provider, trace: vi.fn().mockRejectedValue(traceError) })
 
     await expect(browser.open()).rejects.toBe(traceError)
     expect(close).toHaveBeenCalledOnce()
@@ -495,7 +495,7 @@ describe("Browser Sessions", () => {
       },
     }
     if (failRelease) release.mockRejectedValueOnce(releaseError)
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
 
     if (failRelease) {
       await expect(session.attach(brokenController)).rejects.toMatchObject({ errors: [clientError, releaseError] })
@@ -531,7 +531,7 @@ describe("Browser Sessions", () => {
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(traceError)
     release.mockRejectedValueOnce(releaseError)
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
 
     await expect(session.attach(controller)).rejects.toMatchObject({ errors: [traceError, releaseError] })
     expect(session.inspect().state).toBe("controlled")
@@ -555,7 +555,7 @@ describe("Browser Sessions", () => {
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(traceError)
     release.mockRejectedValue(releaseError)
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
 
     await expect(session.attach(controller)).rejects.toMatchObject({ errors: [traceError, releaseError] })
     await expect(session.close()).rejects.toBe(releaseError)
@@ -595,7 +595,7 @@ describe("Browser Sessions", () => {
     const trace = vi.fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(traceError)
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
 
     await expect(session.attach(controller)).rejects.toMatchObject({ errors: [traceError, releaseError] })
     await session.close()
@@ -615,7 +615,7 @@ describe("Browser Sessions", () => {
       .mockRejectedValueOnce(attachError)
       .mockRejectedValueOnce(detachError)
       .mockResolvedValue(undefined)
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
 
     await expect(session.attach(controller)).rejects.toMatchObject({ errors: [attachError, { message: "rollback failed" }] })
     await expect(session.close()).rejects.toBe(detachError)
@@ -635,7 +635,7 @@ describe("Browser Sessions", () => {
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(traceError)
       .mockRejectedValueOnce(detachError)
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
 
     await expect(session.attach(controller)).rejects.toMatchObject({ errors: [traceError, detachError] })
     expect(session.inspect().state).toBe("released")
@@ -664,7 +664,7 @@ describe("Browser Sessions", () => {
     }).then(() => {
       if (providerClosed) throw new Error("controller connection closed")
     }))
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
     const attaching = session.attach(controller)
     const result = expect(attaching).rejects.toBe(traceError)
     await started
@@ -701,7 +701,7 @@ describe("Browser Sessions", () => {
         await new Promise<void>(resolve => { finishTrace = resolve })
       }
     })
-    const session = await createBrowser({ provider, trace }).open()
+    const session = await createBrowser({ driver: provider, trace }).open()
     const attachment = expect(session.attach(controller)).rejects.toBe(traceError)
     await started
     const closing = session.close()
@@ -727,7 +727,7 @@ describe("Browser Sessions", () => {
     const trace = vi.fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(traceError)
-    const browser = createBrowser({ provider, trace })
+    const browser = createBrowser({ driver: provider, trace })
     const session = await browser.open()
 
     await expect(session.handoff({ audience: "run-1", mode: "live" })).rejects.toBe(traceError)
@@ -744,7 +744,7 @@ describe("Browser Sessions", () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(traceError)
-    const browser = createBrowser({ provider, trace })
+    const browser = createBrowser({ driver: provider, trace })
     const session = await browser.open()
     const ref = await session.handoff({ audience: "run-1", mode: "live" })
 

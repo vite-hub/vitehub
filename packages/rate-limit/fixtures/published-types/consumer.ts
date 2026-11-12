@@ -40,4 +40,4 @@ void defineRateLimit
 void parseRateLimitWindow
 void (undefined as unknown as RateLimitHandle)
 void runWithRateLimitRuntimeEvent
-hubRateLimit({ provider: "cloudflare" })
+hubRateLimit({ driver: "cloudflare" })

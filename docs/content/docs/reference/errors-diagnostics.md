@@ -247,7 +247,7 @@ pnpm --filter @vite-hub/sandbox test
 | Conflicting Rate Limit policy | Two `requireRateLimit()` calls use the same stable ID with different static policies. | Open both reported source locations. Make the policies the same, or rename one ID. |
 | Driver provides best-effort enforcement | A policy requires `strict`, but the provider cannot guarantee it. | Keep `strict` and pick another driver. Change the policy only if best-effort is acceptable. |
 | Driver does not support the window | The provider supports fewer fixed-window periods than the policy type. | Use a supported period, or pick a driver that supports the window. |
-| Production hosting requires an explicit provider | The build target is unknown or has no native Rate Limit provider. | On Cloudflare, set `provider: 'cloudflare'` with a project-unique `namespace`. Set `provider: 'memory'` only for a single-process deployment. Or build a custom Rate Limiter. |
+| Production hosting requires an explicit provider | The build target is unknown or has no native Rate Limit provider. | On Cloudflare, set `driver: 'cloudflare'` with a project-unique `namespace`. Set `driver: 'memory'` only for a single-process deployment. Or build a custom Rate Limiter. |
 | Cloudflare binding was not found | The running Worker or request context has no generated `ratelimits` output. | Inspect `wrangler.json`, then test the deployed Worker, not a separate Node process. |
 | `reason: 'unavailable'` with `allowed: true` | A `failure: 'allow'` policy let work through after a driver error. | Record the decision and check provider health before you change the budget. |
 

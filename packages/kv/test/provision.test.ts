@@ -28,7 +28,7 @@ function createContext(handler: (url: URL, init?: RequestInit) => Response, env:
 }
 
 function namedStore(namespaceName: string, options: { binding?: string, namespaceId?: string } = {}): CloudflareKVStoreConfig {
-  return { driver: "cloudflare-kv-binding", namespaceName, ...options }
+  return { driver: "cloudflare", namespaceName, ...options }
 }
 
 describe("KV Cloudflare provision step", () => {
@@ -59,7 +59,7 @@ describe("KV Cloudflare provision step", () => {
         cache: namedStore("shared", { binding: "CACHE" }),
         pinned: namedStore("pinned", { binding: "PINNED", namespaceId: "configured-id" }),
         sessions: namedStore("shared", { binding: "SESSIONS" }),
-        default: { binding: "UNNAMED", driver: "cloudflare-kv-binding" },
+        default: { binding: "UNNAMED", driver: "cloudflare" },
       },
     })).plan(context)
 
@@ -207,7 +207,7 @@ describe("KV Cloudflare provision step", () => {
     for (const options of [
       undefined,
       false,
-      { driver: "cloudflare-kv-binding" },
+      { driver: "cloudflare" },
       namedStore("app-cache", { namespaceId: "configured-id" }),
       { driver: "upstash", token: "t", url: "https://example.upstash.io" },
     ] satisfies Array<KVOptions | undefined>) {

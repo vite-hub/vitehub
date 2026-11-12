@@ -108,7 +108,7 @@ export default defineDatabase({
 })
 ```
 
-The Nuxt-only `database.driver: 'd1'` option sets up one host resource for Nuxt Content and Nitro. It is not a shortcut for a Vite Database Definition.
+The Nuxt-only `database.driver: 'cloudflare'` option sets up one host resource for Nuxt Content and Nitro. It is not a shortcut for a Vite Database Definition.
 
 With the Console and Agents on, a Cloudflare build stores the Console run journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores).
 
@@ -250,7 +250,7 @@ Do not build with a local secrets file and deploy that `.output` from another ma
 
 ### Rate Limiting bindings
 
-With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
+With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare driver and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
 To use the Rate Limit integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider, and Nitro writes the bindings to `wrangler.json`.
 
@@ -287,7 +287,7 @@ export default defineNuxtConfig({
     preset: 'cloudflare',
     workspace: {
       store: {
-        provider: 'cloudflare-artifacts',
+        driver: 'cloudflare',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },
@@ -309,7 +309,7 @@ export default defineConfig({
       preset: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },
@@ -332,7 +332,7 @@ export default defineConfig({
       preset: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },

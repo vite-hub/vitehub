@@ -33,7 +33,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
-    realtime: { authority: 'memory' },
+    realtime: { driver: 'memory' },
     workspace: true,
   },
 })
@@ -52,7 +52,7 @@ export default defineConfig({
     vue(),
     vitehub({
       preset: 'node',
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
       workspace: true,
     }), nitro(),
   ],
@@ -71,7 +71,7 @@ export default defineConfig({
     vue(),
     vitehub({
       preset: 'node',
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
       workspace: true,
     }),
   ],
@@ -80,7 +80,7 @@ export default defineConfig({
 ::::
 :::
 
-- `authority: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
+- `driver: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-driver) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
 
 Create `server/realtime/docs.ts`. The file name is the name of the room setup: `docs`.
@@ -105,14 +105,14 @@ Create `server/workspaces/docs.ts`. This is the `docs` Workspace that Realtime s
 import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
-  store: { provider: 'memory' },
+  store: { driver: 'memory' },
   rules: {
     '/**': { write: true, mediaType: 'text/markdown' },
   },
 })
 ```
 
-- `provider: 'memory'` keeps the files in memory, like the rooms.
+- `driver: 'memory'` keeps the files in memory, like the rooms.
 - `write: true` lets Realtime write any Markdown file in the Workspace.
 
 Without an `auth` option, anyone can connect to the room. Set `auth: true` in `server/realtime/docs.ts` to accept only users who have signed in with ViteHub Auth.

@@ -81,7 +81,7 @@ const workspaceWithFiles = (files: Record<string, string>) => {
 
 const writableWorkspace = () => {
   const name = `capability-write-${crypto.randomUUID()}`
-  registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
+  registerWorkspace(name, defineWorkspace({ store: { driver: "memory" } }))
   return useWorkspace(name, { mode: "write" })
 }
 
@@ -128,7 +128,7 @@ describe("agent capability runtime", () => {
       getItems: async () => [{ key: "version.txt", content }],
       getMeta: async () => ({}),
     })
-    const definition = defineWorkspace({ store: { provider: "memory" }, sources: { portal: source("main", "support") } })
+    const definition = defineWorkspace({ store: { driver: "memory" }, sources: { portal: source("main", "support") } })
     registerWorkspace(name, definition)
     const workspace = useWorkspace(name, { mode: "write" })
     await expect(workspace.fs.readFile("portal/version.txt")).resolves.toBe("support")
@@ -167,7 +167,7 @@ describe("agent capability runtime", () => {
       getMeta: async () => ({}),
     })
     const definition = defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: { portal: source("main", "support", { root: "packages/portal", include: ["src/**"], ignore: ["**/*.secret"] }) },
     })
     registerWorkspace(name, definition)
@@ -198,7 +198,7 @@ describe("agent capability runtime", () => {
       getItems: async () => [{ key: "version.txt", content }],
       getMeta: async () => ({}),
     })
-    const definition = defineWorkspace({ store: { provider: "memory" }, sources: { portal: source("main", "support", true) } })
+    const definition = defineWorkspace({ store: { driver: "memory" }, sources: { portal: source("main", "support", true) } })
     registerWorkspace(name, definition)
     const workspace = useWorkspace(name, { mode: "write" })
     const capability = trustGitHubPullRequestWorkspaceCapability({
@@ -953,7 +953,7 @@ describe("agent capability runtime", () => {
     const browserRuntime = await import("../src/internal/browser-runtime.ts")
     const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockRejectedValue(new Error("unexpected browser installation"))
     const workspaceName = `launcher-browser-${crypto.randomUUID()}`
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     const write = vi.spyOn(workspace.fs, "writeFile")
     try {
@@ -1003,7 +1003,7 @@ describe("agent capability runtime", () => {
       async getKeys() { return Object.keys(files) },
       async getItem(key: string) { return { key, content: files[key], mediaType: "text/markdown" } },
     } })
-    const definition = defineWorkspace({ store: provider === "local" ? { provider, root } : { provider }, sources: capability.workspaceSources })
+    const definition = defineWorkspace({ store: provider === "local" ? { driver: provider, root } : { driver: provider }, sources: capability.workspaceSources })
     registerWorkspace(workspaceName, definition)
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     const resolve = () => resolveAgentCapabilities({
@@ -1047,7 +1047,7 @@ describe("agent capability runtime", () => {
       rm(workspaceRoot, { force: true, recursive: true }),
       rm(`${workspaceRoot}.meta.json`, { force: true }),
     ]).then(() => undefined))
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "local", root: workspaceRoot } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
     if (existingSkill) await workspace.fs.writeFile(skillPath, browserSkillContent("# Browser\nUse bash.\n", skillPath))
@@ -1105,7 +1105,7 @@ describe("agent capability runtime", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `nonconditional-browser-${crypto.randomUUID()}`
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     workspace.capabilities = async () => ({ conditionalWrites: false })
     const write = vi.spyOn(workspace.fs, "writeFile").mockRejectedValue(new Error("conditional writes unavailable"))
@@ -1131,7 +1131,7 @@ describe("agent capability runtime", () => {
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `concurrent-browser-${crypto.randomUUID()}`
     const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-concurrent-browser-"))
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "local", root: workspaceRoot } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     const write = workspace.fs.writeFile.bind(workspace.fs)
     const spy = vi.spyOn(workspace.fs, "writeFile").mockImplementationOnce(async (path, content, options) => {
@@ -1164,7 +1164,7 @@ describe("agent capability runtime", () => {
     const browserRuntime = await import("../src/internal/browser-runtime.ts")
     const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockRejectedValue(new Error("inspection provisioned a browser"))
     const workspaceName = `inspection-browser-${crypto.randomUUID()}`
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     const write = vi.spyOn(workspace.fs, "writeFile")
     try {
@@ -1191,7 +1191,7 @@ describe("agent capability runtime", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `inspection-retained-${crypto.randomUUID()}`
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     const options = {
       driverKind: "provider" as const,

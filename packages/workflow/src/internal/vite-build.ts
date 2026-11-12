@@ -24,7 +24,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
-import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowProvider } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowDriver } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Plugin as VitePlugin } from "vite"
@@ -589,7 +589,7 @@ function resolveWorkflowUserAppEntry(rootDir: string, entry: true | string) {
 }
 
 interface ProviderEntrySpec {
-  name: WorkflowProvider
+  name: WorkflowDriver
   entryFile: string
   runtimeModule: WorkflowRuntimeModuleName
   factory: string
@@ -618,8 +618,8 @@ export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undef
   }
   const config = resolveWorkflowConfig(workflow, hosting)
   return {
-    cloudflare: config && config.provider === "cloudflare" ? config : false,
-    vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
+    cloudflare: config && config.driver === "cloudflare" ? config : false,
+    vercel: config && config.driver === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
   }
 }
 
@@ -642,7 +642,7 @@ interface GenerateProviderOutputsOptions {
   hosting?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
-  providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
+  providerRuntimeImportAliases?: Partial<Record<WorkflowDriver, Record<string, string>>>
   vercelRuntimePackages?: VercelFunctionRuntimePackage[]
   definitionRootDir?: string
   rootDir: string
@@ -796,7 +796,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
   const preset = String(options.nitro.preset || "")
   if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
   const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
-  if (!config || config.provider !== "cloudflare") return options.nitro
+  if (!config || config.driver !== "cloudflare") return options.nitro
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentModules,
@@ -1229,7 +1229,7 @@ export async function writeProviderEntries(
   await writeFile(registryRuntimeFile, transformRegistry ? await transformRegistry(registryContents, registryRuntimeFile) : registryContents, "utf8")
   await writeFile(registryFile, createWorkflowRegistryIndexContents(providerDefinitions), "utf8")
 
-  const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
+  const entryFiles: Record<WorkflowDriver, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const workflowConfig = spec.name === "cloudflare"
@@ -1293,7 +1293,7 @@ function createCloudflareOutput(
   artifacts: GeneratedWorkflowArtifacts,
   providerImportAliases?: Record<string, string>,
 ): CloudflareProviderDeploymentOutput {
-  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
+  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.driver === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
   const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
@@ -1337,7 +1337,7 @@ function createCloudflareOutput(
 }
 
 function createCloudflareWorkflowWrapper(artifacts: GeneratedWorkflowArtifacts): string {
-  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
+  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.driver === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
   const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
@@ -1541,7 +1541,7 @@ async function generateProviderOutputsWithinLock(
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
   const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
-  const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+  const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.driver === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   let commitGeneratedArtifacts = async (): Promise<void> => {}
@@ -1623,13 +1623,13 @@ async function generateProviderOutputsWithinLock(
     }
   }
   artifacts = await publishGeneratedArtifacts()
-  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare" && !options.cloudflareInNitro
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.driver === "cloudflare" && !options.cloudflareInNitro
     ? createCloudflareOutput(options.rootDir, artifacts, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.cloudflare,
       })
     : undefined
-  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.driver === "vercel"
     ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.vercel,

@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or with the local driver of `preset: 'node'`, which runs jobs in the server process. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -241,7 +241,7 @@ A Cloudflare direct client needs a binding object, here `binding` from the Worke
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'cloudflare',
+  driver: 'cloudflare',
   binding,
 })
 ```
@@ -252,7 +252,7 @@ A Vercel direct client needs an existing topic. Use your own topic and region.
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'vercel',
+  driver: 'vercel',
   topic: 'topic--77656c636f6d65',
   region: 'iad1',
 })

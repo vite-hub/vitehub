@@ -11,9 +11,9 @@ interface QueueResolutionInput {
   hosting?: string
 }
 
-const knownProviders = new Set(["cloudflare", "local", "vercel"])
+const knownDrivers = new Set(["cloudflare", "local", "vercel"])
 
-/** Default directory of the local provider, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
+/** Default directory of the local driver, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
 export const defaultLocalQueueBase = ".vitehub/data/queue"
 
 /** A self-hosted Node server has no hosted Queue, so it runs Queue Definitions in its own process. */
@@ -25,27 +25,27 @@ function readOwnOption(options: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(options, key) ? options[key] : undefined
 }
 
-function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
+function resolveDriver(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
   const cache = readOwnOption(options, "cache")
   const shared: QueueSharedOptions = typeof cache === "boolean" ? { cache } : {}
-  const provider = readOwnOption(options, "provider")
+  const driver = readOwnOption(options, "driver")
 
-  if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw queueErrorDiagnostics.QUEUE_INVALID_PROVIDER({ provider })
+  if (typeof driver === "string" && !knownDrivers.has(driver)) {
+    throw queueErrorDiagnostics.QUEUE_INVALID_DRIVER({ driver })
   }
 
-  if (typeof provider === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel") && !isLocalHosting(hosting)) {
-    throw queueErrorDiagnostics.QUEUE_MISSING_PROVIDER({ hosting })
+  if (typeof driver === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel") && !isLocalHosting(hosting)) {
+    throw queueErrorDiagnostics.QUEUE_MISSING_DRIVER({ hosting })
   }
 
-  const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : isLocalHosting(hosting) ? "local" : "vercel")
+  const resolved = driver || (hosting.includes("cloudflare") ? "cloudflare" : isLocalHosting(hosting) ? "local" : "vercel")
 
   if (resolved === "local") {
     const base = readOwnOption(options, "base")
     return defu(
       typeof base === "string" && base.trim() ? { base: base.trim() } : {},
       shared,
-      { base: defaultLocalQueueBase, provider: "local" as const },
+      { base: defaultLocalQueueBase, driver: "local" as const },
     )
   }
 
@@ -58,7 +58,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
         ...(typeof namePrefix === "string" ? { namePrefix } : {}),
       },
       shared,
-      { provider: "cloudflare" as const },
+      { driver: "cloudflare" as const },
     )
   }
 
@@ -66,7 +66,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   return defu(
     typeof region === "string" ? { region } : {},
     shared,
-    { provider: "vercel" as const },
+    { driver: "vercel" as const },
   )
 }
 
@@ -75,5 +75,5 @@ export function normalizeQueueOptions(options: QueueOptions | undefined, input: 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw queueErrorDiagnostics.QUEUE_INVALID_CONFIG()
   }
-  return resolveProvider(options || {}, normalizeHosting(input.hosting))
+  return resolveDriver(options || {}, normalizeHosting(input.hosting))
 }

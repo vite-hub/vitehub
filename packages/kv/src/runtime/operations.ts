@@ -151,7 +151,7 @@ export function listKVDevStores(): KVDevStore[] {
 function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
   if (driver === "fs-lite") return "The fs-lite driver ignores TTL. The value does not expire."
   if (driver === "upstash" && Math.ceil(ttl) !== ttl) return `Upstash rounds the TTL up to ${Math.ceil(ttl)} seconds.`
-  if (driver === "cloudflare-kv-binding") {
+  if (driver === "cloudflare") {
     const effectiveTTL = Math.max(60, Math.ceil(ttl))
     if (ttl < 60) return "Cloudflare KV raises a TTL below 60 seconds to 60 seconds."
     if (effectiveTTL !== ttl) return `Cloudflare KV rounds the TTL up to ${effectiveTTL} seconds.`
@@ -229,7 +229,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       if (input.value === undefined) throw new KVOperationError("The set operation requires a value.", 400, "KV_INVALID_INPUT")
       if (selected.driver === "upstash" && input.ttl !== undefined && input.ttl < 1) throw new KVOperationError("Upstash TTL must be at least 1 second.", 400, "KV_INVALID_INPUT")
       const existed = unwrap(await selected.storage.has(key))
-      const ttl = input.ttl === undefined ? undefined : selected.driver === "cloudflare-kv-binding" ? Math.max(60, Math.ceil(input.ttl)) : selected.driver === "upstash" ? Math.ceil(input.ttl) : input.ttl
+      const ttl = input.ttl === undefined ? undefined : selected.driver === "cloudflare" ? Math.max(60, Math.ceil(input.ttl)) : selected.driver === "upstash" ? Math.ceil(input.ttl) : input.ttl
       unwrap(await selected.storage.set(key, input.value, ttl === undefined ? undefined : { ttl }))
       const notice = input.ttl ? ttlNotice(selected.driver, input.ttl) : undefined
       const result: KVDevSetResult = {

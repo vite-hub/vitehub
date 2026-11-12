@@ -6,7 +6,7 @@ import { defineWorkspace } from "../src/index.ts"
 describe("workspace session scope", () => {
   it("enforces scoped basic session reads, lists, searches, writes, and commits", async () => {
     const workspace = createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: "docs",
     })
     await workspace.writeFile("public/README.md", "needle public\n")
@@ -33,7 +33,7 @@ describe("workspace session scope", () => {
 
   it("allows scoped file sessions to create missing parent directories", async () => {
     const workspace = createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: "docs",
     })
     await workspace.snapshot({ name: "baseline" })
@@ -48,7 +48,7 @@ describe("workspace session scope", () => {
 
   it("honors a zero search limit in basic sessions", async () => {
     const workspace = createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: "docs",
     })
     await workspace.writeFile("README.md", "needle\n")

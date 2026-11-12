@@ -6,7 +6,7 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-This page covers generated output and the Cloudflare Artifacts Store. A Store keeps Workspace files. [Store providers](/docs/workspace/configure#store-providers) lists each host's default.
+This page covers generated output and the Cloudflare Artifacts Store. A Store keeps Workspace files. [Store drivers](/docs/workspace/configure#store-drivers) lists each host's default.
 
 ## Provider output
 
@@ -71,7 +71,7 @@ export default defineNuxtConfig({
     preset: 'cloudflare',
     workspace: {
       store: {
-        provider: 'cloudflare-artifacts',
+        driver: 'cloudflare',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },
@@ -93,7 +93,7 @@ export default defineConfig({
       preset: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },
@@ -116,7 +116,7 @@ export default defineConfig({
       preset: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },

@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
+import cloudflareEmail from "../src/drivers/cloudflare.ts";
 import resend from "../src/drivers/resend.ts";
 import { emailProviderError } from "../src/provider.ts";
 
@@ -1180,7 +1180,7 @@ describe("Cloudflare Email driver", () => {
       await expect(
         driver.send({ ...message, unsubscribe: { mailto } }, context),
       ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1202,7 +1202,7 @@ describe("Cloudflare Email driver", () => {
         context,
       ),
     ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1223,7 +1223,7 @@ describe("Cloudflare Email driver", () => {
         context,
       ),
     ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1249,7 +1249,7 @@ describe("Cloudflare Email driver", () => {
           context,
         ),
       ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1265,7 +1265,7 @@ describe("Cloudflare Email driver", () => {
       const invalidMessage: EmailMessage = { ...message, ...options };
 
       await expect(driver.send(invalidMessage, context)).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1297,7 +1297,7 @@ describe("Cloudflare Email driver", () => {
       await expect(
         driver.send({ ...message, unsubscribe: { oneClick: true, url } }, context),
       ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1314,7 +1314,7 @@ describe("Cloudflare Email driver", () => {
       await expect(
         driver.send({ ...message, unsubscribe: { url } }, context),
       ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1331,7 +1331,7 @@ describe("Cloudflare Email driver", () => {
       await expect(
         driver.send({ ...message, unsubscribe: { oneClick: false, url } }, context),
       ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1363,7 +1363,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send(message, { ...context, stream: "transactional" }),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare" } });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1403,7 +1403,7 @@ describe("Cloudflare Email driver", () => {
           context,
         ),
       ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1421,7 +1421,7 @@ describe("Cloudflare Email driver", () => {
         { ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare" } });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1433,7 +1433,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, to: [], cc: ["copy@example.com"] }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1452,7 +1452,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1464,7 +1464,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, from: { email } as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1477,7 +1477,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, from: { email: "hello@example.com", name } as never }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1494,7 +1494,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1512,7 +1512,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1530,7 +1530,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1550,7 +1550,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
 
     await expect(driver.send(message, context)).resolves.toMatchObject({
-      data: { driver: "cloudflare-email" },
+      data: { driver: "cloudflare" },
       error: null,
     });
     expect(Constructor).toHaveBeenCalledWith(
@@ -1631,7 +1631,7 @@ describe("Cloudflare Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare" } });
 
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1716,7 +1716,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare" } });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1741,7 +1741,7 @@ describe("Cloudflare Email driver", () => {
           data: null,
           error: {
             code: "UNSUPPORTED",
-            driver: "cloudflare-email",
+            driver: "cloudflare",
             message: `Cloudflare Email does not support ${description}.`,
           },
         });
@@ -1778,7 +1778,7 @@ describe("Cloudflare Email driver", () => {
         data: null,
         error: {
           code: "UNSUPPORTED",
-          driver: "cloudflare-email",
+          driver: "cloudflare",
           message: `Cloudflare Email does not support ${description}.`,
         },
       });
@@ -1805,7 +1805,7 @@ describe("Cloudflare Email driver", () => {
       error: {
         cause,
         code: "PROVIDER",
-        driver: "cloudflare-email",
+        driver: "cloudflare",
         message: "Cloudflare Email send failed.",
       },
     });
@@ -1834,7 +1834,7 @@ describe("Cloudflare Email driver", () => {
         driver.send(input, { ...context, signal: aborted ? AbortSignal.abort() : undefined }),
       ).resolves.toMatchObject({
         data: null,
-        error: { code, driver: "cloudflare-email", message: diagnostic },
+        error: { code, driver: "cloudflare", message: diagnostic },
       });
       expect(getter).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1851,7 +1851,7 @@ describe("Cloudflare Email driver", () => {
     await expect(
       driver.send(message, { ...context, signal: controller.signal }),
     ).resolves.toMatchObject({
-      error: { code: "CANCELLED", driver: "cloudflare-email", retryable: false },
+      error: { code: "CANCELLED", driver: "cloudflare", retryable: false },
     });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1875,7 +1875,7 @@ describe("Cloudflare Email driver", () => {
     resolveSend?.();
 
     await expect(delivery).resolves.toMatchObject({
-      data: { driver: "cloudflare-email" },
+      data: { driver: "cloudflare" },
       error: null,
     });
   });
@@ -1909,7 +1909,7 @@ describe("Cloudflare Email driver", () => {
       const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
       await expect(driver.send({ ...message, ...unsupported }, context)).resolves.toMatchObject({
-        error: { code: "UNSUPPORTED", driver: "cloudflare-email" },
+        error: { code: "UNSUPPORTED", driver: "cloudflare" },
       });
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1925,7 +1925,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, headers, scheduledAt: undefined, subject }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -1946,7 +1946,7 @@ describe("Cloudflare Email driver", () => {
     await expect(
       driver.send({ ...message, headers: { "message-id": "  " } }, context),
     ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(send).not.toHaveBeenCalled();
   });
@@ -2006,7 +2006,7 @@ describe("Cloudflare Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -2016,7 +2016,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never });
     await expect(
       driver.send({ ...message, subject: "Hello\r\nBcc: attacker@example.com" }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -2031,7 +2031,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: class {} as never });
 
     await expect(driver.send({ ...message, ...invalid }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare" },
     });
     expect(send).not.toHaveBeenCalled();
   });
@@ -2045,7 +2045,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, headers: { [header]: "custom" } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
       expect(send).not.toHaveBeenCalled();
     },
   );
@@ -2059,7 +2059,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, headers: { [header]: "value" } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare" } });
       expect(send).not.toHaveBeenCalled();
     },
   );

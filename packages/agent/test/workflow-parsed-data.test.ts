@@ -38,7 +38,7 @@ describe("durable Agent data handoff", () => {
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
         ...await import("@vite-hub/workflow/runtime/state"),
-        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
@@ -95,7 +95,7 @@ describe("durable Agent data handoff", () => {
     })
     let payload: AgentWorkflowInvocationPayload | undefined
     setAgentWorkflowRuntimeLoaders({
-      state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }) }),
+      state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }) }),
       workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
         start: async (input: AgentWorkflowInvocationPayload) => {
           payload = JSON.parse(JSON.stringify(input))
@@ -139,7 +139,7 @@ describe("durable Agent data handoff", () => {
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
         ...await import("@vite-hub/workflow/runtime/state"),
-        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
@@ -189,7 +189,7 @@ describe("durable Agent data handoff", () => {
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
         ...await import("@vite-hub/workflow/runtime/state"),
-        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
@@ -230,7 +230,7 @@ describe("durable Agent data handoff", () => {
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
         ...await import("@vite-hub/workflow/runtime/state"),
-        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
@@ -288,7 +288,7 @@ describe("durable Agent data handoff", () => {
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
         ...await import("@vite-hub/workflow/runtime/state"),
-        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),

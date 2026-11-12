@@ -33,7 +33,7 @@ describe("blob.images configuration", () => {
   })
 
   it("adds a Cloudflare Images binding only for the explicit cloudflare-images transformer", () => {
-    const store = { binding: "BLOB", driver: "cloudflare-r2" as const }
+    const store = { binding: "BLOB", driver: "cloudflare" as const }
     expect(cloudflareImagesBinding({ store })).toBeUndefined()
     expect(cloudflareImagesBinding({ images: { transformer: "auto" }, store })).toBeUndefined()
     expect(cloudflareImagesBinding({ images: { transformer: "cloudflare-images" }, store })).toEqual({ binding: "IMAGES" })
@@ -77,7 +77,7 @@ describe("generated Nitro plugin", () => {
     await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
     await writeFile(join(root, "node_modules/@cf-wasm/photon/index.js"), "export {}")
     expect(await generatePlugin({ driver: "fs" })).not.toContain("photon")
-    for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare-r2" as const }]) {
+    for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare" as const }]) {
       const source = await generatePlugin({ ...options, images: { transformer: "photon" } })
       expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
       expect(source).not.toContain("sharp")
@@ -88,7 +88,7 @@ describe("generated Nitro plugin", () => {
     const entry = join(root, ".yarn/cache/photon/index.js")
     await mkdir(join(root, ".yarn/cache/photon"), { recursive: true })
     await writeFile(entry, "export {}")
-    for (const driver of ["fs", "cloudflare-r2"] as const) {
+    for (const driver of ["fs", "cloudflare"] as const) {
       const source = await generatePlugin({ driver, images: { transformer: "photon" } }, { "@cf-wasm/photon": entry })
       expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
     }
@@ -109,7 +109,7 @@ describe("generated Nitro plugin", () => {
     // A previous build's plugin makes Vite resolve from its directory and return an optional-peer placeholder.
     await mkdir(join(root, ".vitehub/nitro/blob"), { recursive: true })
     await writeFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "export {}")
-    for (const driver of ["fs", "cloudflare-r2"] as const) {
+    for (const driver of ["fs", "cloudflare"] as const) {
       await expect(generatePlugin({ driver, images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
     }
   })

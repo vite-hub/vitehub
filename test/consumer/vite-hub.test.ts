@@ -1185,7 +1185,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             nitro: { cloudflare: { deployConfig: true }, preset: "cloudflare_module" },
             vitehub: {
               database: {
-                driver: "d1",
+                driver: "cloudflare",
                 databaseId: "00000000-0000-0000-0000-000000000000",
                 databaseName: "portable-db",
               },

@@ -60,7 +60,7 @@ const developerInputs: Record<string, readonly string[]> = {
   "blob.driver": ["--option", "blob.driver=s3", "--option", "blob.bucket=app-assets"],
   "console.auth": ["--option", "console.auth=false"],
   "database.connection": ["--option", "database.connection.url=libsql://example.com"],
-  "workspace.store": ["--option", "workspace.store.provider=github", "--option", "workspace.store.repository=owner/repo"],
+  "workspace.store": ["--option", "workspace.store.driver=github", "--option", "workspace.store.repository=owner/repo"],
 }
 
 type AddResult = SetupAddPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string }

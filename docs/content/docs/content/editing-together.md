@@ -173,7 +173,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
-    realtime: { authority: 'memory' },
+    realtime: { driver: 'memory' },
   },
 })
 ```
@@ -189,7 +189,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
     nitro(),
   ],
@@ -206,7 +206,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
   ],
 })
@@ -214,7 +214,7 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` uses the memory authority by default. A Node build needs `authority: 'memory'` (one server process). Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room authority: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
+`vite dev` uses the memory driver by default. A Node build needs `driver: 'memory'` (one server process). Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room driver: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
 ### What people see
 

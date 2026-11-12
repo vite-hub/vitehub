@@ -12,7 +12,7 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle files. |
 | Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep secret URLs and tokens in Server Env. |
-| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
+| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'cloudflare'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
 | Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Hyperdrive binding on Cloudflare and `connection.url` elsewhere. See [Use Postgres](#use-postgres). |
 
 ### Use the real D1 database in development
@@ -104,7 +104,7 @@ export default defineDatabase({
 })
 ```
 
-In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'd1', readReplication: true }`.
+In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'cloudflare', readReplication: true }`.
 
 ViteHub then opens one D1 session per request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
 
@@ -257,7 +257,7 @@ export default defineNuxtConfig({
   vitehub: {
     preset: 'cloudflare',
     database: {
-      driver: 'd1',
+      driver: 'cloudflare',
       databaseName: 'app-content',
     },
   },
@@ -276,7 +276,7 @@ export default defineConfig({
     vitehub({
       preset: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),
@@ -296,7 +296,7 @@ export default defineConfig({
     vitehub({
       preset: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),

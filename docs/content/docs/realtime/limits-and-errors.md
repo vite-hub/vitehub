@@ -35,14 +35,14 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 | `REALTIME_AWARENESS_TOO_LARGE`, `REALTIME_DOCUMENT_TOO_LARGE`, `REALTIME_INVALID_AWARENESS`, `REALTIME_TOO_MANY_AWARENESS_CLIENTS` | WebSocket close code `4400` |
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
 | `REALTIME_INVALID_PERSISTENCE`, `REALTIME_INVALID_USER`, `REALTIME_MISSING_DIGEST` | Thrown on the server when a room opens or saves |
-| `REALTIME_AUTHORITY_CONFLICT`, `REALTIME_MISSING_AUTHORITY` | Thrown when Vite reads the config |
+| `REALTIME_DRIVER_CONFLICT`, `REALTIME_MISSING_DRIVER` | Thrown when Vite reads the config |
 
 ## Limits
 
 - One WebSocket message is at most 1 MiB.
 - Document state and awareness state (who is here, and their cursors) are each at most 8 MiB per room.
 - One peer can own at most 1,024 awareness clients.
-- `authority: "memory"` keeps at most 128 active rooms in one process.
+- `driver: "memory"` keeps at most 128 active rooms in one process.
 
 ## Request errors
 
@@ -108,10 +108,10 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ## Build errors
 
-### REALTIME_AUTHORITY_CONFLICT
+### REALTIME_DRIVER_CONFLICT
 
-`authority: "cloudflare"` needs a Cloudflare preset. `authority: "memory"` runs in one process, so it needs the `node` preset.
+`driver: "cloudflare"` needs a Cloudflare preset. `driver: "memory"` runs in one process, so it needs the `node` preset.
 
-### REALTIME_MISSING_AUTHORITY
+### REALTIME_MISSING_DRIVER
 
-A production build with `authority: "auto"` found no Cloudflare preset. Use a Cloudflare preset, or set `authority: "memory"` for one Node.js process.
+A production build with `driver: "auto"` found no Cloudflare preset. Use a Cloudflare preset, or set `driver: "memory"` for one Node.js process.

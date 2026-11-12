@@ -69,8 +69,8 @@ function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>) {
 
 export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions = {}): Promise<OpenWorkflowWorker> {
   const config = options.config ?? getWorkflowRuntimeConfig()
-  if (!config || config.provider !== "openworkflow") {
-    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.provider \"openworkflow\"." })
+  if (!config || config.driver !== "openworkflow") {
+    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.driver \"openworkflow\"." })
   }
 
   const registry = options.registry ?? getWorkflowRuntimeRegistry() ?? {}

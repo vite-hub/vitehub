@@ -16,7 +16,7 @@ describe("Cloudflare workflow errors", () => {
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       createNonRetryableError,
       env: {},
       event: { id: "run-foreign" },

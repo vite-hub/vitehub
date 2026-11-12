@@ -89,8 +89,8 @@ describe("services that a build does not enable", () => {
     })
   }, 120_000)
 
-  it("reports Realtime as available when the build has a room authority", async () => {
-    const root = await buildApp({ preset: "node", realtime: { authority: "memory" } })
+  it("reports Realtime as available when the build has a room driver", async () => {
+    const root = await buildApp({ preset: "node", realtime: { driver: "memory" } })
 
     expect(await callServices(root)).toMatchObject({ realtime: { available: true, refreshed: false } })
   }, 120_000)

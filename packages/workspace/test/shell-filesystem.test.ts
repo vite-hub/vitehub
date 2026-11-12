@@ -7,7 +7,7 @@ import { registerWorkspace } from "../src/test.ts"
 describe("Workspace Shell filesystem", () => {
   it.each(["/workspace", "/workspace/", "/"])("preserves the Workspace root when moved to %s", async (destination) => {
     const name = `shell-root-move-${destination}`
-    registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(name, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(name, { mode: "write" })
     await workspace.fs.writeFile("notes.md", "saved content")
     const writeFile = vi.spyOn(workspace.fs, "writeFile")

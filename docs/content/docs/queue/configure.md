@@ -1,6 +1,6 @@
 ---
 title: Queue configuration
-description: Configure the Queue Vite Integration, Queue Providers, generated names, and Queue Definitions.
+description: Configure the Queue Vite Integration, Queue drivers, generated names, and Queue Definitions.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -52,14 +52,14 @@ import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' }), nitro()],
+  plugins: [hubQueue({ driver: 'vercel', region: 'iad1' }), nitro()],
 })
 ```
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, `local` on a Node server (`preset: 'node'` or Nitro `node-server`), and Vercel for other production builds. On Netlify, set `provider` or turn Queue off. |
-| `cache` | `boolean` | `true` | Reuses named QueueClients where the provider allows it. Cloudflare clients still read the request's binding on each request. |
+| `driver` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, `local` on a Node server (`preset: 'node'` or Nitro `node-server`), and Vercel for other production builds. On Netlify, set `driver` or turn Queue off. |
+| `cache` | `boolean` | `true` | Reuses named QueueClients where the driver allows it. Cloudflare clients still read the request's binding on each request. |
 | `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. Works with one Queue Definition only. |
 | `namePrefix` | `string` | none | Cloudflare only. Prefix of generated queue names: `<namePrefix>queue--<hex-name>`. |
 | `region` | `string` | resolved at runtime | Vercel only. Default Vercel Queue region. |
@@ -69,15 +69,15 @@ export default defineConfig({
 
 Turns off runtime dispatch and the generated Vercel consumer functions. Runtime calls throw `QUEUE_DISABLED`.
 
-## Providers
+## Drivers
 
-| Provider | Configure with | Generated output | Notes |
+| Driver | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
-| Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
+| Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
+| Vercel | `queue: { driver: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
+| Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every driver, with that driver's rules. |
 
-ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
+ViteHub has no Queue Provider for Deno. The local driver keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 
 ### Cloudflare names
 

@@ -2,7 +2,7 @@ import { getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
 
-import type { QueueProvider } from "../types.ts"
+import type { QueueDriver } from "../types.ts"
 
 // A provider failure can pass on the next delivery. Every other Queue error needs a code or deployment change.
 const retryableQueueCodes = new Set<string>(["QUEUE_PROVIDER_FAILED", "QUEUE_PROVIDER_INVALID_RESPONSE"])
@@ -12,7 +12,7 @@ interface QueueDeliveryErrorContext {
   /** `vite dev` keeps the message and stack of a plain `Error`. Elsewhere a message can hold private data. */
   development?: boolean
   id: string
-  provider: QueueProvider
+  provider: QueueDriver
   queue: string
 }
 

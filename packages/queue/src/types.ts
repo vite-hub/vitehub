@@ -1,6 +1,6 @@
 import type { Result } from "@vite-hub/runtime"
 
-export type QueueProvider = "cloudflare" | "local" | "vercel"
+export type QueueDriver = "cloudflare" | "local" | "vercel"
 
 type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
 
@@ -118,80 +118,80 @@ export interface QueueSharedOptions {
   cache?: boolean
 }
 
-export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
+export interface CloudflareQueueDriverOptions extends QueueSharedOptions {
   binding?: string | CloudflareQueueBinding
-  provider: "cloudflare"
+  driver: "cloudflare"
 }
 
-interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
+interface CloudflareQueueModuleDriverOptions extends QueueSharedOptions {
   binding?: string
   namePrefix?: string
-  provider: "cloudflare"
+  driver: "cloudflare"
 }
 
-export interface VercelQueueProviderOptions extends QueueSharedOptions {
+export interface VercelQueueDriverOptions extends QueueSharedOptions {
   client?: VercelQueueSDK
-  provider: "vercel"
+  driver: "vercel"
   region?: string
   topic?: string
 }
 
-interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
-  provider: "vercel"
+interface VercelQueueModuleDriverOptions extends QueueSharedOptions {
+  driver: "vercel"
   region?: string
 }
 
 /**
- * The local provider keeps jobs in files under `base` and runs the Queue Definitions in this process.
+ * The local driver keeps jobs in files under `base` and runs the Queue Definitions in this process.
  * The jobs survive a restart on the same host. They do not move to another host or container.
  */
-export interface LocalQueueProviderOptions extends QueueSharedOptions {
+export interface LocalQueueDriverOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
-  provider: "local"
+  driver: "local"
   /** Queue Definition that receives the jobs. `useQueue()` sets it. */
   queue?: string
-  /** The provider whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the provider of the build. */
+  /** The driver whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the driver of the build. */
   rules?: LocalQueueRules
 }
 
 /**
- * The provider whose documented delivery rules the local provider follows: attempts, retry delay, the largest delay,
+ * The driver whose documented delivery rules the local driver follows: attempts, retry delay, the largest delay,
  * payload, and batch, and the enqueue options it accepts. In `vite dev`, a Cloudflare or Vercel app runs its jobs
- * with the local provider and the rules of its provider.
+ * with the local driver and the rules of its hosted driver.
  */
-export type LocalQueueRules = QueueProvider
+export type LocalQueueRules = QueueDriver
 
-interface LocalQueueModuleProviderOptions extends QueueSharedOptions {
+interface LocalQueueModuleDriverOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
-  provider: "local"
+  driver: "local"
 }
 
-export type QueueProviderOptions =
-  | CloudflareQueueProviderOptions
-  | LocalQueueProviderOptions
-  | VercelQueueProviderOptions
+export type QueueDriverOptions =
+  | CloudflareQueueDriverOptions
+  | LocalQueueDriverOptions
+  | VercelQueueDriverOptions
 
-export type QueueModuleProviderOptions =
-  | CloudflareQueueModuleProviderOptions
-  | LocalQueueModuleProviderOptions
-  | VercelQueueModuleProviderOptions
+export type QueueModuleDriverOptions =
+  | CloudflareQueueModuleDriverOptions
+  | LocalQueueModuleDriverOptions
+  | VercelQueueModuleDriverOptions
 
 export type QueueOptions =
   | false
-  | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
-  | QueueModuleProviderOptions
+  | (QueueSharedOptions & { base?: string; namePrefix?: string; driver?: undefined })
+  | QueueModuleDriverOptions
 
 /** Local options after resolution. `vite dev` adds `rules` for a Cloudflare or Vercel app. */
-export interface ResolvedLocalQueueOptions extends LocalQueueModuleProviderOptions {
+export interface ResolvedLocalQueueOptions extends LocalQueueModuleDriverOptions {
   rules?: LocalQueueRules
 }
 
 export type ResolvedQueueOptions =
-  | CloudflareQueueModuleProviderOptions
+  | CloudflareQueueModuleDriverOptions
   | ResolvedLocalQueueOptions
-  | VercelQueueModuleProviderOptions
+  | VercelQueueModuleDriverOptions
 
 export interface QueueJob<TPayload = unknown> {
   attempts: number
@@ -257,7 +257,7 @@ export interface LocalQueueSendBatchMessage<T = unknown> {
 /** Codes that `send()` and `sendBatch()` of a Vercel QueueClient return. */
 export type VercelQueueErrorCode = QueueErrorCode
 
-interface QueueClientBase<P extends QueueProvider = QueueProvider> {
+interface QueueClientBase<P extends QueueDriver = QueueDriver> {
   readonly native: unknown
   readonly provider: P
 }
@@ -304,7 +304,7 @@ interface QueueClientMap<TPayload> {
   vercel: VercelQueueClient<TPayload>
 }
 
-export type QueueClient<P extends QueueProvider = QueueProvider, TPayload = unknown> = QueueClientMap<TPayload>[P]
+export type QueueClient<P extends QueueDriver = QueueDriver, TPayload = unknown> = QueueClientMap<TPayload>[P]
 
 /** Discovered Queue Definitions. Generated declarations extend this interface. */
 export interface QueueRegistry {}

@@ -847,33 +847,35 @@ function deploymentPlugins(
           const name = identity.name
           if (requestedServices.includes("queue") && plan.services.queue.supported) {
             const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
-            const provider = configuredQueue?.provider ?? plan.services.queue.adapter
+            const driver = configuredQueue?.driver ?? plan.services.queue.driver
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
             setResolvedFeatureOptions(config, "queue", {
               ...configuredQueue,
-              provider,
-              ...(provider === "cloudflare" && namePrefix === undefined ? { namePrefix: `${name}-` } : {}),
+              driver,
+              ...(driver === "cloudflare" && namePrefix === undefined ? { namePrefix: `${name}-` } : {}),
             })
           }
-          if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
+          const rateLimitOptions = cloneRecord(options.rateLimit === true ? undefined : options.rateLimit)
+          const rateLimitDriver = explicitRateLimitDriver(rateLimitOptions)
+          if (options.rateLimit && (rateLimitDriver || plan.services.rateLimit.supported)) {
             setResolvedFeatureOptions(config, "rateLimit", {
-              ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
+              ...rateLimitOptions,
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
-              // default for `serve`: one in-memory limiter.
-              provider: building ? plan.services.rateLimit.adapter : "memory",
+              // default for `serve`: one in-memory limiter. A build uses the app's driver, else the host's.
+              driver: !building ? "memory" : rateLimitDriver ?? (plan.services.rateLimit.supported ? plan.services.rateLimit.driver : "memory"),
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
             setResolvedFeatureOptions(config, "sandboxTask", {
-              ...(plan.services.sandbox.adapter === "cloudflare"
+              ...(plan.services.sandbox.driver === "cloudflare"
                 ? { name: cloudflareResourceScope(name) + "-sandbox" }
                 : {}),
-              provider: plan.services.sandbox.adapter,
+              driver: plan.services.sandbox.driver,
             })
           }
           let nitro = cloneRecord((config as { nitro?: unknown }).nitro)
-          if (blobEnabled && plan.services.blob.supported && plan.services.blob.adapter === "cloudflare-r2") {
+          if (blobEnabled && plan.services.blob.supported && plan.services.blob.driver === "cloudflare") {
             const optionBlob = options.blob === true ? undefined : options.blob
             if (!hasExplicitBlobStore(optionBlob)) {
               setResolvedFeatureOptions(config, "blob", presetBlobOptions(plan, cloneRecord(optionBlob), cloudflareR2BucketName(name)))
@@ -1060,6 +1062,12 @@ function deploymentPlugins(
   ]
 }
 
+/** The Rate Limit driver that the app sets, or `undefined` when ViteHub selects it from the host. */
+function explicitRateLimitDriver(options: unknown): "cloudflare" | "memory" | undefined {
+  const driver = cloneRecord(options).driver
+  return driver === "cloudflare" || driver === "memory" ? driver : undefined
+}
+
 function hasExplicitBlobStore(options: boolean | BlobOptions | undefined): boolean {
   return Boolean(options && typeof options === "object" && ("driver" in options || "stores" in options))
 }
@@ -1077,16 +1085,16 @@ function presetBlobOptions(
     presetBlobConfigs.add(blob)
     return blob
   }
-  switch (plan.services.blob.supported && plan.services.blob.adapter) {
-    case "cloudflare-r2": return fromPreset({
+  switch (plan.services.blob.supported && plan.services.blob.driver) {
+    case "cloudflare": return fromPreset({
       bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || deploymentName,
       ...configured,
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
     })
     case "fs": return fromPreset({ ...configured, driver: "fs" })
     case "netlify-blobs": return fromPreset({ name: "vitehub-blob", ...configured, driver: "netlify-blobs" })
-    case "vercel-blob": return fromPreset({ ...configured, driver: "vercel-blob" })
-    default: throw viteHubErrorDiagnostics.VITE_HUB_R0084({ message: "[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + "." })
+    case "vercel": return fromPreset({ ...configured, driver: "vercel" })
+    default: throw viteHubErrorDiagnostics.VITE_HUB_R0084({ message: "[vitehub] Missing Blob driver for deployment preset " + JSON.stringify(plan.preset) + "." })
   }
 }
 
@@ -1170,7 +1178,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // option as the host-native D1 driver so implicit databases (for example,
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
-  if (plan.preset === "cloudflare" && options.database === true) options = { ...options, database: { driver: "d1" } }
+  if (plan.preset === "cloudflare" && options.database === true) options = { ...options, database: { driver: "cloudflare" } }
   assertFeatureSupported("schedule", plan.preset, options)
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment." })
@@ -1238,7 +1246,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const requestedServices: HostSelectedService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
-  if (options.rateLimit) requestedServices.push("rateLimit")
+  // An app that sets `rateLimit.driver` chooses the driver itself, so the host does not need to provide one.
+  if (options.rateLimit && !explicitRateLimitDriver(options.rateLimit)) requestedServices.push("rateLimit")
   if (options.sandboxTask) requestedServices.push("sandbox")
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
@@ -1394,7 +1403,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (sandboxTaskEnabled) {
     const sandboxTaskPolicy = plan.services.sandbox
     plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask({
-      ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
+      ...(sandboxTaskPolicy.supported ? { driver: sandboxTaskPolicy.driver } : {}),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
     } as SandboxTaskOptions)))
@@ -1438,13 +1447,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (options.email) {
     const emailOptions = options.email === true
-      ? { driver: "cloudflare-email" as const }
+      ? { driver: "cloudflare" as const }
       : options.email
     plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
       runtimeEnvImport: envServerRuntimeImport,
-      workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
+      workflowDriver: options.workflow && options.workflow !== true ? options.workflow.driver : undefined,
     } as EmailOptions))
   }
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
@@ -1455,9 +1464,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    const provider = configuredQueue?.provider ?? plan.services.queue.adapter
-    // SAFETY: The provider is the host's Queue adapter or the app's own `queue.provider`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, provider } as QueueOptions, { importBase: "vite-hub/queue" })))
+    const driver = configuredQueue?.driver ?? plan.services.queue.driver
+    // SAFETY: The driver is the host's Queue adapter or the app's own `queue.driver`.
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, driver } as QueueOptions, { importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
@@ -1481,7 +1490,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const rateLimitPolicy = plan.services.rateLimit
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
+      driver: explicitRateLimitDriver(options.rateLimit) ?? (rateLimitPolicy.supported ? rateLimitPolicy.driver : "memory"),
     })))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in

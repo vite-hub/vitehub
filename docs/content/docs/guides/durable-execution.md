@@ -77,7 +77,7 @@ export default defineNuxtConfig({
   vitehub: {
     preset: 'node',
     workflow: {
-      provider: 'openworkflow',
+      driver: 'openworkflow',
       sqlite: { path: '.data/workflows.sqlite' },
     },
   },
@@ -96,7 +96,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       workflow: {
-        provider: 'openworkflow',
+        driver: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
       },
     }),
@@ -116,7 +116,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       workflow: {
-        provider: 'openworkflow',
+        driver: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
       },
     }),

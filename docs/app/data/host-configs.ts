@@ -78,10 +78,10 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     cloudflare: { options: { rateLimit: { comment: "On Cloudflare, a binding keeps counts", value: "true" } } },
     node: { options: { rateLimit: { comment: "On Node, counts stay in memory", value: "true" } } },
   },
-  // realtime/configure.md, "Choose a room authority": `memory` for one Node process, `auto` selects Durable Objects.
+  // realtime/configure.md, "Choose a room driver": `memory` for one Node process, `auto` selects Durable Objects.
   realtime: {
     cloudflare: { options: { realtime: { comment: "Keep rooms in Durable Objects", value: "true" } } },
-    node: { options: { realtime: { comment: "Keep rooms in this server process", value: "{ authority: 'memory' }" } } },
+    node: { options: { realtime: { comment: "Keep rooms in this server process", value: "{ driver: 'memory' }" } } },
   },
   sandboxTask: {
     cloudflare: { options: { sandboxTask: { comment: "Each run starts a Cloudflare Sandbox", value: "true" } } },

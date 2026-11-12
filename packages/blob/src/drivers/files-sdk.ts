@@ -163,7 +163,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
   }
 
   async function files(putOptions?: BlobPutOptions) {
-    if (putOptions?.access && options.driver === "vercel-blob" && putOptions.access !== options.access) {
+    if (putOptions?.access && options.driver === "vercel" && putOptions.access !== options.access) {
       return await createFiles(putOptions)
     }
 

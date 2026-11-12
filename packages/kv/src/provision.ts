@@ -77,7 +77,7 @@ function planStoresByNamespace(options: KVOptions | undefined, env: Record<strin
   const storesByNamespace = new Map<string, string[]>()
   if (!kv) return storesByNamespace
   for (const [storeName, store] of Object.entries(kv.stores || { default: kv.store })) {
-    if (store.driver !== "cloudflare-kv-binding" || store.namespaceId || !store.namespaceName) continue
+    if (store.driver !== "cloudflare" || store.namespaceId || !store.namespaceName) continue
     const stores = storesByNamespace.get(store.namespaceName)
     if (stores) stores.push(storeName)
     else storesByNamespace.set(store.namespaceName, [storeName])
@@ -88,7 +88,7 @@ function planStoresByNamespace(options: KVOptions | undefined, env: Record<strin
 function cloudflareStoreNames(options: KVOptions | undefined, env: Record<string, string | undefined>): string[] {
   const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
   if (!kv) return []
-  return Object.entries(kv.stores || { default: kv.store }).filter(([, store]) => store.driver === "cloudflare-kv-binding").map(([name]) => name)
+  return Object.entries(kv.stores || { default: kv.store }).filter(([, store]) => store.driver === "cloudflare").map(([name]) => name)
 }
 
 export function createKVCloudflareProvisionStep(resolveOptions: () => KVOptions | undefined): ProvisionStep {

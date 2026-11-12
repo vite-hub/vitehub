@@ -173,8 +173,8 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
   function runtimeContents() {
     const config = enabled ? {
       binding: resolvedOptions.binding,
+      driver: "cloudflare",
       engine: resolvedOptions.engine,
-      provider: "cloudflare",
     } : {}
     return [
       ...(enabled && resolvedOptions.engine === "chromium"

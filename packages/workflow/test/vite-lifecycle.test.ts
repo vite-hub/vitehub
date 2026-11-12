@@ -12,7 +12,7 @@ const lifecycle = vi.hoisted(() => ({
   get: vi.fn(() => undefined),
   removeArtifactDir: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
-  resolveOutputs: vi.fn((): { cloudflare: false | object, vercel: false | object } => ({ cloudflare: false, vercel: { provider: "vercel" } })),
+  resolveOutputs: vi.fn((): { cloudflare: false | object, vercel: false | object } => ({ cloudflare: false, vercel: { driver: "vercel" } })),
   retainSources: vi.fn(async () => ({ resolve: (path: string) => path })),
   useCatalog: vi.fn((_config: object) => ({})),
   writeProviderEntries: vi.fn(async () => ({})),
@@ -137,7 +137,7 @@ afterEach(async () => {
 
 describe("Workflow Provider Output lifecycle", () => {
   it("keeps same-root config clones with their own server directories and catalogs", async () => {
-    const workflow = { provider: "vercel" as const }
+    const workflow = { driver: "vercel" as const }
     const plugin = hubWorkflow(workflow)
     const configs = ["first", "second"].map(name => ({
       build: { outDir: "dist" },

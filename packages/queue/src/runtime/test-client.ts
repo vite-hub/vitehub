@@ -2,7 +2,7 @@ import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { queueUnsupportedOptionsError } from "../errors.ts"
 
 import type { ViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { LocalQueueClient, QueueEnqueueOptions, QueueProvider } from "../types.ts"
+import type { LocalQueueClient, QueueEnqueueOptions, QueueDriver } from "../types.ts"
 
 /** One job that the app sent while test mode was on. */
 export interface QueueTestMessage {
@@ -30,7 +30,7 @@ export function recordQueueTestMessage(test: ViteHubTestMode, queue: string, pay
 }
 
 /** A Queue client that records every job in the test's list. */
-export function createTestQueueClient(test: ViteHubTestMode, queue: string, provider: QueueProvider): LocalQueueClient {
+export function createTestQueueClient(test: ViteHubTestMode, queue: string, provider: QueueDriver): LocalQueueClient {
   return {
     native: undefined,
     provider: "local",

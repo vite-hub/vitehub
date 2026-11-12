@@ -64,7 +64,7 @@ describe("Nuxt production Node Database runtime", () => {
       ].join("\n"))
       await hubDb({
         connection: { url: name === "default" ? databaseUrl : "file:unused.sqlite" },
-        ...(name === "orders" ? { driver: "d1", databaseId: "content-id", databaseName: "content-db" } as const : {}),
+        ...(name === "orders" ? { driver: "cloudflare", databaseId: "content-id", databaseName: "content-db" } as const : {}),
       })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)

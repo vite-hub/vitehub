@@ -31,7 +31,7 @@ If all four are empty, the client throws. This occurs when the Vercel provider r
 
 ```diff [server/send-report.ts]
  await createQueueClient({
-   provider: 'vercel',
+   driver: 'vercel',
    topic: 'topic--77656c636f6d65',
 +  region: 'iad1',
  })
