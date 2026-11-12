@@ -23,6 +23,7 @@ vi.mock("better-auth/vue", () => ({
 const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 afterEach(() => {
+  setNuxtAppResolver(undefined)
   setSessionSeedResolver(undefined)
   betterAuth.created.length = 0
   betterAuth.calls.length = 0
@@ -33,6 +34,23 @@ describe("Vue Auth composables", () => {
   it("projects the shared client", () => {
     expect(useAuthClient() === authClient).toBe(true)
     expect(useSession()).toBeDefined()
+  })
+
+  it("uses Nuxt's configured client in both default session composables", async () => {
+    vi.stubGlobal("window", {})
+    const client = createAuthClient({ basePath: "/custom-auth" })
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: client }))
+    const real = ref({ data: null, error: null, isPending: true, isRefetching: false, refetch: async () => {} })
+    betterAuth.session = real
+    const state = useSession()
+    const session = useUserSession()
+
+    expect(useAuthClient()).toBe(client)
+    await vi.waitFor(() => expect(betterAuth.created).toEqual([{ basePath: "/custom-auth" }]))
+    real.value = { ...real.value, isPending: false, data: { session: { id: "s" }, user: { id: "u" } } as never }
+    await nextTick()
+    expect(state.value.data?.user.id).toBe("u")
+    expect(session.user.value?.id).toBe("u")
   })
 
   it("creates Better Auth's client on the first call, not before", async () => {
