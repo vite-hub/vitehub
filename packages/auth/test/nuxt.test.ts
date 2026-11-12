@@ -1,6 +1,8 @@
+import { realpathSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 
@@ -72,6 +74,29 @@ describe("Auth Nuxt integration", () => {
     expect(page).toContain("definePageMeta({ auth: 'guest' })")
   })
 
+  it("removes Better Auth's client from the prefetch hints of every page", () => {
+    type Manifest = Record<string, { isEntry?: boolean, dynamicImports?: string[] }>
+    const hooks = new Map<string, (manifest: Manifest) => void>()
+    const nuxt = { ...createNuxt(), hook: (name: string, handler: (manifest: Manifest) => void) => hooks.set(name, handler) }
+    const root = "/tmp/vitehub-auth-nuxt/app"
+    hubAuthNuxt({ env: false }, { ...nuxt, options: { ...nuxt.options, srcDir: "/tmp/vitehub-auth-nuxt/other", vite: { root } } } as never)
+    // Vite writes manifest keys relative to its root, from the real path of each module.
+    const client = relative(root, realpathSync(fileURLToPath(import.meta.resolve("better-auth/vue"))))
+    const manifest: Manifest = {
+      "entry.js": { isEntry: true, dynamicImports: [client, "pages/index.vue"] },
+      [client]: {},
+      "pages/index.vue": { dynamicImports: [client] },
+    }
+
+    hooks.get("build:manifest")?.(manifest)
+
+    expect(manifest).toEqual({
+      "entry.js": { isEntry: true, dynamicImports: ["pages/index.vue"] },
+      [client]: {},
+      "pages/index.vue": { dynamicImports: [] },
+    })
+  })
+
   it.each([false, { redirects: { login: "/module-login", guest: "/module-home" } }] as const)("uses module Auth options and ignores top-level Vite Auth %j", (auth) => {
     const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt", auth: { redirects: { login: "/sign-in", guest: "/home" } } }, runtimeConfig: {} } }
 
@@ -129,8 +154,8 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and components:extend for <Can> and <Cannot>.
-    expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "components:extend"])
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can> and <Cannot>, and build:manifest.
+    expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "components:extend", "build:manifest"])
   })
 
   it("registers <Can> and <Cannot> from the Vue entry, unless the app has its own component with the name", () => {
@@ -214,8 +239,8 @@ describe("Auth Nuxt integration", () => {
     authPlugin.config = authConfig
     await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and components:extend for <Can> and <Cannot>.
-    expect(nuxt.hooks).toHaveLength(4)
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can> and <Cannot>, and build:manifest.
+    expect(nuxt.hooks).toHaveLength(5)
   })
 
   it("resolves relative Env roots from the Vite root", () => {

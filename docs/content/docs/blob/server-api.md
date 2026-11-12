@@ -121,9 +121,9 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 
 Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
-Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
+Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
-With `folded: true`, drivers whose provider has folders (S3 and S3-compatible stores, R2, GCS, Azure, Google Drive, Dropbox, Box, OneDrive, and Supabase) ask the provider for them, so each page is one request. A page holds at most `limit` blobs and folders together. UploadThing has no folders, so ViteHub reads every key under `prefix` and folds them itself.
+With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.
 
@@ -383,11 +383,29 @@ const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', 
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently.
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` driver binds it, and the other drivers fail the request.
 
-The `cloudflare-r2` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
+The `fs` driver, the `cloudflare-r2` driver, and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
 Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and writes use a Workers binding. A binding alone cannot make a presigned URL, so set `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` in runtime env. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) expire after 1 second to 7 days. The [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
+
+### Signed links of `fs` stores
+
+A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob/signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob/signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
+
+The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, and the `contentType` and `maxSize` of a `PUT`. The route rejects a request that does not match its link:
+
+| Request | Status | Code |
+| --- | --- | --- |
+| The link expired. | `403` | `BLOB_R0042` |
+| The URL, the method, or the `Content-Type` changed, or another secret signed the link. | `403` | `BLOB_R0041` |
+| The method is not `GET` or `PUT`. | `405` | `BLOB_R0041` |
+| The body is larger than `maxSize`. | `413` | `BLOB_R0043` |
+
+Without a root secret of at least 32 characters, `blob.sign()` returns `BLOB_OPERATION_FAILED` with `BLOB_R0040` in `cause`. Set `VITEHUB_SECRET` for `vite dev` too: the secret that ViteHub generates in development does not sign these links. The `fs` driver cannot bind `createOnly`.
+
+> [!NOTE]
+> A link works on another instance only when that instance has the same `VITEHUB_SECRET` and reads the same folder, such as a shared volume. Each instance derives the key from the secret, so a restart keeps the links valid.
 
 ## Blob reference schemas
 
