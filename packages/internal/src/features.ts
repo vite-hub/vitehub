@@ -483,9 +483,9 @@ export default defineSchedule({
     title: "Schedule",
   }),
   workflow: feature({
-    definition: starter("server/workflows", () => `import { defineWorkflow } from "vite-hub/workflow"
+    definition: starter("server/workflows", name => `import { defineWorkflow } from "vite-hub/workflow"
 
-export default defineWorkflow<{ id: string }>(async ({ payload }) => {
+export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: string }) => {
   return { id: payload.id }
 })
 `, { folder: "index", suffix: "workflow" }),
