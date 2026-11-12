@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 
 /** The newest characters a compacted job log keeps. A checkout that lists every branch reaches 40 MB. */
 const compactLimit = 4_000_000
@@ -78,7 +79,7 @@ export interface CheckLogExcerpt {
 
 export function parseCheckLogSelection(input: unknown): CheckLogSelection {
   const result = v.safeParse(selectionSchema, input)
-  if (!result.success) throw new Error(result.issues[0].message)
+  if (!result.success) throw presetsErrorDiagnostics.PRESETS_CHECK_LOG_SELECTION_INVALID({ reason: result.issues[0].message })
   return result.output
 }
 
@@ -90,7 +91,7 @@ export function checkLogExcerpt(log: string, limit: number, selection: CheckLogS
   }
   const lines = log.split("\n")
   const start = selection.tailLines === undefined ? selection.startLine! : Math.max(1, lines.length - selection.tailLines + 1)
-  if (start > lines.length) throw new Error(`startLine exceeds the log's ${lines.length} lines.`)
+  if (start > lines.length) throw presetsErrorDiagnostics.PRESETS_CHECK_LOG_START_PAST_END({ startLine: start, totalLines: lines.length })
   const end = selection.tailLines === undefined ? Math.min(lines.length, selection.endLine ?? start + maxRangeLines - 1) : lines.length
   return {
     text: lines.slice(start - 1, end).join("\n"),

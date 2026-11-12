@@ -514,9 +514,9 @@ describe("host-owned repair operations", () => {
     expect(tail.text).toContain("Broken docs links")
     const range = await f.operations.readCheckLogs(123, { startLine: 7134, endLine: 7141 })
     expect(range).toEqual({ text: log.slice(7133, 7141).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7134, 7141]], nextLine: 7142 })
-    await expect(f.operations.readCheckLogs(123, { startLine: 20, endLine: 10 })).rejects.toThrow("1 to 1000")
-    await expect(f.operations.readCheckLogs(123, { tailLines: 100, startLine: 1 })).rejects.toThrow("Choose tailLines")
-    await expect(f.operations.readCheckLogs(123, { startLine: 8000 })).rejects.toThrow("exceeds the log's 7230 lines")
+    await expect(f.operations.readCheckLogs(123, { startLine: 20, endLine: 10 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("1 to 1000") })
+    await expect(f.operations.readCheckLogs(123, { tailLines: 100, startLine: 1 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("Choose tailLines") })
+    await expect(f.operations.readCheckLogs(123, { startLine: 8000 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_START_PAST_END", why: "startLine 8000 is past the log's 7230 lines." })
   })
 
   it("accepts a synthetic merge workflow run linked to the expected PR head", async () => {
