@@ -338,6 +338,15 @@ const config: KnipConfiguration = {
         "vue-tsc",
       ],
     },
+    "packages/docs/playground": {
+      entry: appEntries("packages/docs/playground"),
+      ignoreDependencies: [
+        // Nuxt Icon loads icon collections by name from the app and the docs layer.
+        /^@iconify-json\//,
+        // The README runs Wrangler directly for local migrations and Worker previews.
+        "wrangler",
+      ],
+    },
     "playground/logs": { entry: appEntries("playground/logs"), vite: false },
   },
   ignoreWorkspaces: [

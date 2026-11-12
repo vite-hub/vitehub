@@ -11,7 +11,7 @@ Live: <https://docs-demo.vitehub.dev>
 - Three CMS collections beside the docs: a blog (`/blog`, 5 posts), a changelog (`/changelog`, 7 releases), and authors (4). They exist only in the CMS, and the site reads the published documents on each request, so a publish is live within a minute. RSS at `/blog/rss.xml` and `/changelog/rss.xml`.
 - Five isometric illustrations, each in a light and a dark file, in the media library of the Console and served at `/media/illustrations/`.
 - Agent resources: `/raw/<page>.md`, `/llms.txt`, `/llms-full.txt`, `/sitemap.xml`, `/sitemap.md`, `/robots.txt`, and the docs MCP server at `/mcp`.
-- The ViteHub Console at `/_vitehub` with app Auth (Better Auth on D1), the CMS (`docsCollection()`), Comments, and the Console MCP server at `/_vitehub/mcp` with OAuth.
+- The hosted [ViteHub Console](https://console.vitehub.dev), with a signed Operations endpoint in the demo Worker, the CMS (`docsCollection()`), and Comments. Agents use `https://console.vitehub.dev/mcp/account`.
 - The tools pill on every page for a signed-in editor.
 
 The docs assistant: the **Ask** button on every page opens a chat that answers from the pages and links them. It runs on Maxi's ChatGPT plan through the `chatgpt` Connection, with a model-backed Driver, because a Worker cannot start Codex. `server/agents/docs/agent.ts` is the Agent, `server/connections/chatgpt.ts` the Connection. The grant is in the `users` D1 Database, encrypted with the `VITEHUB_CONNECTIONS_KEY` secret.
@@ -26,7 +26,7 @@ The docs assistant: the **Ask** button on every page opens a chat that answers f
 | `blog/`, `changelog/`, `authors/` | The seed of the CMS collections. `scripts/seed-content.mjs` saves and publishes them through `vitehub content` |
 | `illustrations/` | The generators and the SVG files of the illustrations. `scripts/upload-illustrations.mjs` uploads them to the media library |
 | `.claude/skills/illustration-isometric-mono/` | The illustration skill from [skills.sh](https://skills.sh/mengto/skills/illustration-isometric-mono), copied by hand, see below |
-| `server/auth.ts` | Better Auth in the `users` Database through `authDatabase("users")`: email and password, GitHub when its secrets exist, the admin plugin with the CMS roles, and `consoleMcpOAuth()` |
+| `server/auth.ts` | Better Auth in the `users` Database through `authDatabase("users")`: email and password, GitHub when its secrets exist, the admin plugin with the CMS roles, and the CMS roles |
 | `server/databases/users/`, `server/databases/content/` | Two D1 Database Definitions and their migrations. `users`: the Better Auth and OAuth tables. `content`: the CMS history and editor sessions, and the Comments tables |
 | `server/content.ts` | The CMS with `access: 'roles'` and `database: 'content'`: `docsCollection()`, and the `blog`, `changelog`, and `authors` collections. Today on the Blob + Database store (R2 and D1). With a GitHub token it moves to the GitHub store of this repository with `publish: 'commit'`, see the comment in the file |
 | `server/comments.ts`, `server/console-authorize.ts` | Comments in the `content` Database (`database: "content"`), and Console access with the CMS roles |
@@ -38,7 +38,7 @@ From the repository root:
 
 ```sh
 corepack pnpm install
-vp run --filter playground-docs-demo... build
+corepack pnpm exec vp run --cache -t playground-docs-demo#build
 cd packages/docs/playground
 corepack pnpm exec wrangler d1 migrations apply vitehub-docs-demo-users --local --config .output/server/wrangler.json
 corepack pnpm exec wrangler d1 migrations apply vitehub-docs-demo-content --local --config .output/server/wrangler.json
@@ -48,6 +48,8 @@ corepack pnpm dlx wrangler@4.158.0 dev --config .output/server/wrangler.json --h
 `--host` and `--upstream-protocol` give the local Worker the origin of `publicUrl`, so Better Auth accepts the sign-in. wrangler 4.147 has no local runtime for the compatibility date of the build, so local runs use a newer wrangler.
 
 ## Deploy
+
+The Console uses signed requests. After deploying, link `https://docs-demo.vitehub.dev` in [console.vitehub.dev](https://console.vitehub.dev), set the `VITEHUB_CONSOLE_KEY_<NAME>` public-key variable that it supplies as a Worker secret, and check the connection. The app no longer serves Console pages or Console OAuth endpoints.
 
 The `docs-demo deploy` job of `ci.yml` builds the site, applies the D1 migrations, and deploys the Worker on each push to `main`, with the Cloudflare token of the Production environment. `publicUrl` in `site.ts` is a custom domain, so ViteHub serves the Worker on `docs-demo.vitehub.dev` and turns off its `workers.dev` address.
 

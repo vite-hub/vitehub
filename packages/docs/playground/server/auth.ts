@@ -2,9 +2,6 @@ import { admin } from "better-auth/plugins"
 import { defineAuth } from "vite-hub/auth"
 import { authDatabase } from "vite-hub/auth/database"
 import { cmsAccess } from "vite-hub/cms/access"
-import { consoleMcpOAuth } from "vite-hub/console/auth"
-
-import { publicUrl } from "../site"
 
 // The GitHub account id of onmax. It is the only account that gets the admin role here, so the demo does not set
 // `VITEHUB_ADMIN_EMAILS`: an email and password sign-up does not prove that the person owns the email.
@@ -34,10 +31,6 @@ export default defineAuth(() => {
         },
       },
     },
-    plugins: [
-      admin(cmsAccess),
-      // The OAuth server that MCP clients sign in with, for the Console MCP at /_vitehub/mcp.
-      ...consoleMcpOAuth({ resource: `${publicUrl}/_vitehub/mcp` }),
-    ],
+    plugins: [admin(cmsAccess)],
   }
 })

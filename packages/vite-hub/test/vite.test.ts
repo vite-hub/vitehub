@@ -590,7 +590,8 @@ describe("vitehub", () => {
 
       expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
       const routes = config.nitro?.handlers?.map(handler => handler.route)
-      expect(routes).toEqual(expect.arrayContaining(["/_vitehub/rpc", "/_vitehub/auth/manage"]))
+      expect(routes).toContain("/_vitehub/rpc")
+      expect(routes).not.toContain("/_vitehub/auth/manage")
       expect(routes).not.toContain("/_vitehub/sign-in")
     }
     finally {
@@ -1183,11 +1184,11 @@ describe("vitehub", () => {
     }))
 
     vitehub({
-      agent: { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } },
+      agent: { providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } },
       preset: "cloudflare",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+      providers: { state: { driver: "libsql", url: "libsql://state.example.test" } },
     }))
 
     vitehub({

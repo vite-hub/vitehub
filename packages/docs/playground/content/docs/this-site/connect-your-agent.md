@@ -1,34 +1,34 @@
 ---
 title: Connect your agent
-description: Add the Console MCP server of this site to Claude Code or Codex, sign in once, and let your agent read and edit pages.
+description: Add the ViteHub Console MCP server to Claude Code or Codex, sign in once, and let your agent read and edit pages.
 navigation.order: 4
 icon: i-lucide-plug
 ---
 
-This site has two MCP servers:
+The demo has a public docs MCP server. To edit the linked demo, use the hosted Console MCP:
 
 | Server | Path | Sign-in | Tools |
 | --- | --- | --- | --- |
 | Docs | `/mcp` | None | `list-pages`, `get-page` |
-| Console | `/_vitehub/mcp` | OAuth, as you | Every Console operation that your role allows, such as `content_show`, `content_save`, `content_publish`, and `comments_list_threads` |
+| Console | `https://console.vitehub.dev/mcp/account` | Console OAuth | `list_apps`, `list_operations`, and `run_operation` for linked apps |
 
-The docs server reads the published pages. The Console server acts as you, with your CMS role.
+The docs server reads the published pages. The Console server sends signed requests as your Console user, subject to the demo’s authorization policy.
 
 ## Add the Console server
 
 ::tabs
   :::tabs-item{label="Claude Code" icon="i-simple-icons-claude"}
     ```bash [Terminal]
-    claude mcp add --transport http lumen-console https://docs-demo.vitehub.dev/_vitehub/mcp
+    claude mcp add --transport http lumen-console https://console.vitehub.dev/mcp/account
     ```
 
-    Run `/mcp` in Claude Code and select **Authenticate**. The browser opens the sign-in page of this site, then asks you to allow the client.
+    Run `/mcp` in Claude Code and select **Authenticate**. The browser opens the hosted Console sign-in page. Sign in with GitHub or a passkey and allow the client. The demo must be linked to your Console team.
   :::
 
   :::tabs-item{label="Codex" icon="i-simple-icons-openai"}
     ```toml [~/.codex/config.toml]
     [mcp_servers.lumen-console]
-    url = "https://docs-demo.vitehub.dev/_vitehub/mcp"
+    url = "https://console.vitehub.dev/mcp/account"
     ```
 
     Run `codex mcp login lumen-console` and sign in in the browser.
@@ -37,12 +37,12 @@ The docs server reads the published pages. The Console server acts as you, with 
 
 ## Edit a page from your agent
 
-Ask your agent, for example: "Read /docs/guides/compress with content_show and add a sentence about AVIF to the first paragraph. Save it as a draft." The agent calls `content_show` to get the page and its digest, then `content_save` with that digest. The draft shows in the Console at once. Publish it yourself, or ask the agent to call `content_publish`.
+Ask your agent to find the demo with `list_apps`, inspect its Content operations with `list_operations`, and use `run_operation` to read and save a draft. Include the digest returned by the read when saving. Review and publish the draft in the Console.
 
 ::warning
-`content_publish` publishes the drafts. A blog post or a release is live within a minute. Clients such as Claude Code ask before they run a tool with `destructiveHint`, but ViteHub cannot force them to ask.
+`content.publish` publishes the drafts. A blog post or a release is live within a minute. Clients such as Claude Code ask before they run a tool with `destructiveHint`, but ViteHub cannot force them to ask.
 ::
 
 ::agent-only
-`content_save` needs `ifDigest`: the digest that `content_show` returned for the current draft, or `null` for a new document. The document id of a page is its file path in `content/` without `.md`, such as `docs/guides/compress`.
+`content.save` needs `ifDigest`: the digest that `content.show` returned for the current draft, or `null` for a new document. The document id of a page is its file path in `content/` without `.md`, such as `docs/guides/compress`.
 ::

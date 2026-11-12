@@ -32,7 +32,6 @@ export default defineNuxtConfig({
       },
       // `authorize` is an absolute path: with an `app/` folder, ViteHub resolves a relative one from `app/`.
       console: {
-        auth: "app",
         authorize: fileURLToPath(new URL("./server/console-authorize.ts", import.meta.url)),
       },
     }],

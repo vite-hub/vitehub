@@ -54,7 +54,7 @@ useSeoMeta({ title: page.value.sourceTitle, ogTitle: page.value.sourceTitle, des
         <div class="mt-8 flex flex-wrap items-center gap-3">
           <UButton to="/docs/getting-started" size="lg" color="neutral" trailing-icon="i-lucide-arrow-right" label="Get started" />
           <ClientOnly>
-            <UButton v-if="loggedIn" to="/_vitehub" external size="lg" color="neutral" variant="outline" icon="i-lucide-panels-top-left" label="Open the Console" />
+            <UButton v-if="loggedIn" to="https://console.vitehub.dev" external size="lg" color="neutral" variant="outline" icon="i-lucide-panels-top-left" label="Open the Console" />
             <UButton v-else to="/docs/this-site" size="lg" color="neutral" variant="outline" icon="i-lucide-pencil-ruler" label="Edit this site" />
             <template #fallback>
               <UButton to="/docs/this-site" size="lg" color="neutral" variant="outline" icon="i-lucide-pencil-ruler" label="Edit this site" />
