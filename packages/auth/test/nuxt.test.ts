@@ -150,25 +150,26 @@ describe("Auth Nuxt integration", () => {
     expect(components).toEqual([])
   })
 
-  it("registers <Can> from the Vue entry when the app has abilities, unless the app has its own Can component", async () => {
-    const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" })
-    expect(components).toEqual([{
-      chunkName: "components/can",
-      export: "Can",
+  it("registers <Can> and <Cannot> from the Vue entry when the app has abilities, unless the app has its own component", async () => {
+    const component = (name: string) => ({
+      chunkName: `components/${name.toLowerCase()}`,
+      export: name,
       filePath: "vite-hub/auth/vue",
       global: false,
-      kebabName: "can",
+      kebabName: name.toLowerCase(),
       meta: {},
       mode: "all",
-      pascalName: "Can",
+      pascalName: name,
       prefetch: false,
       preload: false,
       priority: 0,
       shortPath: "vite-hub/auth/vue",
-    }])
+    })
+    const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" })
+    expect(components).toEqual([component("Can"), component("Cannot")])
 
     const own = { pascalName: "Can", filePath: "/app/components/Can.vue" }
-    expect((await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, {}, [own])).components).toEqual([own])
+    expect((await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, {}, [own])).components).toEqual([own, component("Cannot")])
   })
 
   // Each pair of names is what Nuxt gives `Can.vue` in a components directory with the same prefix,
@@ -187,7 +188,11 @@ describe("Auth Nuxt integration", () => {
     const own = { pascalName: "Can", filePath: "/app/components/Can.vue" }
     const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, { auth: { components: { prefix } } }, [own])
     // The export stays `Can`, so the generated component types read `typeof import("vite-hub/auth/vue")["Can"]`.
-    expect(components).toEqual([own, expect.objectContaining({ chunkName: `components/${kebabName}`, export: "Can", filePath: "vite-hub/auth/vue", kebabName, pascalName })])
+    expect(components).toEqual([
+      own,
+      expect.objectContaining({ chunkName: `components/${kebabName}`, export: "Can", filePath: "vite-hub/auth/vue", kebabName, pascalName }),
+      expect.objectContaining({ chunkName: `components/${kebabName}not`, export: "Cannot", filePath: "vite-hub/auth/vue", kebabName: `${kebabName}not`, pascalName: `${pascalName}not` }),
+    ])
   })
 
   it("restarts Nuxt when app or layer abilities are added or removed", async () => {

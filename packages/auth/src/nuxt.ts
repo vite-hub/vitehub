@@ -69,7 +69,7 @@ type NuxtComponent = {
 
 const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
 /** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
-const abilityComponents = ["Can"]
+const abilityComponents = ["Can", "Cannot"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()

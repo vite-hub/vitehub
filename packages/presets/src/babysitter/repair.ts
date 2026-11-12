@@ -47,10 +47,15 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       } } : {}),
       readCheckLogs: {
         name: "readCheckLogs",
-        description: "Read failed logs for a GitHub Actions run associated with this PR head.",
+        description: "Read failed logs for a GitHub Actions run associated with this PR head. Logs are stripped of color codes and branch listings. Without a range the result is a failure-focused excerpt; use tailLines for the end of the log or startLine/endLine for up to 1000 complete lines it omitted. Line numbers count this tool's log, not the preloaded ciEvidence.",
         inputSchema: {
           type: "object",
-          properties: { runId: { type: "integer", minimum: 1 } },
+          properties: {
+            runId: { type: "integer", minimum: 1 },
+            startLine: { type: "integer", minimum: 1 },
+            endLine: { type: "integer", minimum: 1 },
+            tailLines: { type: "integer", minimum: 1, maximum: 1000 },
+          },
           required: ["runId"],
           additionalProperties: false,
         },
@@ -62,7 +67,8 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
             typeof input.runId !== "number"
           )
             throw new Error("Expected a run ID.");
-          return operations.readCheckLogs(input.runId);
+          const { runId, ...selection } = input;
+          return operations.readCheckLogs(runId, selection);
         },
       },
       readBaseCheckEvidence: {

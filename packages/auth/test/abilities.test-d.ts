@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAbilities, deny, type AbilityName, type AbilityRefusal } from "../src/abilities.ts"
 import { can, requireAbility } from "../src/server.ts"
-import { useAbility, type CanProps } from "../src/vue.ts"
+import { Cannot, useAbility, type CanProps } from "../src/vue.ts"
 
 import type { AuthAnonymousAuthorization, AuthAuthorization, AuthOptions } from "../src/types.ts"
 import type abilities from "./fixtures/abilities.ts"
@@ -71,6 +71,40 @@ describe("ability types", () => {
     can("posts.publish", post)
     // @ts-expect-error The rule takes a Post.
     can("posts.edit", "p1")
+  })
+
+  it("checks the name and the arguments of cannot() and authorize()", () => {
+    const { authorize, cannot } = useAbility()
+    expectTypeOf(cannot("posts.edit", post)).toEqualTypeOf<boolean | undefined>()
+    expectTypeOf(authorize("posts.edit", post)).toEqualTypeOf<Promise<void>>()
+    cannot("posts.draft")
+    void authorize("posts.move", "a", "b")
+    void authorize("posts.tag", "a", "b", "c")
+    // @ts-expect-error There is no such ability.
+    cannot("posts.publish", post)
+    // @ts-expect-error The rule takes a Post.
+    cannot("posts.edit", "p1")
+    // @ts-expect-error There is no such ability.
+    void authorize("posts.publish", post)
+    // @ts-expect-error The rule takes a Post.
+    void authorize("posts.edit")
+    // @ts-expect-error The rule takes two strings.
+    void authorize("posts.move", "a")
+  })
+
+  it("types <Cannot> with the props of <Can> and the refusal in its default slot", () => {
+    type CannotContext<Name extends AbilityName> = NonNullable<ReturnType<typeof Cannot<Name>>["__ctx"]>
+    expectTypeOf<CannotContext<"posts.edit">["props"]>().toEqualTypeOf<CanProps<"posts.edit">>()
+    expectTypeOf<CannotContext<"posts.move">["props"]>().toEqualTypeOf<CanProps<"posts.move">>()
+    expectTypeOf<Parameters<NonNullable<CannotContext<"billing.upgrade">["slots"]["default"]>>[0]>()
+      .toEqualTypeOf<AbilityRefusal<"billing.upgrade">>()
+    // @ts-expect-error There is no such ability.
+    Cannot({ do: "posts.publish" })
+    // @ts-expect-error A rule with one argument takes `with`, not `args`.
+    Cannot({ do: "posts.edit", args: [post] })
+    // @ts-expect-error A rule with two arguments takes `args`, not `with`.
+    Cannot({ do: "posts.move", with: ["a", "b"] })
+    Cannot({ do: "posts.move", args: ["a", "b"], pending: true })
   })
 
   it("types the props of <Can> and the refusals of #denied", () => {
