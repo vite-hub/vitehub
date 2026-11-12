@@ -51,7 +51,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
-A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
+A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. When an installed package is outside the range that `vite-hub` supports, the build continues and warns with the `pnpm add` command that installs a supported version. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
 You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
@@ -70,6 +70,8 @@ export default defineConfig({
 ```
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
+
+On Nuxt 5, the module auto-imports the server helpers of each enabled feature, such as `kv`, `db`, and `sendQueue`. Set `nitro: { imports: false }` to turn them off. Read [Nuxt server auto-imports](https://vitehub.dev/docs/frameworks-hosts/nuxt-server-auto-imports).
 
 On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Agent Invocation journal, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
 
@@ -291,6 +293,8 @@ The Console **Skills** page shows the bundled files of each discovered Agent Def
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
 Apps do not serve a Console page, a Console MCP, or a Console sign-in. They serve one Console route, `POST /_vitehub/rpc`, which the ViteHub Console at console.vitehub.dev and the CLI call with signed requests. `console: true` takes only requests signed with an Ed25519 key whose public key is in a `VITEHUB_CONSOLE_KEY_<NAME>` runtime env var. `console: { auth: false }` takes calls without a signature from this machine, for development; a production build with it fails with `VITE_HUB_B0022`, even with `authorize` set. `console.auth: "token"`, `console.auth: "app"`, `console.auth: { ... }` (Console Auth), `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed` are removed, and fail the build with `VITE_HUB_B0020` and the fix. See [Move from auth: "app" or Console Auth](https://vitehub.dev/docs/development/console#move-from-auth-app-or-console-auth).
+
+Without a `console` option, `vite dev` serves the operation RPC, so `vitehub <command>` works. `console: false` turns the Console endpoint off completely: no `/_vitehub` route in development or production.
 
 Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request` and the signer and its `key` name: `via: "console"` with the `user` and `team` that the Console signed, or `via: "cli"` with no `user`. An Agent that calls Console operations as tools receives `via: "agent"`, never a signed `via`. With `auth: false`, it receives only the `Request`. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections.
 
