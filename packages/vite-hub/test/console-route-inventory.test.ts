@@ -113,6 +113,8 @@ const plugins = [
 const publicAssets = [
   // The public ViteHub skill of the installed `vite-hub` version, for `npx skills add <app>/_vitehub`. Static files.
   "/_vitehub/.well-known/skills console/public/skills",
+  // The Console link of the page tools pill. Comments added the session route and the loader first, so they stay.
+  "/_vitehub/console/assets console/page-tool",
   // The page tools loader and the Comments overlay script.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
   "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
