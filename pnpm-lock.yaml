@@ -4161,6 +4161,9 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -4182,6 +4185,9 @@ importers:
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:../../packages/kv
+      '@vite-hub/queue':
+        specifier: workspace:*
+        version: link:../../packages/queue
       '@vite-hub/realtime':
         specifier: workspace:*
         version: link:../../packages/realtime

@@ -10,6 +10,7 @@
   "dependencies": {
     "@comark/html": "catalog:markdown",
     "@libsql/client": "catalog:database",
+    "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/cms": "workspace:*",
@@ -17,6 +18,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/kv": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
