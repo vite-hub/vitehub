@@ -51,6 +51,7 @@ import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
 import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
+import { isTransientNetworkError, retryTransient } from "./transient.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
@@ -99,6 +100,20 @@ export interface BabysitterRuntimeOptions {
   /** Delay between live reads while GitHub computes mergeability before a direct merge. Defaults to 3 seconds. */
   mergeabilityRetryDelayMs?: number;
   admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
+}
+
+/** How long a pending GitHub merge request is polled before the Babysitter stops waiting for it. */
+const pendingMergeDeadlineMs = 30 * 60_000;
+/** How long a stopped merge request keeps its head from a new request. */
+const stoppedMergeRetryMs = 2 * 60 * 60_000;
+
+/**
+ * GitHub settles most asynchronous merges in seconds, so poll a pending request less often as it ages:
+ * after 30 seconds at first, then after as long as it has been pending, at most every five minutes.
+ * vite-hub/vitehub#3350 was polled every 30 seconds for 19 hours.
+ */
+export function pendingMergeRetryAt(startedAt: number, now: number): number {
+  return now + Math.min(5 * 60_000, Math.max(30_000, now - startedAt));
 }
 
 /** The `status` of GitHub's merge result that a merge rejection carries in its response excerpt. */
@@ -223,7 +238,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   /** A Forge provider with the repository's credentials, and refs into the repository. */
   async function forge(repository: string, signal?: AbortSignal) {
-    const provider = await github.forge({ repository, signal });
+    const provider = await retryTransient(() => github.forge({ repository, signal }), signal);
     const repo = repoRef(provider, repository);
     const pull = (number: number): ThreadRef => ({ forge: provider.forge, instance: provider.instance, repo, kind: "pull_request", number: String(number) });
     return { provider, repo, pull };
@@ -235,7 +250,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    */
   async function readPull(repository: string, number: number, signal?: AbortSignal): Promise<unknown> {
     const { provider } = await forge(repository, signal);
-    return (await provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal })).data;
+    return (await retryTransient(() => provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal }), signal)).data;
   }
 
   /** Pull requests by head or base branch. forges `threads.list()` cannot filter by branch. */
@@ -244,7 +259,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const pulls: unknown[] = [];
     for (let page = 1; pulls.length < query.limit; page++) {
       const perPage = Math.min(100, query.limit);
-      const response = await provider.request<unknown>("GET", `/repos/${repository}/pulls`, { query: { state: query.state, base: query.base, head: query.head, per_page: perPage, page }, signal });
+      const response = await retryTransient(() => provider.request<unknown>("GET", `/repos/${repository}/pulls`, { query: { state: query.state, base: query.base, head: query.head, per_page: perPage, page }, signal }), signal);
       if (!Array.isArray(response.data)) throw new Error("GitHub did not return a pull request list.");
       pulls.push(...response.data);
       if (response.data.length < perPage) break;
@@ -262,7 +277,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const items: unknown[] = [];
     let next: string | undefined = `/${path}`;
     while (next) {
-      const response: { data: unknown; headers: Headers } = await provider.request<unknown>("GET", next, { signal });
+      const path = next;
+      const response: { data: unknown; headers: Headers } = await retryTransient(() => provider.request<unknown>("GET", path, { signal }), signal);
       if (projection === ".") items.push(response.data);
       else {
         const key = /^\.(\w+)\[\]$/.exec(projection)?.[1];
@@ -279,7 +295,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function readOnePage(path: string, signal?: AbortSignal): Promise<unknown> {
     const repository = path.split("/").slice(1, 3).join("/");
     const { provider } = await forge(repository, signal);
-    return (await provider.request<unknown>("GET", `/${path}`, { signal })).data;
+    return (await retryTransient(() => provider.request<unknown>("GET", `/${path}`, { signal }), signal)).data;
   }
   const freshnessReader: BaseFreshnessReader = {
     rest: (path, signal, key) => readRest(path, key ? `.${key}[]` : ".[]", signal),
@@ -399,10 +415,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const base = snapshot.pr?.base?.ref;
     if (!base) return "not-ready";
     const pending = await pullRequestInbox.directMergeAttempt(repository, number);
-    const parkMerge = async (reason: string) => {
-      await pullRequestInbox.finish(claim, { text: reason, wait: { ...createCheckWait(snapshot, waitPolicy), kind: "external", reason, retryAt: Date.now() + 30_000 } });
+    // A merge request whose outcome is unknown keeps its fence. Poll it less often as it ages.
+    const parkMerge = async (reason: string, retryAt?: number) => {
+      const attempt = retryAt === undefined ? await pullRequestInbox.directMergeAttempt(repository, number) : undefined;
+      const now = Date.now();
+      retryAt ??= attempt ? pendingMergeRetryAt(attempt.startedAt, now) : now + 30_000;
+      await pullRequestInbox.finish(claim, { text: reason, wait: { ...createCheckWait(snapshot, waitPolicy), kind: "external", reason, retryAt } });
       return "blocked" as const;
     };
+    const stoppedKey = `direct-merge-stopped:${repository}#${number}`;
     if (pending) {
       try {
         const live = await readPull(repository, number, signal);
@@ -457,6 +478,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           await pullRequestInbox.finish(claim, { text: "Unconfirmed merge head changed; retrying current GitHub state.", retry: true });
           return "blocked";
         }
+        const age = Date.now() - pending.startedAt;
+        if (pending.asynchronous && age >= pendingMergeDeadlineMs) {
+          // Release the fence so a new head can merge, and keep this head from starting the same stuck request
+          // again until the retry. A merge by hand or a new head ends the wait sooner.
+          const until = Date.now() + stoppedMergeRetryMs;
+          const reason = `Stopped waiting for the GitHub merge of ${pending.head}: it was still pending after ${Math.floor(age / 60_000)} minutes. The Babysitter requests it again at ${new Date(until).toISOString()}.`;
+          await pullRequestInbox.setMeta(stoppedKey, { head: pending.head, until, reason });
+          await pullRequestInbox.clearDirectMerge(repository, number, pending.token);
+          schedulerEvent("babysitter.direct_merge.stopped", { ...owner, head_sha: pending.head, pending_minutes: Math.floor(age / 60_000) });
+          return await parkMerge(reason, until);
+        }
       } catch (error) {
         await noteForgeQuota(error, "merge-reconcile");
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `merge outcome unknown: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}` });
@@ -482,6 +514,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!decision.ready) {
       schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: decision.reason });
       return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
+    }
+    const stopped = pending ? undefined : await pullRequestInbox.meta(stoppedKey);
+    if (isRuntimeRecord(stopped) && stopped.head === decision.head && hasRuntimeType(stopped.until, "number") && stopped.until > Date.now()) {
+      return await parkMerge(hasRuntimeType(stopped.reason, "string") ? stopped.reason : "Stopped waiting for a pending GitHub merge.", stopped.until);
     }
     let mergeStarted = false;
     const mergeToken = pending?.token ?? claim.token;
@@ -1900,6 +1936,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               retry: !pushSucceeded,
             });
             schedulerEvent("babysitter.owner.deferred", { reason: "github-rate-limit", ...owner });
+          } else if (!pushSucceeded && isTransientNetworkError(error)) {
+            // A dropped connection to GitHub or the provider says nothing about the PR, so it is no failed pass.
+            outcome = "deferred";
+            await pullRequestInbox.finish(inboxClaim, { text: "Network error; retrying the pass.", retry: true });
+            schedulerEvent("babysitter.owner.deferred", { reason: "network", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200), ...owner });
           } else if (!pushSucceeded && isProviderRateLimit(error) && await parkBlockedModelWork()) {
             // The retries already opened the provider cooldown. A model 429 is the shared quota, not
             // this PR, so park until the cooldown ends instead of recording a failure.

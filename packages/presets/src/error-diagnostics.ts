@@ -35,5 +35,13 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",
     },
+    PRESETS_CHECK_LOG_SELECTION_INVALID: {
+      why: ({ reason }: { reason: string }) => `readCheckLogs got an invalid line selection: ${reason}`,
+      fix: "Pass tailLines from 1 to 1000 alone, or startLine with an optional endLine at most 999 lines after it.",
+    },
+    PRESETS_CHECK_LOG_START_PAST_END: {
+      why: ({ startLine, totalLines }: { startLine: number, totalLines: number }) => `startLine ${startLine} is past the log's ${totalLines} lines.`,
+      fix: "Pick a startLine from the totalLines of an earlier readCheckLogs result, or pass tailLines to read the end of the log.",
+    },
   },
 })
