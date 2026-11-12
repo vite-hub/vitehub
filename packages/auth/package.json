@@ -154,7 +154,6 @@
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
-    "rou3": "^1.0.0",
     "typescript": "catalog:tooling",
     "undici": "8.12.2",
     "vite": "catalog:vite",
