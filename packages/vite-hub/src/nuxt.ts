@@ -333,6 +333,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/realtime/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
+  "vite-hub/cloudflare-pkce-challenge",
   "vite-hub/unavailable-services",
 ])
 
@@ -898,7 +899,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
   const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments({
     ...moduleOptions,
-    console: resolveConsoleOptions(moduleOptions.console),
+    // `vitehub()` reads `false` as "off" and unset as "development operation RPC only".
+    console: moduleOptions.console === false ? false : resolveConsoleOptions(moduleOptions.console),
   } as ViteHubOptions), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.preset)
