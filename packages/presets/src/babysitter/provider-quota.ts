@@ -8,7 +8,7 @@ export const providerBlockedKey = "provider-quota-blocked-until";
 export const providerStrikesKey = "provider-quota-strikes";
 export const forgeBlockedKey = "forge-quota-blocked-until";
 
-/** The longest provider cooldown, and the forge cooldown. */
+/** The longest provider cooldown, and the forge block when GitHub names no reset time. */
 export const maxQuotaCooldownMs = 60 * 60_000;
 /** A success removes a strike only this long after the last cooldown ended. */
 const strikeRecoveryMs = 30 * 60_000;
@@ -61,8 +61,11 @@ export function createProviderQuota(store: QuotaStore, cooldownMs: number, now: 
 /** A GitHub rate limit stops every forge request for a while. */
 export interface ForgeQuota {
   blockedUntil(): Promise<number>;
-  /** Opens a block, or keeps the one that holds. Returns its end. */
-  block(): Promise<number>;
+  /**
+   * Blocks until `resetAt`, GitHub's `x-ratelimit-reset` or `retry-after`, or for an hour when GitHub
+   * names neither or a later time. Never shortens a longer block.
+   */
+  block(resetAt?: number): Promise<number>;
 }
 
 const forgeStrikesKey = "forge-quota-strikes";
@@ -81,13 +84,14 @@ export function createForgeQuota(store: QuotaStore, now: () => number = Date.now
   const blockedUntil = async () => await store.metaNumber(forgeBlockedKey) ?? 0;
   return {
     blockedUntil,
-    async block() {
+    async block(resetAt) {
       const at = now();
       const current = await blockedUntil();
-      if (current > at) return current;
       const repeated = at - (await store.metaNumber(forgeLastBlockKey) ?? 0) < forgeRepeatMs;
       const strikes = repeated ? Math.min((await store.metaNumber(forgeStrikesKey) ?? 0) + 1, maxForgeStrikes) : 1;
-      const until = at + Math.min(firstForgeCooldownMs * 2 ** (strikes - 1), maxQuotaCooldownMs);
+      const escalated = at + Math.min(firstForgeCooldownMs * 2 ** (strikes - 1), maxQuotaCooldownMs);
+      // GitHub's reset time wins when it names one within the longest block. Never shorten a longer block.
+      const until = Math.max(current, resetAt !== undefined && resetAt > at && resetAt < at + maxQuotaCooldownMs ? resetAt : escalated);
       await store.setMeta(forgeStrikesKey, strikes);
       await store.setMeta(forgeLastBlockKey, at);
       await store.setMeta(forgeBlockedKey, until);

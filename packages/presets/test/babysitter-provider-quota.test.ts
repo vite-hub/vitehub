@@ -90,4 +90,13 @@ describe("Babysitter provider quota", () => {
     now = until + 2 * 60 * minute;
     expect(await forge.block() - now).toBe(5 * minute);
   });
+
+  it("blocks forge requests until GitHub's reset time", async () => {
+    const meta = store();
+    const forge = createForgeQuota(meta, () => 1000);
+    expect(await forge.block(1000 + 7 * 60_000)).toBe(1000 + 7 * 60_000);
+    // An unusable reset time falls back to one hour.
+    expect(await createForgeQuota(store(), () => 1000).block(500)).toBe(1000 + 60 * 60_000);
+    expect(await createForgeQuota(store(), () => 1000).block(1000 + 3 * 60 * 60_000)).toBe(1000 + 60 * 60_000);
+  });
 });

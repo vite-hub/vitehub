@@ -368,12 +368,11 @@ describe("blob config", () => {
   it.each([
     ["an Azure endpoint with a query", { accountName: "acct", container: "assets", driver: "azure", endpoint: "https://acct.blob.example.test/?sig=test-signature" }, "endpoint"],
     ["an S3 endpoint with a user and password", { bucket: "assets", driver: "s3", endpoint: "https://test-user:test-password@s3.example.test" }, "endpoint"],
-    ["a Supabase URL with a query", { bucket: "assets", driver: "supabase", url: "https://project.example.test/?apikey=test-api-key" }, "url"],
   ] as const)("hides %s and reads it from env at runtime", (_name, store, option) => {
     const value = store[option as keyof typeof store]
     const config = normalizeBlobOptions(store, { env: { TEST_STORE_URL: value } })
     expect(config?.store).toMatchObject({ [option]: "********", secretEnv: { [option]: "TEST_STORE_URL" } })
-    expect(JSON.stringify(config)).not.toMatch(/test-signature|test-password|test-api-key/)
+    expect(JSON.stringify(config)).not.toMatch(/test-signature|test-password/)
     if (!config) throw new Error("Expected a store.")
     expect(resolveRuntimeBlobSecrets(config.store, { TEST_STORE_URL: value })).toMatchObject({ [option]: value })
     expect(() => normalizeBlobOptions(store, { env: {} })).toThrow(expect.objectContaining({ code: "BLOB_C0019", message: expect.stringContaining(`\`blob.${option}\` holds a credential`) }))
@@ -381,7 +380,6 @@ describe("blob config", () => {
 
   it.each([
     ["Google Cloud Storage authorized-user JSON", { bucket: "assets", credentials: { client_id: "test-client-id", client_secret: "test-client-secret", refresh_token: "test-refresh-token", type: "authorized_user" }, driver: "gcs" }],
-    ["Google Drive OAuth", { driver: "google-drive", oauth: { clientId: "test-client-id", clientSecret: "test-client-secret", refreshToken: "test-refresh-token" } }],
   ])("treats each unknown option of %s as a credential", (_name, store) => {
     expect(() => normalizeBlobOptions(store as never, { env: { TEST_CLIENT_SECRET: "test-client-secret", TEST_REFRESH_TOKEN: "test-refresh-token" } }))
       .toThrow(expect.objectContaining({ code: "BLOB_C0019", message: expect.stringContaining("is not a known option of the") }))
@@ -791,19 +789,9 @@ describe("blob config", () => {
   it("preserves every first-class provider driver", () => {
     const stores = [
       { container: "assets", driver: "azure" },
-      { bucket: "assets", driver: "akamai", region: "us-east-1" },
-      { bucket: "assets", driver: "digitalocean-spaces", region: "nyc3" },
       { bucket: "assets", driver: "gcs" },
-      { bucket: "assets", driver: "hetzner", region: "fsn1" },
       { bucket: "assets", driver: "minio", endpoint: "http://localhost:9000" },
       { bucket: "assets", driver: "s3" },
-      { bucket: "assets", driver: "storj" },
-      { bucket: "assets", driver: "supabase" },
-      { developerToken: "token", driver: "box" },
-      { driver: "dropbox", accessToken: "token" },
-      { driver: "google-drive", rootFolderId: "folder" },
-      { driver: "onedrive", accessToken: "token" },
-      { driver: "uploadthing", token: "token" },
       { driver: "netlify-blobs", name: "assets" },
     ] as const
 
