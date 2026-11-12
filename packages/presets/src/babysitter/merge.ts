@@ -3,6 +3,7 @@ import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../github/in
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { newestCheckRun } from "./inbox/ci-evidence.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -27,12 +28,28 @@ export type BabysitterMerge =
   | false
   | "auto"
   | "direct"
-  | { strategy: "direct"; method?: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | {
+    strategy: "direct";
+    method?: BabysitterMergeMethod;
+    ready?: BabysitterMergeReady;
+    /**
+     * Required checks, by repository (`owner/name`), that the host may merge past when they fail only
+     * because the same check fails the same way on the base branch tip. The merge bypasses branch
+     * rules, so the GitHub App must be allowed to bypass them, and every other rule must be satisfied.
+     */
+    bypassInheritedChecks?: Record<string, readonly string[]>;
+  };
 
 export type ResolvedBabysitterMerge =
   | { mode: "off" }
   | { mode: "auto" }
-  | { mode: "direct"; method: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | {
+    mode: "direct";
+    method: BabysitterMergeMethod;
+    ready?: BabysitterMergeReady;
+    /** Lowercase check names by lowercase repository. */
+    bypassInheritedChecks?: ReadonlyMap<string, ReadonlySet<string>>;
+  };
 
 export type MergeDecision = { ready: true; head: string } | { ready: false; reason: string };
 
@@ -58,6 +75,8 @@ export interface BabysitterMergeEvidence {
    * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
    */
   automatedReviewSettled?: boolean;
+  /** Current-head checks that fail the same way on the base tip. They are the base's failures, not this PR's. */
+  inheritedCheckIds?: ReadonlySet<number>;
 }
 
 type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
@@ -171,7 +190,17 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     }
     // SAFETY: the guard above proves ready is either undefined or a function with the documented contract.
     const ready = merge.ready as BabysitterMergeReady | undefined;
-    return ready ? { mode: "direct", method, ready } : { mode: "direct", method };
+    const bypassInheritedChecks = new Map<string, ReadonlySet<string>>();
+    if (merge.bypassInheritedChecks !== undefined) {
+      if (!isRuntimeRecord(merge.bypassInheritedChecks)) throw new TypeError("[vitehub] Babysitter merge.bypassInheritedChecks must map repositories to check names.");
+      for (const [repository, checks] of Object.entries(merge.bypassInheritedChecks)) {
+        if (!Array.isArray(checks) || !checks.every(check => hasRuntimeType(check, "string") && check.trim())) {
+          throw new TypeError("[vitehub] Babysitter merge.bypassInheritedChecks must map repositories to check names.");
+        }
+        if (checks.length) bypassInheritedChecks.set(repository.toLowerCase(), new Set(checks.map((check: string) => check.toLowerCase())));
+      }
+    }
+    return { mode: "direct", method, ...ready ? { ready } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {} };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
 }
@@ -188,8 +217,7 @@ export function snapshotCheckEvidence(snapshot: Snapshot): GitHubCheckEvidence {
   const newest = new Map<string, (typeof checkRuns)[number]>();
   for (const check of checkRuns) {
     const key = `${check.name}\0${check.app?.id ?? ""}`;
-    const previous = newest.get(key);
-    if (!previous || check.id > previous.id) newest.set(key, check);
+    newest.set(key, newestCheckRun(newest.get(key), check));
   }
   const statuses = Object.values(snapshot.statuses).flatMap((status, index) => {
     if (status.deleted || status.sha !== head || !hasRuntimeType(status.context, "string")) return [];
@@ -209,6 +237,7 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   if (pr.draft) return no("draft");
   if (requiredChecks !== "passed") return no(`required checks ${requiredChecks}`);
   const evidence = snapshotCheckEvidence(snapshot);
+  evidence.checkRuns = evidence.checkRuns.filter(check => !assessment.inheritedCheckIds?.has(check.id));
   const reviewChecks = assessment.pendingReviewChecks ?? new Set<string>();
   if (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
     || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) {
@@ -220,7 +249,13 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   const assessed = assessment.assessedFeedback ?? new Set<string>();
   const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
   const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
-  if ((failedChecks || unassessed) && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) {
+  // A pass that assessed this head with every feedback item covered also judged the review checks, whose
+  // verdict comes from the same reviews. The exact evidence key still drifted after such passes: #2156
+  // took three passes on one head. So the key gates only other failures.
+  const otherFailure = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !reviewChecks.has(check.name.toLowerCase()))
+    || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !reviewChecks.has(status.context.toLowerCase()));
+  const reviewChecksAssessed = failedChecks && !otherFailure && !unassessed && hasRuntimeType(assessment.reviewedEvidenceKey, "string");
+  if ((failedChecks || unassessed) && !reviewChecksAssessed && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) {
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
