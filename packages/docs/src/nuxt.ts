@@ -318,6 +318,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // package must be listed itself: its Vue app runtime ships as `.vue` and `.ts` source that imports `#imports`.
     const packageRoot = resolver.resolve("..")
     nuxt.options.build.transpile.push(packageRoot)
+    // The shell renders with Comark, comark-ui and its block packages, and VueUse. They go into the app's server bundle
+    // so that they share its copy of Vue. Nitro would bundle them with a second copy that has no app, and Markdown would
+    // render on the server without the app's prose components.
+    nuxt.options.build.transpile.push(/^(?:@comark\/|comark(?:-[\w-]+)?(?:\/|$))/, "@vueuse/core")
     // Nuxt auto-imports composables only outside node_modules. The shell components use them, so an app that installs
     // this package needs its files included, or they fail with `useRoute is not defined`.
     const transform = nuxt.options.imports.transform ??= {}

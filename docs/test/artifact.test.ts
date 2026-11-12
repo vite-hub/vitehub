@@ -65,6 +65,14 @@ describe("Cloudflare docs artifact", () => {
     if (contentType === "text/markdown") expect(await response.text()).toMatch(/^# Introduction/);
   });
 
+  it("server-renders Markdown with the prose components", async () => {
+    const response = await server.fetch("/docs/getting-started", { headers: { accept: "text/html" } });
+    const html = await response.text();
+    const content = html.slice(html.indexOf(`class="comark-content"`), html.indexOf(`class="vh-product-footer`));
+    // Nuxt UI's prose link, as the browser renders it after hydration.
+    expect(content).toMatch(/<a href="\/docs\/[^"]+" class="[^"]*underline/);
+  });
+
   it("serves a prerendered robots.txt before the Worker for AhrefsBot", async () => {
     const robots = readFileSync(resolve(docsRoot, ".output/public/robots.txt"), "utf8");
     const config: unknown = JSON.parse(readFileSync(resolve(docsRoot, ".output/server/wrangler.json"), "utf8"));
