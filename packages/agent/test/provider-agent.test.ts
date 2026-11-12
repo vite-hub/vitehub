@@ -2936,6 +2936,43 @@ cli_auth_credentials_store = "keyring"
     else expect(session).not.toHaveProperty("approvalPolicy")
   })
 
+  it("gives Codex edit sandboxes the network and package caches that driver.workspaceWrite grants", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-write-"))
+    const store = join(home, "store")
+    try {
+      for (const [permissions, expected] of [["allow-edits-unattended", true], ["allow-edits", true], ["allow-all", false], ["ask", false]] as const) {
+        const threadId = `thread-workspace-write-${permissions}`
+        const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+        await createProviderAgentAdapter({
+          provider: "codex",
+          permissions,
+          env: { HOME: home, npm_config_store_dir: store },
+          workspaceWrite: { network: true, packageCaches: true },
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        }).generate(context(threadId) as never)
+        const session = provider.startSession.mock.calls[0]?.[0]
+        if (!expected) {
+          expect(session).not.toHaveProperty("sandboxPolicy")
+          continue
+        }
+        expect(session).toHaveProperty("sandboxPolicy", {
+          type: "workspaceWrite",
+          networkAccess: true,
+          writableRoots: [store, join(home, ".local/share/pnpm"), join(home, ".cache/pnpm"), join(home, ".cache/node/corepack"), join(home, ".npm")],
+        })
+        await expect(stat(join(home, ".cache/node/corepack"))).resolves.toMatchObject({})
+      }
+      const threadId = "thread-workspace-write-network-only"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex", permissions: "allow-edits-unattended", workspaceWrite: { network: true } }).generate(context(threadId) as never)
+      expect(provider.startSession.mock.calls[0]?.[0]).toHaveProperty("sandboxPolicy", { type: "workspaceWrite", networkAccess: true, writableRoots: [] })
+    }
+    finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it("preauthorizes only assigned host tools for unattended Codex edits", async () => {
     const threadId = "thread-unattended-host-tools";
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })]);
