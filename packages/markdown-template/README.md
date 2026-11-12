@@ -9,6 +9,8 @@
 
 Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplate()` when your application already has the template string.
 
+User docs: [Markdown templates](https://vitehub.dev/docs/markdown-template).
+
 ## Install
 
 ```sh

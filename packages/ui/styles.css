@@ -510,6 +510,10 @@
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+.vh-primitive-icon[data-icon="markdown-template"] {
+  --vh-primitive-icon-motion: translateY(1.5px);
+}
+
 .vh-primitive-icon[data-icon="queue"] {
   --vh-primitive-icon-motion: translateX(2px);
 }

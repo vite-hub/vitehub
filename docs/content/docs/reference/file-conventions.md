@@ -108,7 +108,7 @@ You do not need the `skills()` Capability for this. Use [`skills()`](/docs/agent
 
 Markdown templates and fragments are plain `.md` files. Pass a file path or file URL to `renderMarkdownFile()`. For example, `server/agents/review/agent.ts` can render `new URL('./reply.md', import.meta.url)`.
 
-A `templates/` folder can group files, but ViteHub does not discover or import it. `@./fragment.md` stays literal text, so join extra Markdown yourself before you render. See [Markdown templates](/docs/reference/markdown-templates) for examples.
+A `templates/` folder can group files, but ViteHub does not discover or import it. `@./fragment.md` stays literal text, so join extra Markdown yourself before you render. See [Markdown templates](/docs/markdown-template) for examples.
 
 ## Email templates
 

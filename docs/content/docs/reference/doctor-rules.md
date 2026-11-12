@@ -1095,7 +1095,7 @@ import renderReply from './reply.template.md'
 const prompt = await renderReply({ pullRequest })
 ```
 
-To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/reference/markdown-templates).
+To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/markdown-template).
 
 ## VHUB0035
 

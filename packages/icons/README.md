@@ -36,6 +36,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `kv` | KV |
 | `logs` | Logs |
 | `mcp` | MCP server |
+| `markdown-template` | Markdown templates |
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |
