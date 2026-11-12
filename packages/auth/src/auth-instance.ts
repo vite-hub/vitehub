@@ -84,6 +84,43 @@ function cachedAuth<TAuth>(definition: AuthDefinition): TAuth {
   return state.auth as TAuth
 }
 
+// Better Auth builds its endpoints and context once per instance. Keep a few instances of one Definition, because a
+// callback that creates new functions or adapters on each request gives a new key on each request.
+const maxRequestProviders = 16
+
+/** The instance for these resolved options. Requests with an equal key share it; others get their own. */
+export function requestProvider(
+  definition: AuthDefinition,
+  resolved: { readonly providerKey: string | undefined, readonly providerOptions: AuthBetterAuthRuntimeOptions },
+): ViteHubAuth {
+  const key = resolved.providerKey
+  if (key === undefined) return createAuthenticationProvider(resolved.providerOptions)
+  const state = getAuthRuntimeState()
+  state.providers ??= new WeakMap()
+  let providers = state.providers.get(definition)
+  if (!providers) state.providers.set(definition, providers = new Map())
+  const cached = providers.get(key)
+  if (cached) {
+    providers.delete(key)
+    providers.set(key, cached)
+    return cached
+  }
+  const auth = createAuthenticationProvider<ViteHubAuth>(resolved.providerOptions)
+  providers.set(key, auth)
+  if (providers.size > maxRequestProviders) providers.delete(providers.keys().next().value!)
+  // A failed setup is not kept: the next request builds the instance again.
+  const owner = providers
+  void (async () => {
+    try {
+      await auth.$context
+    }
+    catch {
+      if (owner.get(key) === auth) owner.delete(key)
+    }
+  })()
+  return auth
+}
+
 /**
  * The Better Auth instance of the app's Auth Definition for a request that can differ from the event's own, with
  * runtime options. Apps call `useAuth(event)`. The Console reads it through `@vite-hub/auth/runtime/console`.
@@ -97,5 +134,5 @@ export function authForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition) as RegisteredAuth
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)
+  return requestProvider(definition, resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) })) as RegisteredAuth
 }

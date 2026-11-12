@@ -134,16 +134,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           :aria-label="link.label"
           :class="['hidden lg:inline-flex', link.icon ? touchIconButton : 'pointer-coarse:h-11']"
         />
-        <ClientOnly>
-          <UColorModeButton :class="touchIconButton" />
-          <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
-          <template #fallback>
-            <span :class="['inline-flex size-8 items-center justify-center text-default', touchIconButton]" aria-hidden="true">
-              <UIcon name="i-lucide-sun" class="size-4 dark:hidden" />
-              <UIcon name="i-lucide-moon" class="hidden size-4 dark:block" />
-            </span>
-          </template>
-        </ClientOnly>
+        <!-- The button renders both icons and the color mode class picks one, so the server draws it too. -->
+        <UColorModeButton :class="touchIconButton" />
       </template>
 
       <template #body>

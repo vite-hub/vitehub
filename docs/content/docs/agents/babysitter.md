@@ -75,12 +75,14 @@ export default defineAgent({
 
 Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it in its instruction slot.
 
+The preset prompt already carries the generic repair rules: it classes findings from P0 (security hole, data loss, broken main path) to P3 (style), repairs automated reviewers' P0 and P1 findings and only small in-scope P2s, treats findings from people separately because a person does not re-review every push, fixes failing required checks before review findings, compares a failing check with the base before pushing, makes at most one repair commit per pass, and runs the repository's focused-test recipe. Keep `instructions.md` for what is specific to your project, such as the names of your review bots or a rule about screenshots.
+
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. |
+| `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. |
@@ -99,6 +101,24 @@ Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it
 | `placement` | None | Runs each pass on this host or in a Sandbox on another host ([Bound local verification](#bound-local-verification)). |
 
 For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capabilities/budget). `admission` is a host gate over time windows that can delay a new pass, based on journal usage. You can use both.
+
+## Gate outside contributors
+
+With `ready: 'approved-if-outside'`, the host merges a pull request from someone without write access only after a maintainer approves it:
+
+```ts fragment
+merge: { strategy: 'direct', ready: 'approved-if-outside' },
+```
+
+- A pull request whose author's GitHub `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR` merges as usual.
+- Any other pull request waits until a reviewer with one of those associations approves its current head.
+- Each reviewer's latest `APPROVED` or `CHANGES_REQUESTED` review counts. Comments and dismissed reviews leave it standing.
+- A maintainer whose latest review requests changes blocks the merge, even when another maintainer approved.
+- A push after the approval, including the Babysitter's own repair, needs a new approval.
+
+The Babysitter still repairs the pull request while it waits.
+
+For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits.
 
 ## Control work with labels
 
@@ -179,6 +199,8 @@ To add capacity beyond one host, set `options.placement`:
 - A pass without a `sandbox` runs on this host.
 - `release()` runs once when the pass ends.
 - An optional `remoteActive()` function next to `place` counts remote passes toward `concurrency`. They reserve no local memory.
+- An optional `admitted()` function returns how many slots the hosts admit now, counting passes already running. Each reconcile then claims at most that many pull requests minus the active ones, so it does not claim work that `place` would turn away. Without it, claims follow `concurrency` alone.
+- When no host can take a pass, throw `BabysitterPlacementCapacityError` from `place`. The pull request waits 30 seconds, or the error's `retryAfterMs`, and is claimed again. The wait does not count against its no-progress budget. Any other error from `place` fails the pass.
 
 A configured `sandbox` always takes precedence over placement.
 
@@ -268,6 +290,7 @@ The worker (the provider session of a pass) gets no GitHub tokens, only tools bo
 - `pushRepair` returns the verified published `head` with `pushed: true`.
 - `readFeedback` reads a comment, review, or inline review comment from the PR's durable snapshot, by `kind` (`comment`, `review`, or `review-comment`) and `id`. Bodies come in pages of at most 16,000 JavaScript string characters; follow `next.offset` and `next.version` until `complete` is true. An edit invalidates the version, and a stale claim cannot read another head. In this release, the full feedback is also in the first context.
 - `commitRepair` commits with a message and explicit file paths. Workers must use it because the provider sandbox protects Git metadata. Commits use the App's bot identity.
+- `readCheckLogs` reads the failed jobs of a GitHub Actions run on the PR head, without color codes or fetch branch listings and capped at the last 4 MB of each job. By default it returns a failure-focused excerpt of at most 200,000 characters with its `includedLineRanges`. Pass `tailLines` for the end of the log or `startLine` and `endLine` for up to 1,000 complete lines. `readBaseCheckLogs` returns the same excerpt for a run on the exact base.
 
 The host install before the provider starts ([Dependency installation](#dependency-installation)):
 

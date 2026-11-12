@@ -192,6 +192,11 @@ export interface BlobEnsureOptions {
 export interface BlobServeResponseOptions {
   /** Defaults to the `Cache-Control` of `headers`, or `private, no-cache`. */
   cacheControl?: string
+  /**
+   * Send `Content-Disposition: attachment`, so a browser saves the file and does not open it. `true` uses the last
+   * segment of the pathname as the file name. A string sets the file name.
+   */
+  download?: boolean | string
   /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**
@@ -546,7 +551,7 @@ export interface MinioBlobStoreConfig extends HostedBlobStoreConfig {
 }
 export type StorjBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "storj" }
 
-export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig {
+export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig, ResolvedBlobStoreSecrets {
   binding: string
   /** Set only in `vite dev` for a store that the Cloudflare preset picks: without the R2 binding, the store uses this local store. */
   localFallback?: ResolvedFsBlobStoreConfig
@@ -571,14 +576,27 @@ export interface ResolvedMinioBlobStoreConfig extends MinioBlobStoreConfig {
   region: string
 }
 
-export type ResolvedBlobStoreConfig =
+export interface ResolvedBlobStoreSecrets {
+  /** The env variable that holds each credential option, by option path. The resolved config has the mask in place of the value. */
+  secretEnv?: Record<string, string>
+}
+
+export type ResolvedBlobStoreConfig = ResolvedBlobStoreSecrets & (
   | Exclude<BlobStoreConfig, CloudflareR2BlobStoreConfig | FsBlobStoreConfig | MinioBlobStoreConfig | VercelBlobStoreConfig>
   | ResolvedCloudflareR2BlobStoreConfig
   | ResolvedFsBlobStoreConfig
   | ResolvedMinioBlobStoreConfig
   | ResolvedVercelBlobStoreConfig
+)
 
-export type BlobStoreName = "default" | (string & {})
+/**
+ * The configured Blob stores, by name. ViteHub writes it to `.vitehub/types/blob.d.ts` from `blob.stores`, so
+ * `blob.store()` rejects an unknown name before the app runs.
+ */
+export interface BlobStoreRegistry {}
+
+/** A key of `blob.stores`. Before ViteHub writes the generated types, any name type checks. */
+export type BlobStoreName = [keyof BlobStoreRegistry] extends [never] ? "default" | (string & {}) : Extract<keyof BlobStoreRegistry, string>
 
 export type BlobServeOptions = boolean | {
   /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
@@ -591,7 +609,8 @@ export type BlobServeOptions = boolean | {
   headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
-  store?: BlobStoreName
+  /** A key of `blob.stores`. Defaults to `"default"`. */
+  store?: string
 }
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
@@ -606,7 +625,7 @@ export interface BlobServeConfig {
   headers?: Record<string, string>
   publicBaseUrl?: string
   route: string
-  store: BlobStoreName
+  store: string
 }
 
 interface BlobModuleBaseOptions {

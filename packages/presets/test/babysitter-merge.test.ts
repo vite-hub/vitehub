@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
@@ -250,5 +250,91 @@ describe("Babysitter stacked PR preservation", () => {
     expect(stackRetargetBase(s.pr!, [parent])).toBe("main");
     expect(stackRetargetBase(s.pr!, [{ ...parent, state: "open" }])).toBeUndefined();
     expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBeUndefined();
+  });
+});
+
+describe("Babysitter approved-if-outside merge gate", () => {
+  const merge = resolveBabysitterMerge({ strategy: "direct", ready: "approved-if-outside" });
+  const ready = (s: Snapshot) => {
+    if (merge.mode !== "direct" || !merge.ready) throw new Error("expected a direct merge with a ready gate");
+    return merge.ready({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed" });
+  };
+  const outside = (association: string | undefined = "CONTRIBUTOR") => {
+    const s = snapshot();
+    s.pr = { ...s.pr!, user: { login: "outsider" }, author_association: association };
+    return s;
+  };
+  let at = 0;
+  const review = (login: string, state: string, commit = head, association = "MEMBER") =>
+    ({ id: ++at, user: { login }, state, commit_id: commit, author_association: association, submitted_at: `2026-11-12T10:00:${String(at).padStart(2, "0")}Z` });
+
+  it("merges a PR from an author with write access without a review", async () => {
+    for (const association of ["OWNER", "MEMBER", "COLLABORATOR", "member"]) {
+      const s = snapshot();
+      s.pr = { ...s.pr!, author_association: association };
+      expect(await ready(s)).toBe(true);
+    }
+  });
+
+  it("holds a PR from an author without write access until a maintainer approves its head", async () => {
+    for (const association of ["CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "NONE", undefined]) {
+      expect(await ready(outside(association))).toBe("a maintainer's approval of aaaaaaa");
+    }
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED");
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("needs a new approval after a push", async () => {
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED", "b".repeat(40));
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("ignores approvals from reviewers without write access, deleted reviews and pending ones", async () => {
+    const s = outside();
+    s.reviews.a = review("friend", "APPROVED", head, "CONTRIBUTOR");
+    s.reviews.b = { ...review("maintainer", "APPROVED"), deleted: true };
+    s.reviews.c = review("maintainer", "PENDING");
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("keeps an approval standing through later comments and dismissed reviews", async () => {
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED");
+    s.reviews.b = review("maintainer", "COMMENTED");
+    s.reviews.c = review("maintainer", "DISMISSED");
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("blocks while any maintainer's latest decisive review requests changes", async () => {
+    const s = outside();
+    s.reviews.a = review("alice", "APPROVED");
+    s.reviews.b = review("Bob", "CHANGES_REQUESTED", "b".repeat(40), "COLLABORATOR");
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa: bob requested changes");
+    s.reviews.c = review("bob", "APPROVED", head, "COLLABORATOR");
+    expect(await ready(s)).toBe(true);
+    s.reviews.d = review("alice", "CHANGES_REQUESTED");
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa: alice requested changes");
+  });
+
+  it("orders reviews by submission time, not by key", async () => {
+    const s = outside();
+    s.reviews.z = { ...review("maintainer", "CHANGES_REQUESTED"), submitted_at: "2026-11-12T09:00:00Z" };
+    s.reviews.a = { ...review("maintainer", "APPROVED"), submitted_at: "2026-11-12T11:00:00Z" };
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("reads GraphQL-shaped reviews and authors", async () => {
+    const s = snapshot();
+    s.pr = { ...s.pr!, user: undefined, author: { login: "outsider" }, authorAssociation: "NONE" };
+    s.reviews.a = { author: { login: "maintainer" }, authorAssociation: "OWNER", state: "APPROVED", commit: { oid: head }, submittedAt: "2026-11-12T10:00:00Z" };
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("keeps the callback form and rejects other ready values", () => {
+    const callback = () => true as const;
+    expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", ready: "approved" })).toThrow('Babysitter merge.ready must be a function or "approved-if-outside".');
   });
 });
