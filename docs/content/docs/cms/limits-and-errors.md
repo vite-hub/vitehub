@@ -19,7 +19,7 @@ On the GitHub store:
 - `publish()` never touches a document that only `branch` changed or added. It does not revert or delete it, and `status()` reports it as `published`. Draft sync brings it into the draft. Until then, the draft keeps its old copy.
 - Plain Git or Workspace commits on the draft keep publish protection. Content finds the nearest recorded bases and counts the document changes made since. If it finds neither Content metadata nor the current published revision within 100 draft ancestors, save and publish refuse instead of guessing. Keep those edits, recreate the draft from published, then apply them again through Content.
 - About 600 unpublished changed documents fit in the 64 KiB commit metadata limit.
-- Each read and write calls the GitHub API, so GitHub rate limits apply. A branch head is cached for 5 seconds.
+- Reads and writes call the GitHub API, so GitHub rate limits apply. A branch head is cached for 5 seconds, then revalidated with its ETag. Enable KV so new server instances read history and trees from KV ([Reads on serverless hosts](/docs/cms/configure#reads-on-serverless-hosts)).
 
 ### Changed on both sides
 

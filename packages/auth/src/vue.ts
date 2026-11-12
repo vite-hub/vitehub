@@ -1,5 +1,5 @@
 import abilities from "#vitehub/auth/abilities"
-import { computed, defineComponent, getCurrentInstance, getCurrentScope, inject, provide, shallowRef, watch } from "vue"
+import { computed, defineComponent, getCurrentInstance, getCurrentScope, inject, onServerPrefetch, provide, shallowRef, watch } from "vue"
 
 import { checkAbility } from "./ability-check.ts"
 import { AbilityError } from "./ability-error.ts"
@@ -26,7 +26,7 @@ type NuxtErrorInput = { status: number, statusText: string, message: string, dat
 
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
 let nuxtErrorFactory: ((input: NuxtErrorInput) => Error) | undefined
-let sessionSeedResolver: (() => unknown) | undefined
+let sessionSeedResolver: ((read: boolean) => unknown) | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
@@ -41,8 +41,9 @@ export function setNuxtErrorFactory(factory: ((input: NuxtErrorInput) => Error) 
 /**
  * Internal bridge installed by the Nuxt module. The resolver returns the session that the server read for this
  * request, `null` when the request had none, or `undefined` when nobody knows yet, such as on a prerendered page.
+ * With `read` on the server, it reads the session if the request did not read it yet, and can return a promise of it.
  */
-export function setSessionSeedResolver(resolver: (() => unknown) | undefined): void {
+export function setSessionSeedResolver(resolver: ((read: boolean) => unknown) | undefined): void {
   sessionSeedResolver = resolver
 }
 
@@ -53,8 +54,8 @@ const pendingState = (refetch: Callable) => ({ data: null, error: null, isPendin
  * Better Auth's Vue client with the same options, types, and calls, which loads `better-auth/vue` the first time it is
  * used. Creating one costs nothing, so an app can create it up front and only pages that sign in pay for Better Auth.
  * Calls such as `signIn.social()` wait for the load. Hooks such as `useSession()` return a ref at once that is
- * pending until then. In Nuxt, `useSession()` starts with the session that the server read for the request, so it is
- * settled during server rendering and hydration. Use `loadAuthClient()` for anything else, such as `$store`.
+ * pending until then. In Nuxt, `useSession()` in a component starts with the session that the server read for the
+ * request, so it is settled during server rendering and hydration. Use `loadAuthClient()` for anything else, such as `$store`.
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
@@ -76,11 +77,25 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
       const current = state.value as { refetch?: Callable }
       return current === initial ? undefined : current.refetch?.(...query)
     }
+    const settled = (data: unknown) => ({ data, error: null, isPending: false, isRefetching: false, refetch })
     // With a session that the server rendered, the hook starts settled, so the page does not flash signed out.
-    const seed = name === "useSession" ? sessionSeedResolver?.() : undefined
-    const initial = seed === undefined ? pendingState(refetch) : { data: seed, error: null, isPending: false, isRefetching: false, refetch }
+    // On the server, only a component can make the render wait, so only a component starts the session read.
+    const server = !("window" in globalThis)
+    const seed = name === "useSession" ? sessionSeedResolver?.(server && Boolean(getCurrentInstance())) : undefined
+    const reading = seed instanceof Promise ? seed : undefined
+    const initial = seed === undefined || reading ? pendingState(refetch) : settled(seed)
     const state = shallowRef<unknown>(initial)
-    if (!("window" in globalThis)) return state
+    if (server) {
+      if (reading) {
+        // The read settles the ref itself: Vue runs `onServerPrefetch` only after an async setup ends, and that setup
+        // can wait for the session. The render waits for the same read.
+        const done = reading.then((value: unknown) => {
+          if (value !== undefined) state.value = settled(value)
+        })
+        onServerPrefetch(() => done)
+      }
+      return state
+    }
     void load().then((client) => {
       if (scope && !scope.active) return
       runIn(scope, () => watch(real(client) as Ref<unknown>, (value) => {
