@@ -19,7 +19,7 @@ import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild, type ConsoleNitroPluginOptions } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsoleRpcHandler } from "./nitro.ts"
+import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -194,6 +194,8 @@ function configureConsoleNitroRoutes(
   const mount = viteHubPageToolsBase({ base: baseURL, nitro }).mount
   const kit = createNitroServerKit({ ...nitro, handlers: Array.isArray(nitro.handlers) ? [...nitro.handlers] : [] })
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount)
+  // The development RPC without Console options has no Console link in the page tools pill.
+  if (!rpcOnly) addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, mount)
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
     .filter(asset => asset?.dir !== consoleSkillsRoot)
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations.
@@ -294,6 +296,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
+      ...(options.rpcOnly ? {} : { pageTool: { base: applicationBase } }),
     }
   }
 

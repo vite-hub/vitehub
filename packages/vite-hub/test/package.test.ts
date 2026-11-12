@@ -778,9 +778,11 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve one Console route only: no Console page, client script, MCP, or Env management.
+      // Apps serve the Console RPC and the page tools session of the Console link only: no Console page, client script,
+      // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
@@ -788,7 +790,10 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills"]);
+      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills", "/_vitehub/console/assets", "/_vitehub/page/assets"]);
+      // The Console segment of the pill and the page tools loader are built files of the package.
+      expect(existsSync(`${Reflect.get(Object(publicAssets[1]), "dir")}/page-tool.js`)).toBe(true);
+      expect(existsSync(`${Reflect.get(Object(publicAssets[2]), "dir")}/loader.js`)).toBe(true);
       const skillsDir = Reflect.get(Object(publicAssets[0]), "dir");
       if (String(skillsDir) !== skillsDir) throw new TypeError("Expected the Console skills path.");
       // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.

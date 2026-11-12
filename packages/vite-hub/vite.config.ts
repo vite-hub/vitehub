@@ -117,6 +117,7 @@ const runtimeEntries = [
   // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
   "src/console/runtime/server/access-policy.ts",
   "src/console/runtime/server/development.ts",
+  "src/console/runtime/server/page-tool.ts",
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
@@ -138,6 +139,9 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
+  // The page tools session route, and the Auth reader that the Console page tool loads with the first session request.
+  "src/console/runtime/server/page-auth.ts",
+  "src/console/runtime/server/page-session.ts",
 ];
 
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
@@ -563,6 +567,9 @@ export default defineConfig({
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
+          delete exports["./console/runtime/server/page-auth"];
+          delete exports["./console/runtime/server/page-session"];
+          delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sections.get"];
@@ -627,6 +634,27 @@ export default defineConfig({
         },
       },
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
+    },
+    {
+      // The page tools loader at `/_vitehub/page/assets/loader.js`, for an app with the Console and no Comments. It has its
+      // own build, so it shares no chunk with the server code.
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page/loader": "src/page/loader.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      tsconfig: "tsconfig.build.json",
+    },
+    {
+      // The Console segment of the page tools pill, at `/_vitehub/console/assets/page-tool.js` (see src/page/console.ts).
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page-tool/page-tool": "src/page/console.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      tsconfig: "tsconfig.build.json",
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).
