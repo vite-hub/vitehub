@@ -3,6 +3,7 @@ import { parseEvidence, parsePullRequest, type GitHubReviewThread, type GitHubEv
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
 import { repoRef, type GitHubProvider } from '@vite-hub/forge'
+import { isBabysitterCheckRun } from '../check-run.ts'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
@@ -92,7 +93,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
   const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
-    checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
+    checks: Object.fromEntries(checks.map(parseEvidence).filter(c => !isBabysitterCheckRun(c)).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
   }
   if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })

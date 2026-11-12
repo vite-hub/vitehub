@@ -7,6 +7,7 @@ import { isRuntimeNumber, isRuntimeString } from '../../internal/runtime-type.ts
 import { isRuntimeRecord } from '../../internal/runtime-type.ts'
 import { createNodeSqliteInboxStorage, type PullRequestInboxExecutor, type PullRequestInboxRow, type PullRequestInboxStorage } from './storage.ts'
 import type { AgentRunActivity } from '@vite-hub/agent'
+import { isBabysitterCheckRun } from '../check-run.ts'
 import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSchema, statusDeliverySchema, statusOutboxPrefix, statusSentPrefix, statusWriterPrefix, statusTargetKey, workerBlockerPrefix, type StatusDelivery } from './status-delivery.ts'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
@@ -195,7 +196,7 @@ export function looksMergeReady(s: Snapshot): boolean {
     if (!previous || numeric >= previous.id) latest.set(key, { id: numeric, status: String(status), conclusion: String(conclusion).toLowerCase() })
   }
   for (const check of Object.values(s.checks)) {
-    if (check.deleted || check.head_sha !== head) continue
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check)) continue
     keep(`check\0${String(check.name)}\0${String(check.app?.id ?? '')}`, check.id, check.status, check.conclusion)
   }
   for (const status of Object.values(s.statuses)) {
@@ -956,6 +957,10 @@ export class PullRequestInbox {
       if (!supported.includes(event)) return await finish('irrelevant event')
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return await finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return await finish('irrelevant review thread action')
+      // The host's own check run and its suite report this inbox's state. As evidence they
+      // would wake the PR on every status update and gate its merge on itself.
+      if (event === 'check_run' && isBabysitterCheckRun(payload.check_run)) return await finish('own check run')
+      if (event === 'check_suite' && this.activityAppId !== undefined && payload.check_suite?.app?.id === this.activityAppId) return await finish('own check suite')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
       // Match commit-scoped evidence to the current head. Pull request
       // synchronize payloads also have `after`, but must advance that head.

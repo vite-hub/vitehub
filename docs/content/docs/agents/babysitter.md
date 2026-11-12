@@ -95,6 +95,7 @@ Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it
 | `modelConcurrency` | `concurrency` | Model passes at the same time. Match what your provider accounts can serve. |
 | `providerCooldownMs` | `300000` | First cooldown after a pass uses all its provider rate-limit retries ([Provider rate limits](#provider-rate-limits)). |
 | `admission` | `{}` | Token budgets, a free-space check, and custom checks that stop model passes ([Limit model passes](#limit-model-passes)). |
+| `status` | `{ comment: true, checkRun: true }` | Where the PR shows the Babysitter's state: the activity comment and a `babysitter` check run on the head ([Status on the pull request](#status-on-the-pull-request)). |
 | `capacity` | Process defaults | Host admission settings: `memory`, `cpu`, and `fallbackConcurrency`. |
 | `placement` | None | Runs each pass on this host or in a Sandbox on another host ([Bound local verification](#bound-local-verification)). |
 
@@ -246,7 +247,7 @@ The worker records and recovers Invocations under `<discovered-agent-name>-worke
 
 ## Configure GitHub
 
-Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
+Create a GitHub App with read and write access to contents, pull requests, issues, checks (to publish the `babysitter` check run), and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
 
 Set these variables on the host, or declare them in `env.server.github`:
 
@@ -277,6 +278,24 @@ The host install before the provider starts ([Dependency installation](#dependen
 - rejects other registries, network protocols, and custom ports before the package manager runs
 
 For other sources, use `install: false` and prepare dependencies in an isolated workspace.
+
+### Status on the pull request
+
+The host reports each PR's state in an activity comment and in a check run named `babysitter` on the current head. Both go through the same durable outbox, so a failed write retries.
+
+| Babysitter state | Check run |
+| --- | --- |
+| Queued | `queued` |
+| Running | `in_progress` |
+| Waiting | `completed`, `neutral` |
+| Done | `completed`, `success` |
+| Failed | `completed`, `failure` |
+
+A waiting PR ends its run as neutral because the wait can last days, and a spinning check would claim work that is not happening. The title starts with the state and the first line of the result, and **Details** opens the Console session when there is one. Work on a head whose run completed starts a new run.
+
+The check run needs the App's `checks: write` permission. When GitHub answers 403, the host logs `babysitter.status.check_run.forbidden` once and stops writing check runs to that repository until it restarts. The comment still posts. Set `status: { checkRun: false }` to turn the check off, or `status: { comment: false }` to keep only the check.
+
+The host leaves its own `babysitter` check out of every CI and merge decision, so it never waits on itself. Don't make `babysitter` a required check.
 
 ## Deploy
 

@@ -3,6 +3,7 @@ import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../github/in
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -120,7 +121,7 @@ function mergeTarget(snapshot: Snapshot, legacy = false) {
 export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string {
   const head = snapshot.pr?.head?.sha;
   const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)]
-    .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head
+    .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head && !isBabysitterCheckRun(value)
       && failing.has(String(value.conclusion ?? value.state).toLowerCase()))
     .map(value => ({ id: value.id ?? value.context, name: value.name ?? value.context,
       state: value.conclusion ?? value.state, app: value.app, description: value.description, output: value.output }))
@@ -180,7 +181,7 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
 export function snapshotCheckEvidence(snapshot: Snapshot): GitHubCheckEvidence {
   const head = snapshot.pr?.head?.sha ?? "";
   const checkRuns = Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || !hasRuntimeType(check.id, "number") || !hasRuntimeType(check.name, "string")) return [];
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !hasRuntimeType(check.id, "number") || !hasRuntimeType(check.name, "string")) return [];
     return [{ id: check.id, head_sha: head, name: check.name, app: hasRuntimeType(check.app?.id, "number") ? { id: check.app.id } : null,
       status: String(check.status ?? ""), conclusion: check.conclusion === undefined || check.conclusion === null ? null : String(check.conclusion) }];
   });

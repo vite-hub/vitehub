@@ -50,6 +50,7 @@ import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
 import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
+import { createBabysitterCheckRuns } from "./check-run.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
@@ -207,14 +208,25 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     options.event?.(name, properties);
   const schedulerError = (name: string, error: unknown, properties: Record<string, unknown> = {}) =>
     options.error?.(name, error, properties);
-  const statusChannel = verifiedHostIdentity ? github.channel({ activity: true, pullRequest: { workspace: false } }) : undefined;
+  const statusComment = !!verifiedHostIdentity && presetOptions.status?.comment !== false;
+  const statusCheckRun = !!verifiedHostIdentity && presetOptions.status?.checkRun !== false;
+  const statusChannel = statusComment ? github.channel({ activity: true, pullRequest: { workspace: false } }) : undefined;
+  const checkRuns = statusCheckRun
+    ? createBabysitterCheckRuns({ forge: async (repository, signal) => await github.forge({ repository, signal }), appId: github.appId?.(), error: schedulerError })
+    : undefined;
   const statusRecovery = createBabysitterStatusRecovery({
     inbox: pullRequestInbox,
     // Built packages carry this fingerprint; direct source hosts compute the same inputs.
     revision: baseAgent.version ?? (typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__),
-    publish: statusChannel ? (pending, abortSignal) => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
-      channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
-    }) : undefined,
+    // One delivery writes both views, so a failure of either retries through the outbox.
+    publish: statusChannel || checkRuns ? async (pending, abortSignal) => {
+      if (statusChannel) {
+        await publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
+          channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
+        });
+      }
+      await checkRuns?.publish(pending, abortSignal);
+    } : undefined,
     event: schedulerEvent,
     error: schedulerError,
   });
@@ -1567,7 +1579,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const workerDriver = driver as
                 | CodexDriver<unknown, BabysitterPassResult>
                 | ClaudeCodeDriver<unknown, BabysitterPassResult>;
-              const activityEnabled = !!verifiedHostIdentity;
+              const activityEnabled = statusComment;
               const workerName = `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`;
               if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
               // Build the worker from the base settings while replacing only

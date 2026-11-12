@@ -23,5 +23,9 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",
     },
+    PRESETS_BABYSITTER_STATUS_INVALID: {
+      why: "Babysitter status must be an object whose comment and checkRun fields are booleans.",
+      fix: "Pass status: { comment?: boolean, checkRun?: boolean }, or leave status out to post both the activity comment and the babysitter check run.",
+    },
   },
 })
