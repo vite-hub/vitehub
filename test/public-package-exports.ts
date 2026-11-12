@@ -81,6 +81,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // The Console keeps the Agent journal in libSQL.
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
+  ["vite-hub/env/database", { "drizzle-orm": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   ["vite-hub/logs", { "evlog": "both" }],
