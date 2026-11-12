@@ -28,6 +28,7 @@ import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
 import { mergeContentDocument } from "./merge.ts"
 import { contentLeaseHeld, contentLeasesHeld, createContentSessions } from "./sessions.ts"
+import { publishBranchPrefix } from "./source-access.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
@@ -769,7 +770,6 @@ function pullRequestTitle(message: string): string {
 }
 
 /** Publish branches of `publish: 'pr'` start with this. */
-const publishBranchPrefix = "vitehub/publish/"
 
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
   if (metadata !== undefined && (metadata === null || Object(metadata) !== metadata || Array.isArray(metadata))) {
