@@ -21,12 +21,13 @@ export interface PrimitiveRailSlotProps {
 
 type PrimitiveRailSlot = (props: PrimitiveRailSlotProps) => VNode[];
 
-// A pointer that only crosses the rail does not open it.
-const hoverIntentDelay = 140;
+// A pointer that only crosses the rail does not open it. 200 ms is the delay that tooltips use against incidental travel.
+const hoverIntentDelay = 200;
 
 /**
  * The narrow icon rail that ViteHub docs and the Console show at the left edge.
  * It always takes 3.5rem of the layout. On hover or keyboard focus, its surface expands over the next element to show the labels.
+ * A selected item closes it until the pointer leaves the rail, so the page that the item opens is not covered.
  */
 export const PrimitiveRail = defineComponent({
   name: "PrimitiveRail",
@@ -40,8 +41,10 @@ export const PrimitiveRail = defineComponent({
     const hovered = ref(false);
     const focused = ref(false);
     const dismissed = ref(false);
+    // The item that the person selected. The rail stays closed while the pointer rests on the rail, or until keyboard focus moves to another item.
+    const selected = ref<Element>();
     const root = ref<HTMLElement>();
-    const expanded = computed(() => (hovered.value || focused.value) && !dismissed.value);
+    const expanded = computed(() => (hovered.value || focused.value) && !dismissed.value && !selected.value);
     let intent: ReturnType<typeof setTimeout> | undefined;
 
     const cancelIntent = () => {
@@ -66,7 +69,16 @@ export const PrimitiveRail = defineComponent({
     function onPointerleave(): void {
       cancelIntent();
       hovered.value = false;
+      selected.value = undefined;
       release();
+    }
+
+    // A click, or Enter on a focused item, selects it. Menu triggers close the rail on their own, before the menu opens.
+    function onClick(event: MouseEvent): void {
+      const item = event.target instanceof Element ? event.target.closest(".vh-primitive-rail__item") : null;
+      if (!item || !root.value?.contains(item) || item.matches("[aria-haspopup]")) return;
+      cancelIntent();
+      selected.value = item;
     }
 
     // A menu trigger closes the rail first, so the menu opens next to the icon and does not move with the row.
@@ -79,12 +91,14 @@ export const PrimitiveRail = defineComponent({
     // Only keyboard focus opens the rail. A click also focuses the item, but it must not hold the rail open.
     function onFocusin(event: FocusEvent): void {
       focused.value = event.target instanceof Element && event.target.matches(":focus-visible");
+      if (focused.value && event.target !== selected.value) selected.value = undefined;
     }
 
     function onFocusout(event: FocusEvent): void {
       const rail = event.currentTarget;
       if (rail instanceof Element && event.relatedTarget instanceof Node && rail.contains(event.relatedTarget)) return;
       focused.value = false;
+      if (!hovered.value) selected.value = undefined;
       release();
     }
 
@@ -114,6 +128,7 @@ export const PrimitiveRail = defineComponent({
           // A deliberate close by Escape or a menu trigger skips the width transition, so a menu anchors to a still icon.
           "data-dismissed": dismissed.value ? "" : undefined,
           "data-expanded": expanded.value ? "" : undefined,
+          onClick,
           onFocusin,
           onFocusout,
           onPointerdown: dismissForMenu,
