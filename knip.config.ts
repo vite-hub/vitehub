@@ -150,6 +150,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   },
   // remove when the unused @vite-hub/blob devDependency of cms is fixed
   cms: { ignoreDependencies: ["@vite-hub/blob"] },
+  // test/mcp.test.ts reads `normalizeToolResult()` of the `@nuxtjs/mcp-toolkit` that `@vite-hub/docs` installs, by file path.
+  content: { ignoreDependencies: ["@nuxtjs/mcp-toolkit"] },
   // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
   database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
@@ -300,6 +302,7 @@ const config: KnipConfiguration = {
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
         /^@iconify-json\//,
         // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
+        "@better-auth/cimd",
         "@chat-adapter/slack",
         // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
         "@takumi-rs/core",
