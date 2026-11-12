@@ -149,7 +149,7 @@
     "packages/presets/src/babysitter/inbox/snapshot-sync.ts": 5,
     "packages/presets/src/babysitter/inbox/storage.ts": 2,
     "packages/presets/src/babysitter/inbox/store.ts": 17,
-    "packages/presets/src/babysitter/merge.ts": 3,
+    "packages/presets/src/babysitter/merge.ts": 2,
     "packages/presets/src/babysitter/preflight.ts": 4,
     "packages/presets/src/babysitter/repair.ts": 7,
     "packages/presets/src/babysitter/server.ts": 18,
