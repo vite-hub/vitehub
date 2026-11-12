@@ -43,4 +43,24 @@ describe("prebuilt presence clients", () => {
       room.destroy()
     }
   })
+
+  it("connects to the app's origin from another site's page", () => {
+    const urls: string[] = []
+    vi.stubGlobal("window", { location: { protocol: "https:", host: "preview.example" } })
+    vi.stubGlobal("WebSocket", class {
+      constructor(url: string) { urls.push(url) }
+      close() {}
+      send() {}
+    })
+    const secure = connectRealtimeRoom("presence", "room", { origin: "https://app.example", params: { ticket: "t" } })
+    const local = connectRealtimeRoom("presence", "room", { origin: "http://localhost:3000" })
+    try {
+      expect(urls[0]).toBe("wss://app.example/api/_vitehub/realtime/presence/room?ticket=t")
+      expect(urls[1]).toBe("ws://localhost:3000/api/_vitehub/realtime/presence/room")
+    }
+    finally {
+      secure.destroy()
+      local.destroy()
+    }
+  })
 })
