@@ -317,11 +317,6 @@ export async function unlinkConsoleAccountProject(id: string): Promise<void> {
   if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
 }
 
-/** Whether the person may link and unlink projects of the active team. */
-export function canManageConsoleProjects(account: ConsoleAccount): boolean {
-  return account.roles.includes("owner") || account.roles.includes("admin")
-}
-
 /** The `/invite/<id>` page: the invitation id, or `undefined` on another page. */
 export function consoleInvitationOf(pathname: string): string | undefined {
   const match = /^\/invite\/([^/]+)\/?$/.exec(pathname)

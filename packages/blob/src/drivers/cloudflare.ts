@@ -1,7 +1,7 @@
 import { byteRangeBounds } from "../internal/byte-range.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createDriver as createNativeDriver, getOptionalBucket } from "./cloudflare-native.ts"
-import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
+import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
@@ -17,9 +17,9 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
   return createFilesSdkDriver({
     ...options,
     accountId: runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"),
-    accessKeyId: runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
+    accessKeyId: r2Credential(options, "accessKeyId"),
     bucketName,
-    secretAccessKey: runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
+    secretAccessKey: r2Credential(options, "secretAccessKey"),
   }, async resolved => (await importOptionalPeer(() => import("files-sdk/r2"), "files-sdk/r2", resolved.driver, s3PeerInstall)).r2({
     accountId: resolved.accountId,
     accessKeyId: resolved.accessKeyId,
@@ -33,8 +33,8 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
-  const accessKeyId = runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID")
-  const secretAccessKey = runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+  const accessKeyId = r2Credential(options, "accessKeyId")
+  const secretAccessKey = r2Credential(options, "secretAccessKey")
   const bucket = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
     throw blobErrorDiagnostics.BLOB_R0004({ message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials." })

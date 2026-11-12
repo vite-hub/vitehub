@@ -4,6 +4,10 @@ import { fileURLToPath } from "node:url"
 
 import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
+// The `semver` entry loads every one of its 47 modules. These three load a handful.
+import satisfies from "semver/functions/satisfies.js"
+import validVersion from "semver/functions/valid.js"
+import validRange from "semver/ranges/valid.js"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -157,10 +161,106 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
   return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install the missing packages in your app with: pnpm add ${installArguments(missing).join(" ")}` })
 }
 
-/** Throws when an enabled feature misses one of its packages. */
+/** Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range. */
 export function assertFeaturePackages(features: readonly OptionalFeature[]): void {
   const missing = features.filter(feature => !optionalFeaturePackages[feature].every(isPackageInstalled))
   if (missing.length) throw missingFeaturePackagesError(missing)
+  warnUnsupportedPackageVersions(features.flatMap(feature => optionalFeaturePackages[feature]))
+}
+
+/**
+ * The `version` of the installed `packageName`, as `vite-hub` resolves it, from the manifest that names the package. It
+ * is `undefined` when the package is missing or its manifest has no version.
+ */
+export function installedPackageVersion(packageName: string): string | undefined {
+  let manifest: unknown
+  try {
+    manifest = readInstalledManifest(packageName)
+  }
+  catch {
+    // The version check only warns, so a manifest that is not JSON does not stop the build.
+    return undefined
+  }
+  return isPlainObject(manifest) && typeof manifest.version === "string" ? manifest.version : undefined
+}
+
+function readInstalledManifest(packageName: string): unknown {
+  // A wildcard export can map `package.json` to a nested file, such as `{"type":"module"}` in the MCP SDK, and some
+  // packages, such as drizzle-orm, do not export their manifest. Start at the file that resolves, and use the first
+  // manifest above it that names the package.
+  let file: string | undefined
+  for (const specifier of [`${packageName}/package.json`, packageName]) {
+    try {
+      file = fileURLToPath(import.meta.resolve(specifier))
+      break
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return undefined
+    }
+  }
+  if (file === undefined) return undefined
+  for (let directory = dirname(file); dirname(directory) !== directory; directory = dirname(directory)) {
+    const manifestFile = join(directory, "package.json")
+    if (!existsSync(manifestFile)) continue
+    const manifest: unknown = JSON.parse(readFileSync(manifestFile, "utf8"))
+    if (isPlainObject(manifest) && manifest.name === packageName) return manifest
+  }
+}
+
+/** Quotes `value` for a POSIX shell when it needs quotes, such as a range with `^`, `<`, or a space. */
+function shellArgument(value: string): string {
+  return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+/**
+ * The warning for installed packages whose version is outside the range in the `peerDependencies` of `vite-hub`, or
+ * `undefined` when all are in range. A package without a version, or with a range that is not semver, such as
+ * `workspace:*` in a source checkout, is not checked. A prerelease of a supported release line is in range.
+ */
+export function unsupportedPackageVersionsWarning(
+  packages: readonly string[],
+  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
+  manifest: unknown = readViteHubManifest(),
+): string | undefined {
+  const peers = isPlainObject(manifest) && isPlainObject(manifest.peerDependencies) ? manifest.peerDependencies : {}
+  const unsupported = [...new Set(packages)].flatMap((name) => {
+    const range = peers[name]
+    if (typeof range !== "string" || validRange(range) === null) return []
+    const version = versionOf(name)
+    if (version === undefined || validVersion(version) === null || satisfies(version, range, { includePrerelease: true })) return []
+    return [{ name, range, version }]
+  })
+  if (!unsupported.length) return undefined
+  const viteHub = isPlainObject(manifest) && typeof manifest.version === "string" ? `vite-hub ${manifest.version}` : "vite-hub"
+  const lines = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`)
+  // A preview of `vite-hub` gives a ViteHub package the preview URL. Other packages get the supported range.
+  const previews = installArguments(unsupported.map(({ name }) => name), manifest)
+  const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!))
+  return `[vitehub] ${lines.join(" ")} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${install.join(" ")}`
+}
+
+const checkedPackageVersions = new Set<string>()
+let viteHubManifest: unknown
+
+/**
+ * Prints the warning of `unsupportedPackageVersionsWarning` one time for each package in this process. The import
+ * facades call `assertFeaturePackages` for each import, so a package is checked only the first time. The check only
+ * warns, so a `vite-hub` manifest that it cannot read turns it off and does not stop the build.
+ */
+function warnUnsupportedPackageVersions(packages: readonly string[]): void {
+  const unchecked = [...new Set(packages)].filter(name => !checkedPackageVersions.has(name))
+  if (!unchecked.length) return
+  for (const name of unchecked) checkedPackageVersions.add(name)
+  if (viteHubManifest === undefined) {
+    try {
+      viteHubManifest = readViteHubManifest()
+    }
+    catch {
+      viteHubManifest = null
+    }
+  }
+  const warning = unsupportedPackageVersionsWarning(unchecked, installedPackageVersion, viteHubManifest)
+  if (warning) console.warn(warning)
 }
 
 /** Returns the loaded owner module, or throws the install error of `feature`. */
