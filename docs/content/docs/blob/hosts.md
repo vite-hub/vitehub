@@ -260,7 +260,7 @@ export default defineConfig({
 :::
 ::
 
-Keep S3 credentials in Server Env or the S3 SDK credential chain. Put `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
+Keep S3 credentials in Server Env or the S3 SDK credential chain. Put `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config. Without `credentials`, the SDK reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at runtime. With `credentials` set from `process.env`, ViteHub writes only the variable names into the build output and reads the values at runtime. A literal credential fails the build with `BLOB_C0019`. Read [Credentials](/docs/blob/configure#credentials).
 
 With an R2 binding or R2 HTTP credentials, use Cloudflare R2 instead. To test S3 behavior locally or in Docker Compose, use MinIO.
 
