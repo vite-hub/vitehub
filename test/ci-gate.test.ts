@@ -186,7 +186,7 @@ describe("CI merge gate", () => {
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "service-tests", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
