@@ -3,6 +3,14 @@ import { defineErrors } from "@vite-hub/runtime"
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
+    PRESETS_BABYSITTER_OPTION_INVALID: {
+      why: ({ option, expected }: { option: string; expected: string }) => `Babysitter ${option} must be ${expected}.`,
+      fix: ({ option, expected }: { option: string; expected: string }) => `Set ${option} to ${expected} in the Babysitter options, or leave it out to keep the default.`,
+    },
+    PRESETS_BABYSITTER_PLACEMENT_CAPACITY: {
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "The Babysitter retries the pull request after `retryAfterMs`. To run more passes at once, add hosts or slots to the placement.",
+    },
     PRESETS_REVIEW_OUTCOME_INVALID: {
       why: "Review thread outcome must be one of fixed, disproved, declined, pre-existing, duplicate.",
       fix: "Set outcome to fixed, disproved, declined, pre-existing, or duplicate.",

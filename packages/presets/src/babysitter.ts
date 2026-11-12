@@ -16,6 +16,7 @@ import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
@@ -370,8 +371,11 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!Number.isSafeInteger(providerCooldownMs) || providerCooldownMs < 1000 || providerCooldownMs > 60 * 60_000) {
       throw new TypeError("[vitehub] Babysitter providerCooldownMs must be an integer from 1000 to 3600000.");
     }
-    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function") || (placement.admitted !== undefined && typeof placement.admitted !== "function"))) {
-      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive?, admitted? } functions.");
+    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
+      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
+    }
+    if (placement?.admitted !== undefined && typeof placement.admitted !== "function") {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "placement.admitted", expected: "a function that returns the admitted slot count" });
     }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");

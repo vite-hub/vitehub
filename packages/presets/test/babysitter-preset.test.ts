@@ -1542,7 +1542,7 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { admission: { inputTokens: { hourly: -1 } } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { admission: { paused: "yes" as unknown as boolean } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { placement: {} as BabysitterPlacement } })).toThrow(/placement must be/);
-    expect(() => defineAgent({ extends: babysitter, options: { placement: { place: () => ({ release() {} }), admitted: 2 as unknown as () => number } } })).toThrow(/placement must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { placement: { place: () => ({ release() {} }), admitted: 2 as unknown as () => number } } })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["vercel[bot]"], noProgressBudget: false, deferWhilePending: false, install: { command: "pnpm", args: ["install"] } } })).not.toThrow();
   });
 
