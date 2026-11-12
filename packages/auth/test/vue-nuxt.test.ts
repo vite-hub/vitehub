@@ -20,22 +20,26 @@ const mocks = vi.hoisted(() => ({
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
   requestFetch: vi.fn(),
+  createError: vi.fn(() => new Error("nuxt")),
   getSession: vi.fn(),
   useSession: vi.fn(),
   createAuthClient: vi.fn(),
+  sessionPaths: [] as unknown[],
+  nuxtApp: { runWithContext: <T>(run: () => T) => run() } as { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: unknown },
   navigateTo: vi.fn((target: unknown) => target),
   middleware: undefined as Middleware | undefined,
   named: {} as Record<string, Middleware>,
 }))
 
 vi.mock("#app", () => ({
+  createError: mocks.createError,
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: (name: string, middleware: Middleware, options?: { global?: boolean }) => {
     if (options?.global) mocks.middleware = middleware
     else mocks.named[name] = middleware
   },
   navigateTo: mocks.navigateTo,
-  tryUseNuxtApp: () => ({ runWithContext: <T>(run: () => T) => run() }),
+  tryUseNuxtApp: () => mocks.nuxtApp,
   useRequestEvent: () => mocks.event,
   useRequestFetch: () => mocks.requestFetch,
   useRuntimeConfig: () => mocks.config,
@@ -45,10 +49,19 @@ vi.mock("#app", () => ({
 vi.mock("better-auth/vue", () => ({
   createAuthClient: (options: unknown) => {
     mocks.createAuthClient(options)
-    return { getSession: mocks.getSession, useSession: mocks.useSession }
+    return {
+      getSession: (...args: unknown[]) => {
+        mocks.sessionPaths.push((options as { basePath?: string } | undefined)?.basePath)
+        return mocks.getSession(...args)
+      },
+      useSession: mocks.useSession,
+    }
   },
 }))
 
+vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
+
+const { useAbility } = await import("../src/vue.ts")
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
   default: { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
 }
@@ -63,6 +76,7 @@ beforeEach(() => {
   mocks.payload = {}
   mocks.middleware = undefined
   mocks.named = {}
+  mocks.nuxtApp = { runWithContext: run => run() }
   mocks.getSession.mockResolvedValue({ data: session })
   mocks.useSession.mockReturnValue(ref({ data: null, isPending: true }))
 })
@@ -121,6 +135,32 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
     expect(mocks.middleware?.({ path: "/login", fullPath: "/login", meta: { auth: "guest" } })).toBe("/")
+  })
+
+  it("makes a refusal of authorize() Nuxt's fatal error, with the status and data of the server", async () => {
+    mocks.event.req.headers.delete("cookie")
+    await plugin.setup({ payload: mocks.payload })
+
+    const refused = await useAbility().authorize("posts.edit", { authorId: "u", published: true }).catch((error: unknown) => error)
+    expect(mocks.createError).toHaveBeenCalledWith({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "signed-out", details: undefined }, fatal: true })
+    expect(refused).toBe(mocks.createError.mock.results[0]!.value)
+  })
+
+  it("makes authorize() in the browser read the session at the configured Auth endpoint, as the page guard does", async () => {
+    await configure("/auth", "/app/")
+    vi.stubGlobal("window", {})
+    mocks.state.value = null
+    const result = await plugin.setup({ payload: mocks.payload })
+    // Nuxt adds what the plugin provides to the app as `$vitehubAuthClient`.
+    mocks.nuxtApp.$vitehubAuthClient = result!.provide.vitehubAuthClient
+    const ability = useAbility()
+    // Vitest can answer two concurrent first imports of a mocked module with the real one, so let `useAbility()` load it first.
+    await vi.waitFor(() => expect(mocks.useSession).toHaveBeenCalled())
+    mocks.sessionPaths = []
+    mocks.getSession.mockResolvedValue({ data: session })
+
+    await expect(ability.authorize("posts.edit", { authorId: "u", published: true })).resolves.toBeUndefined()
+    expect(mocks.sessionPaths).toEqual(["/app/auth"])
   })
 
   it("skips the session lookup for a signed-out SSR request and redirects synchronously", async () => {

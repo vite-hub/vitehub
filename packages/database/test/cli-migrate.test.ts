@@ -12,7 +12,7 @@ import { createHash } from "node:crypto"
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import { copyD1MigrationFiles, d1MigrationNamesFile, listD1Migrations } from "../src/internal/d1-migrations.ts"
-import { renderMigrateOnStartPlugin } from "../src/internal/migrate-on-start.ts"
+import { renderMigrateOnStartPlugin, renderShippedMigrationsModule } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createTestDatabaseClient } from "../src/runtime/test-database.ts"
 
@@ -193,10 +193,12 @@ describe("vitehub database up", () => {
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
     const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
 
-    expect(() => renderMigrateOnStartPlugin(config, { allowDataLoss: false, databases: ["default"], drizzleImport: "db", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
+    expect(() => renderMigrateOnStartPlugin(config, { databases: ["default"], drizzleImport: "db", migrationsImport: "migrations", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
       code: "DATABASE_MIGRATIONS_OLD_LAYOUT",
       why: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`),
     }))
+    const shipped = JSON.parse(renderShippedMigrationsModule(config, { allowDataLoss: false }).replace(/^export default /, ""))
+    expect(shipped.databases.default).toEqual({ problem: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`) })
     const client = createTestDatabaseClient(project.rootDir, "migrations")
     await expect(client.execute("SELECT 1")).rejects.toMatchObject({ code: "DATABASE_MIGRATIONS_OLD_LAYOUT" })
   })
