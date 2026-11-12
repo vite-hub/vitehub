@@ -4,6 +4,7 @@ import { glob, lstat, readdir, readFile, realpath, stat } from "node:fs/promises
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse, parseAllDocuments } from "yaml";
 import { parseSyml } from "@yarnpkg/parsers";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const inputNames = new Set([".npmrc", ".yarnrc.yml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock"]);
@@ -65,8 +66,11 @@ function validateNpmConfig(source: string): void {
 
 export class GitHubDependencyConflictError extends Error {}
 
-/** Validate decoded manifests and lockfiles before a package manager can read host paths. */
-export async function validateGitHubInstallInputs(target: string, prepareLinkedBins?: (paths: readonly string[]) => Promise<void>): Promise<string> {
+/**
+ * Validate decoded manifests and lockfiles before a package manager can read host paths.
+ * `inputs` receives a SHA-256 of each input file by checkout path.
+ */
+export async function validateGitHubInstallInputs(target: string, prepareLinkedBins?: (paths: readonly string[]) => Promise<void>, inputs?: Record<string, string>): Promise<string> {
   const hash = createHash("sha256");
   const root = await realpath(target);
   const inside = (path: string) => { const part = relative(root, path); return part !== ".." && !part.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(part); };
@@ -128,7 +132,11 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
   async function selectPatch(value: string, base: string) {
     await checkPath(value, base);
     const path = resolve(base, decodeURIComponent(value));
-    if (!(await stat(path)).isFile()) throw new Error("Dependency patches must be regular files.");
+    const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCH_MISSING({ path: relative(root, path) });
+      throw error;
+    });
+    if (!info.isFile()) throw new Error("Dependency patches must be regular files.");
     dependencyFiles.add(path);
   }
   async function inspectYarnPatch(value: string, base: string): Promise<boolean> {
@@ -234,6 +242,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
         const source = await readFile(path, "utf8");
         if (/^<{7} /m.test(source)) throw new GitHubDependencyConflictError(`Resolve dependency conflicts in ${relative(root, path)} and call refreshDependencies before validation.`);
         hash.update(relative(root, path)).update("\0").update(source).update("\0");
+        if (inputs) inputs[relative(root, path)] = createHash("sha256").update(source).digest("hex");
         if (entry.name === ".npmrc") { validateNpmConfig(source); continue; }
         // Yarn reads only the validated linker from this file. Other settings
         // are omitted from the host configuration and cannot select executables.
@@ -307,11 +316,20 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       return undefined;
     }) : await stat(path);
     // Package managers skip missing commands; their later appearance changes shims.
-    if (!info) { hash.update("missing-bin\0"); continue; }
+    if (!info) {
+      hash.update("missing-bin\0");
+      if (inputs) inputs[relative(root, path)] = "missing";
+      continue;
+    }
     if (linkedBinFiles.has(path) && !info.isFile()) throw new Error("Linked dependency bin targets must be regular files.");
     hash.update(info.mode & 0o111 ? "executable\0" : "regular\0");
-    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    const file = createHash("sha256").update(info.mode & 0o111 ? "executable\0" : "regular\0");
+    for await (const chunk of createReadStream(path)) {
+      hash.update(chunk);
+      file.update(chunk);
+    }
     hash.update("\0");
+    if (inputs) inputs[relative(root, path)] = file.digest("hex");
   }
   return hash.digest("hex");
 }
