@@ -249,7 +249,11 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   let workspacePromise: Promise<Workspace> | undefined
 
   async function resolveWorkspace() {
-    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition, options)) : useRegisteredWorkspace(name, options)
+    // A failed resolution lets the next call try again.
+    workspacePromise ||= (definition ? Promise.resolve(createWorkspace(definition, options)) : useRegisteredWorkspace(name, options)).catch((error: unknown) => {
+      workspacePromise = undefined
+      throw error
+    })
     return await workspacePromise
   }
 
