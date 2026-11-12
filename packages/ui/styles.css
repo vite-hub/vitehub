@@ -542,6 +542,10 @@
   --vh-primitive-icon-origin: 12px 17px;
 }
 
+.vh-primitive-icon[data-icon="web-container"] {
+  --vh-primitive-icon-motion: translateY(-1px);
+}
+
 .vh-primitive-icon[data-icon="workflow"] {
   --vh-primitive-icon-motion: translateX(1.5px);
 }

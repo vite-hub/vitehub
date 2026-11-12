@@ -37,6 +37,7 @@ const singleFramework: Record<string, string> = {
   "comments/index.md vite.config.ts": "The landing shows Comments alone, without a ViteHub app.",
   "queue/configure.md vite.config.ts": "vitehub() takes queue as a boolean, so region, base, and binding need hubQueue().",
   "frameworks-hosts/cloudflare.md vite.config.ts": "The rate-limit example composes hubRateLimit() and nitro() without vitehub().",
+  "web-container/get-started.md vite.config.ts": "hubWebContainer() is a Vite plugin for the page that boots a container, not a ViteHub app option.",
 }
 
 async function markdownFiles(directory: string): Promise<string[]> {

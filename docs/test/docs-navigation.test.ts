@@ -53,9 +53,14 @@ describe("docs product navigation", () => {
     expect(railExclude).toEqual(["Develop and deploy", "Reference"]);
     expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(candidate => candidate.id))
       .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
-    expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id)).toEqual(["reference", "compare"]);
+    expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id))
+      .toEqual(expect.arrayContaining(["reference", "compare"]));
     const railSectionIds = rail.flat().map(candidate => candidate.id);
-    for (const sectionId of ["development", "frameworks-hosts", "guides", "reference", "compare"]) {
+    const excludedSectionIds = catalog
+      .filter(group => railExclude.includes(group.category))
+      .flatMap(group => group.sections.map(candidate => candidate.id));
+    expect(excludedSectionIds).toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides", "reference", "compare"]));
+    for (const sectionId of excludedSectionIds) {
       expect(railSectionIds).not.toContain(sectionId);
     }
     // Every section has a known category, so the rail has one group per category that it keeps.
