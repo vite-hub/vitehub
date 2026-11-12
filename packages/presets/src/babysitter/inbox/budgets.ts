@@ -15,11 +15,14 @@ export type ProviderAttemptOutcome = 'success' | 'retryable-failure' | 'other-fa
 const progressBudgetSchema = v.object({
   head: v.string(), limit: v.pipe(count, v.minValue(1)), count, exhausted: v.boolean(), evidence: v.optional(v.string()),
   creditedEvidence: v.array(v.string()), resetReason: v.optional(v.string()),
-  grants: v.optional(v.array(v.picklist(['conflict', 'bot-feedback']))),
+  grants: v.optional(v.array(v.picklist(['conflict', 'bot-feedback']))), exhaustedAt: v.optional(v.number()),
 })
 /** New evidence that gives an exhausted head one more pass, once per head. */
 export type ProgressGrant = 'conflict' | 'bot-feedback'
-export interface ProgressBudget { head: string; limit: number; count: number; exhausted: boolean; evidence?: string; creditedEvidence: string[]; resetReason?: string; grants?: ProgressGrant[] }
+/** `exhaustedAt` is when the head spent its budget. After `progressCooldownMs` it gets one more pass. */
+export interface ProgressBudget { head: string; limit: number; count: number; exhausted: boolean; evidence?: string; creditedEvidence: string[]; resetReason?: string; grants?: ProgressGrant[]; exhaustedAt?: number }
+/** An exhausted head gets one more pass after this long, so no PR waits for a person to push. */
+export const progressCooldownMs: number = 3 * 60 * 60_000
 export function parseProgressBudget(value: unknown): ProgressBudget { return v.parse(progressBudgetSchema, value) }
 /**
  * The host verifies progress from GitHub/provider state, never from Agent prose. `reviewDriven` marks a

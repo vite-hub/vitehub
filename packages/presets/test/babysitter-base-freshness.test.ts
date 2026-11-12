@@ -56,6 +56,16 @@ describe("Babysitter base freshness", () => {
     expect(await staleBaseOverlap(reader({ files: [["src/a.ts"]], compare: { ahead: 0, files: [] } }), snapshot(), live, signal)).toEqual([]);
   });
 
+  it("finds no overlap when the head already contains the base tip", async () => {
+    const read = reader({ files: [["src/a.ts"]] });
+    const originalPage = read.page;
+    read.page = async (path, requestSignal) => path === `repos/acme/app/compare/main...${head}?per_page=1` ? { ahead_by: 1, behind_by: 0 } : originalPage(path, requestSignal);
+    const noRun = snapshot();
+    noRun.checks["check_run:1"]!.html_url = "https://example.test/external";
+    expect(await staleBaseOverlap(read, noRun, live, signal)).toEqual([]);
+    expect(read.paths.some(path => path.includes("/files?"))).toBe(false);
+  });
+
   it("treats a missing run or a truncated comparison as overlap", async () => {
     const noRun = snapshot();
     noRun.checks["check_run:1"]!.html_url = "https://example.test/external";
