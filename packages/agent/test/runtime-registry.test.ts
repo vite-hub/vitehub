@@ -268,6 +268,82 @@ export async function inspect() {
   } finally { await rm(artifact, { force: true }) }
 }, 30_000)
 
+const inheritedSkillFiles = {
+  'bot/index.ts': "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ driver: { run: () => 'ok' }, runtime: false })",
+  'bot/skills/support-reply/SKILL.md': 'Reply to support.',
+  'bot/skills/unslop/SKILL.md': 'Parent unslop.',
+  'bot/skills/unslop/references/words.md': 'Parent words.',
+  'bot-dev/index.ts': "import { defineAgent } from '@vite-hub/agent'\nimport bot from '../bot'\nexport default defineAgent({ extends: bot, name: 'bot-dev' })",
+  'bot-dev/skills/unslop/SKILL.md': 'Child unslop.',
+  'bot-dev/skills/draft/SKILL.md': 'Draft a reply.',
+}
+const inheritedSkillsEntry = (order: string[]) => `import { loadAgent } from '@vite-hub/agent'
+const skillFiles = agent => Object.fromEntries(Object.values(agent[Symbol.for('vitehub.agent.colocatedSkills')] || {}).map(source => [source.workspacePath, new TextDecoder().decode(source.content)]))
+export async function inspect() {
+  const result = {}
+  for (const name of ${JSON.stringify(order)}) result[name] = skillFiles(await loadAgent(name))
+  return result
+}`
+// Skills extend by name: a same-name child folder replaces the whole inherited folder, including its references.
+const inheritedSkillsResult = {
+  'bot': {
+    '.agents/skills/support-reply/SKILL.md': 'Reply to support.',
+    '.agents/skills/unslop/SKILL.md': 'Parent unslop.',
+    '.agents/skills/unslop/references/words.md': 'Parent words.',
+  },
+  'bot-dev': {
+    '.agents/skills/draft/SKILL.md': 'Draft a reply.',
+    '.agents/skills/support-reply/SKILL.md': 'Reply to support.',
+    '.agents/skills/unslop/SKILL.md': 'Child unslop.',
+  },
+}
+
+async function inheritedSkillsFixture() {
+  const fixtureResult = await fixture(false)
+  for (const [path, content] of Object.entries(inheritedSkillFiles)) {
+    await mkdir(join(fixtureResult.root, 'server/agents', path, '..'), { recursive: true })
+    await writeFile(join(fixtureResult.root, 'server/agents', path), content)
+  }
+  await (fixtureResult.plugin.configResolved as (config: unknown) => Promise<void>)(fixtureResult.config)
+  return fixtureResult
+}
+
+it('keeps the inherited Skills that a child Agent with its own Skills does not replace, through the Vite server registry', async () => {
+  const { root } = await inheritedSkillsFixture()
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  const entry = join(root, 'entry.ts')
+  await writeFile(entry, inheritedSkillsEntry(['bot-dev', 'bot']))
+  const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+  try {
+    expect(await (await server.ssrLoadModule(entry)).inspect()).toEqual(inheritedSkillsResult)
+  } finally { await server.close() }
+}, 30_000)
+
+// Without the Vite transform, the registry decorates the parent only when it loads the parent.
+it('keeps the inherited Skills that a child Agent with its own Skills does not replace, in a bundled registry', async () => {
+  const { root } = await inheritedSkillsFixture()
+  const entry = join(root, 'entry.ts')
+  await writeFile(entry, inheritedSkillsEntry(['bot', 'bot-dev']))
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
+  const registry = join(root, '.vitehub/agent/registry.mjs')
+  const artifact = join(packageRoot, 'dist', `registry-skills-test-${Date.now()}.mjs`)
+  try {
+    await build({
+      entryPoints: [entry], outfile: artifact, bundle: true, platform: 'node', format: 'esm', packages: 'external', tsconfigRaw: { compilerOptions: {} },
+      plugins: [{ name: 'published-agent-registry', setup(builder) {
+        builder.onResolve({ filter: /^#vitehub\/agent\/registry$/ }, () => ({ path: registry }))
+        builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === '@vite-hub/agent' ? '.' : `.${args.path.slice('@vite-hub/agent'.length)}`].import) }))
+      } }],
+    })
+    const result = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', 'const mod = await import(process.argv[1]); console.log(JSON.stringify(await mod.inspect()))', pathToFileURL(artifact).href])
+    expect(JSON.parse(result.stdout)).toEqual(inheritedSkillsResult)
+  } finally { await rm(artifact, { force: true }) }
+}, 30_000)
+
 it('loads discovered instructions through the Vite server registry', async () => {
   const { root } = await fixture(true, true)
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))
