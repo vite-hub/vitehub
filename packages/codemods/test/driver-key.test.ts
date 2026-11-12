@@ -38,6 +38,49 @@ describe("driver-key", () => {
     expect(result.followUps).toEqual([{ file: "vite.config.ts", line: 2, message: "`queue` sets both `provider` and `driver`. Keep one `driver`." }])
   })
 
+  it.each([
+    ["", '"vite-hub/nuxt"'],
+    ['import hub from "vite-hub/nuxt"', "hub"],
+    ['import { default as hub } from "vite-hub/nuxt"', "hub"],
+    ['import * as hub from "vite-hub/nuxt"', "hub.default"],
+  ])("migrates inline Nuxt module options with %s %s", async (imports, module) => {
+    const source = `${imports}
+export default defineNuxtConfig({
+  modules: [[${module}, {
+    workflow: { provider: "openworkflow" },
+    realtime: { authority: "memory" },
+    workspace: { store: { provider: "cloudflare-artifacts" } },
+    blob: { driver: "vercel-blob" },
+  }], ["other-module", { workflow: { provider: "memory" } }]],
+  vitehub: { queue: { provider: "cloudflare" } },
+})
+`
+    const result = await migrateSource("nuxt.config.ts", source)
+    const after = result.edits[0]?.after
+    expect(after).toContain('workflow: { driver: "openworkflow" }')
+    expect(after).toContain('realtime: { driver: "memory" }')
+    expect(after).toContain('workspace: { store: { driver: "cloudflare" } }')
+    expect(after).toContain('blob: { driver: "vercel" }')
+    expect(after).toContain('queue: { driver: "cloudflare" }')
+    expect(after).toContain('["other-module", { workflow: { provider: "memory" } }]')
+    expect(result.followUps).toEqual([])
+    const repeated = await migrateSource("nuxt.config.ts", after!)
+    expect(repeated.edits).toEqual([])
+  })
+
+  it("leaves unrelated and shadowed Nuxt module imports unchanged", async () => {
+    const source = `
+import { defineNuxtConfig } from "nuxt/config"
+import hub from "other-module"
+import viteHubNuxt from "vite-hub/nuxt"
+export default defineNuxtConfig({ modules: [[hub, { workflow: { provider: "memory" } }]] })
+function config(viteHubNuxt) {
+  return defineNuxtConfig({ modules: [[viteHubNuxt, { workflow: { provider: "memory" } }]] })
+}
+`
+    expect((await migrateSource("nuxt.config.ts", source)).edits).toEqual([])
+  })
+
   it("keeps a store whose provider is not a Workspace Store driver", async () => {
     const result = await migrateSource("utils.ts", "export const cache = { store: { provider: 'redis' } }\n")
     expect(result.edits).toEqual([])

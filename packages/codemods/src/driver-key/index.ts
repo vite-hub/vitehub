@@ -35,10 +35,11 @@ type Feature = KeyFeature | ValueFeature
 /** Driver names accepted by the old Workspace Store options. */
 const workspaceStoreDrivers = new Set(["local", "memory", "github", "cloudflare-artifacts", "vercel-blob"])
 
-type Api = Feature | "agent" | "browser" | "workspace" | "config"
+type Api = Feature | "agent" | "browser" | "workspace" | "config" | "nuxt-module"
 
 /** Match both the exported name and the module that owns the API. */
 const apiCalls = new Map<string, { kind: Api, sources: readonly string[] }>([
+  ["default", { kind: "nuxt-module", sources: ["vite-hub/nuxt"] }],
   ["createBrowser", { kind: "browser", sources: ["@vite-hub/browser", "vite-hub/browser"] }],
   ["createEmail", { kind: "email", sources: ["@vite-hub/email", "vite-hub/email"] }],
   ["createQueueClient", { kind: "queue", sources: ["@vite-hub/queue", "vite-hub/queue"] }],
@@ -105,8 +106,9 @@ function resolveApis(program: File) {
     if (node.type === "ImportDeclaration") {
       for (const specifier of node.specifiers) {
         add(specifier.local)
-        if (node.importKind === "type" || specifier.type === "ImportDefaultSpecifier") continue
-        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type") {
+        if (node.importKind === "type") continue
+        if (specifier.type === "ImportDefaultSpecifier") imports.set(specifier.local.name, { source: node.source.value, name: "default" })
+        else if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type") {
           imports.set(specifier.local.name, { source: node.source.value, name: keyName(specifier.imported) })
         }
         else if (specifier.type === "ImportNamespaceSpecifier") imports.set(specifier.local.name, { source: node.source.value })
@@ -199,11 +201,21 @@ function rewriteWorkspace(context: FileContext, object: ObjectExpression) {
   }
 }
 
-function rewriteConfig(context: FileContext, object: ObjectExpression) {
+function rewriteConfig(context: FileContext, object: ObjectExpression, resolveApi: ReturnType<typeof resolveApis>) {
   for (const property of objectProperties(object)) {
     const name = propertyName(property)
+    if (name === "modules" && property.value.type === "ArrayExpression") {
+      for (const entry of property.value.elements) {
+        if (entry?.type !== "ArrayExpression") continue
+        const [module, options] = entry.elements
+        if (!module || options?.type !== "ObjectExpression") continue
+        if ((module.type === "StringLiteral" && module.value === "vite-hub/nuxt") || resolveApi(module) === "nuxt-module") {
+          rewriteConfig(context, options, resolveApi)
+        }
+      }
+    }
     if (!name || property.value.type !== "ObjectExpression") continue
-    if (name === "vitehub") rewriteConfig(context, property.value)
+    if (name === "vitehub") rewriteConfig(context, property.value, resolveApi)
     else if (name === "workspace") rewriteWorkspace(context, property.value)
     else if (name !== "store" && (isKeyFeature(name) || isValueFeature(name))) rewriteFeature(context, name, property.value)
   }
@@ -216,14 +228,14 @@ function rewriteProgram(context: FileContext, program: File) {
   walk(program, (node, ancestors) => {
     const parent = ancestors.at(-1)
     if (node.type === "ExportDefaultDeclaration" && node.declaration.type === "ObjectExpression" && configFile.test(fileName)) {
-      rewriteConfig(context, node.declaration)
+      rewriteConfig(context, node.declaration, resolveApi)
       return
     }
     if (node.type !== "CallExpression") return
     const api = resolveApi(node.callee, parent?.type === "ExportDefaultDeclaration" ? implicitConfig : undefined)
     const options = node.arguments[0]
     if (!api || options?.type !== "ObjectExpression") return
-    if (api === "config") rewriteConfig(context, options)
+    if (api === "config" || api === "nuxt-module") rewriteConfig(context, options, resolveApi)
     else if (api === "workspace") rewriteWorkspace(context, options)
     else if (api === "agent") {
       for (const property of objectProperties(options)) {
