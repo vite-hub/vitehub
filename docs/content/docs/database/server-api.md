@@ -145,7 +145,7 @@ Each array has at most `(limit - reserved) / per` values. When one value does no
 
 ```ts [server/tasks/db/migrate.ts]
 import { ensureMigrations } from 'vite-hub/database/drizzle'
-import { defineTask } from 'vite-hub/task'
+import { defineTask } from 'nitro/task'
 
 export default defineTask({
   meta: { description: 'Apply the pending migrations' },
