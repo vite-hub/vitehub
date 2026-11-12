@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { queueOperations } from "../src/operations.ts"
 import { closeLocalQueues, createLocalQueueRuntimeClient, startLocalQueue } from "../src/internal/runtime/local-client.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
@@ -65,7 +66,7 @@ describe("queue operations", () => {
   it("fails to list when Queue is disabled", async () => {
     setQueueRuntimeConfig(false)
 
-    await expect(run("queue.list", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED", status: 409 })
+    await expect(run("queue.list", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED", status: 409, fix: queueErrorDiagnostics.QUEUE_DISABLED().fix })
   })
 
   it("sends one job through the provider client", async () => {

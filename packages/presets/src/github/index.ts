@@ -28,7 +28,8 @@ export { validateGitHubInstallInputs } from "./install-inputs.ts"
 export { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from './required-checks.ts'
 export type { GitHubRequiredCheck, GitHubRequiredCheckPolicy, GitHubRequiredCheckPolicyReader, GitHubReadBranchRules, GitHubRequiredCheckState, GitHubCheckEvidence, GitHubCheckRun, GitHubCommitStatus } from './required-checks.ts'
 
-export { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "./install.ts"
+export { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "./install.ts"
+export type { GitHubDependencyStatus } from "./install.ts"
 export type { GitHubInstallOptions, GitHubInstallSlotOptions, GitHubInstallSlots } from "./install.ts"
 export { GitHubDependencyConflictError } from "./install-inputs.ts"
 export { prepareGitHubRepairBase } from "./repair.ts"

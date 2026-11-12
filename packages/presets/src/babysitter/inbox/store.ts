@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, nextMinorReviewRound, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type AutomatedReviewClass, type DailyPassBudget } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, progressCooldownMs, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget, nextMinorReviewRound, type AutomatedReviewClass } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -123,6 +123,8 @@ export interface PullRequestInboxOptions {
   activityAuthors?: readonly string[]
   activityAppId?: number
   budgets?: InboxBudgets
+  /** Claim a PR whose base is another open PR's branch. By default it waits until its parent merges. */
+  claimStackChildren?: boolean
   /**
    * Called once per process for each stored PR row that fails validation. The inbox skips such a row
    * in claims, summaries and wait evaluation, so one bad row cannot stop the queue or its health.
@@ -246,12 +248,14 @@ export class PullRequestInbox {
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
+  private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
     this.budgets = { ...budgets }
+    this.claimStackChildren = claimStackChildren
     this.invalidRow = invalidRow
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
@@ -1145,8 +1149,8 @@ export class PullRequestInbox {
       for (const candidate of candidates) {
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
-        // Stack children remain local; a parent merge's base push wakes them.
-        if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
+        // Stack children remain local unless they repair alongside their parent; a parent merge's base push wakes them.
+        if (!this.claimStackChildren && candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
             AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
@@ -1365,6 +1369,8 @@ export class PullRequestInbox {
       else { s.status = 'waiting'; s.handled = s.generation; s.reasons = [] }
       if (s.status !== 'terminal' && s.progressBudget?.exhausted && s.progressBudget.head === head) {
         s.status = 'waiting'; s.nextAt = 0; s.reasons = ['no-progress-budget-exhausted']
+        const due = (s.progressBudget.exhaustedAt ?? this.clock()) + progressCooldownMs
+        if (s.wait) s.wait.retryAt = Math.min(s.wait.retryAt ?? due, due)
       }
       await this.put(tx, s)
       if (s.generation === claim.generation) await this.enqueueStatusResult(tx, s, claim)
@@ -1406,6 +1412,7 @@ export class PullRequestInbox {
       const verified = progress.kind === 'verified' && !creditedEvidence.includes(progress.evidence)
       const count = verified ? 0 : (previous?.count ?? 0) + 1
       s.progressBudget = { head, limit, count, exhausted: count >= limit,
+        ...count >= limit ? { exhaustedAt: previous?.exhausted ? previous.exhaustedAt : this.clock() } : {},
         evidence: verified ? progress.evidence : previous?.evidence,
         creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
         resetReason: previous?.resetReason, ...(previous?.grants ? { grants: previous.grants } : {}) }
@@ -1439,6 +1446,10 @@ export class PullRequestInbox {
         || (s.revision ?? 0) !== (observed.revision ?? 0) || s.pr?.head?.sha !== observed.pr?.head?.sha) return false
       parseWait({ ...s.wait, evidenceKey })
       if (s.wait.evidenceKey === evidenceKey) return false
+      const budget = s.progressBudget
+      if (budget?.exhausted && budget.head === s.pr?.head?.sha && this.clock() - (budget.exhaustedAt ?? 0) >= progressCooldownMs) {
+        s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, exhaustedAt: undefined, resetReason: 'cooldown' }
+      }
       if (options.recovery) { s.recoveryHead = s.pr?.head?.sha; s.refresh = true }
       else delete s.recoveryHead
       delete s.wait
@@ -1493,7 +1504,7 @@ export class PullRequestInbox {
       const parsed = this.parseRow(row, parseSummary, 'summary')
       if (!parsed) return []
       const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
-      if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
+      if (this.claimStackChildren || summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })
   }
