@@ -584,19 +584,15 @@ async function writeContentArtifact(
   ].join("\n"))
   else await rm(output, { force: true })
   const handlers: GeneratedSourceHandler[] = []
-  // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
-  // Previews need collections. The plugin imports the small preview entry and loads server/content.ts on the first
-  // preview request, so the server starts without the Content runtime and its Markdown renderer.
-  if (features.collections) {
-    await writeFileIfChanged(preview, [
-      `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
-      "",
-      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.default))`,
-      "",
-    ].join("\n"))
-    handlers.push({ handler: preview, plugin: true })
-  }
-  else await rm(preview, { force: true })
+  // Cookie previews and signed Source links must bypass Nitro's cache, including apps without collections.
+  // The small preview entry keeps the Content runtime and its Markdown renderer lazy.
+  await writeFileIfChanged(preview, [
+    `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
+    "",
+    `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.default))`,
+    "",
+  ].join("\n"))
+  handlers.push({ handler: preview, plugin: true })
   // A Nitro plugin: loads `vite-hub/content/sqlite` while the server starts. Content loads on its first request, and a
   // Cloudflare Worker compiles WebAssembly only while it starts, which SQLite WASM needs. On Node it loads Node SQLite.
   if (features.sqlite) {

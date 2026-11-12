@@ -9,6 +9,8 @@ import { installConsoleInvocations } from "../src/console/runtime/server/invocat
 
 import type { AgentRunContext, MessagePart } from "@vite-hub/agent"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 function setup() {
   const run = vi.fn((_context: AgentRunContext) => "From the requested receipt date.")
@@ -24,15 +26,15 @@ function setup() {
     projectRoot: root,
   })
   const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
-  const send = (body: Record<string, unknown>) => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ operation: "agents.invoke", input: { agent: "history-fixture", ...body } }),
+  const send = async (body: Record<string, unknown>, sign: (request: Request) => Promise<Request> = async request => request) => handleConsoleRpcRequest(await sign(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody("agents.invoke", { agent: "history-fixture", ...body }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
-  }), { waitUntil })
+  })), { waitUntil })
   return {
     invocations,
-    async request(body: Record<string, unknown>): Promise<unknown> {
-      return (await send(body)).json()
+    async request(body: Record<string, unknown>, sign?: (request: Request) => Promise<Request>): Promise<unknown> {
+      return operationRpcResponseResult(await send(body, sign))
     },
     send,
     run,
@@ -41,19 +43,16 @@ function setup() {
 }
 
 describe("Console invocation history", () => {
-  it("preserves the signed-in Actor without a console.authorize callback", async () => {
+  it("preserves the signed Invoker without a console.authorize callback", async () => {
     const fixture = setup()
-    const check = vi.fn(async () => undefined)
-    const user = vi.fn(async () => ({ id: "editor", name: "Ada" }))
-    installConsoleAccess({ mode: "auth", check, user })
+    const signer = await signedConsoleAccess()
     try {
-      expect(await fixture.request({ prompt: "Use my capabilities." })).toMatchObject({ ok: true })
+      expect(await fixture.request({ prompt: "Use my capabilities." }, request => signer.sign(request, { id: "editor", name: "Ada" }))).toMatchObject({ ok: true })
       await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
-      expect(fixture.run.mock.calls[0]![0].actor).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
-      expect(check).toHaveBeenCalledOnce()
-      expect(user).toHaveBeenCalledOnce()
+      expect(fixture.run.mock.calls[0]![0].invoker).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
     }
     finally {
+      signer.restore()
       installConsoleAccess({ mode: "open" })
     }
   })
@@ -87,7 +86,7 @@ describe("Console invocation history", () => {
     const fixture = setup()
     const response = await fixture.send({ prompt: "Start." })
     expect(response.status).toBe(202)
-    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { agent: "history-fixture" } })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { agent: "history-fixture" } })
     await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
   })
 

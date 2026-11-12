@@ -1,12 +1,11 @@
 import { consoleState } from "../../internal.ts"
 
-import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
-import type { ConsoleDatabaseInspection } from "../../internal.ts"
+import type { ConsoleDatabaseEntry, ConsoleDatabaseInspection } from "../../internal.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export function installConsoleDatabase(
   projectRoot: string,
-  databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>,
+  databases: Record<string, ConsoleDatabaseEntry>,
   names: readonly string[],
 ): ConsoleDatabaseInspection {
   const installedNames = [...new Set(names.filter(name => name.length > 0))]
