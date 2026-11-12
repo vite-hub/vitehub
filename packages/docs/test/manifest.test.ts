@@ -2,9 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { github, glob } from "@vite-hub/source"
+import { describe, expect, it, vi } from "vitest"
 
-import { createDocsContent, createDocsManifest, DocsContentError } from "../src/manifest.ts"
+import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
+import { createDocsContent, createDocsManifest, DocsContentError, readDocsContent } from "../src/manifest.ts"
 import { docsManifestPages, findDocsPage } from "../src/navigation.ts"
 
 import type { DocsManifest } from "../src/types.ts"
@@ -46,9 +48,9 @@ describe("createDocsManifest", () => {
           dir,
           base: "/",
           sources: [
-            { dir: join(dir, "pages") },
+            join(dir, "pages"),
             {
-              dir: join(dir, "package"),
+              source: join(dir, "package"),
               mount: "/zoom",
               exclude: ["partials/**"],
               frontmatter: (data, page) => ({
@@ -75,6 +77,81 @@ describe("createDocsManifest", () => {
     );
   });
 
+  it("reads a glob() Source with a mount, excludes, and a frontmatter adapter", async () => {
+    await withContent(
+      {
+        "pages/index.md": "---\ntitle: Home\n---\n",
+        "zoom/docs/index.md": "---\ntitle: Zoom\n---\n",
+        "zoom/docs/guide/.navigation.yml": "title: Zoom guides\n",
+        "zoom/docs/guide/install.md": "---\ntitle: Install\n---\n# Install",
+        "zoom/docs/partials/note.md": "---\ntitle: Partial\n---\n",
+        "zoom/docs/notes.txt": "not a page",
+      },
+      async (dir) => {
+        const { manifest, files } = await readDocsContent({
+          dir,
+          base: "/zoom",
+          rootDir: dir,
+          sources: [
+            "pages",
+            {
+              source: glob({ cwd: "zoom/docs", include: ["**/*.md", "**/.navigation.yml"] }),
+              mount: "/zoom",
+              exclude: ["partials/**"],
+              frontmatter: (data, page) => ({ ...data, description: `From ${page.file} at ${page.path}` }),
+            },
+          ],
+        })
+        expect(manifest.sections.map(section => [section.id, section.title])).toEqual([["guide", "Zoom guides"]])
+        expect(findDocsPage(manifest, "/zoom/guide/install")?.page).toMatchObject({
+          file: "guide/install.md",
+          source: "docs-1",
+          description: "From guide/install.md at /zoom/guide/install",
+        })
+        expect(findDocsPage(manifest, "/")?.page).toMatchObject({ file: "index.md", source: "docs-0" })
+        expect(docsManifestPages(manifest).map(page => page.path)).not.toContain("/zoom/partials/note")
+        // The server reads a folder itself, and gets the pages of a Content Source from the build.
+        expect(files.map(file => [file.source, file.file])).toEqual([["docs-1", "guide/install.md"], ["docs-1", "index.md"]])
+        expect(files[0]!.markdown).toBe("---\ntitle: Install\n---\n# Install")
+      },
+    )
+  })
+
+  it("reads a github() Source", async () => {
+    const fake = createFakeGitHub({ owner: "acme", repo: "docs" })
+    vi.stubGlobal("fetch", vi.fn(fake.fetch))
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token")
+    vi.stubEnv("FORGES_GITHUB_TOKEN", "")
+    try {
+      fake.commit("main", {
+        "README.md": "# Not a page",
+        "content/docs/index.md": "---\ntitle: Remote docs\n---\n",
+        "content/docs/kv/.navigation.yml": "title: Key-value\nicon: i-lucide-database\n",
+        "content/docs/kv/index.md": "---\ntitle: KV overview\n---\n# KV",
+        "content/docs/kv/get.md": "---\ntitle: Get\nnavigation.order: 1\n---\n",
+      })
+      const { manifest, files } = await readDocsContent({
+        dir: "unused",
+        base: "/docs",
+        sources: [github({ repo: "acme/docs", ref: "main", root: "content" })],
+      })
+      expect(manifest.root).toMatchObject({ title: "Remote docs", file: "docs/index.md", source: "docs-0" })
+      expect(manifest.sections).toMatchObject([{ id: "kv", title: "Key-value", icon: "i-lucide-database", pages: [{ id: "index", title: "KV overview" }, { id: "get", title: "Get" }] }])
+      expect(files.find(file => file.file === "docs/kv/index.md")?.markdown).toBe("---\ntitle: KV overview\n---\n# KV")
+      expect(fake.requests.some(request => request.path.startsWith("/repos/acme/docs/"))).toBe(true)
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("names the Source path of an invalid page from a Content Source", async () => {
+    await withContent({ "pages/bad.md": "---\ntitel: Bad\n---\n" }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/", rootDir: dir, sources: [glob("pages")] })).rejects.toThrow(/Invalid docs frontmatter in bad\.md/)
+    })
+  })
+
   it("rejects routes produced by different source files", async () => {
     await withContent(
       { "first/zoom.md": "---\ntitle: First\n---", "second/index.md": "---\ntitle: Second\n---" },
@@ -83,7 +160,7 @@ describe("createDocsManifest", () => {
           createDocsManifest({
             dir,
             base: "/",
-            sources: [{ dir: join(dir, "first") }, { dir: join(dir, "second"), mount: "/zoom" }],
+            sources: [join(dir, "first"), { source: join(dir, "second"), mount: "/zoom" }],
           }),
         ).rejects.toThrow(/also produced/);
       },

@@ -28,7 +28,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
+import { docsAppManifestSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
@@ -39,7 +39,7 @@ import { docsThemeCss } from "./theme-css.ts"
 
 import type { Nuxt } from "nuxt/schema"
 
-import type { DocsSource } from "./manifest.ts"
+import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
 import type { DocsPage } from "./types.ts"
 
@@ -78,8 +78,12 @@ export interface DocsStartOptions {
 export interface DocsModuleOptions {
   /** Folder of Markdown pages, relative to the app root. Defaults to `content`. A page's URL is its path in the folder. */
   dir?: string
-  /** Mapped site content folders, replacing dir. The app-owned docsAssistant Workspace is configured separately. */
-  sources?: DocsSource[]
+  /**
+   * Pages from folders and Content Sources, replacing `dir`: a folder relative to the app root, a Source such as
+   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The app-owned
+   * docsAssistant Workspace is configured separately.
+   */
+  sources?: DocsSourceInput[]
   /** Section metadata overrides, keyed by section id. */
   sections?: Record<string, DocsSectionFile>
   /** Module exporting a default component map for Markdown tags. */
@@ -324,11 +328,15 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     transform.include ??= []
     transform.include.push(new RegExp(`^${packageRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`))
     const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
-    const sources = options.sources?.map(source => ({ ...source, dir: resolve(nuxt.options.rootDir, source.dir) }))
-    const contentDirsToWatch = sources?.map(source => source.dir) ?? [contentDir]
+    const sources = options.sources && resolveDocsSources(options.sources, nuxt.options.rootDir)
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
+    // The server cannot read a Content Source, such as `github()`, so the build copies its pages here.
+    const sourcesDir = join(nuxt.options.buildDir, "docs/sources")
+    /** The folder that the server reads each source's pages from, by page `source` name. */
+    const sourceDirs = sources?.map((source, index) => source.dir ?? join(sourcesDir, `docs-${index}`))
+    const contentDirsToWatch = sources ? sources.flatMap(source => source.dir ?? []) : [contentDir]
     const base = normalizeDocsBase(options.base ?? (sources || existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
-    const manifestOptions = { dir: contentDir, base, sources, sections: options.sections }
+    const manifestOptions = { dir: contentDir, base, sources: options.sources, rootDir: nuxt.options.rootDir, sections: options.sections }
     const config = publicConfig(options, base, nuxt.options.app.baseURL)
     // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
     // head on every page. An app with its own `app.vue` keeps it, and the docs layouts draw them on docs pages only.
@@ -358,19 +366,31 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })
     const moduleOptions: DocsNuxtOptions = nuxt.options
 
-    let manifest = await createDocsManifest(manifestOptions)
+    let read = await readDocsContent(manifestOptions)
+    let manifest = read.manifest
+    /** Copies the pages of each Content Source into the build, where the server and the agent copies read them. */
+    function writeSources(files: DocsContentSnapshot["files"]) {
+      rmSync(sourcesDir, { force: true, recursive: true })
+      for (const file of files) {
+        const target = join(sourcesDir, file.source, file.file)
+        mkdirSync(dirname(target), { recursive: true })
+        writeFileSync(target, file.markdown)
+      }
+    }
+    writeSources(read.files)
     /**
      * Writes the agent copy of every page, with the links of its section at the end. `nuxi build` empties the build
      * folder after the modules load, so it runs before the build.
      */
-    async function writeRaw(snapshot = manifest) {
+    async function writeRaw(snapshot = read) {
+      writeSources(snapshot.files)
       rmSync(rawDir, { force: true, recursive: true })
       const siteUrl = `${config.site.url}${config.appBase.replace(/\/+$/, "")}`
-      for (const page of docsManifestPages(snapshot)) {
+      for (const page of docsManifestPages(snapshot.manifest)) {
         const target = join(rawDir, docsRawFile(page.path))
         mkdirSync(dirname(target), { recursive: true })
-        const source = readFileSync(join(page.source ? sources![Number(page.source.slice(5))]!.dir : contentDir, page.file), "utf8")
-        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot, page.path, siteUrl))
+        const source = readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
+        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot.manifest, page.path, siteUrl))
       }
     }
     nuxt.hook("build:before", writeRaw)
@@ -528,10 +548,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
             regeneration = regeneration.then(async () => {
               if (closed) return
               try {
-                const next = await createDocsManifest(manifestOptions)
-                const changed = JSON.stringify(next) !== JSON.stringify(manifest)
+                const next = await readDocsContent(manifestOptions)
+                const changed = JSON.stringify(next.manifest) !== JSON.stringify(manifest)
                 await writeRaw(next)
-                manifest = next
+                read = next
+                manifest = next.manifest
                 // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
                 if (changed && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
               }
@@ -555,7 +576,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // lists the folders that Tailwind scans, so the docs folders go there. An app with its own `@import "@nuxt/ui"`
     // then builds the docs classes in its one Tailwind build. A second build would put its utilities after the docs
     // ones, so `flex` would win over `xl:hidden`. An app without one gets the Tailwind build of the docs.
-    const cssSources = [join(runtime, "app"), resolver.resolve("./theme.js"), ...contentDirsToWatch].map(source => `@source "${source}";`).join("\n")
+    const cssSources = [join(runtime, "app"), resolver.resolve("./theme.js"), ...sourceDirs ?? [contentDir]].map(source => `@source "${source}";`).join("\n")
     nuxt.hook("app:templates", (app) => {
       const ui = app.templates.find(template => template.filename === "ui.css")
       const getContents = ui?.getContents
@@ -743,7 +764,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
       // Pages are read at runtime, so a host without a file system serves them too.
-      nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
+      nitro.serverAssets = [...nitro.serverAssets ?? [], ...sourceDirs ? sourceDirs.map((dir, index) => ({ baseName: `docs-${index}`, dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development

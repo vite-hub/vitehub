@@ -25,6 +25,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `dir` | `string` | `'content'` | Folder of Markdown pages, relative to the app root. |
+| `sources` | `Array<string \| Source \| { source, mount?, exclude?, frontmatter? }>` | None | Pages from more than one place, in place of `dir`: folders relative to the app root, or Sources such as `glob()` and `github()` from `vite-hub/source`. See [Pages from other places](/docs/docs-site/configure#pages-from-other-places). |
 | `base` | `string` | `'/docs'`, or `'/'` without a `docs/` folder in `dir` | URL prefix whose folders are sections. |
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`, for canonical links, raw Markdown links, llms.txt, and the sitemap. |
