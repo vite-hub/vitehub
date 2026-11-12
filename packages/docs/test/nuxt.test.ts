@@ -609,11 +609,12 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual([
       "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
-      "/raw/**", "/llms.txt", "/llms-full.txt", "/sitemap.md",
-      "/raw/**", "/llms.txt", "/llms-full.txt", "/sitemap.md",
+      "/llms.txt", "/llms-full.txt", "/sitemap.md",
+      "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/mcp",
     ])
-    expect(handlers.filter(handler => handler.route === "/raw/**").map(handler => handler.method)).toEqual(["get", "head"])
+    // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
+    expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])
   })
 })
 
