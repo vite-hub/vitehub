@@ -325,7 +325,7 @@ describe("Auth access handlers", () => {
       expect(result).toBeInstanceOf(Response)
       expect(result?.status).toBe(403)
       expect(result?.headers.has("x-policy")).toBe(false)
-      await expect(result?.json()).resolves.toEqual({ error: "Forbidden." })
+      await expect(result?.json()).resolves.toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
     })
 
     it("does not read the getters of a forged Response", async () => {

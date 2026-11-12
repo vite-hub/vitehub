@@ -35,12 +35,14 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions } from "./deployment.ts"
+import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -81,6 +83,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
+export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
 export type { BlobOptions } from "@vite-hub/blob"
@@ -515,6 +518,13 @@ export interface ViteHubOptions {
   comments?: boolean | Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitOptions
   realtime?: boolean | RealtimeOptions
+  /**
+   * A systemd unit for the server, written to `.output/<name>.service` by production builds on the `node` preset. On by
+   * default. It starts `node .output/server/index.mjs` in the project root, reads `.env` when it exists, and waits for the
+   * Agent drain budget plus 30 seconds on stop. An object sets the name, user, directory, and environment. `false` writes
+   * no unit. Other presets ignore it.
+   */
+  systemd?: boolean | SystemdOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
   sandboxTask?: boolean
   schedule?: boolean | ScheduleOptions
@@ -684,6 +694,7 @@ function deploymentNitroModule(
   secretsFilePath: string | undefined,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
+  systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -722,6 +733,16 @@ function deploymentNitroModule(
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
+      if (systemd) {
+        const unit = resolveSystemdUnit({
+          drainMs: systemd.drainMs,
+          name: systemd.name,
+          outputEntry: join(nitro.options.output.serverDir, "index.mjs"),
+          rootDir,
+          systemd: systemd.options,
+        })
+        await writeSystemdUnit(outputDir, systemd.name, unit)
+      }
     })
   }
 }
@@ -734,6 +755,12 @@ function afterApplicationConfig<T extends Plugin>(plugin: T): T {
     ? { handler: hook, order: "post" }
     : { ...hook, order: "post" }
   return plugin
+}
+
+/** The `agent.shutdown.drainMs` default of the shutdown budget, which the generated server applies. */
+function agentDrainMs(agent: ViteHubOptions["agent"]): number {
+  const drainMs = agent && agent !== true && agent.shutdown ? agent.shutdown.drainMs : undefined
+  return typeof drainMs === "number" && Number.isFinite(drainMs) && drainMs >= 0 ? drainMs : 0
 }
 
 /** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
@@ -940,7 +967,11 @@ function deploymentPlugins(
                 preserveSymlinks: false,
               },
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current)
+            const systemdOptions = options.systemd === true || options.systemd === undefined ? {} : options.systemd || undefined
+            const systemd = plan.preset === "node" && systemdOptions
+              ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
+              : undefined
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1298,7 +1329,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin())
+  if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
@@ -1608,7 +1639,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
-    disabledTypeFiles: workflowEnabled ? [] : ["workflow.d.ts"],
+    disabledTypeFiles: [...workflowEnabled ? [] : ["workflow.d.ts"], ...blobEnabled ? [] : ["types/blob.d.ts"]],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. These plugins run its config hooks after ViteHub's, whether `vitehub()` includes Nitro

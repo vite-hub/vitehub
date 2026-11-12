@@ -1,6 +1,7 @@
 import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb, useDatabase as useRuntimeDatabase } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase, createDatabaseBindingLookup } from "./runtime/agent.ts"
+import { ensureDatabaseMigrations } from "./runtime/migrate-on-start.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { DatabaseDialect, MergeDatabaseRelations, RuntimeDrizzleDatabase, RuntimePostgresDatabase, SchemaRelations } from "./types.ts"
@@ -92,6 +93,21 @@ export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegist
 }
 
 export const agentDb = createAgentDatabase(databases)
+
+/**
+ * Applies the pending migrations of the Database `name`, or of every Database, once in this process. It runs the same
+ * path as the server start: a Postgres database migrates under the advisory lock, so other processes apply nothing
+ * twice. Parallel calls share one run, and the server start shares it too. A failed run is forgotten, so the next call
+ * tries again.
+ *
+ * @example
+ * await ensureMigrations()
+ */
+export function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string): Promise<void> {
+  // A dynamic import keeps the migration SQL out of the server start until a call needs it.
+  const load = () => import("#vitehub/database/migrations").then(module => module.default)
+  return ensureDatabaseMigrations({ databases, load }, name === undefined ? undefined : [name])
+}
 
 // SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
 // The package resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that
