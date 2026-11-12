@@ -12,7 +12,7 @@ Open [Channels](https://vitehub.dev/raw/docs/agents/channels.md) for conversatio
 
 ## Composition
 
-A Channel adapts an external conversation surface; a Trigger admits an external event into an Agent Invocation. Keep webhook verification, actor/admission rules, history/session identity, concurrency, input commands, and delivery behavior explicit.
+A Channel adapts an external conversation surface; a Trigger admits an external event into an Agent Invocation. Keep webhook verification, invoker/admission rules, history/session identity, concurrency, input commands, and delivery behavior explicit.
 
 Use official Channel helpers when the installed contract provides them. Create a custom Trigger only when the external event is not a conversation adapter or the official boundary cannot represent the source.
 

@@ -24,7 +24,7 @@ const schema = {
 const ids = (count: number) => Array.from({ length: count }, (_, index) => index + 1)
 
 function localDb(config: Partial<RuntimeDrizzleDatabaseConfig>) {
-  return createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, name: "default", ...config }, schema, {
+  return createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, name: "default", ...config }, defineRelations(schema), {
     libsql: localLibsql,
     missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
@@ -93,7 +93,7 @@ describe("D1 limits on a D1 binding", () => {
       run: async () => ({}),
     }
     const binding = { batch: async () => [], prepare: (query: string) => { prepared.push(query); return statement } }
-    const db = createDrizzleSqliteAdapter({ cloudflare: { binding: "DB" }, name: "default" }, schema, { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    const db = createDrizzleSqliteAdapter({ cloudflare: { binding: "DB" }, name: "default" }, defineRelations(schema), { missingConnection: "a D1 binding", requireRemoteUrl: true })
 
     const error = await runWithActiveCloudflareEnv({ DB: binding }, () => rejection(db.select().from(schema.notes).where(inArray(schema.notes.id, ids(101)))))
 

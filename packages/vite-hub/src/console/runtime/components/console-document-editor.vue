@@ -47,6 +47,7 @@ import { isRemoteProject } from "../client/project";
 import { consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
+import { openConsoleTicket } from "../client/ticket";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
 import ConsoleDocumentPreview from "./console-document-preview.vue";
@@ -1800,7 +1801,25 @@ function onTitleKeydown(event: KeyboardEvent): void {
 
 // Side browser: the page of the document, kept open in the URL as `?preview`. Its width is kept per browser.
 // A preview frame renders the source locale draft, so a translation has no preview yet.
-const previewUrl = computed(() => (props.locale ? undefined : consolePreviewUrl(base.value?.url, window.location.origin)));
+const previewUrl = computed(() => (props.locale || remote ? undefined : consolePreviewUrl(base.value?.url, window.location.origin)));
+const openingPreview = ref(false);
+/**
+ * A Console on another origin cannot frame the page. It opens the page with its saved draft in a new tab, with a
+ * one-time link that the app redeems. Edits that are not saved yet do not show there.
+ */
+async function openPreviewTab(): Promise<void> {
+  if (!props.documentId || openingPreview.value) return;
+  openingPreview.value = true;
+  try {
+    await openConsoleTicket(() => props.client.previewLink(props.collection.name, props.documentId!));
+  }
+  catch (error) {
+    toast.error(consoleErrorMessage(error, "The Console could not open the preview."));
+  }
+  finally {
+    openingPreview.value = false;
+  }
+}
 const previewOpen = computed(() => route.query.preview !== undefined && !creating.value && Boolean(previewUrl.value));
 const previewView = ref<ConsolePreviewView>("draft");
 const previewViewport = ref<ConsolePreviewViewport>("desktop");
@@ -2120,7 +2139,17 @@ const menuItems = computed(() => [[
           <span class="hidden sm:inline">{{ local ? "Local only" : "Collaborative" }}</span>
         </UButton>
       </UDropdownMenu>
-      <!-- The preview frame shows pages of the Console origin, so a Console on another origin has no preview. -->
+      <!-- The preview frame shows pages of the Console origin. A Console on another origin opens the page in a new tab. -->
+      <UTooltip v-if="remote && base && !creating && !missing && !locale" :text="base.url ? 'Open the page with the saved draft in a new tab' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
+        <UButton
+          variant="ghost"
+          icon="i-lucide-external-link"
+          aria-label="Open the preview in a new tab"
+          :disabled="!base.url"
+          :loading="openingPreview"
+          @click="openPreviewTab"
+        />
+      </UTooltip>
       <UTooltip v-if="!remote && base && !creating && !missing && !locale" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"

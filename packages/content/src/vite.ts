@@ -1,6 +1,7 @@
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { readdirSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
@@ -152,10 +153,12 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
   const discover = () => findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
   // One parse per build environment. A watch build parses again on each rebuild.
   const snapshotsByEnvironment = new WeakMap<object, Promise<BuiltSnapshots | undefined>>()
+  // Each build gets new commit cache keys, because plugin options in closures do not change the parser hash.
+  const build = randomUUID()
 
   async function registerKV(code: string, id: string): Promise<string> {
     if (!kvEnabled || code.includes("__vitehubRegisterContentKV") || resolve(id.replace(/\?.*$/, "")) !== await discover()) return ""
-    return `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV);\n`
+    return `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV, ${JSON.stringify(build)});\n`
   }
 
   return {

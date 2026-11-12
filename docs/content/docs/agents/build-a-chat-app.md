@@ -28,7 +28,7 @@ This is a text-only app for one owner on one Node process, without public regist
 ::tutorial-step{title="Set up the project"}
 ## Set up the project
 
-Clone the repository, so the app and the ViteHub packages come from one commit. The root lockfile pins every dependency. Keep `workspace:*`: the manifest version can point to an older release.
+This tutorial uses Nuxt 5, Nitro 3, and H3 2. Use the repository checkout so the fixture and ViteHub packages come from the same revision. The root lockfile pins the full dependency graph. Do not replace `workspace:*` with the package version printed in the manifest; it may describe an older published contract.
 
 ```sh [commands/checkout]
 git clone https://github.com/vite-hub/vitehub.git
@@ -483,7 +483,7 @@ The streaming route accepts only a chat ID, the last revision, and one prompt. I
 
 The app calls `streamAgent`, which returns typed Agent events by default. It forwards text through an AI SDK UI message stream, waits for the Agent to finish, then saves the completed pair before sending the final transport event. The UI can therefore reload saved history when it receives completion. If saving fails, the stream reports an error.
 
-`getRuntimeContext` ties the request to its background work, which the route drains before it ends. It aborts the Invocation when the client disconnects or after 60 seconds, and releases its abort listener and lock in `finally`.
+`getRuntimeContext` adapts the Nuxt request and its background lifetime. The wrapper consumes the full event stream and drains remaining work before finishing. The route aborts the Invocation when the client leaves before the reply ends, through `runtime.request.signal`, or after 60 seconds. It releases the active-chat lock in `finally`.
 
 ```ts [server/api/chat.post.ts]
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
@@ -525,11 +525,9 @@ export default defineEventHandler(async (event) => {
 
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  event.req.signal.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
+  // The request signal aborts when the client leaves before the reply ends.
+  const signal = AbortSignal.any([runtime.request.signal, AbortSignal.timeout(60_000)]);
   activeChats.add(id);
 
   const stream = createUIMessageStream({
@@ -537,14 +535,14 @@ export default defineEventHandler(async (event) => {
       try {
         const [error, output] = await streamAgent(mode === "model" ? assistant : offline, {
           messages: [...thread.messages, user].map(message => createMessage(message)),
-          abortSignal: controller.signal,
+          abortSignal: signal,
         }, { runtimeContext: runtime });
         if (error) throw error;
         writer.write({ type: "start", messageId: reply.id });
         writer.write({ type: "text-start", id: reply.id });
         let answer = "";
         for await (const part of output) {
-          controller.signal.throwIfAborted();
+          signal.throwIfAborted();
           if (part.type === "error") throw new Error("Agent failed.");
           if (part.type !== "text-delta") continue;
           answer += part.text;
@@ -552,15 +550,13 @@ export default defineEventHandler(async (event) => {
           writer.write({ type: "text-delta", id: reply.id, delta: part.text });
         }
         await runtime.flushWaitUntil();
-        controller.signal.throwIfAborted();
+        signal.throwIfAborted();
         if (!answer.trim()) throw new Error("Agent returned no text.");
         reply.parts[0]!.text = answer;
         store.save(owner, id, revision, [...thread.messages, user, reply]);
         writer.write({ type: "text-end", id: reply.id });
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
-        clearTimeout(timeout);
-        event.req.signal.removeEventListener("abort", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }

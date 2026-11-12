@@ -76,5 +76,43 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the `default` KV store of the app. On Cloudflare, bind a KV namespace as `KV`. On Vercel, set `KV_REST_API_URL` and `KV_REST_API_TOKEN`. `vitehub kv get <key>` reads the head.",
       why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] The KV store failed on ${JSON.stringify(key)} for Content source ${JSON.stringify(source)}: ${reason}. Reads do not fail: they serve the commit that this server already serves, or the latest commit of the branch without validation, and try KV again after 5 seconds.`,
     },
+    /** Content could not store a parsed commit in ViteHub KV, so other server instances download and parse it again. */
+    CONTENT_R0023: {
+      fix: "Check the `default` KV store. A host can limit the size of one value: Cloudflare KV takes up to 25 MiB. `content.sources.head()` shows the cache key and how many reads missed.",
+      why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] Content could not store ${key} of Content source ${JSON.stringify(source)} in KV: ${reason}`,
+    },
+    /** `content.sources.at()` received a ref that is not a full SHA, a `pr/<number>` ref, or a safe branch name. */
+    CONTENT_R0027: {
+      fix: "Pass a full 40-character commit SHA, `pr/<number>` such as `pr/12`, or a branch name with letters, digits, and `. _ - /`, up to 200 characters.",
+      why: ({ ref, reason }: { ref: string, reason: string }) => `[vitehub] content.sources.at() cannot open ref ${JSON.stringify(ref)}: ${reason}.`,
+    },
+    /** The repository of a `github()` Source has no commit, branch, or pull request with this ref. */
+    CONTENT_R0028: {
+      fix: "Check the ref on GitHub. A branch must match its full name, and a SHA must be a full commit SHA. A private repository needs `VITEHUB_GITHUB_TOKEN` with read access.",
+      why: ({ source, ref }: { source: string, ref: string }) => `[vitehub] The repository of Content source ${JSON.stringify(source)} has no ref ${JSON.stringify(ref)}.`,
+    },
+    /** GitHub did not answer a ref lookup, for example because of a rate limit. */
+    CONTENT_R0029: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env for a higher GitHub rate limit, then try again. `content.sources.at()` holds each branch and pull request lookup for 30 seconds.",
+      why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content could not look up ref ${JSON.stringify(ref)} of Content source ${JSON.stringify(source)} on GitHub: ${reason}`,
+    },
+    /** A document of the commit that a ref points to does not load or parse, so Content opens no view of it. */
+    CONTENT_R0030: {
+      fix: "Fix the document on the branch or pull request and push a new commit. The next `content.sources.at()` call after 30 seconds reads the new commit.",
+      why: ({ source, ref, sha, reason }: { source: string, ref: string, sha: string, reason: string }) => `[vitehub] Commit ${sha} of ref ${JSON.stringify(ref)} in Content source ${JSON.stringify(source)} failed validation: ${reason}`,
+    },
+    /**
+     * `content.sources.allow()` denied a ref. A route answers a plain 404 and keeps this message in its logs, so a caller
+     * cannot tell a private ref from a missing one.
+     */
+    CONTENT_R0031: {
+      fix: "A ref renders publicly when the published branch contains its commit, or when it is the head of an open or merged pull request from the same repository, or from a fork with the `preview:enabled` label. Other refs need the preview cookie of `content.preview.enable()` or a link from `content.sources.sign()`.",
+      why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content source ${JSON.stringify(source)} does not serve ref ${JSON.stringify(ref)} to this request: ${reason}.`,
+    },
+    /** GitHub did not answer a check of `content.sources.allow()`, for example because of a rate limit. Content holds no decision. */
+    CONTENT_R0032: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env for a higher GitHub rate limit, then try again. `content.sources.allow()` holds each decision for 10 minutes.",
+      why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content could not check on GitHub whether ref ${JSON.stringify(ref)} of Content source ${JSON.stringify(source)} is public: ${reason}`,
+    },
   },
 })

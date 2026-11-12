@@ -140,7 +140,7 @@ The model cannot call commands. There is no `policy` option.
 Anyone who can send input can run every command. `channels` limits a command to selected Channels. Elsewhere, it does not run and its text stays.
 
 > [!WARNING]
-> Handlers are server code with Runtime Capabilities such as `db` and `context.console`, and skip Capability approval. Check `context.actor` or `context.invoker` before reading private data or changing state.
+> Handlers are server code with Runtime Capabilities such as `db` and `context.console`, and skip Capability approval. Check `context.invoker` before reading private data or changing state.
 
 Returned text becomes model input. Treat `args` as untrusted.
 

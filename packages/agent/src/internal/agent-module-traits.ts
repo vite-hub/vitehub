@@ -10,7 +10,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
  * { "vitehub": { "agent": { "processHost": ["./babysitter"] } } }
  * ```
  *
- * - `processHost`: the subpath attaches a process host to the Agent (see `@vite-hub/agent/process-host`).
+ * - `processHost`: the subpath attaches a process host to the Agent (see `@vite-hub/agent/process`).
  *
  * The Vite plugin reads these lists when an Agent module imports the subpath, so that it does not
  * need to know the package.

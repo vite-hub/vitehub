@@ -1,9 +1,10 @@
-import { ConsoleRequestError, requestConsole } from "./request"
+import { ConsoleRequestError, requestConsole, requestConsoleOperation } from "./request"
 import { consoleQueryText } from "./route-query"
 import { dayLabel } from "./format"
 
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions"
 import type { ConsoleFieldIssue } from "./schema-form"
+import type { ConsoleTicketLink } from "./ticket"
 
 // These types mirror the document editor contract in `@vite-hub/internal/console`.
 
@@ -276,6 +277,8 @@ export interface ConsoleDocumentsClient {
   search(query: string, options?: { limit?: number, signal?: AbortSignal }): Promise<ConsoleDocumentSearchResult[]>
   /** A short token for the side browser: the page renders the posted documents in place of their drafts. */
   preview(collection: string, id: string): Promise<ConsoleDocumentPreview>
+  /** A one-time link that opens the page of the document with its draft on the app origin, in a browser tab. */
+  previewLink(collection: string, id: string): Promise<ConsoleTicketLink>
   /** Publishes exactly these drafts. A draft saved after review fails with a conflict and nothing is published. */
   publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
   /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
@@ -324,6 +327,8 @@ export function createConsoleDocumentsClient(base: string, section: string, loca
       (await call("search", options.limit ? { limit: options.limit, query } : { query }, options.signal)).items,
     get: (collection: string, id: string, ref?: "draft" | "published") => call("get", ref === "published" ? { collection, id, ref } : { collection, id }),
     preview: (collection: string, id: string) => call("preview", { collection, id }),
+    // SAFETY: `documents.preview` returns the ticket link contract of the server.
+    previewLink: async (collection: string, id: string) => await requestConsoleOperation("documents.preview", { collection, id, section }) as ConsoleTicketLink,
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
     save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string, sourceDigest?: string }) =>
       call("save", { collection, id, ...input }),

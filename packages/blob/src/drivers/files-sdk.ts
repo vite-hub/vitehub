@@ -167,7 +167,11 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return await createFiles(putOptions)
     }
 
-    filesPromise ||= createFiles()
+    // A failed creation lets the next call try again.
+    filesPromise ||= createFiles().catch((error: unknown) => {
+      filesPromise = undefined
+      throw error
+    })
     return await filesPromise
   }
 

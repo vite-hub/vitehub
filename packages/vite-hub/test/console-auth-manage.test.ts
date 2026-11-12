@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fixture } from "../../auth/test/fixtures/console.ts";
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts";
-import authManage from "../src/console/runtime/server/auth-manage.ts";
 import { authConsoleActionOperations, authConsoleReadOperations } from "../src/console/runtime/auth-operations.ts";
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
@@ -25,14 +24,6 @@ const headers = {
   "x-vitehub-console": "1",
   origin: "http://localhost:3000",
 };
-
-function event(body: unknown, extra: Record<string, string> = {}) {
-  return new Request("http://localhost:3000/_vitehub/auth/manage", {
-    method: "POST",
-    body: JSON.stringify(body),
-    headers: { ...headers, ...extra },
-  });
-}
 
 /** One Auth Console call as its `auth.*` operation, in the old `{ operation }` or `{ action }` command shape. */
 async function call(command: Record<string, unknown>, extra: Record<string, string> = {}): Promise<Response> {
@@ -148,38 +139,44 @@ describe("Auth Console operations", () => {
     expect(database.user.find((user) => user.id === member.id)?.banned).toBe(true);
   });
 
-  it("keeps only impersonation on the Auth management route", async () => {
-    installConsoleSections("auth-route-impersonation", ["auth"]);
-    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["auth"] }) });
-    for (const body of [{ operation: "users" }, { action: "ban", userId: "target" }]) {
-      const response = await authManage.fetch(event(body));
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ message: expect.stringContaining("auth.* operations") });
-    }
-    // The route still needs the Console request header, as it changes the app session cookie.
-    expect((await authManage.fetch(event({ action: "stopImpersonating" }, { "x-vitehub-console": "" }))).status).toBe(403);
-  });
 });
 
 describe("Auth Console client", () => {
-  it("reads and changes Auth through operations, and impersonates through the route", async () => {
+  it("reads and changes Auth through operations, and opens impersonation links in a new tab", async () => {
     const sent: Array<{ body: unknown; path: string }> = [];
     vi.stubGlobal("fetch", operationRpcFetch(async (input: string, init?: RequestInit) => {
-      const body: unknown = input.endsWith("/_vitehub/rpc") ? operationRpcRequest(init?.body) : JSON.parse(String(init?.body));
+      const body = operationRpcRequest(init?.body);
       sent.push({ body, path: input });
-      return input.endsWith("/_vitehub/rpc") ? Response.json({ ok: true, value: { total: 0 } }) : Response.json({ ok: true });
+      const operation = Reflect.get(Object(body), "operation");
+      return Response.json({ ok: true, value: operation === "auth.impersonate" || operation === "auth.stop-impersonating" ? { url: `https://app.example.com/_vitehub/rpc?ticket=${operation}`, expiresAt: "2026-11-11T00:01:00.000Z" } : { total: 0 } });
     }));
+    const opened: string[] = [];
+    const tab = { opener: {} as unknown, location: { replace: (url: string) => opened.push(url) }, close: vi.fn() };
+    vi.stubGlobal("open", vi.fn(() => tab));
     await readAuthConsole("users", { query: { limit: 25, search: "ada" } });
     await readAuthConsole("organization", { id: "org", query: { offset: 25 } });
-    await changeAuthConsole("/_vitehub/auth/manage", { action: "revokeSessions", userId: "u1" });
-    await changeAuthConsole("/_vitehub/auth/manage", { action: "impersonate", userId: "u1" });
-    await changeAuthConsole("/_vitehub/auth/manage", { action: "stopImpersonating" });
+    await changeAuthConsole({ action: "revokeSessions", userId: "u1" });
+    await changeAuthConsole({ action: "impersonate", userId: "u1" });
+    await changeAuthConsole({ action: "stopImpersonating" });
     expect(sent).toEqual([
       { body: { input: { limit: 25, search: "ada" }, operation: "auth.users" }, path: "/_vitehub/rpc" },
       { body: { input: { id: "org", offset: 25 }, operation: "auth.organization" }, path: "/_vitehub/rpc" },
       { body: { input: { userId: "u1" }, operation: "auth.revoke-sessions" }, path: "/_vitehub/rpc" },
-      { body: { action: "impersonate", userId: "u1" }, path: "/_vitehub/auth/manage" },
-      { body: { action: "stopImpersonating" }, path: "/_vitehub/auth/manage" },
+      { body: { input: { userId: "u1" }, operation: "auth.impersonate" }, path: "/_vitehub/rpc" },
+      { body: { input: {}, operation: "auth.stop-impersonating" }, path: "/_vitehub/rpc" },
     ]);
+    // The tab opens before the call and cannot reach the Console page.
+    expect(opened).toEqual(["https://app.example.com/_vitehub/rpc?ticket=auth.impersonate", "https://app.example.com/_vitehub/rpc?ticket=auth.stop-impersonating"]);
+    expect(tab.opener).toBeNull();
+    expect(tab.close).not.toHaveBeenCalled();
+  });
+
+  it("closes the new tab when the app refuses the link", async () => {
+    vi.stubGlobal("fetch", operationRpcFetch(async () => Response.json({ ok: false, code: "CONSOLE_ACCESS_DENIED", message: "No.", status: 403 }, { status: 403 })));
+    const tab = { opener: {} as unknown, location: { replace: vi.fn() }, close: vi.fn() };
+    vi.stubGlobal("open", vi.fn(() => tab));
+    await expect(changeAuthConsole({ action: "impersonate", userId: "u1" })).rejects.toThrow();
+    expect(tab.close).toHaveBeenCalledOnce();
+    expect(tab.location.replace).not.toHaveBeenCalled();
   });
 });

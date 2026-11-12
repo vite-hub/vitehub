@@ -7,7 +7,8 @@ import { createSqlProxyExecutors, sqliteProxyCodecs, toSqlRow } from "./sqlite-p
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig, SchemaRelations } from "../types.ts"
+import type { AnyRelations } from "drizzle-orm"
+import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 import type { SqlQuery, SqlResult } from "./sqlite-proxy.ts"
 
 interface D1HttpPayload {
@@ -94,9 +95,9 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
 
-function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
+function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   config: { token: string, url: string },
-  relations: SchemaRelations<TSchema>,
+  relations: TRelations,
   request: typeof fetch,
 ) {
   async function execute(queries: SqlQuery[]): Promise<SqlResult[]> {
@@ -157,16 +158,16 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
 
   const executors = createSqlProxyExecutors(async query => (await execute([query]))[0], execute)
   // SAFETY: drizzleProxy returns the runtime database interface for the relations of the schema.
-  return drizzleProxy(executors, { codecs: sqliteProxyCodecs, relations }) as RuntimeDrizzleDatabase<TSchema>
+  return drizzleProxy(executors, { codecs: sqliteProxyCodecs, relations }) as RuntimeDrizzleDatabase<TSchema, TRelations>
 }
 
 /** Resolves current credentials and shares the matching D1 HTTP Drizzle database. */
-export function createCloudflareD1HttpResolver<TSchema extends Record<string, unknown>>(
+export function createCloudflareD1HttpResolver<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   config: RuntimeDrizzleDatabaseConfig,
-  relations: SchemaRelations<TSchema>,
+  relations: TRelations,
   request: typeof fetch = (...args) => fetch(...args),
-): () => RuntimeDrizzleDatabase<TSchema> {
-  let cached: { database: RuntimeDrizzleDatabase<TSchema>, token: string, url: string } | undefined
+): () => RuntimeDrizzleDatabase<TSchema, TRelations> {
+  let cached: { database: RuntimeDrizzleDatabase<TSchema, TRelations>, token: string, url: string } | undefined
   return () => {
     const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
     if (!databaseId) {
@@ -174,7 +175,7 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
     }
     const connection = resolveCloudflareD1HttpConnection(config, databaseId)!
     if (cached?.url === connection.url && cached.token === connection.token) return cached.database
-    const database = createCloudflareD1HttpDb<TSchema>(connection, relations, request)
+    const database = createCloudflareD1HttpDb<TSchema, TRelations>(connection, relations, request)
     cached = { database, ...connection }
     return database
   }

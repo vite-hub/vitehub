@@ -165,7 +165,7 @@ import { hubAgent } from "@vite-hub/agent/vite"
 const root = process.cwd()
 const config = await resolveConfig({
   root,
-  plugins: [hubAgent({ providers: { state: { provider: "sqlite", url: ${JSON.stringify(`file:${statePath}`)} } } })],
+  plugins: [hubAgent({ providers: { state: { driver: "sqlite", url: ${JSON.stringify(`file:${statePath}`)} } } })],
 }, "build")
 const nitro = await createNitro({
   ...config.nitro,

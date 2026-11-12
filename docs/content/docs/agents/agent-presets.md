@@ -82,25 +82,24 @@ const changelogAgent = agentWithSkills(
 
 Keys are Skill names and values are `SKILL.md` content. Inherited Skills stay, except ones with the same name.
 
-## Named presets
+## Presets from a package
 
-A preset is an Agent Definition that a package publishes for reuse. For a built-in workflow, follow the setup guide of an [Agent preset](/docs/agents/presets). To publish your own, export ordinary `defineAgent()` definitions; apps import them and select one by a local name:
+Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 
 ```ts fragment
 import { defineAgent } from "vite-hub/agent"
 import { notetaker } from "@example/agents"
 
 export default defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   name: "meeting-notes",
   driver: { model: "gpt-5.6-sol" },
 })
 ```
 
-- `preset` must name an own entry in `presets`, and merges like `extends`, with child overrides and a new runtime.
-- Give one parent, with either `preset` or `extends`.
-- The `presets` map belongs to this definition only. It registers no global names, loads no packages, and does not become model instructions, nor does the selected name.
+A preset is an ordinary parent: `extends` applies child overrides and creates a fresh runtime. Importing a preset does not register a global name or load other packages, and the preset name never becomes model instructions.
 
 A preset package must declare `@vite-hub/agent` as a peer dependency, so its definitions share the application's package instance. Include instruction content and required assets explicitly, because selecting a preset does not discover its package directory.
 
@@ -123,8 +122,7 @@ Apps override only the options they need:
 
 ```ts fragment
 const notes = defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   options: { format: "detailed", labels: [] },
   driver: { model: "gpt-5.4" },
 })
@@ -189,7 +187,7 @@ When a Capability, Channel, preset, parent, or `configure` callback adds a Works
 
 Configured presets merge Capabilities, Channels, and hooks like `extends`: a child replaces a Capability with the same ID or a Channel with the same key, and a same-name hook runs after the preset's, so an extension's `agent:finish` cannot remove preset behavior. Option callbacks are values that get replaced and are never called by merging.
 
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+Publish the exported definition on npm and pass it as `extends`. There is no second preset factory or global package loader.
 
 ## Next steps
 

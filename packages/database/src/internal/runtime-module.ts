@@ -2,7 +2,11 @@ interface RenderDatabaseRuntimeModuleOptions {
   chunkParametersImport: string
   createAgentDatabaseImport: string
   databaseEntries: string[]
+  /** Module that exports `ensureDatabaseMigrations()`. */
+  ensureMigrationsImport: string
   imports: string[]
+  /** The module of shipped migrations, or why this build cannot apply migrations in the server process. */
+  migrations: { import: string } | { unsupported: string }
   useDatabaseImport: string
 }
 
@@ -11,6 +15,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     `import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
     `import { createUseDatabase } from ${JSON.stringify(options.useDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
+    `import { ensureDatabaseMigrations } from ${JSON.stringify(options.ensureMigrationsImport)}`,
     ...options.imports,
     "",
     "const configuredDatabases = {",
@@ -20,6 +25,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "  db: new Proxy({}, {",
     "    get() { throw defaultDatabaseNotConfiguredError() },",
     "  }),",
+    "  relations: {},",
     "  schema: {},",
     "}",
     "export const databases = { ...configuredDatabases, default: defaultDatabase }",
@@ -28,6 +34,11 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "export const agentDb = createAgentDatabase(databases)",
     "export const db = databases.default.db",
     "export const schema = databases.default.schema",
+    "import" in options.migrations
+      // A dynamic import keeps the migration SQL out of the server start until a call needs it.
+      ? `const loadMigrations = () => import(${JSON.stringify(options.migrations.import)}).then(module => module.default)`
+      : `const loadMigrations = async () => (${JSON.stringify({ allowDataLoss: false, databases: {}, unsupported: options.migrations.unsupported })})`,
+    "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: loadMigrations }, name === undefined ? undefined : [name]) }",
     "",
   ].join("\n")
 }

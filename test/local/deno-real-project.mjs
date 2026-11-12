@@ -126,7 +126,7 @@ async function writeFixtureFiles(overrides) {
     "export default defineConfig({",
     "  agent: {",
     "    runtime: \"deno\",",
-    "    providers: { state: { provider: \"memory\" } },",
+    "    providers: { state: { driver: \"memory\" } },",
     "  },",
     "  build: { outDir: \"dist/client\" },",
     "  fmt: {},",

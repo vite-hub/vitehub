@@ -44,6 +44,9 @@
       "@vite-hub/agent": [
         "../../packages/agent/src/index.ts"
       ],
+      "@vite-hub/agent/invocations": [
+        "../../packages/agent/src/invocations/index.ts"
+      ],
       "@vite-hub/agent/*": [
         "../../packages/agent/src/*"
       ],

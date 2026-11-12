@@ -11,6 +11,8 @@ export interface AvatarStackPerson {
   image?: string;
   /** The person's presence color, `#RRGGBB`. The `outline` variant rings the avatar with it, to match their caret. */
   color?: string;
+  /** Away: the person is in the room but hasn't done anything for a while, or their tab is hidden. Their avatar dims. */
+  idle?: boolean;
 }
 
 export type AvatarStackSize = "sm" | "default" | "lg";
@@ -31,10 +33,19 @@ export const AvatarStack = defineComponent({
     variant: { default: "default", type: String as PropType<AvatarStackVariant> },
   },
   setup(props) {
+    // One entry per person, away only when every tab of theirs is, and the people who are here before the away ones,
+    // so a short stack shows who is active.
     const people = computed(() => {
-      const seen = new Set<string>();
-      return props.people.filter(person => !seen.has(person.id) && seen.add(person.id));
+      const byId = new Map<string, AvatarStackPerson>();
+      for (const person of props.people) {
+        const seen = byId.get(person.id);
+        if (!seen) byId.set(person.id, person);
+        else if (seen.idle && !person.idle) byId.set(person.id, { ...seen, idle: false });
+      }
+      const all = [...byId.values()];
+      return [...all.filter(person => !person.idle), ...all.filter(person => person.idle)];
     });
+    const label = (person: AvatarStackPerson) => (person.idle ? `${person.name} (away)` : person.name);
     const shown = computed(() => {
       const max = props.max === null ? Number.POSITIVE_INFINITY : Math.max(2, props.max);
       return people.value.length > max ? people.value.slice(0, max - 1) : people.value;
@@ -45,7 +56,7 @@ export const AvatarStack = defineComponent({
       h(
         "div",
         {
-          "aria-label": `${people.value.length} ${people.value.length === 1 ? "person" : "people"}: ${people.value.map(person => person.name).join(", ")}`,
+          "aria-label": `${people.value.length} ${people.value.length === 1 ? "person" : "people"}: ${people.value.map(label).join(", ")}`,
           "data-size": props.size,
           "data-slot": "avatar-stack",
           "data-variant": props.variant,
@@ -57,10 +68,11 @@ export const AvatarStack = defineComponent({
               "span",
               {
                 "aria-hidden": "true",
+                "data-idle": person.idle ? "true" : undefined,
                 "data-slot": "avatar-stack-item",
                 key: person.id,
                 style: person.color ? { "--vh-avatar-color": person.color } : undefined,
-                title: person.name,
+                title: label(person),
               },
               person.image
                 ? h("img", { alt: "", "data-slot": "avatar-stack-image", src: person.image })
@@ -70,7 +82,7 @@ export const AvatarStack = defineComponent({
           hidden.value.length
             ? h(
                 "span",
-                { "aria-hidden": "true", "data-slot": "avatar-stack-count", title: hidden.value.map(person => person.name).join(", ") },
+                { "aria-hidden": "true", "data-slot": "avatar-stack-count", title: hidden.value.map(label).join(", ") },
                 `+${hidden.value.length}`,
               )
             : null,

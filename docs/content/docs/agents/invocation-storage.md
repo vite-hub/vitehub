@@ -195,7 +195,7 @@ export default defineConfig({
 :::
 ::
 
-In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
+The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 
 `agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. Every app-wide journal requires Nitro-hosted Agents. For Netlify and Deno Agent output, set `agent.invocations: false` and configure journals on each Agent Definition. `false` records no app-wide journal. When the Console is enabled, it shows the app-wide journal.
 
@@ -205,7 +205,7 @@ Pass a store to `defineAgentInvocations()`. The SQLite adapter accepts a local S
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -248,7 +248,22 @@ const record = await invocations.get(invocationId, {
 })
 ```
 
-Names match exactly and keep journal order. Other fields stay the same. An empty array returns no observations; omitting it returns all. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter in storage. Custom stores can ignore the read options, because the wrapper still filters the result.
+Names match exactly and keep journal order. Other fields stay the same. An empty array returns no observations; omitting it returns all. Both forms return `undefined` for a missing Invocation.
+
+To read only new observations, pass `afterSequence`. Each observation has a `sequence` number. Give the `sequence` of the last observation that you read:
+
+```ts fragment
+const record = await invocations.get(invocationId, {
+  afterSequence: lastSequence,
+})
+const next = record?.observations.at(-1)?.sequence ?? lastSequence
+```
+
+The result has only observations with a greater `sequence`. `0` returns all observations. A reader on another instance, such as the Console or a stream reader, can poll a running Invocation this way and not read the whole record again. You can use `afterSequence` with `observationNames`; the result then matches both. A value that is not a non-negative integer fails with `AGENT_R1039` before the store reads.
+
+The store can still add an observation with a lower `sequence` later, for example from a second writer, and size limits can drop observations. A follower can miss these observations. If you need every observation, read the whole record once when the Invocation ends.
+
+D1 and libSQL filter in storage, so only the selected observations leave the database. The memory store filters before it copies the record. Custom stores can ignore the read options, because the wrapper still filters the result.
 
 ## Set retention limits
 
@@ -374,7 +389,7 @@ When the record cannot reproduce its input, the result has `available: false` an
 | `invocation-not-terminal` | The record is pending or running. |
 | `input-not-captured` | The prompt was not retained. |
 | `replay-metadata-unavailable` | Replay metadata is missing or incomplete. |
-| `input-has-invoker` | A direct Actor identity, or a resolver-derived Invoker without a selected Invoker Profile. |
+| `input-has-invoker` | A direct Invoker identity, or a resolver-derived Invoker without a selected Invoker Profile. |
 | `input-has-data` | Structured input. |
 | `input-has-options` | Call options. |
 | `input-has-messages` | A singular Message or prior Messages. |
@@ -461,7 +476,7 @@ const nextPage = page.cursor
 Set limits for long traces with `observations`:
 
 ```ts
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -589,7 +604,7 @@ On Vercel, Agents run through the inline Workflow adapter, because Vercel's dete
 Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load. `useDatabaseBinding()` returns the D1 binding of a [ViteHub Database](/docs/database/server-api#pass-the-d1-binding-to-other-code):
 
 ```ts [server/invocations.ts]
-import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
+import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 import { useDatabaseBinding } from 'vite-hub/database/drizzle'
 
@@ -608,7 +623,7 @@ With `cloudflare.readReplication`, `useDatabaseBinding()` returns a new D1 sessi
 Print the schema statements with `d1AgentInvocationSchema()` and apply them to the D1 database:
 
 ```ts [scripts/invocation-schema.ts]
-import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
+import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
@@ -623,7 +638,7 @@ When using a stable D1 binding without request sessions, you can omit `migrate: 
 - After 32 write conflicts, an update rejects instead of overwriting.
 - Retention defaults and observation deduplication match libSQL.
 - `maxSize` fails with `AGENT_R0911`, because D1 reports whole-database size. Use `maxAge` and `maxRecords`.
-- It supports Agent, Capability, triggering-person, status, and text filters, `listTriggeredBy()`, summaries without observations, and `get(id, { observationNames })`.
+- It supports Agent, Capability, triggering-person, status, and text filters, `listTriggeredBy()`, summaries without observations, and `get(id, { observationNames, afterSequence })`.
 
 [D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/), so the adapter caps observations at 1,000,000 UTF-8 bytes, shown in `observationLimits`, even if the journal asks for more. It also checks the full row, including summary and search text. If the row is too large, it drops ordinary observations and marks `observationsTruncated`, keeping lifecycle fields and appended evidence. If it still cannot fit, the update rejects before writing. Use another store for complete long traces.
 
@@ -699,9 +714,11 @@ When a started Driver does not enforce cancel, the result has `notEnforcedBy`, a
 
 A process that stops mid-run can leave records pending or running. Recovery marks them failed.
 
-For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
+For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
 
 With a libSQL Agent state provider, a persistent Nitro server recovers each Agent journal when it resumes queued webhook deliveries, one second after start or on the first request that loads the Agent routes. It fails pending or running Invocations that started before the process, skips those that a queued delivery reruns under the same run ID, and skips Agents with a durable Workflow runtime. A failed recovery is logged, and the queue still resumes.
+
+Then it retries each interrupted inline Chat turn once. A turn is interrupted when it started before the process and no live run holds the journal claim of its Invocation. A run renews its claim every 10 seconds, and a claim expires 30 seconds after its last renewal. Thus, when several processes share one journal and one Agent state, a process that starts does not run again a turn that another process still runs. When the journal has no record for the turn, or the journal check fails, the start time is the only test.
 
 ## Next steps
 

@@ -774,7 +774,7 @@ describe("hubDb", () => {
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
       `import * as generated from ${JSON.stringify(DB_VIRTUAL_SCHEMA_ID)}`,
-      "export const tables = () => Object.keys(generated).filter(key => key !== 'default' && key !== 'schema').toSorted()",
+      "export const tables = () => Object.keys(generated).filter(key => key !== 'default' && key !== 'relations' && key !== 'schema').toSorted()",
       "",
     ].join("\n"))
 
@@ -889,10 +889,11 @@ describe("hubDb", () => {
     const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     const code = await load((await resolveId(DB_VIRTUAL_DATABASES_ID))!)
     const evaluable = code!.replace(/^import .+$/gm, "").replace("export const databases", "const databases").replace("export default databases", "return databases")
-    const registry = new Function("definition_0", "schema_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", schema: {} }, { notes: "schema-marker" }, (value: unknown) => value) as Record<string, { schema: unknown }>
+    const registry = new Function("definition_0", "schema_0", "relations_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", schema: {} }, { notes: "schema-marker" }, { notes: "relations-marker" }, (value: unknown) => value) as Record<string, { relations: unknown, schema: unknown }>
 
     expect(Object.hasOwn(registry, "__proto__")).toBe(true)
     expect(registry["__proto__"]?.schema).toEqual({ notes: "schema-marker" })
+    expect(registry["__proto__"]?.relations).toEqual({ notes: "relations-marker" })
   })
 
   it("resolves discovery and generated artifacts from projectRoot", async () => {

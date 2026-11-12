@@ -28,8 +28,11 @@ export type ConsoleProjectGate =
   | { kind: "empty" }
   /** `home` offers a way back to the Console instead of a retry. */
   | { kind: "problem", problem: ConsoleProjectProblem, home?: boolean }
-  /** The sign-in page of an `account` Console, or the `/invite/<id>` page of an invitation to a team. */
-  | { kind: "account", invitation?: string }
+  /**
+   * The sign-in page of an `account` Console, or the `/invite/<id>` page of an invitation to a team. `returnTo` is the
+   * `/open` link that the person followed, which the sign-in opens again when it completes.
+   */
+  | { kind: "account", invitation?: string, returnTo?: string }
   /** An `account` Console linked the project, but the project does not have the public key of the link yet. */
   | { kind: "setup", project: ConsoleAccountProject }
   /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
@@ -60,6 +63,8 @@ interface ConsoleProjectsState {
   gate: ShallowRef<ConsoleProjectGate>
   projects: ShallowRef<ConsoleLinkedProject[]>
   statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
+  /** The name that each project reported in `project.get`, by project id. This browser keeps them for the next visit. */
+  names: ShallowRef<Readonly<Record<string, string>>>
   /** The Link an app dialog is open. The rail and the search palette open it. */
   linkOpen: Ref<boolean>
   /** The signed-in account of an `account` Console. */
@@ -145,6 +150,7 @@ export function startConsoleProjects(options: {
     info: shallowRef(),
     linkOpen: ref(false),
     mode: options.mode,
+    names: shallowRef(options.mode === "account" ? readProjectNames() : {}),
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     projects: shallowRef(projects),
@@ -162,7 +168,10 @@ function open(info: ConsoleProjectInfo): void {
   const projects = useState()
   projects.info.value = info
   const current = projects.current.value
-  if (current?.id) projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
+  if (current?.id) {
+    projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
+    rememberProjectName(current.id, info.name)
+  }
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
 }
@@ -249,7 +258,45 @@ export async function checkConsoleProjects(): Promise<void> {
     const probe = await probeConsoleProject(targetOf(projects, project)).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
+    if (probe.kind === "ready") rememberProjectName(project.id, probe.info.name)
   }))
+}
+
+const projectNamesKey = "vitehub-console:project-names"
+
+function readProjectNames(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(projectNamesKey) ?? "{}")
+    if (!(value instanceof Object)) return {}
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""))
+  }
+  catch {
+    return {}
+  }
+}
+
+function rememberProjectName(id: string, name: string | undefined): void {
+  const projects = useState()
+  const value = name?.trim()
+  if (projects.mode !== "account" || !value || projects.names.value[id] === value) return
+  projects.names.value = { ...projects.names.value, [id]: value }
+  try {
+    globalThis.localStorage?.setItem(projectNamesKey, JSON.stringify(projects.names.value))
+  }
+  catch {}
+}
+
+/**
+ * The name that the Console shows for a project: the name that the app reports in `project.get`, else the label of the
+ * link, else the host.
+ */
+export function consoleProjectDisplayName(project: { id: string, label?: string | null, url: string }): string {
+  return useState().names.value[project.id] || project.label || consoleProjectHost(project)
+}
+
+/** Only owners and admins of a team link and unlink its apps. */
+export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">): boolean {
+  return account.roles.includes("owner") || account.roles.includes("admin")
 }
 
 const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`
@@ -277,6 +324,49 @@ function rememberedAccountProject(teamId: string | undefined): string | undefine
  * Start an `account` Console: read the session, then the projects of the active team from the Console server. Without
  * a session, or on an `/invite/<id>` page, the gate shows the sign-in page.
  */
+/** A project URL as the Console compares it: the origin and the mount, without a trailing slash. */
+function comparableProjectUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    return `${url.origin}${url.pathname.replace(/\/_vitehub(?:\/.*)?$/, "").replace(/\/+$/, "")}`
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * The app and the page of a link from `hostedConsoleUrl()`, `/open?project=<app URL>&path=<Console path>`, among the
+ * projects of the team. `undefined` when the link names no project of the team, or a path that is not a Console page.
+ */
+export function consoleOpenLink(search: string, projects: readonly { id: string, url: string }[]): { id: string, path: string } | undefined {
+  const query = new URLSearchParams(search)
+  const project = comparableProjectUrl(query.get("project") ?? "")
+  const raw = query.get("path") ?? "/"
+  // A Console path starts with one `/`. Another form could leave the Console origin.
+  if (!project || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return undefined
+  const path = raw.replace(/^\/_vitehub(?=\/|$)/, "") || "/"
+  const match = projects.find(candidate => comparableProjectUrl(candidate.url) === project)
+  return match ? { id: match.id, path } : undefined
+}
+
+/**
+ * The address of an `/open` link that the Console opens again after a sign-in, such as
+ * `/open?project=https%3A%2F%2Fapp.example.com&path=%2Fkv`. It keeps only the project and the path of the link.
+ * `undefined` when the link names no project URL or a path that is not a Console page.
+ */
+export function consoleOpenReturnPath(home: string, search: string): string | undefined {
+  const query = new URLSearchParams(search)
+  const project = query.get("project") ?? ""
+  const path = query.get("path") ?? "/"
+  if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
+  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+}
+
+/**
+ * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
+ * `/open` link, or `undefined` to keep the address.
+ */
 export async function startConsoleAccount(options: {
   home: string
   navigate: (url: string) => void
@@ -286,19 +376,25 @@ export async function startConsoleAccount(options: {
   showPath: (path: string) => void
   /** The first paint of the page, which the Console server picked from the path and the cookies. */
   boot?: string
-}): Promise<void> {
+}): Promise<string | undefined> {
   showAccountPath = options.showPath
   // Only an `account` Console loads the Better Auth client.
   const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
   const account = await loadConsoleAccount(options.boot === "app" || options.boot === "shell").catch(() => undefined)
   const storage = memoryProjectStorage()
   let missingApp = false
+  let address: string | undefined
   if (account) {
-    // A link to one app, `/?app=<id>`, opens that app. Other links open the app that this browser used last.
-    const requested = new URLSearchParams(options.search ?? "").get("app") ?? undefined
+    // A link to one app, `/?app=<id>`, opens that app. `/open?project=<URL>&path=<page>` opens a page of the app with
+    // that URL. Other links open the app that this browser used last.
+    const home = options.home.replace(/\/+$/, "")
+    const openLink = options.pathname.replace(/\/+$/, "") === `${home}/open`
+    const opened = openLink ? consoleOpenLink(options.search ?? "", account.projects) : undefined
+    if (opened) address = `${home}${opened.path}`
+    const requested = opened?.id ?? new URLSearchParams(options.search ?? "").get("app") ?? undefined
     if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
     // An app of another team, or one that is gone, opens Home instead of another app.
-    else if (requested) missingApp = true
+    else if (requested || openLink) missingApp = true
     const remembered = rememberedAccountProject(account.teamId)
     const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
     storage.setItem(consoleProjectsStorageKey, JSON.stringify({
@@ -311,9 +407,14 @@ export async function startConsoleAccount(options: {
   if (options.boot === "shell") started.openingView = "shell"
   const invitation = consoleInvitationOf(options.pathname)
   const page = accountPageOf(options.pathname)
-  if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }
+  // Signed out, an `/open` link waits for the sign-in. Each sign-in method comes back to it.
+  const returnTo = !account && !invitation && options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
+    ? consoleOpenReturnPath(options.home, options.search ?? "")
+    : undefined
+  if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}), ...(returnTo ? { returnTo } : {}) }
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
+  return address ?? (missingApp ? options.home : undefined)
 }
 
 /** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */
@@ -360,4 +461,16 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
 export function reloadConsoleAccount(): void {
   const projects = useState()
   projects.navigate(projects.home)
+}
+
+/** The page that a completed sign-in opens: the `/open` link that the person followed, else the Console home. */
+export function consoleSignInReturnPath(): string {
+  const projects = useState()
+  const gate = projects.gate.value
+  return gate.kind === "account" && gate.returnTo ? gate.returnTo : projects.home
+}
+
+/** Load the Console after a sign-in on this page, such as with a passkey, at the page that the sign-in opens. */
+export function finishConsoleSignIn(): void {
+  useState().navigate(consoleSignInReturnPath())
 }

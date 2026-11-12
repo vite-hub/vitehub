@@ -51,7 +51,7 @@ it.each(["default-expression", "default-binding", "default-reexport", "named-cha
       "const daily = defineAgent({ extends: reporter, description: 'Daily report' })",
       "export default defineSchedule({ cron: '0 9 * * *', handler: async () => { const [error, result] = await runAgent(daily, { prompt: 'Write the report.' }); if (error) throw error; return result } })",
     ].join("\n"))
-    const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+    const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
     const agentPackageDir = resolve(import.meta.dirname, "..").replace(/\\/g, "/") + "/"
     await build({
       root,

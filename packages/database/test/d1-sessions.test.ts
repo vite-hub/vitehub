@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 import { installStandardContext } from "@vite-hub/runtime/h3"
 import { describe, expect, it } from "vitest"
+import { defineRelations } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
@@ -63,7 +64,7 @@ function createDb(readReplication: boolean | undefined) {
   return createDrizzleSqliteAdapter({
     cloudflare: { binding: "DB", ...(readReplication === undefined ? {} : { readReplication }) },
     name: "default",
-  }, schema, { missingConnection: "a D1 binding", requireRemoteUrl: true })
+  }, defineRelations(schema), { missingConnection: "a D1 binding", requireRemoteUrl: true })
 }
 
 function createEvent(method: string, cookie?: string, url = "https://app.example/api/notes") {

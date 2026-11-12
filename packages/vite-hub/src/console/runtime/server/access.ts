@@ -12,7 +12,7 @@ import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
-import type { AgentActor } from "@vite-hub/agent"
+import type { AgentInvoker } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
 export { consoleOpenAccessWarning, installConsoleAccess } from "./access-policy.ts"
@@ -158,6 +158,19 @@ export function readConsoleAccessUser(access: ConsoleAccess): ConsoleUser | unde
   return consoleAccessGrant.isValid(access) ? access.user : undefined
 }
 
+/** The person of a checked access as plain text fields: the signed Console user, or `undefined` without one. */
+export function consolePerson(access: ConsoleAccess): { id: string, email?: string, name?: string } | undefined {
+  const user = readConsoleAccessUser(access)
+  if (!user?.id) return undefined
+  const email: unknown = user.email
+  const name: unknown = user.name
+  return {
+    id: user.id,
+    ...(typeof email === "string" && email ? { email } : {}),
+    ...(typeof name === "string" && name ? { name } : {}),
+  }
+}
+
 /**
  * The user that an operation sees. A development server without sign-in (`local` access, or `open` with
  * `console.auth: false`) has no accounts, so the person is the local developer: `{ id: "local", name: "You" }`.
@@ -194,8 +207,8 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
   return available.filter(section => consoleAccessAllows(access, section))
 }
 
-/** Map the verified Console user to the Agent Actor used by invocations and replay. */
-export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | undefined {
+/** Map the verified Console user to the Agent Invoker used by invocations and replay. */
+export function consoleAccessInvoker(user: ConsoleUser | undefined): AgentInvoker | undefined {
   if (!user?.id) return undefined
   const label = "email" in user && typeof user.email === "string" && user.email
     ? user.email

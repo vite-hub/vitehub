@@ -22,23 +22,6 @@ export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = Age
   readonly options: Readonly<TOptions>
 } & ([TConfigKey] extends [never] ? {} : { readonly configKey: TConfigKey })
 
-/** Resolve a local name before the normal Agent layer composition. */
-function resolveNamedAgentPresetOptions(input: unknown): unknown {
-  if (!isRuntimeRecord(input)) return input
-  if (!("presets" in input) && !("preset" in input)) return input
-  const { preset, presets, ...options } = input
-  if ("extends" in options) {
-    throw new TypeError("[vitehub] Select one Agent parent with preset or extends, not both.")
-  }
-  if (typeof preset !== "string" || !preset.trim()) {
-    throw new TypeError("[vitehub] defineAgent({ presets }) requires a non-empty preset name.")
-  }
-  if (!presets || typeof presets !== "object" || Array.isArray(presets) || !Object.hasOwn(presets, preset)) {
-    throw new TypeError(`[vitehub] Agent preset "${preset}" is not defined in presets.`)
-  }
-  return { ...options, extends: Reflect.get(presets, preset) }
-}
-
 /** The named configuration block declared by a configured preset. */
 export type AgentPresetConfig<TDefinition> = TDefinition extends { configKey: infer TKey extends string, options: infer TOptions extends object }
   ? { [K in TKey]?: AgentPresetOptions<TOptions> }
@@ -50,9 +33,11 @@ export function resolveAgentPresetExtension(
   resolve: (name: string) => unknown,
   mergeOptions: (parent: Record<string, unknown>, child?: Record<string, unknown>) => Record<string, unknown>,
 ): unknown {
-  const selected = resolveNamedAgentPresetOptions(input)
-  if (!isRuntimeRecord(selected) || !("extends" in selected)) return selected
-  const { extends: extension, ...overrides } = selected
+  if (isRuntimeRecord(input) && ("preset" in input || "presets" in input)) {
+    throw new TypeError("[vitehub] defineAgent() has no preset or presets option. Pass the parent Agent Definition as extends, such as defineAgent({ extends: babysitter }).")
+  }
+  if (!isRuntimeRecord(input) || !("extends" in input)) return input
+  const { extends: extension, ...overrides } = input
   const selection = readPresetSelection(extension, "Agent")
   const tupleOptions = selection.options
   let parent = selection.preset

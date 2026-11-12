@@ -72,10 +72,10 @@
       "import": "./dist/agent/eval.js",
       "default": "./dist/agent/eval.js"
     },
-    "./agent/invocations/d1": {
-      "types": "./dist/agent/invocations/d1.d.ts",
-      "import": "./dist/agent/invocations/d1.js",
-      "default": "./dist/agent/invocations/d1.js"
+    "./agent/invocations": {
+      "types": "./dist/agent/invocations.d.ts",
+      "import": "./dist/agent/invocations.js",
+      "default": "./dist/agent/invocations.js"
     },
     "./agent/invocations/database": {
       "types": "./dist/agent/invocations/database.d.ts",
@@ -87,11 +87,6 @@
       "import": "./dist/agent/invocations/drizzle.js",
       "default": "./dist/agent/invocations/drizzle.js"
     },
-    "./agent/invocations/sqlite": {
-      "types": "./dist/agent/invocations/sqlite.d.ts",
-      "import": "./dist/agent/invocations/sqlite.js",
-      "default": "./dist/agent/invocations/sqlite.js"
-    },
     "./agent/mcp": {
       "types": "./dist/agent/mcp.d.ts",
       "import": "./dist/agent/mcp.js",
@@ -102,20 +97,20 @@
       "import": "./dist/agent/observability.js",
       "default": "./dist/agent/observability.js"
     },
-    "./agent/runtime/process": {
-      "types": "./dist/agent/runtime/process.d.ts",
-      "import": "./dist/agent/runtime/process.js",
-      "default": "./dist/agent/runtime/process.js"
+    "./agent/process": {
+      "types": "./dist/agent/process.d.ts",
+      "import": "./dist/agent/process.js",
+      "default": "./dist/agent/process.js"
     },
     "./agent/server": {
       "types": "./dist/agent/server.d.ts",
       "import": "./dist/agent/server.js",
       "default": "./dist/agent/server.js"
     },
-    "./agent/state/sqlite": {
-      "types": "./dist/agent/state/sqlite.d.ts",
-      "import": "./dist/agent/state/sqlite.js",
-      "default": "./dist/agent/state/sqlite.js"
+    "./agent/state": {
+      "types": "./dist/agent/state.d.ts",
+      "import": "./dist/agent/state.js",
+      "default": "./dist/agent/state.js"
     },
     "./agent/vite": {
       "types": "./dist/agent/vite.d.ts",
@@ -913,11 +908,6 @@
     },
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json",
-    "./agent/process-host": {
-      "types": "./dist/agent/process-host.d.ts",
-      "import": "./dist/agent/process-host.js",
-      "default": "./dist/agent/process-host.js"
-    },
     "./console/ui": {
       "types": "./dist/console/ui.d.ts",
       "import": "./dist/console/ui.js",
@@ -992,7 +982,6 @@
     "test": "vp run --cache -t vite-hub#build && vp test"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^5.20261016.1",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
@@ -1024,6 +1013,7 @@
     "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@google-cloud/storage": "catalog:storage",
@@ -1126,6 +1116,7 @@
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@better-auth/oauth-provider": "catalog:auth",
+    "@cloudflare/workers-types": ">=4",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@json-render/core": "0.21.0",
@@ -1208,6 +1199,9 @@
       "optional": true
     },
     "@better-auth/oauth-provider": {
+      "optional": true
+    },
+    "@cloudflare/workers-types": {
       "optional": true
     },
     "@google-cloud/storage": {

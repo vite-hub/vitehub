@@ -48,7 +48,6 @@ function providerRuntime() {
 function context() {
   const values = new Map<string, unknown>()
   return {
-    actor: { id: "actor" },
     context: {
       entries: () => values.entries(),
       get: (key: string) => values.get(key),

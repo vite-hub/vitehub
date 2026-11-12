@@ -103,6 +103,7 @@ export const docsPageRedirects = {
   "/docs/agents/capabilities/llm-gate": "/docs/agents/capabilities/official",
   "/docs/agents/capabilities/llm-route": "/docs/agents/capabilities/official",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
+  "/docs/agents/actors": "/docs/agents/trusted-invokers",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",

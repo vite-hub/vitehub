@@ -125,7 +125,7 @@ async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
     "    preset: \"netlify\",",
     "    agent: {",
     "      invocations: false,",
-    "      providers: { state: { provider: \"memory\" } },",
+    "      providers: { state: { driver: \"memory\" } },",
     "    },",
     "    blob: {},",
     "    database: false,",

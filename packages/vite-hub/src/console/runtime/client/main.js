@@ -71,7 +71,7 @@ if (account) {
     : boot === "sign-in" || boot === "invite"
       ? [view("signIn", () => import("../components/console-account-sign-in.vue")), import("./account").then(module => module.loadConsoleSignInMethods(), () => undefined)]
       : [];
-  await Promise.all([
+  const [address] = await Promise.all([
     startConsoleAccount({ boot, home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, showPath: (path) => {
       if (window.location.pathname !== path) window.history.pushState(null, "", path);
     } }),
@@ -89,7 +89,9 @@ if (account) {
     if (view) document.cookie = `vitehub-console-view=${view}; Path=/; Max-Age=31536000; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
   }, { immediate: true });
   // The app of a `?app=<id>` link is open now, so the address goes back to the home path before the router reads it.
-  if (new URLSearchParams(window.location.search).has("app")) window.history.replaceState(null, "", consoleBase);
+  // An `/open` link shows the page that it names.
+  if (address) window.history.replaceState(null, "", address);
+  else if (new URLSearchParams(window.location.search).has("app")) window.history.replaceState(null, "", consoleBase);
   // Back and Forward between the account pages, such as from `/team` to `/start`, load that page. In an open project,
   // the router handles them.
   window.addEventListener("popstate", () => {
@@ -336,7 +338,7 @@ function addContributedRoutes(navigation) {
         name,
         path: "/auth/:page(overview|users|sessions|organizations|agents|activity)?",
         meta: { consoleSection: section, title: "Auth · ViteHub Console" },
-        props: { sectionsBase, managementBase: "/_vitehub/auth/manage" },
+        props: { sectionsBase },
       });
       continue;
     }

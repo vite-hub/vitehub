@@ -38,8 +38,7 @@ const admissionInputTokens = {
 }
 
 export default defineAgent({
-  preset: 'babysitter',
-  presets: { babysitter },
+  extends: babysitter,
   name: 'babysitter',
   version: usePublicEnv().releaseRevision,
   options: {

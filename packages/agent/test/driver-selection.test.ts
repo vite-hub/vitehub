@@ -2,7 +2,8 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
 
 describe("built-in Agent Driver selection", () => {

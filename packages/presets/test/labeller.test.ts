@@ -20,7 +20,7 @@ const message = {
 }
 
 function configured(options: Record<string, unknown> = {}) {
-  return defineAgent({ preset: "labeller", presets: { labeller }, options: {
+  return defineAgent({ extends: labeller, options: {
     labels: { Receipts: { description: "Purchases" }, Work: { description: "Work" } },
     ...options,
   } })

@@ -242,6 +242,13 @@ export const landingPrimitives = [
     icon: "i-vitehub-gateways",
   },
   {
+    id: "decisions",
+    name: "Decisions",
+    description: "Text to choices",
+    to: "/docs/decisions",
+    icon: "i-vitehub-decisions",
+  },
+  {
     id: "realtime",
     name: "Realtime",
     description: "Live collaboration",
@@ -277,6 +284,13 @@ export const landingPrimitives = [
     icon: "i-vitehub-email",
   },
   {
+    id: "forms",
+    name: "Forms",
+    description: "Visitor messages",
+    to: "/docs/forms",
+    icon: "i-vitehub-forms",
+  },
+  {
     id: "rate-limit",
     name: "Rate Limit",
     description: "Request budgets",
@@ -289,6 +303,13 @@ export const landingPrimitives = [
     description: "Editable documents",
     to: "/docs/cms",
     icon: "i-vitehub-cms",
+  },
+  {
+    id: "i18n",
+    name: "i18n",
+    description: "App translation",
+    to: "/docs/i18n",
+    icon: "i-vitehub-i18n",
   },
   {
     id: "comments",

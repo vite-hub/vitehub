@@ -19,12 +19,12 @@ import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
-import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
-import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -40,6 +40,7 @@ type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOpt
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-stats.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
+const generatedNitroShippedMigrations = "database/migrations.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
@@ -113,7 +114,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
   const module = async function viteHubDatabaseNuxtModule(inlineOptions, nuxt) {
     // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the options this integration reads.
     const nuxtOptions = (nuxt as NuxtLike).options
-    const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions, nuxtOptions)
+    const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions)
     if (resolvedOptions === false) {
       return
     }
@@ -322,14 +323,16 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
           }
           const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
-          if (migrateOnStart) {
-            const host = { hosting: nuxtOptions.nitro?.preset, nitro: config }
-            assertMigrateOnStartSupported(runtime, resolveHost(host) ?? resolveHostPreset(host))
-          }
+          const host = { hosting: nuxtOptions.nitro?.preset, nitro: config }
+          const preset = resolveHostPreset(host)
+          // Without a preset here, Nitro detects the host later. The default then takes the Postgres databases, and a
+          // Nitro module adds the plugin only when the detected host is Node. An explicit option treats it as Node.
+          const startHost = preset ? resolveHost(host) ?? preset : migrateOnStart?.explicit ? undefined : "node"
+          const startDatabases = migrateOnStart ? selectMigrateOnStartDatabases(runtime, migrateOnStart, startHost) : []
           if (!runtimeProvider) {
             // Nuxt CLI clears buildDir after nitro:config, before compiling the generated runtime.
-            const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, migrateOnStart ? runtime : undefined)
-            if (migrateOnStart && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart)
+            const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, startDatabases.length ? runtime : undefined)
+            if (migrateOnStart && startDatabases.length && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart, startDatabases)
           }
           if (provider === "cloudflare" && runtime) {
             mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
@@ -452,19 +455,20 @@ async function installNitroLocalDatabaseRuntime(
   dev = false,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+  const migrationsFile = resolve(generatedRoot, generatedNitroShippedMigrations)
   const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseDrizzleImport]
   const customRegistry = !!existingAlias && existingAlias !== file
   if (customRegistry) {
-    await rm(file, { force: true })
+    await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (!dev) return
   }
 
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
-    await rm(file, { force: true })
+    await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (dev) {
       await rm(defaultsFile, { force: true })
       if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
@@ -509,7 +513,7 @@ async function installNitroLocalDatabaseRuntime(
   const contributedSchemas = runtime.definitions.map((definition, index) =>
     (runtime.tableContributionsByDatabase[definition.name] ?? []).flatMap((contribution, contributionIndex) =>
       loadedContributionsByDatabase.get(definition.name)?.has(contribution)
-        ? [{ contribution, variable: `contributedSchema_${index}_${contributionIndex}` }]
+        ? [{ contribution, relationsVariable: `contributedRelations_${index}_${contributionIndex}`, variable: `contributedSchema_${index}_${contributionIndex}` }]
         : []))
   const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
@@ -520,7 +524,10 @@ async function installNitroLocalDatabaseRuntime(
       ? definition.schemaSources.map((source, sourceIndex) =>
           `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
       : [],
-    ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
+    ...contributedSchemas[index]!.flatMap(({ contribution, relationsVariable, variable }) => [
+      renderContributionImport(file, contribution, variable),
+      ...contribution.relations ? [renderContributionRelationsImport(file, contribution, relationsVariable)] : [],
+    ]),
   ])
   const schemas = runtime.definitions.flatMap((definition, index) => {
     if (!merged(index)) return []
@@ -529,27 +536,39 @@ async function installNitroLocalDatabaseRuntime(
       : [`...definition_${index}.schema`]
     return [`const schema_${index} = { ${[...definitionSchemas, ...contributedSchemas[index]!.map(({ variable }) => `...${variable}`)].join(", ")} }`]
   })
+  // Each database gets the relations of its contributed tables and of each layer, so `db.query` follows them.
+  const relations = runtime.definitions.map((definition, index) => `const relations_${index} = ${renderMergedRelations(
+    definition.name,
+    merged(index) ? `schema_${index}` : `definition_${index}.schema`,
+    contributedSchemas[index]!.flatMap(({ contribution, relationsVariable }) => contribution.relations ? [relationsVariable] : []),
+    layered(definition) ? definition.schemaSources.map((_, sourceIndex) => `schemaSource_${index}_${sourceIndex}`) : [`definition_${index}`],
+  )}`)
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     runtime.databases[definition.name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`)},`
-      : merged(index)
-        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`, `relations_${index}`)},`
+      : `    db: createDefinitionRuntime({ ...definition_${index}, ${merged(index) ? `schema: schema_${index}, ` : ""}relations: relations_${index} }, definitionDefaults),`,
+    `    relations: relations_${index},`,
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
+  // `ensureMigrations()` and the start plugin apply the migrations that this module ships.
+  await writeFileIfChanged(migrationsFile, renderShippedMigrationsModule(runtime, { allowDataLoss: resolveMigrateOnStart(options)?.allowDataLoss ?? false }))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
+    ensureMigrationsImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
+    migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
+      `import { mergeDatabaseRelations } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "relations.js")).href)}`,
       ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
       `const definitionDefaults = ${definitionDefaults}`,
       ...schemas,
+      ...relations,
     ],
     useDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "use-database.js")).href,
   }))
@@ -559,7 +578,7 @@ async function installNitroLocalDatabaseRuntime(
 
 function resolveNuxtContentModuleDependencies(options: DatabaseNuxtIntegrationOptions, nuxt: unknown): NuxtModuleDependencies {
   const nuxtOptions = (nuxt as NuxtLike).options
-  const resolvedOptions = resolveDatabaseNuxtOptions(options, undefined, nuxtOptions)
+  const resolvedOptions = resolveDatabaseNuxtOptions(options, undefined)
   if (resolvedOptions === false || !hasNuxtContentModule(nuxtOptions.modules)) {
     return {}
   }
@@ -584,16 +603,15 @@ function usesDefinitionResources(options: ResolvedDatabaseNuxtIntegrationOptions
   return Boolean(config && options.binding === undefined && options.databaseId === undefined && options.databaseName === undefined)
 }
 
+/** `vite-hub/nuxt` passes the Database options from its `vitehub` key. A top-level Nuxt `database` key is not read. */
 function resolveDatabaseNuxtOptions(
   options: DatabaseNuxtIntegrationOptions,
   inlineOptions: DatabaseNuxtIntegrationOptions | undefined,
-  nuxtOptions: NuxtLike["options"],
 ): ResolvedDatabaseNuxtIntegrationOptions | false {
-  if (options === false || inlineOptions === false || nuxtOptions.database === false) {
+  if (options === false || inlineOptions === false) {
     return false
   }
   return {
-    ...(isRecord(nuxtOptions.database) ? nuxtOptions.database : {}),
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
@@ -759,17 +777,30 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
 }
 
 /** Applies pending migrations when the Node server starts. `@vite-hub/database/drizzle` is the local runtime alias here. */
-async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings) {
+async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings, databases: string[]) {
   const file = resolve(root, migrateOnStartPluginFile)
-  await writeFileIfChanged(file, renderMigrateOnStartPlugin(runtime, {
-    ...settings,
+  const plugin = renderMigrateOnStartPlugin(runtime, {
+    databases,
     drizzleImport: databaseDrizzleImport,
-    host: undefined,
+    migrationsImport: pathToFileURL(resolve(root, ".vitehub", generatedNitroShippedMigrations)).href,
     runtimeImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
-  }))
-  const kit = createNitroServerKit(config)
-  kit.addPlugin(file)
-  config.plugins = kit.config.plugins
+  })
+  if (!plugin) return
+  await writeFileIfChanged(file, plugin)
+  if (settings.explicit) {
+    const kit = createNitroServerKit(config)
+    kit.addPlugin(file)
+    config.plugins = kit.config.plugins
+    return
+  }
+  // Nitro resolves the preset, with its host detection, before it runs modules. The default migrates only on Node.
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: { options: { plugins?: string[], preset?: string } }) => {
+    if (resolveHost({ nitro: nitro.options }) !== "node") return
+    const plugins = nitro.options.plugins ??= []
+    if (!plugins.includes(file)) plugins.push(file)
+  })
+  config.modules = modules
 }
 
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {

@@ -3,7 +3,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { frameAnswer, frameError, frameHop, framePageUrl } from "./preview-frame.ts"
-import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+import { contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter } from "./preview-parameters.ts"
 
 /** Name of the cookie that carries the Content preview token. */
 export const contentPreviewCookieName = "vitehub-content-preview"
@@ -23,7 +23,12 @@ const frameTokenVersion = "f1"
 const frameTokenPurpose = "vitehub.content.preview.frame"
 const frameTokenPattern = /^f1\.(\d{1,12})\.([\w-]{1,1400})\.([\w-]{43})$/
 
-export { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+// A ref token signs one ref of one Source. Its purpose and shape differ from the other tokens, so none passes as another.
+const refTokenVersion = "r1"
+const refTokenPurpose = "vitehub.content.preview.ref"
+const refTokenPattern = /^r1\.(\d{1,12})\.([\w-]{1,600})\.([\w-]{43})$/
+
+export { contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter } from "./preview-parameters.ts"
 /** The largest preview frame form, in bytes. It carries a whole Markdown document. */
 const maximumFrameBytes = 1024 * 1024
 
@@ -355,6 +360,62 @@ async function verifyFrameToken(key: HmacKey, token: string): Promise<{ expires:
   return scope && unexpired(expires) ? { expires, ...scope } : undefined
 }
 
+function refTokenMessage(expires: number, scope: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`${refTokenPurpose}.${refTokenVersion}.${expires}.${scope}`)
+}
+
+/**
+ * Sign a token for one ref of one `github()` Source, for `content.sources.sign()`. It uses the key of
+ * `content.preview`, `VITEHUB_CONTENT_KEY`.
+ */
+export async function signContentRefToken(source: string, ref: string, maxAge: number = defaultMaxAge): Promise<ContentPreviewToken> {
+  if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
+    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.sign() maxAge must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+  }
+  const key = await signingKey()
+  if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
+  const scope = encodeScope(source, ref)
+  const expires = Math.floor(Date.now() / 1000) + maxAge
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, refTokenMessage(expires, scope))
+  return { token: `${refTokenVersion}.${expires}.${scope}.${base64url(signature)}`, expiresAt: new Date(expires * 1000) }
+}
+
+/**
+ * How a request may read a ref of a `github()` Source without the public rule: `console` with a valid preview cookie
+ * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token` for this Source and ref. Undefined
+ * otherwise, and when the signing key is missing or invalid.
+ */
+export async function contentRefGrant(request: Request, source: string, ref: string): Promise<"console" | "token" | undefined> {
+  const cookies = cookieValues(request.headers.get("cookie") ?? undefined, contentPreviewCookieName)
+  let token: string | null = null
+  try {
+    token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+  }
+  catch {
+    // A request without an absolute URL carries no link token.
+  }
+  if (!cookies.length && !token) return
+  let key: HmacKey | undefined
+  try {
+    key = await signingKey()
+  }
+  catch {
+    return
+  }
+  if (!key) return
+  for (const value of cookies) {
+    if (await verifyToken(key, value) !== undefined) return "console"
+  }
+  const match = token ? refTokenPattern.exec(token) : null
+  if (!match) return
+  const expires = Number(match[1])
+  const signature = fromBase64url(match[3]!)
+  if (signature.byteLength !== 32) return
+  if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) return
+  const scope = decodeScope(match[2]!)
+  return scope?.collection === source && scope.id === ref && unexpired(expires) ? "token" : undefined
+}
+
 function cookie(value: string, maxAge: number, secure: boolean): string {
   return `${contentPreviewCookieName}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`
 }
@@ -634,6 +695,14 @@ function publishedRequest(event: ContentPreviewEvent): boolean {
   catch {
     return false
   }
+}
+
+/** Whether a request carries `?vitehub-content-token`, the signed link of `content.sources.sign()`. */
+function signedRefRequest(event: ContentPreviewEvent): boolean {
+  const raw = eventParts(event).url
+  const text = raw instanceof URL ? raw.href : raw
+  if (String(text) === text && !mayCarryParameter(text, contentRefTokenParameter)) return false
+  return requestUrl(event)?.searchParams.has(contentRefTokenParameter) === true
 }
 
 function requestUrl(event: ContentPreviewEvent): URL | undefined {
@@ -953,6 +1022,8 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed. A redirect
  * from it to the same host name, such as a canonical or locale redirect, gets the parameter in its `Location`, so the
  * page the browser lands on reads `published` too. A redirect to another host is not changed.
+ * A request with `?vitehub-content-token`, the signed ref link of `content.sources.sign()`, bypasses Nitro's cache and
+ * gets `private, no-store`, so a cached route never answers it after the token expires.
  * ViteHub generates this plugin for `server/content.ts` with a loader, so the server starts without the Content runtime.
  * The loader runs on the first request with a preview cookie, a preview frame form, or the published parameter. Other
  * requests never load it.
@@ -973,15 +1044,37 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       return preview !== undefined && (preview.active() || preview.frame() !== undefined || frames.get(preview)?.published() === true)
     }
     const removeCacheBypass = addCacheBypass(previewing)
+    // A request with a signed ref link can read a private ref until its token expires. Nitro must not keep that answer.
+    let signedScope: Scope<true> | undefined
+    try {
+      signedScope = createScope<true>(true)
+    }
+    catch {
+      // Without AsyncLocalStorage the response is still `private, no-store`.
+    }
+    const signed = signedScope
+    const removeSignedBypass = signed ? addCacheBypass(() => signed.getStore() === true) : () => {}
     const hooks = nitroApp.hooks
     if (isObject(hooks) && hooks.hook instanceof Function) {
-      const dispose = () => removeCacheBypass()
+      const dispose = () => {
+        removeCacheBypass()
+        removeSignedBypass()
+      }
       for (const name of ["close", "shutdown", "dispose"]) {
         Reflect.apply(hooks.hook, hooks, [name, dispose])
       }
     }
     const scoped = (event: unknown, next: () => unknown): unknown => {
       if (!isObject(event)) return next()
+      if (signedRefRequest(event)) {
+        appendResponseHeader(event, "cache-control", "private, no-store", "set")
+        const run = () => previewScoped(event, next)
+        const result = signed ? signed.run(true, run) : run()
+        return result instanceof Promise ? result.then(privateResponse) : privateResponse(result)
+      }
+      return previewScoped(event, next)
+    }
+    const previewScoped = (event: ContentPreviewEvent, next: () => unknown): unknown => {
       if (!publishedRequest(event)) {
         return hasPreviewCookie(event) ? withPreview(next, preview => preview.run(event, next)) : next()
       }

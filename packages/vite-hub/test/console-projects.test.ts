@@ -191,6 +191,46 @@ describe("account Console", () => {
     return { module, state }
   }
 
+  it("opens the page of a hostedConsoleUrl() link in the app of the team with that URL", async () => {
+    const { consoleOpenLink } = await import("../src/console/runtime/client/project-session.ts")
+    const { hostedConsoleUrl } = await import("@vite-hub/runtime")
+    const projects = [linked, { id: "p-2", url: "https://other.example.com" }]
+    const search = (project: string, path: string) => new URL(hostedConsoleUrl(project, path, "https://console.example.com")).search
+    expect(new URL(hostedConsoleUrl("https://app.example.com/portal", "/kv", "https://console.example.com")).pathname).toBe("/open")
+    expect(consoleOpenLink(search("https://app.example.com/portal/", "/agents/bot/invocations/abc?tab=trace"), projects)).toEqual({ id: "p-1", path: "/agents/bot/invocations/abc?tab=trace" })
+    expect(consoleOpenLink(search("https://other.example.com", "/_vitehub/kv"), projects)).toEqual({ id: "p-2", path: "/kv" })
+    // An app that the team did not link, and paths that could leave the Console, open nothing.
+    expect(consoleOpenLink(search("https://unknown.example.com", "/kv"), projects)).toBeUndefined()
+    for (const path of ["//evil.example", "https://evil.example", "/\\evil.example"])
+      expect(consoleOpenLink(`?project=${encodeURIComponent(linked.url)}&path=${encodeURIComponent(path)}`, projects), path).toBeUndefined()
+  })
+
+  it("keeps a hostedConsoleUrl() link through GitHub and passkey sign-in, then opens its page", async () => {
+    const { hostedConsoleUrl } = await import("@vite-hub/runtime")
+    const link = new URL(hostedConsoleUrl("https://app.example.com/portal", "/agents/bot/invocations/abc", "https://console.example.com"))
+    let session: import("../src/console/runtime/client/account.ts").ConsoleAccount | undefined
+    vi.doMock("../src/console/runtime/client/account.ts", () => ({ consoleInvitationOf: () => undefined, loadConsoleAccount: async () => session }))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const navigate = vi.fn()
+    const boot = { home: "/", navigate, pageOrigin: "https://console.example.com", pathname: link.pathname, search: link.search, showPath: () => {} }
+    // Signed out, the sign-in page keeps the link.
+    expect(await module.startConsoleAccount(boot)).toBeUndefined()
+    const returnTo = `/open?project=${encodeURIComponent("https://app.example.com/portal")}&path=${encodeURIComponent("/agents/bot/invocations/abc")}`
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "account", returnTo })
+    // GitHub calls back to the link, and a passkey sign-in on this page opens it.
+    expect(module.consoleSignInReturnPath()).toBe(returnTo)
+    module.finishConsoleSignIn()
+    expect(navigate).toHaveBeenLastCalledWith(returnTo)
+    // Signed in, the link opens the page in the app of the team.
+    session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    const back = new URL(returnTo, "https://console.example.com")
+    expect(await module.startConsoleAccount({ ...boot, pathname: back.pathname, search: back.search })).toBe("/agents/bot/invocations/abc")
+    // A link with a path that could leave the Console is not kept, so the sign-in opens Home.
+    session = undefined
+    await module.startConsoleAccount({ ...boot, search: `?project=${encodeURIComponent(linked.url)}&path=${encodeURIComponent("//evil.example")}` })
+    expect(module.consoleSignInReturnPath()).toBe("/")
+  })
+
   it("sends the project's calls to the Console server, with the page cookies and no token", async () => {
     const fetch = vi.fn(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
     const { module, state } = await account(fetch)

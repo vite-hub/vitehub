@@ -259,7 +259,8 @@ export default defineRealtime({
 
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403, unless `origins` accepts it. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect to a definition with `identify`, such as a script that sites load from your app. Return `true` to accept `origin`. A cross-site handshake carries cookies too, so `identify` must then trust only what the page sends, such as a ticket in `params`. See [From another site](#from-another-site). |
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
@@ -337,6 +338,28 @@ room.onChange(change => reload(change))
 
 > [!WARNING]
 > The definition must check that context against the requested document before it grants access.
+
+### From another site
+
+A script that other sites load from your app, such as a review toolbar, joins rooms on your app with `origin`. Its definition lets those pages in with `origins` and identifies people by a ticket the script got from your app, never by cookies:
+
+```ts fragment
+// On the other site's page
+const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.example.com', params: { ticket } })
+```
+
+```ts fragment
+// server/realtime/presence.ts
+export default defineRealtime({
+  origins: ({ origin }) => allowedSites.has(origin),
+  identify: ({ request }) => readTicket(new URL(request.url).searchParams.get('ticket')),
+  authorize: ({ user, mode }) => Boolean(user) && mode === 'read',
+  document: { kind: 'presence', load: async () => ({ body: '', digest: null }), save: async () => ({ digest: 'presence' }) },
+  persistence: false,
+})
+```
+
+The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
 
 ## Saves, refresh, and resets
 

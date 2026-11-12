@@ -38,7 +38,7 @@ async function registeredConsoleRoutes(): Promise<Registration[]> {
     const config: { nitro?: { handlers: Registration[] }, root: string } = { root }
     await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "serve", mode: "development" }])
     const nuxt: { handlers?: Registration[] } = {}
-    addConsoleRpcHandler(nuxt, "/runtime", undefined, sections)
+    addConsoleRpcHandler(nuxt, "/runtime")
     const all = [...config.nitro?.handlers ?? [], ...nuxt.handlers ?? []].filter(entry => !entry.middleware && entry.route)
     return all.filter((entry, index) => all.findIndex(other => other.route === entry.route && other.handler.endsWith(basename(entry.handler))) === index)
   }
@@ -97,7 +97,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["auth-manage.ts", "rpc.ts"])
+    expect([...files].sort()).toEqual(["rpc.ts"])
     const guarded = routes
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.

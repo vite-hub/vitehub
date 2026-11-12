@@ -500,7 +500,8 @@ describe("hubBlob", () => {
   it.each(["vercel-blob", "netlify-blobs"] as const)("preserves generated default and named %s stores when Nitro installs its plugin", async (driver) => {
     const root = await temporaryDirectory("vitehub-blob-nitro-replay-")
     try {
-      const plugin = hubBlob({ stores: { default: { driver, name: "default" }, assets: { driver, name: "assets" } } })
+      const store = (name: string) => driver === "netlify-blobs" ? { driver, name } : { driver }
+      const plugin = hubBlob({ stores: { default: store("default"), assets: store("assets") } })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
         nitro: { preset: driver === "vercel-blob" ? "vercel" : "netlify" },
@@ -1202,6 +1203,72 @@ describe("hubBlob", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps the Blob sandbox and a middleware CSP on the generated route", async () => {
+    const root = await temporaryDirectory("vitehub-blob-route-csp-")
+    const plugin = hubBlob({ driver: "fs", serve: true }, { importBase: "virtual:blob-test" })
+    await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
+    const artifactFile = join(root, "serve-route.mjs")
+    await bundle({
+      bundle: true,
+      entryPoints: [join(root, ".vitehub", "blob", "serve-route.ts")],
+      format: "esm",
+      logLevel: "silent",
+      nodePaths: [join(workspaceRoot, "node_modules")],
+      outfile: artifactFile,
+      platform: "node",
+      plugins: [{
+        name: "blob-route-csp-stub",
+        setup(build) {
+          build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({ namespace: "blob-route-csp-stub", path: "blob" }))
+          build.onLoad({ filter: /.*/, namespace: "blob-route-csp-stub" }, () => ({
+            contents: [
+              `import { createBlobStorage } from ${JSON.stringify(join(workspaceRoot, "packages/blob/src/storage.ts"))}`,
+              `export { parseImageVariant } from ${JSON.stringify(join(workspaceRoot, "packages/blob/src/media/variant.ts"))}`,
+              "const types = { 'page.html': 'text/html', 'photo.png': 'image/png' }",
+              "const storage = createBlobStorage({",
+              "  name: 'blob-route-csp-test',",
+              "  async head(pathname) { return { pathname, contentType: types[pathname], size: 7, httpEtag: '\"v1\"', uploadedAt: new Date(0), httpMetadata: {}, customMetadata: {} } },",
+              "  async get(pathname) { return new Blob(['content'], { type: types[pathname] }) },",
+              "})",
+              "export const blob = { store() { return storage } }",
+            ].join("\n"),
+            resolveDir: workspaceRoot,
+            loader: "js",
+          }))
+        },
+      }],
+      target: "node24",
+    })
+    const artifact = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
+    // An empty middleware CSP must not replace the Blob sandbox either.
+    for (const appPolicy of ["default-src 'self'", ""]) {
+      const app = new H3({ onRequest: event => installStandardContext(event) })
+      app.use((event) => {
+        event.res.headers.set("content-security-policy", appPolicy)
+      })
+      app.all("/api/_vitehub/blob/**", artifact.default)
+      const request = (pathname: string, headers: Record<string, string> = {}, method = "GET") =>
+        app.fetch(new Request(`http://localhost/api/_vitehub/blob/${pathname}`, { headers, method }))
+      const pagePolicy = appPolicy ? `${appPolicy}, sandbox` : "sandbox"
+
+      const page = await request("page.html")
+      expect(page.status).toBe(200)
+      expect(page.headers.get("content-security-policy"), JSON.stringify(appPolicy)).toBe(pagePolicy)
+      expect(await page.text()).toBe("content")
+      const etag = page.headers.get("etag")!
+      for (const [headers, method, status] of [[{}, "HEAD", 200], [{ Range: "bytes=0-1" }, "GET", 206], [{ "If-None-Match": etag }, "GET", 304], [{ "If-None-Match": etag }, "HEAD", 304]] as const) {
+        const response = await request("page.html", headers, method)
+        expect(response.status, `${method} ${status}`).toBe(status)
+        expect(response.headers.get("content-security-policy"), `${JSON.stringify(appPolicy)} ${method} ${status}`).toBe(pagePolicy)
+        await response.body?.cancel()
+      }
+      // A type that runs no script keeps only the app policy.
+      const photo = await request("photo.png")
+      expect(photo.headers.get("content-security-policy")).toBe(appPolicy)
+      await photo.body?.cancel()
     }
   })
 

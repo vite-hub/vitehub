@@ -9,7 +9,7 @@ import type {
 import * as agentCloudflare from "vite-hub/agent/cloudflare"
 import * as agentEval from "vite-hub/agent/eval"
 import * as agentServer from "vite-hub/agent/server"
-import * as agentSqliteState from "vite-hub/agent/state/sqlite"
+import * as agentSqliteState from "vite-hub/agent/state"
 import * as authAgent from "vite-hub/auth/agent"
 import { resolveSandbox } from "vite-hub/sandbox"
 import { env } from "vite-hub/env"

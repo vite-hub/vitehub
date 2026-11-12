@@ -17,7 +17,7 @@ import type {
   AgentDriverAdaptiveCapacityOptions,
   AiGateway,
   AgentDriverCapacityOptions,
-  AgentInvokerProfile,
+  AgentInvoker,
   AgentModelExecutionOptions,
   AgentModelResolver,
   AgentOutputDefinition,
@@ -499,7 +499,7 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
 export function normalizeAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   // SAFETY: AgentSettings is an object contract; normalization validates its driver member before returning it.
   const record = options as Record<string, unknown>

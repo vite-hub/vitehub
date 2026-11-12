@@ -63,7 +63,6 @@ import type {
   AgentInvocationContextValues,
   AgentHostIdentity,
   AgentInvoker,
-  AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
   AgentModelResolverContext,
@@ -131,7 +130,7 @@ export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   _Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -148,7 +147,7 @@ export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -725,7 +724,7 @@ function resolvedDriverExecutionAuthority<
 function agentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS, TInvokerProfile>): AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined {
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return (definition as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> }).__vitehubAgentSettings
@@ -935,7 +934,7 @@ function providerMetadata(driver: {
 function staticDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentInspectionDriverMetadata | undefined {
   if (!settings) return { executionAuthority: unknownExecutionAuthority, kind: "unknown" }
   const driver = normalizeAgentDriver(settings)
@@ -966,7 +965,7 @@ async function resolvedDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(
   settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
   context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
@@ -1855,7 +1854,6 @@ async function resolveMetadataCapabilitySelection<
     ...agentInvocationCallbackContextValues(invocationContext),
     ...callbackContext,
     abortSignal: input.abortSignal,
-    actor: invoker,
     context: invocationContext,
     driver: { kind: driverKind },
     input,
@@ -1910,7 +1908,6 @@ async function resolveWorkspaceMetadataCapabilityContext<
       ...agentInvocationCallbackContextValues(invocationContext),
       ...agentCallbackContext(runtime),
       abortSignal: input.abortSignal,
-      actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
       fs: metadataWorkspace.fs,
@@ -2000,7 +1997,6 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       ...agentInvocationCallbackContextValues(selection.invocationContext),
       ...agentCallbackContext(selection.runtime),
       abortSignal: selection.input.abortSignal,
-      actor: selection.invoker,
       context: selection.invocationContext,
       driver: { kind: selection.driverKind },
       input: selection.input,

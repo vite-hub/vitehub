@@ -236,16 +236,16 @@ ViteHub does not call this route. Call it on a timer that overlaps the listener 
 
 ## Limits
 
-- **Mentions.** The bot answers every direct message, but in a server channel only mentions, in a new thread. To also answer later replies in that thread, set `messages: { replyToSubscribedThreads: true }`. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
-- **Other bots.** ViteHub ignores other bots' messages unless you set `messages: { allowBots: true }`.
-- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Discord user ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Actor](/docs/agents/actors).
-- **Slash commands.** The Agent answers chat messages. ViteHub does not register slash commands.
-- **Host.** An always-online bot needs a long-running Node.js process. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you choose another host.
-- **Proof.** We have contract tests for the Discord Channel, the Gateway route, and the Node listener plugin. CI runs no deployed Discord bot.
+- **Mentions.** In a direct message, the bot answers every message. In a server channel, it answers only messages that mention it, and it answers in a new thread. To also answer replies in that thread without a mention, set `messages: { replyToSubscribedThreads: true }`. Read [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
+- **Other bots.** ViteHub ignores messages from other bots. Set `messages: { allowBots: true }` to change this.
+- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Discord user ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Invoker](/docs/agents/trusted-invokers).
+- **Slash commands.** The Agent answers chat messages. ViteHub does not register slash commands for you.
+- **Host.** The always-online path needs a long-running Node.js process. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you choose another host.
+- **Proof.** ViteHub has contract tests for the Discord Channel, the Gateway route, and the Node listener plugin. It does not run a deployed Discord bot in CI.
 
 ## Next steps
 
 - [Agent Channels](/docs/agents/channels): admission, delivery, attachments, and Channel instructions.
-- [Agent Actors](/docs/agents/actors): pass a trusted identity to the Agent.
-- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces.
+- [Trusted Invokers](/docs/agents/trusted-invokers): pass a trusted identity to the Agent.
+- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces to the same Agent.
 - [Build an AI Slack bot](/docs/guides/slack-ai-bot) and [Build an AI Telegram bot](/docs/guides/telegram-ai-bot) with the same Agent file.

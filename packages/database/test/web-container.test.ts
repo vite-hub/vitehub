@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
-import { eq, sql } from "drizzle-orm"
+import { defineRelations, eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
@@ -31,7 +31,7 @@ it("opens a local file with SQLite WASM in a WebContainer and logs it once", asy
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   const path = join(dir, "data", "sqlite.db")
   const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
-  const db = createDefinitionRuntime({ connection: { url: `file:${path}` }, name: "default", schema })
+  const db = createDefinitionRuntime({ connection: { url: `file:${path}` }, name: "default", relations: defineRelations(schema), schema })
 
   await db.run(sql`CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)`)
   await db.insert(schema.notes).values({ title: "first" })

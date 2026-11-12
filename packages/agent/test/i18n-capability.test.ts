@@ -31,7 +31,7 @@ function primitive() {
 async function tools(capability: AgentCapabilityDefinition, handle: unknown): Promise<Record<string, AgentToolDefinition>> {
   if (!(capability.tools instanceof Function)) throw new Error("i18n() must resolve tools from the Invocation context")
   // SAFETY: The i18n tools read only the fields that this context sets.
-  return await capability.tools({ actor: { id: "user-1", label: "Ana" }, capabilities: { i18n: handle }, context: new Map() } as never) as Record<string, AgentToolDefinition>
+  return await capability.tools({ invoker: { id: "user-1", label: "Ana" }, capabilities: { i18n: handle }, context: new Map() } as never) as Record<string, AgentToolDefinition>
 }
 
 async function run(tool: AgentToolDefinition | undefined, input: unknown): Promise<unknown> {
@@ -49,7 +49,7 @@ describe("i18n capability", () => {
     }
   })
 
-  it("lists missing messages, saves machine drafts by the Actor, and publishes with approval", async () => {
+  it("lists missing messages, saves machine drafts by the Invoker, and publishes with approval", async () => {
     const { calls, handle } = primitive()
     const set = await tools(i18n(), handle)
     expect(Object.keys(set).sort()).toEqual(["i18n_list_missing", "i18n_publish", "i18n_save_translation", "i18n_status"])

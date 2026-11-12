@@ -7,7 +7,9 @@ import { join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
+import { migratePostgres } from "../runtime/migrate-on-start.ts"
 import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
+import { readStartMigrations } from "./migrate-on-start.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "./migration-ledger.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
@@ -129,7 +131,8 @@ async function readSqliteLedger(url: string, authToken?: string): Promise<Ledger
   }
 }
 
-async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<LedgerRow[]> {
+/** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
+function connectPostgres(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
   let connect: typeof postgres
   try {
     // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.
@@ -148,7 +151,11 @@ async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "post
     port: env.PGPORT ? Number(env.PGPORT) : undefined,
     user: env.PGUSERNAME ?? env.PGUSER,
   }
-  const sql = target.url ? connect(target.url, options) : connect(options)
+  return target.url ? connect(target.url, options) : connect(options)
+}
+
+async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<LedgerRow[]> {
+  const sql = connectPostgres(target, projectRoot, env)
   try {
     const [table] = await sql<Array<{ name: string | null }>>`select to_regclass('drizzle.__drizzle_migrations')::text as name`
     if (!table?.name) return []
@@ -177,7 +184,7 @@ export async function readMigrationPlan(
     return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
   }
   try {
-    const entries = readMigrations(database.migrationsDir)
+    const entries = readMigrations(database.migrationsDir, database.name)
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, options.fetch), database, entries)
       const pending = listD1Migrations(database.migrationsDir)
@@ -220,10 +227,40 @@ export async function migrateD1Http(
   if (target?.kind !== "d1-http") return `The database "${database.name}" does not use D1 HTTP.`
   try {
     const query = createD1Query(target, options.fetch)
-    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir))
+    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir, database.name))
     await applyD1Migrations(query, ledger, database.migrationsDir, onApplied)
   }
   catch (error) {
     return error instanceof Error ? error.message : String(error)
+  }
+}
+
+/**
+ * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
+ * runs on start. It holds the same advisory lock, so `vitehub database migrate` and a starting server never migrate at the
+ * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
+ */
+export async function migratePostgresDatabases(
+  databases: ResolvedDrizzleDatabaseConfig[],
+  options: MigrationPlanOptions & { allowDataLoss: boolean },
+  log: (message: string) => void,
+): Promise<unknown> {
+  const clients: postgres.Sql[] = []
+  try {
+    const targets = databases.map((database) => {
+      const target = resolveTarget(database, options)
+      // Internal invariant: the CLI passes only Definitions filtered by their Postgres dialect.
+      if (target?.kind !== "postgres") throw new Error(`The database "${database.name}" is not a Postgres database.`)
+      const client = connectPostgres(target, options.projectRoot, options.env)
+      clients.push(client)
+      return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
+    })
+    await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
+  }
+  catch (error) {
+    return error
+  }
+  finally {
+    await Promise.all(clients.map(client => client.end({ timeout: 5 })))
   }
 }

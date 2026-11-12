@@ -32,11 +32,13 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 
 | Codemod | Moves |
 | --- | --- |
+| `nuxthub` | A Nuxt app from NuxtHub 0.10 (`@nuxthub/core`) to ViteHub KV, Blob, Database, and cache through `vite-hub/nuxt` |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
 | `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
@@ -106,6 +108,19 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]
 ```
 
+## `nuxthub`
+
+The codemod runs when `package.json` or `modules` lists `@nuxthub/core`, or when `nuxt.config` sets `hub`. It follows [Migrate from NuxtHub](https://vitehub.dev/docs/getting-started/migrate-from-nuxthub) and makes only the edits that keep the same behavior:
+
+- `nuxt.config`: `'@nuxthub/core'` becomes `'vite-hub/nuxt'`, and `hub` becomes `vitehub` in place. `db: 'sqlite'` becomes `database: true`, and `kv`, `blob`, and `cache` stay `true`. The preset comes from `nitro.preset`, then `cloudflare` when the app has a Wrangler config, then `node`. Driver options and other `hub` keys become follow-ups. MySQL stops the codemod, because ViteHub does not support it.
+- `package.json`: removes `@nuxthub/core` and adds `vite-hub`. With a database, it adds `@vite-hub/database` and brings `drizzle-orm` and `drizzle-kit` to at least `^1.0.0-rc.5`, the lowest version that `@vite-hub/database` accepts.
+- Schema: moves `server/db/schema.ts`, `server/db/schema.<dialect>.ts`, or the `server/db/schema/` folder to `server/databases/default/`, and writes `server/databases/default/index.ts` with `defineDatabase({ schema })`. Static, dynamic, CommonJS, and type imports follow the moved files. An aggregate exports every schema file, including an existing index; the report asks you to check conflicting exports. Legacy `relations()` declarations and each `db.query` use become follow-ups: rewrite them with Drizzle 1.0's `defineRelations()`, pass them to the Database Definition, and update relational filters before running the app.
+- Imports: `hub:db` and `@nuxthub/db` become `vite-hub/database/drizzle`, which exports `db` and `schema`. `hub:kv` and `hub:blob` become `vite-hub/kv` and `vite-hub/blob`. `hub:db:schema` becomes a relative import of the moved schema.
+- KV and Blob calls: tuple-returning methods such as `const x = await kv.get(k)` and `await blob.del(p)` get a tuple and `if (error) throw error`, also for returns in async functions. `blob.delete()` becomes `blob.del()`. `blob.serve()` returns a Response unchanged; in an H3 handler the event argument becomes `event.req`. An unknown event or an unsupported use of a tuple becomes a follow-up with `file:line`.
+- Wrangler config: the D1 `migrations_table: "_hub_migrations"` goes, because ViteHub must not reuse it. On Cloudflare, KV, cache, and Blob options keep the resource that matches the original binding or its `KV`, `CACHE`, or `BLOB` default. R2 options keep the bucket's jurisdiction too. Unrelated bindings stay in place. The report lists the matched entries to remove after checking the generated options, and the D1 options to set by hand.
+
+The codemod does not move local data or baseline the database. The follow-ups list the commands: copy `.data/db/sqlite.db` and `.data/kv`, `vitehub database generate --name baseline`, the baseline review, `vitehub database migrate`, and `vitehub blob put` for each blob. Node uses `.vitehub/data/kv`; Cloudflare on the Node development runner uses `.vitehub/data/kv-cloudflare/<binding>`. Binding-backed development reads its namespace instead. Review the baseline folder's `migration.sql` and keep its `snapshot.json`. Calls to the removed `hubBlob()`, `hubKV()`, `hubDatabase()`, and `hubAI()` helpers also become follow-ups.
+
 ## `nuxt-safe-runtime-config`
 
 The codemod reads one of the two schema sources of the module:
@@ -150,6 +165,22 @@ The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `ser
 Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
 
 Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective preset or jobs directory is computed, or the preset is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+
+## `agent-surface`
+
+```sh
+npx @vite-hub/codemods agent-surface [dir] [--dry-run]
+```
+
+The codemod updates an app that imports `vite-hub/agent` or `@vite-hub/agent`, with or without Nuxt:
+
+- `AgentActor` and `AgentInvokerProfile` become `AgentInvoker`, `getAgentFromRegistry` becomes `loadAgent`, and `workflow` becomes `agentWorkflow`, in imports and in the code that reads them.
+- `agent/process-host` and `agent/runtime/process` become `agent/process`, `agent/invocations/d1` and `agent/invocations/sqlite` become `agent/invocations`, and `agent/state/sqlite` becomes `agent/state`. Two imports that land on the same entry merge into one.
+- `defineAgent({ preset: "babysitter", presets: { babysitter } })` becomes `defineAgent({ extends: babysitter })`.
+- `providers: { state: { provider } }` in Agent options (`vitehub({ agent })`, a `vitehub.agent` block, or `hubAgent()`) becomes `driver`. The same applies to `scheduler` and `sandbox`.
+- `context: { actor }` in an Invocation input, `context.actor`, and a destructured `actor` next to other Agent context fields in a `defineAgent()` or `defineCapability()` callback become `invoker`.
+
+The report lists what it leaves: `getAgent()` and the root helpers that are no longer public, the private `agent/invocations/default` entry, a dynamic `preset` name, and an `actor` read that could also be another field, such as a GitHub sender.
 
 ## `one-entry-imports`
 

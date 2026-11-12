@@ -123,13 +123,13 @@ export type AgentRuntimeModule =
   | "internal/workspace/runtime"
   | "operations"
   | "runtime/invocations-dev"
-  | "runtime/process"
+  | "process"
   | "runtime/workflow"
   | "server"
   | "server/internal"
   | "server/registry"
   | "server/workspace"
-  | "state/sqlite"
+  | "state"
 
 /**
  * The absolute path of an Agent build entry. Generated code imports these by path, so they need no package export.
@@ -454,7 +454,7 @@ function transformGeneratedAgentWorkflowRegistry(
   const capabilityLoaders = generatedAgentWorkflowCapabilityLoaders(capabilities)
   const stateImports = state.libsql
     ? [
-        `import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state/sqlite"))}`,
+        `import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`,
         `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       ]
     : state.cloudflare
@@ -678,9 +678,9 @@ function shouldInstallCloudflareAgentState(
   command?: "build" | "serve",
 ): options is ResolvedAgentModuleOptions {
   if (!options) return false
-  const { provider, url } = options.providers.state
-  if (provider === "cloudflare" || provider === "cloudflare-agents") return true
-  if (provider !== "auto") return false
+  const { driver, url } = options.providers.state
+  if (driver === "cloudflare" || driver === "cloudflare-agents") return true
+  if (driver !== "auto") return false
   if (url) return false
   if (options.runtime === "cloudflare-agents") return true
   if (command === "serve" || (isRecord(config) && config.command === "serve")) return false
@@ -699,9 +699,9 @@ function resolveLibsqlAgentState(
   config: unknown,
 ): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
-  const { authToken, journalMode, provider, tablePrefix, url } = options.providers.state
-  const auto = provider === "auto"
-  if (!auto && provider !== "sqlite" && provider !== "libsql") return
+  const { authToken, driver, journalMode, tablePrefix, url } = options.providers.state
+  const auto = driver === "auto"
+  if (!auto && driver !== "sqlite" && driver !== "libsql") return
   if (auto && shouldInstallCloudflareAgentState(options, config)) return
   const authTokenEnvName = resolveEnvNameForValue(authToken)
   const target = isRecord(config) ? config : {}
@@ -1649,6 +1649,9 @@ async function generateAgentDeploymentCatalog(
     "inheritAgentLayerOptions",
     "markDiscoveredAgentName",
     "resetPublicUrlAgentNames",
+    "workspaceAgentOwnsWorkspaceDefinition",
+    "workspaceDefinitionFromOptions",
+    options.inspection ? "resolveAgentInspectionMetadata" : undefined,
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl", "namedChannelHosts"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
@@ -1657,10 +1660,8 @@ async function generateAgentDeploymentCatalog(
 
   return {
     imports: [
-      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions, ${standaloneChannels.length ? "defineAgent, " : ""}workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentRuntimeModule("index"))}`,
-      ...(options.inspection
-        ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(agentRuntimeModule("index"))}`]
-        : []),
+      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions${standaloneChannels.length ? ", defineAgent" : ""} } from ${JSON.stringify(agentRuntimeModule("index"))}`,
+      ...(options.inspection && typescript ? [`import type { ResolvedAgentRuntimeContext } from ${JSON.stringify(agentRuntimeModule("index"))}`] : []),
       `import { ${serverInternalImports} } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       ...(options.workspaceRegistry !== false
         ? [`import { setAgentWorkspaceDefinitions } from ${JSON.stringify(agentRuntimeModule("server/workspace"))}`]
@@ -1790,7 +1791,7 @@ async function generateAgentWebhookRouteHandler(
           `import type { ViteHubAgentStateDurableObjectNamespace } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`,
         ]
       : []),
-    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state/sqlite"))}`] : []),
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
     ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...(options.cloudflareState && !options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
@@ -1997,7 +1998,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
   return [
     ...deploymentCatalog.imports,
-    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state/sqlite"))}`] : []),
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
     ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     `import { createDiscordGatewayRouteHandler, isViteHubBearerSecretEqual } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ...workflowRuntime.imports,
@@ -2180,7 +2181,7 @@ async function writeAgentWebhookRouteHandler(
     const routeModule = `./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`
     await writeFileIfChanged(processHostFiles[0]!, [
       `import registry from ${JSON.stringify(agentRegistryId)}`,
-      `import { createAgentProcessHosts } from ${JSON.stringify(agentRuntimeModule("runtime/process"))}`,
+      `import { createAgentProcessHosts } from ${JSON.stringify(agentRuntimeModule("process"))}`,
       `import { agentProcessHostState } from ${JSON.stringify(routeModule)}`,
       "",
       `export const host = createAgentProcessHosts({ names: ${JSON.stringify(processHosts)}, registry, state: agentProcessHostState })`,
@@ -2240,7 +2241,7 @@ async function writeAgentWebhookRouteHandler(
             "  const startedAt = performance.timeOrigin",
             "  // Start one second after the server starts, so the Agent routes do not compile while the server answers its",
             "  // first requests, or at once when a request loads them. Invocations that started before this process are",
-            "  // interrupted unless a queued delivery runs them again.",
+            "  // interrupted unless a queued delivery runs them again or a live run in another process holds their claim.",
             "  // The warm-up builds registrations, secrets, and State before the first delivery needs them.",
             "  // /api/_vitehub/ready starts it at once and answers 503 until it finishes.",
             "  function startNow() {",
@@ -2385,7 +2386,7 @@ async function generateAgentDenoServer(
 
   return [
     ...deploymentCatalog.imports,
-    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state/sqlite"))}`] : []),
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
     ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
@@ -3146,13 +3147,13 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
-      const stateProvider = resolved && resolved.providers.state.provider
+      const stateDriver = resolved && resolved.providers.state.driver
       const installWebhookQueue = Boolean(
         resolved
         && hasHostedAgents
         && !denoOutput
         && !installCloudflareState
-        && (stateProvider === "auto" || stateProvider === "sqlite" || stateProvider === "libsql"),
+        && (stateDriver === "auto" || stateDriver === "sqlite" || stateDriver === "libsql"),
       )
       const installProcessDiscordGateway = Boolean(
         resolved

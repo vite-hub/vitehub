@@ -189,7 +189,8 @@ describe("Agent model materialization", () => {
   })
 
   it("inspects Gateway declarations without exposing credentials", async () => {
-    const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentInspectionMetadata, resolveAgentInspectionMetadata } = await import("../src/workspace-agent.ts")
     const agent = defineAgent({
       driver: {
         model: { apiKey: "secret-token", id: "zai/glm-5v-turbo" },
