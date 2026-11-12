@@ -58,7 +58,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
   const databases: Record<string, { dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
   for (const name of config?.databaseNames ?? []) {
     try {
-      const migrations = readStartMigrations(resolve(config!.rootDir, config!.databases[name]!.migrationsDir))
+      const migrations = readStartMigrations(resolve(config!.rootDir, config!.databases[name]!.migrationsDir), name)
       if (migrations.length) databases[name] = { dialect: config!.databases[name]!.dialect, migrations }
     }
     catch (error) {
@@ -74,7 +74,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
  * when no database has migrations.
  */
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
-  const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir)).length)
+  const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name).length)
   if (!databases.length) return
   return [
     `import { databases } from ${JSON.stringify(options.drizzleImport)}`,
@@ -105,8 +105,8 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
 }
 
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
-export function readStartMigrations(migrationsDir: string): StartMigration[] {
-  const entries = readMigrations(migrationsDir)
+export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+  const entries = readMigrations(migrationsDir, database)
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }

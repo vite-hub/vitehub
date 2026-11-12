@@ -68,6 +68,7 @@ export default defineConfig({
 | `database.cli.export` | `false` | enabled | Turns off `database export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
+| `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `d1` selects Cloudflare D1 output for all databases. |
 | `database.binding` | `string` | `DB` | D1 binding of the default database. Named databases get their own binding names. |
@@ -186,7 +187,7 @@ Postgres tables use `snakeCase.table()` from `drizzle-orm/pg-core`. `defineDatab
 
 A migration is a folder that changes your tables. `vitehub database generate` writes one next to the Definition, as Drizzle Kit 1.0 does: `migrations/<YYYYMMDDHHmmss>_<name>/` with `migration.sql` and `snapshot.json`. `vitehub database migrate` first reads each database's migrations table and checks the SQL of each pending migration, then applies them with Drizzle Kit. For Postgres, it applies them with the migrator that a server runs [on start](#migrate-when-the-server-starts): it writes the same rows as Drizzle Kit and holds the same advisory lock as a starting server. A migration is pending when the `name` column of the table does not list its folder.
 
-Drizzle Kit 0.x wrote flat `.sql` files and a `migrations/meta/_journal.json`. Drizzle 1.0 cannot read them, and `vitehub database migrate` fails until you convert them. Run `npx drizzle-kit up --dialect sqlite --out server/databases/default/migrations` once (`postgresql` for Postgres), and commit the new folders. The next migrate adds the `name` column to the migrations table and fills it for the applied migrations.
+A folder from Drizzle Kit 0.x needs `vitehub database up` once. Read [Upgrade to Drizzle 1.0](#upgrade-to-drizzle-10).
 
 The CLI and startup refuse the ledger upgrade when overlapping timestamp or hash updates would assign different folder names to one row. Drizzle Kit can replay applied SQL in that case. Verify and repair the ledger upgrade on a database copy before retrying.
 
@@ -230,6 +231,24 @@ The check reads the database that Drizzle Kit migrates:
 A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehub database migrate`, so this check does not run.
 
 For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied file, so Wrangler and ViteHub can take turns. Wrangler reads flat `.sql` files, so each migration folder counts as `NNNN_<name>.sql`, and a Cloudflare build writes it as that file next to the Wrangler config. `vitehub database generate` and the build keep these names in `d1-migrations.json` next to the migrations. Commit it: a listed folder keeps its name, and a new folder takes the next number, even when a merge brings a folder with an earlier timestamp. Without the file, the numbers follow the folder order. These are the names that Drizzle Kit 0.x used, so a folder that `drizzle-kit up` converted keeps its row in `d1_migrations` and does not run again. When a name in `d1_migrations` moved to another number, `vitehub database migrate` fails the check with `DATABASE_MIGRATION_CHECK_FAILED`. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
+
+### Upgrade to Drizzle 1.0
+
+ViteHub uses `drizzle-orm` and `drizzle-kit` 1.0. Install `drizzle-orm@1.0.0-rc.5` and `drizzle-kit@1.0.0-rc.5`. Four things change for an app that used Drizzle 0.x:
+
+- **Migrations folders.** Drizzle Kit 0.x wrote flat `.sql` files and `meta/_journal.json`. Drizzle Kit 1.0 writes one `<YYYYMMDDHHmmss>_<name>/` folder per migration and cannot read the old layout. Until you convert it, `vitehub database generate`, `vitehub database migrate`, the build with `migrateOnStart`, and test mode fail with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
+- **Applied migrations.** The next `vitehub database migrate` adds the `name` column to the migrations table and fills it for the migrations that 0.x applied. They do not run again. On D1, each converted folder keeps the file name that Wrangler applied, such as `0000_init.sql`.
+- **Casing.** `defineDatabase()` has no `drizzle` option. Drizzle 1.0 has no `casing` for a database. Declare each table with `snakeCase.table()`, as in [Name columns in snake_case](#name-columns-in-snake_case). A `drizzle` option throws `DATABASE_DRIZZLE_OPTION_REMOVED`.
+- **Relational queries.** `db.query` uses Drizzle's relational queries v2: filters are objects, such as `where: { id: 1 }`, and `with` follows the `relations` of the Definition. Read [Query related tables](#query-related-tables).
+
+Convert the migrations folder of each Database once, and commit the result:
+
+```bash [Terminal]
+pnpm vitehub database up
+pnpm vitehub database migrate --dry-run
+```
+
+`vitehub database up` runs `drizzle-kit up` on the migrations folder of each Database Definition, with the `sqlite` or `postgresql` dialect of the Definition. It removes `meta/` and leaves folders that already use the 1.0 layout as they are, so you can run it again. Then `vitehub database migrate --dry-run` lists no pending migrations for a database that 0.x had migrated.
 
 ## Migrate when the server starts
 
