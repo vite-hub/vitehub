@@ -29,6 +29,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `decisions` | Decisions |
 | `email` | Email |
 | `env` | Env |
+| `forge` | Forge |
 | `forms` | Forms |
 | `gateways` | AI Gateways |
 | `i18n` | i18n |

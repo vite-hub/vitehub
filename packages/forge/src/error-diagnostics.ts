@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/agents/diagnostics",
+  docsBase: "https://vitehub.dev/docs/forge/diagnostics",
   codes: {
     /** The GitHub App installation lookup failed or the App is not installed. */
     FORGE_R0001: dynamicError,

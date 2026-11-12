@@ -1,5 +1,5 @@
 ---
-title: Forge
+title: Forge capability
 description: Give an Agent tools to read and change repositories, pull requests, and issues on GitHub, GitLab, and Forgejo.
 navigation.title: Forge
 navigation.order: 166
@@ -33,7 +33,7 @@ forge({
 
 ## Forges and credentials
 
-Credentials come only from [Server Env](/docs/env), ViteHub's typed server environment variables, never from options.
+Credentials come only from [Server Env](/docs/env), ViteHub's typed server environment variables, never from options. They are the same names that [`useForge()`](/docs/forge) reads.
 
 | Forge | Default instance | Server Env variables |
 | --- | --- | --- |

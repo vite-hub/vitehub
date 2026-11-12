@@ -2,7 +2,7 @@ import { defineErrors } from "@vite-hub/runtime"
 
 // Keep published codes stable. Each code has a generated diagnostic page and a member in `ForgeErrorCode`.
 export const forgeErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/agents/diagnostics",
+  docs: "https://vitehub.dev/docs/forge/diagnostics",
   codes: {
     // Runtime errors. `useForge()` operations return them as `[error, undefined]`.
     FORGE_APP_NOT_INSTALLED: {

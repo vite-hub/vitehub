@@ -896,7 +896,7 @@ The rule reads only number literals, not variables or spreads.
 
 **Import Forge error classes from `@vite-hub/forge`.** Rule `vitehub/forge-error-imports`.
 
-An app that depends on `@vite-hub/forge` imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
+An app that depends on [`@vite-hub/forge`](/docs/forge) imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
 
 ```ts [server/utils/pull-request.ts] fragment
 // Invalid

@@ -28,6 +28,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/browser` | Browser Definitions, per-invocation sessions, controllers, providers, live handoff, Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
 | `@vite-hub/bundle` | [Bundle reports](/docs/bundle) of production builds: client and server size, startup size, groups, and import chains, for Vite and Nuxt 5 with Nitro 3. The `vitehub bundle` commands. | `@vite-hub/bundle`, `@vite-hub/bundle/cli`, `@vite-hub/bundle/vite` |
 | `@vite-hub/decisions` | [Decisions](/docs/decisions): `defineChoices()` turns text into choices from your options, for filters, search facets, and command palettes. Uses a gateway with `ask()`. No Vite or Nitro code. | `@vite-hub/decisions`, `@vite-hub/decisions/vue` |
+| `@vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients, the Forge Server Env, and the `forges` building blocks that ViteHub packages use | `@vite-hub/forge` |
 | `@vite-hub/forms` | Forms that visitors send to the site owner: `defineForm()` with a spam guard, Standard Schema validation, a submissions table, and email. `submitForm()` on the client. | `@vite-hub/forms`, `@vite-hub/forms/client`, `@vite-hub/forms/database`, `@vite-hub/forms/vue` |
 | `@vite-hub/sandbox` | Sandbox Definitions, execution sessions on any provider, Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
 | `@vite-hub/channels` | Channels in both directions (`defineChannel()`, `webhook()`, `stripe()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
@@ -87,5 +88,3 @@ Capabilities, and other app APIs come from feature subpaths.
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
 
 - `@vite-hub/presets`
-
-- `@vite-hub/forge`
