@@ -2886,6 +2886,9 @@ importers:
       comark:
         specifier: catalog:markdown
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.3.0
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
