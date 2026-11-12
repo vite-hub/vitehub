@@ -48,10 +48,10 @@ the same behavior.
 | `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
 | `vite-hub/gateways` | [AI Gateways](/docs/gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/gateways/server-api#use-a-model-with-the-ai-sdk): an AI SDK model that sends requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
-| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/presets/babysitter` | Composable [Babysitter](/docs/presets/babysitter) repair-loop preset. |
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
-| `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
+| `vite-hub/presets/labeller` | [Gmail labelling preset](/docs/presets/labeller) with ordered rules, Jev fallback, and allowlisted message actions. |
+| `vite-hub/presets/workspace` | Opt-in [workspace source-provenance citation preset](/docs/presets/workspace). |
 | `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |

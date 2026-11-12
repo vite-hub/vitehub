@@ -441,4 +441,4 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/presets/labeller#clean-up-old-mail) and its `cleanup` option.

@@ -52,7 +52,7 @@ console.log(result.text) // 'Hello, Ada!'
 5. [Connect a Channel](/docs/agents/channels) for messages from another service or a web chat.
 6. [Inspect events](/docs/agents/observability), [test contracts](/docs/agents/testing), and [evaluate model behavior](/docs/agents/evals).
 
-Then share configuration with [presets and inheritance](/docs/agents/agent-presets) and keep run records with [Invocation storage](/docs/agents/invocation-storage). [Ready-made presets](/docs/agents/presets) give full workflows, each with its own setup.
+Then share configuration with [presets and inheritance](/docs/agents/agent-presets) and keep run records with [Invocation storage](/docs/agents/invocation-storage). [Ready-made presets](/docs/presets) give full workflows, each with its own setup.
 
 ::product-features
   :::product-feature-item{title="Choose what does the work" icon="i-lucide-cpu" to="/docs/agents/agent-drivers"}
@@ -75,7 +75,7 @@ Then share configuration with [presets and inheritance](/docs/agents/agent-prese
   `runAgent()` runs the agent and returns its result. The ViteHub Console shows what happened in each run.
   :::
 
-  :::product-feature-item{title="Start from a ready-made agent" icon="i-lucide-copy" to="/docs/agents/presets"}
+  :::product-feature-item{title="Start from a ready-made agent" icon="i-lucide-copy" to="/docs/presets"}
   Babysitter fixes pull requests. The Workspace preset answers from your files and links to them. Add your settings and run it.
   :::
 ::
