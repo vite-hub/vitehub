@@ -52,6 +52,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `development` | Development and the CLI |
 | `hosts` | Frameworks and hosts |
 | `web-container` | WebContainer |
+| `bundle` | Bundle reports |
 | `reference` | Reference |
 | `compare` | Comparisons |
 

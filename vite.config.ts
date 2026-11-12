@@ -66,6 +66,12 @@ export default defineConfig({
         command: "node test/local/deno-real-project.mjs --live",
         dependsOn: ["build"],
       },
+      // Opt-in: needs Docker. Runs three Node instances of one app against Postgres and Redis.
+      "e2e:multi-instance": {
+        cache: false,
+        command: "node test/multi-instance/run.mjs",
+        dependsOn: ["build"],
+      },
       "knip:catalog": {
         cache: false,
         command:

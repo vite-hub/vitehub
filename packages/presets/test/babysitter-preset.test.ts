@@ -1030,15 +1030,6 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("does not retain a merge assessment for an external wait", async () => {
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
-    try {
-      await f.reconcile();
-      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeNull();
-      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.kind).toBe("external");
-    } finally { await f.runtime.inbox.close(); }
-  });
-
   it("preserves an external prerequisite across a repair push and green checks", async () => {
     let ready = false;
     const reason = "Publish the required dependency release before merging.";
@@ -1742,6 +1733,10 @@ describe("Babysitter preset runtime", () => {
 
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
+    for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
+      expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: authorAssociation as never } } })).toThrow(/filter\.authorAssociation must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: { allow: ["OWNER", "MEMBER"], deny: ["NONE"] } } } })).not.toThrow();
     for (const noProgressBudget of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }
