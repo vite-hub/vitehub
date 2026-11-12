@@ -56,10 +56,14 @@ export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Sn
  * Files the PR changes that its base branch also changed after the PR's checks ran. PR checks test
  * the base of that moment, so two PRs that edit the same file can each pass and still break the base
  * together. Empty means nothing overlaps. Any doubt (no Actions run, a truncated comparison) returns
- * every changed file, so the PR is updated and tested against the current base.
+ * every changed file, so the PR is updated and tested against the current base. A head that
+ * contains the base tip never overlaps.
  */
 export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Snapshot, live: { head: { sha: string }; base: { ref: string } }, signal: AbortSignal): Promise<string[]> {
   const { repository, number } = snapshot;
+  // A head that already contains the base tip was tested on it, and GitHub refuses to update it.
+  const fromBase = await reader.page(`repos/${repository}/compare/${encodeURIComponent(live.base.ref)}...${live.head.sha}?per_page=1`, signal);
+  if (isRuntimeRecord(fromBase) && fromBase.behind_by === 0) return [];
   const [files, testedBase] = await Promise.all([
     reader.rest(`repos/${repository}/pulls/${number}/files?per_page=100`, signal),
     checksTestedBase(reader, snapshot, live.head.sha, live.base.ref, new Set(["success"]), signal),
