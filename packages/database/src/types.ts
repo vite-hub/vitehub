@@ -1,4 +1,4 @@
-import type { EmptyRelations, ExtractTablesFromSchema, ExtractTablesWithRelations } from "drizzle-orm"
+import type { AnyRelations, EmptyRelations, ExtractTablesFromSchema, ExtractTablesWithRelations } from "drizzle-orm"
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
@@ -65,10 +65,15 @@ export interface DatabaseIntegrationOptions {
     export?: false
     generate?: false
     migrate?: false
+    up?: false
   }
   /**
-   * Applies pending migrations of local SQLite databases when a Node server build starts, before it handles requests.
-   * It uses the ledger and data loss check of `vitehub database migrate`. Run one server process per database file.
+   * Applies pending migrations when a Node server build starts, before it handles requests. It uses the ledger and
+   * data loss check of `vitehub database migrate`, and a failed migration stops the server.
+   *
+   * Unset, Postgres databases of a Node build migrate on start and other databases do not. Postgres migrations hold an
+   * advisory lock, so several instances can start together. `true` also migrates local SQLite files, one server
+   * process per file. `false` turns it off.
    */
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */
@@ -81,11 +86,19 @@ export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions 
   connection?: DatabaseConnectionConfig
 }
 
-export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+export interface DatabaseDefinitionOptions<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   dialect?: "sqlite"
   name?: string
+  /**
+   * Relations between tables, from Drizzle's `defineRelations(schema, r => ({ ... }))`. They type and run
+   * `db.query.<table>.findMany({ with })`. Defaults to `defineRelations(schema)`: every table, with no relations.
+   */
+  relations?: TRelations
   /**
    * In `vite dev`, query the real D1 database over HTTP instead of local SQLite. Writes change real data. It uses the
    * D1 HTTP path of `cloudflare.http` with the same credentials, so `true` means `cloudflare.http: true` in development.
@@ -106,21 +119,30 @@ export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
 }
 
-export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+export interface PostgresDatabaseDefinitionOptions<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
   name?: string
+  /** Relations between tables, from Drizzle's `defineRelations()`. See `DatabaseDefinitionOptions.relations`. */
+  relations?: TRelations
   /** Only D1 has a remote development mode. */
   remote?: never
   schema: TSchema
 }
 
-export interface PostgresDatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+export interface PostgresDatabaseDefinition<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
   name: string
+  relations: TRelations
   schema: TSchema
 }
 
@@ -130,21 +152,54 @@ export interface PostgresDatabaseDefinition<TSchema extends Record<string, unkno
  */
 export type SchemaRelations<TSchema extends Record<string, unknown>> = ExtractTablesWithRelations<EmptyRelations, ExtractTablesFromSchema<TSchema>>
 
-export type RuntimePostgresDatabase<TSchema extends Record<string, unknown>> = PgAsyncDatabase<PgQueryResultHKT, SchemaRelations<TSchema>>
+type RelationFields<TPart, TTable> = TTable extends keyof TPart ? TPart[TTable] extends { relations: infer TFields } ? TFields : {} : {}
 
-export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+type MergeRelationFields<TParts extends readonly unknown[], TTable> = TParts extends readonly [...infer TRest, infer TLast]
+  ? Omit<MergeRelationFields<TRest, TTable>, keyof RelationFields<TLast, TTable>> & RelationFields<TLast, TTable>
+  : {}
+
+/**
+ * The relations of a Database whose schema and relations come from several parts, such as Nuxt layers and contributed
+ * tables. Every table of `TSchema` gets an entry. The relation fields of a table merge across `TParts`, lowest
+ * precedence first, and a later part wins a field name. The generated `DatabaseRegistry` uses it.
+ */
+export type MergeDatabaseRelations<TSchema extends Record<string, unknown>, TParts extends readonly unknown[]> = {
+  [TTable in keyof ExtractTablesFromSchema<TSchema>]: {
+    table: ExtractTablesFromSchema<TSchema>[TTable]
+    name: TTable & string
+    relations: { [TField in keyof MergeRelationFields<TParts, TTable>]: MergeRelationFields<TParts, TTable>[TField] }
+  }
+}
+
+export type RuntimePostgresDatabase<
+  TSchema extends Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> = PgAsyncDatabase<PgQueryResultHKT, TRelations>
+
+export interface DatabaseDefinition<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   name: string
+  /** The relations of this Definition. The runtime merges them with the relations of Nuxt layers and contributed tables. */
+  relations: TRelations
   remote?: boolean
   schema: TSchema
 }
 
-export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = SQLiteAsyncDatabase<"async", unknown, SchemaRelations<TSchema>> & {
+export type RuntimeDrizzleDatabase<
+  TSchema extends Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> = SQLiteAsyncDatabase<"async", unknown, TRelations> & {
   /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
 }
-export type Database<TSchema extends Record<string, unknown> = Record<string, unknown>> = DatabaseDefinition<TSchema> & RuntimeDrizzleDatabase<TSchema>
+export type Database<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> = DatabaseDefinition<TSchema, TRelations> & RuntimeDrizzleDatabase<TSchema, TRelations>
 
 /** A module whose `schema` tables join a database. */
 export interface DatabaseSchemaSource {

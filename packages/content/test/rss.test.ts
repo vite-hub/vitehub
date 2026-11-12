@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { H3 } from "h3"
 import { kv } from "@vite-hub/kv"
+import { createMemoryLeaseStore } from "@vite-hub/runtime"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -306,18 +307,24 @@ describe("page dates after a head move", () => {
     ])
   })
 
-  it("lets one server instance compute a date set while its KV lease holds", async () => {
+  it("uses an atomic lease when replicas start the same date set together", async () => {
     fake.commit("main", { "content/a.md": page("A"), "content/b.md": page("B") }, { author: { date: at(1), name: "Ada" } })
-    const first = sourceSite()
-    const second = sourceSite()
-    await Promise.all([first.list("docs"), second.list("docs")])
+    const dateLeases = createMemoryLeaseStore()
+    const first = sourceSite({ rss: true, dateLeases })
+    const second = sourceSite({ rss: true, dateLeases })
+    await first.list("docs")
+    await second.list("docs")
+    // Both replicas can miss an eventually consistent KV cache, even after another replica writes it.
+    registerContentKV({
+      get: <T>(key: string) => key.startsWith("content:dates:") ? Promise.resolve([undefined, undefined] as const) : kv.get<T>(key),
+      set: (key, value) => kv.set(key, value),
+    })
     const gate = gateGraphQL()
 
     const one = hostRequest("https://example.com/rss.xml")
-    await defineContentRssHandler(first).fetch(one.request)
-    await vi.waitFor(() => expect(gate.waiting.count).toBe(1))
     const two = hostRequest("https://example.com/rss.xml")
-    await defineContentRssHandler(second).fetch(two.request)
+    await Promise.all([defineContentRssHandler(first).fetch(one.request), defineContentRssHandler(second).fetch(two.request)])
+    expect(one.tasks).toHaveLength(1)
     expect(two.tasks).toHaveLength(1)
 
     gate.open()
@@ -325,7 +332,68 @@ describe("page dates after a head move", () => {
     expect(gate.waiting.count).toBe(1)
     expect(fileHistories()).toHaveLength(1)
     // The second instance reads the set that the first one stored.
+    registerContentKV(kv)
     expect(await second.rss()).toContain(`<pubDate>${new Date(at(1)).toUTCString()}</pubDate>`)
+    expect(fileHistories()).toHaveLength(1)
+  })
+
+  it.each([true, false])("shares date work between background and blocking reads (background first: %s)", async (backgroundFirst) => {
+    fake.commit("main", { "content/a.md": page("A") }, { author: { date: at(1), name: "Ada" } })
+    const dateLeases = createMemoryLeaseStore()
+    const acquire = vi.spyOn(dateLeases, "acquire")
+    const content = sourceSite({ rss: true, dateLeases })
+    await content.list("docs")
+    const gate = gateGraphQL()
+    const tasks: Promise<unknown>[] = []
+    const background = () => content.rss({ waitUntil: task => tasks.push(task) })
+    let blocking: Promise<string>
+    if (backgroundFirst) {
+      await background()
+      await vi.waitFor(() => expect(gate.waiting.count).toBe(1))
+      blocking = content.rss()
+    }
+    else {
+      blocking = content.rss()
+      await vi.waitFor(() => expect(gate.waiting.count).toBe(1))
+      await background()
+    }
+
+    gate.open()
+    const xml = await blocking
+    await Promise.all(tasks)
+    expect(xml).toContain(`<pubDate>${new Date(at(1)).toUTCString()}</pubDate>`)
+    expect(fileHistories()).toHaveLength(1)
+    expect(acquire).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps SEO available when the lease authority fails and retries later", async () => {
+    fake.commit("main", { "content/a.md": page("A") }, { author: { date: at(1), name: "Ada" } })
+    const dateLeases = createMemoryLeaseStore()
+    const acquire = vi.spyOn(dateLeases, "acquire").mockRejectedValueOnce(new Error("Lease authority unavailable"))
+    const content = sourceSite({ rss: true, dateLeases })
+    expect(await content.sitemap()).toEqual([{ collection: "docs", id: "a", loc: "https://example.com/docs/a" }])
+    expect(fileHistories()).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Lease authority unavailable"))
+    expect(await content.rss()).toContain(`<pubDate>${new Date(at(1)).toUTCString()}</pubDate>`)
+    expect(acquire).toHaveBeenCalledTimes(2)
+    expect(fileHistories()).toHaveLength(1)
+  })
+
+  it("releases an atomic date lease after a failed history read", async () => {
+    fake.commit("main", { "content/a.md": page("A") }, { author: { date: at(1), name: "Ada" } })
+    const dateLeases = createMemoryLeaseStore()
+    const content = sourceSite({ rss: true, dateLeases })
+    vi.stubGlobal("fetch", vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
+      if (new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith("/graphql")) return new Response("Forbidden", { status: 403 })
+      return await fake.fetch(input, init)
+    }))
+    const tasks: Promise<unknown>[] = []
+    await content.rss({ waitUntil: task => tasks.push(task) })
+    await Promise.all(tasks)
+    expect(warn).toHaveBeenCalled()
+
+    vi.stubGlobal("fetch", vi.fn(fake.fetch))
+    expect(await content.rss()).toContain(`<pubDate>${new Date(at(1)).toUTCString()}</pubDate>`)
     expect(fileHistories()).toHaveLength(1)
   })
 

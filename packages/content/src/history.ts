@@ -5,6 +5,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV } from "./source-heads.ts"
 
 import type { GitHubFileCommit } from "@vite-hub/source"
+import type { LeaseStore } from "@vite-hub/runtime"
 import type { ContentRevision, ContentRevisionsOptions, ContentRevisionsResult, ContentResolved } from "./collections-runtime.ts"
 import type { GitHubDefinition } from "./source-heads.ts"
 
@@ -38,6 +39,8 @@ export interface ContentHistoryResult {
 
 /** What `content.history()` reads from the Content runtime. */
 export interface ContentHistoryRuntime {
+  /** An atomic authority shared by every instance that refreshes Source dates. */
+  dateLeases?: LeaseStore
   /** The published collection document at an app path, or null. Undefined without collections. */
   resolve?: (path: string) => Promise<ContentResolved | null>
   /** Published revisions of one collection document. */
@@ -103,6 +106,7 @@ export interface ContentDatesOptions {
   /**
    * The `waitUntil` of the request. When the dates of the published commit are not ready, `dates()` answers at once
    * with the dates of the previous head and computes the new set in `waitUntil`. Without it, `dates()` waits for them.
+   * When another instance holds `dateLeases`, either form serves cached dates until the new set is visible.
    */
   waitUntil?: (promise: Promise<unknown>) => void
 }
@@ -110,23 +114,17 @@ export interface ContentDatesOptions {
 /** The latest commit dates of the pages of one Source at one commit. Null for a page without commits. */
 type SourceDates = { sha: string, dates: Record<string, string | null> }
 
-/** Date sets that one server instance holds in memory. */
-const memoryDates = 8
-/** How long one server instance may compute a date set before another one tries. A cold set takes about 20 seconds. */
-const datesLease = 60_000
-
-/** The KV value that marks a date set as being computed. */
-type DatesLease = { sha: string, until: number }
+/** Seconds before another instance may retry a date set. A cold set takes about 20 seconds. */
+const datesLease = 60
 
 /** Create `content.history()`. */
 export function createContentHistory(runtime: ContentHistoryRuntime): ContentHistoryApi {
   const pages = new Map<string, Promise<CommitPage>>()
   const warned = new Set<string>()
-  const dateSets = new Map<string, Promise<SourceDates>>()
+  /** All in-flight date work, shared by blocking reads, background reads, and webhook warming. */
+  const dateSets = new Map<string, Promise<SourceDates | undefined>>()
   /** The newest date set of each Source and origin, so the next commit reads only the pages that changed. */
   const lastDates = new Map<string, SourceDates>()
-  /** The date sets this instance computes after a response, by KV prefix and commit. */
-  const refreshing = new Map<string, Promise<void>>()
 
   /** One page of commits, from memory, then KV, then GitHub. A failed read is not kept. */
   async function commitPage(cacheKey: string, load: () => Promise<CommitPage>): Promise<CommitPage> {
@@ -260,30 +258,32 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
   }
 
   /**
-   * Compute the date set of `sha` once. A KV lease of `datesLease` milliseconds keeps other server instances from
-   * computing the same set at the same time. A failure logs and frees the lease, so the next request tries again.
+   * Share work for this Source/head across every entry point. Cross-instance exclusion needs an atomic LeaseStore;
+   * eventually consistent KV is only a date cache. Keep a successful lease until expiry to allow cache propagation.
    */
-  function refreshSet(definition: GitHubDefinition, prefix: string, sha: string, keys: readonly string[]): Promise<void> {
+  function refreshSet(definition: GitHubDefinition, prefix: string, sha: string, keys: readonly string[]): Promise<SourceDates | undefined> {
     const id = `${prefix}:${sha}`
-    const running = refreshing.get(id)
-    if (running) return running
-    const leaseKey = `${prefix}:lease`
+    const running = dateSets.get(id)
+    if (running) {
+      // A caller can request more keys than the work already in flight. Fill those after it completes.
+      return running.then(current => current && keys.some(key => !Object.hasOwn(current.dates, key))
+        ? refreshSet(definition, prefix, sha, keys)
+        : current)
+    }
     const task = (async () => {
-      const kv = contentKV()
-      if (kv) {
-        const [error, lease] = await kv.get<DatesLease>(leaseKey).catch((cause: unknown) => [cause, undefined] as const)
-        if (!error && lease?.sha === sha && lease.until > Date.now()) return
-        await kv.set(leaseKey, { sha, until: Date.now() + datesLease } satisfies DatesLease).catch(() => undefined)
-      }
+      const [error, lease] = runtime.dateLeases ? await runtime.dateLeases.acquire(id, { ttl: datesLease }) : []
+      // A failed authority must not silently turn into uncoordinated upstream work.
+      if (error) throw error
+      if (runtime.dateLeases && !lease) return await readySet(prefix, sha, keys)
       try {
-        await sourceDates(definition, prefix, sha, keys)
+        return await sourceDates(definition, prefix, sha, keys)
       }
       catch (error) {
-        await kv?.set(leaseKey, { sha, until: 0 } satisfies DatesLease).catch(() => undefined)
-        console.error(error)
+        await lease?.release().catch(() => undefined)
+        throw error
       }
-    })().finally(() => refreshing.delete(id))
-    refreshing.set(id, task)
+    })().finally(() => dateSets.delete(id))
+    dateSets.set(id, task)
     return task
   }
 
@@ -311,21 +311,14 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
         const ready = await readySet(prefix, sha, keys)
         if (ready) return pick(ready.dates)
         // Answer now with the dates of the previous head, and compute this head after the response.
-        options.waitUntil(refreshSet(definition, prefix, sha, keys))
+        options.waitUntil(refreshSet(definition, prefix, sha, keys).catch(error => console.warn(error)))
         const previous = await previousSet(prefix)
         return previous ? pick(previous.dates) : new Map()
       }
-      const cacheKey = `${prefix}:${sha}:${await parserHash([...keys].sort())}`
-      let pending = dateSets.get(cacheKey)
-      if (!pending) {
-        pending = sourceDates(definition, prefix, sha, keys)
-        dateSets.set(cacheKey, pending)
-        pending.catch(() => {
-          if (dateSets.get(cacheKey) === pending) dateSets.delete(cacheKey)
-        })
-        while (dateSets.size > memoryDates) dateSets.delete(dateSets.keys().next().value!)
-      }
-      return pick((await pending).dates)
+      const ready = await readySet(prefix, sha, keys)
+      if (ready) return pick(ready.dates)
+      const current = await refreshSet(definition, prefix, sha, keys) ?? await previousSet(prefix)
+      return current ? pick(current.dates) : new Map()
     }
     catch (error) {
       // The dates only enrich the sitemap and the feed, so a GitHub failure keeps the dates of the previous head, or
