@@ -74,6 +74,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
+  ["vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
