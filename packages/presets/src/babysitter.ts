@@ -19,6 +19,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
+export { BabysitterPlacementCapacityError } from "./babysitter/placement.ts";
 
 export interface BabysitterLifecycleLabels {
   /** At least one of these labels must be present for the PR to be eligible. */
@@ -41,9 +42,15 @@ export interface BabysitterPlacementLease {
 
 /** Chooses a host for each pass before the Babysitter installs dependencies on this one. */
 export interface BabysitterPlacement {
+  /** Throw `BabysitterPlacementCapacityError` when no host can take the pass now; the PR waits and is claimed again. */
   place(pullRequest: { repository: string; number: number }): BabysitterPlacementLease | Promise<BabysitterPlacementLease>;
   /** Passes currently placed on other hosts. They hold a concurrency slot but no local memory. */
   remoteActive?(): number;
+  /**
+   * Slots that hosts admit now, counting passes already running. A reconcile claims at most this
+   * many PRs minus the active owners, so it never claims work that `place` must turn away.
+   */
+  admitted?(): number | Promise<number>;
 }
 
 export interface BabysitterOptions {
@@ -363,8 +370,8 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!Number.isSafeInteger(providerCooldownMs) || providerCooldownMs < 1000 || providerCooldownMs > 60 * 60_000) {
       throw new TypeError("[vitehub] Babysitter providerCooldownMs must be an integer from 1000 to 3600000.");
     }
-    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
-      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
+    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function") || (placement.admitted !== undefined && typeof placement.admitted !== "function"))) {
+      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive?, admitted? } functions.");
     }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");

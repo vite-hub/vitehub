@@ -179,6 +179,8 @@ To add capacity beyond one host, set `options.placement`:
 - A pass without a `sandbox` runs on this host.
 - `release()` runs once when the pass ends.
 - An optional `remoteActive()` function next to `place` counts remote passes toward `concurrency`. They reserve no local memory.
+- An optional `admitted()` function returns how many slots the hosts admit now, counting passes already running. Each reconcile then claims at most that many pull requests minus the active ones, so it does not claim work that `place` would turn away. Without it, claims follow `concurrency` alone.
+- When no host can take a pass, throw `BabysitterPlacementCapacityError` from `place`. The pull request waits 30 seconds, or the error's `retryAfterMs`, and is claimed again. The wait does not count against its no-progress budget. Any other error from `place` fails the pass.
 
 A configured `sandbox` always takes precedence over placement.
 

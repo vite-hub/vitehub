@@ -42,7 +42,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
 
 import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
-import type { BabysitterPlacement } from "../src/babysitter.ts";
+import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
@@ -1542,6 +1542,7 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { admission: { inputTokens: { hourly: -1 } } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { admission: { paused: "yes" as unknown as boolean } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { placement: {} as BabysitterPlacement } })).toThrow(/placement must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { placement: { place: () => ({ release() {} }), admitted: 2 as unknown as () => number } } })).toThrow(/placement must be/);
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["vercel[bot]"], noProgressBudget: false, deferWhilePending: false, install: { command: "pnpm", args: ["install"] } } })).not.toThrow();
   });
 
@@ -3063,6 +3064,35 @@ describe("Babysitter preset runtime", () => {
       expect(sandboxDefinitions).not.toHaveBeenCalled();
       expect(install).toHaveBeenCalled();
       expect(release).toHaveBeenCalledOnce();
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  });
+
+  it("waits for placement capacity instead of failing the pass", async () => {
+    const place = vi.fn(() => { throw new BabysitterPlacementCapacityError("All hosts are full.", 45_000); });
+    const f = await fixture(false, false, { placement: { place } });
+    try {
+      const before = Date.now();
+      await f.reconcile();
+      expect(place).toHaveBeenCalledOnce();
+      expect(f.passes).toHaveLength(0);
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current).toMatchObject({ status: "waiting", lease: null, wait: { kind: "external", reason: "All hosts are full.", reasonCode: "placement-capacity" } });
+      expect(current?.wait?.retryAt).toBeGreaterThanOrEqual(before + 45_000);
+      expect(current?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.placement.waiting", expect.objectContaining({ reason: "placement-capacity" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([[0, 0], [1, 1]])("claims no more PRs than placement admits (%i admitted)", async (admitted, placed) => {
+    const release = vi.fn();
+    const place = vi.fn(() => ({ release }));
+    const f = await fixture(false, false, { placement: { place, admitted: async () => admitted } });
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
+    try {
+      await f.reconcile();
+      expect(place).toHaveBeenCalledTimes(placed);
+      expect(f.passes).toHaveLength(placed);
+      if (!placed) expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("ready");
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
