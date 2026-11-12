@@ -1,6 +1,6 @@
 // Generated startup code imports this module. Keep it free of Better Auth imports: `@vite-hub/auth/server` loads
 // Better Auth, and startup code imports it only when a request needs an Auth instance.
-import { resolveAuthMountPath } from "../application-path.ts"
+import { resolveAccessRoutePath } from "../application-path.ts"
 import { unwrapAuthRequest } from "../request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 
@@ -51,12 +51,7 @@ export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccess
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
     // Request URLs keep the application base path, so match each route below it.
-    path: (() => {
-      const recursive = route.route.endsWith("/**")
-      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
-      return recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved
-    })(),
-    recursive: route.route.endsWith("/**"),
+    ...resolveAccessRoutePath(route.route),
   }))
 
   return (input) => {

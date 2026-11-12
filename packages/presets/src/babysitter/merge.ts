@@ -4,6 +4,7 @@ import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { hasGitHubLogin } from "./pull-request-filter.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -82,7 +83,7 @@ const botAuthor = isAutomatedFeedback;
 /** A review thread with a comment from a person. Comments from the worker and from bots do not count. */
 export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: ReadonlySet<string> = new Set()): boolean {
   const comments = Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [];
-  return comments.some(comment => !comment.deleted && !isAutomatedFeedback(comment) && !workerAuthors.has(feedbackAuthor(comment)));
+  return comments.some(comment => !comment.deleted && !isAutomatedFeedback(comment) && !hasGitHubLogin(workerAuthors, feedbackAuthor(comment)));
 }
 
 /**
@@ -94,7 +95,7 @@ function ignoredFeedback(value: GitHubEvidence, policy: FeedbackPolicy): boolean
   if (policy.automatedReviewSettled && botAuthor(value)) return true;
   if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
   const author = feedbackAuthor(value);
-  if (policy.workerAuthors?.has(author) || policy.ignoreFeedbackAuthors?.has(author)) return true;
+  if (hasGitHubLogin(policy.workerAuthors, author) || hasGitHubLogin(policy.ignoreFeedbackAuthors, author)) return true;
   const body = String(value.body ?? "").trim();
   return !body || (policy.noFindingsReviews ?? []).some(prefix => body.startsWith(prefix));
 }

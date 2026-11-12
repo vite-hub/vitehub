@@ -1,7 +1,9 @@
 import { chatgpt, openai } from "@vite-hub/gateways"
 import { github } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
+import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
+import { resolveAgentInstructions } from "../src/agent-instructions.ts"
 import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
@@ -294,5 +296,53 @@ describe("Agent instruction layers", () => {
     expect(grandchild.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Grandchild" } })
     const replacement = defineAgent({ extends: child, driver: { instructions: { mode: "replace", value: "Replacement" } } })
     expect(replacement.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { mode: "replace", value: "Replacement" } })
+  })
+
+  it("passes the inherited instructions to a child extend function", () => {
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ instructions: ["Base rules.", "Answer {{{ context.customInstructions }}}"] }) })
+    const appended = defineAgent({ extends: base, driver: { instructions: { extend: inherited => `${inherited}\n\nDevelopment rules.` } } })
+    const edited = defineAgent({ extends: appended, driver: { instructions: { extend: inherited => inherited.replace("Base rules.", "Edited rules.") } } })
+    const replaced = defineAgent({ extends: appended, driver: { instructions: "Replacement." } })
+    const standalone = defineAgent({ workspace: {}, driver: codexDriver({ instructions: { extend: inherited => `${inherited}Standalone.` } }) })
+    expect(appended.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: "Base rules.\n\nAnswer {{{ context.customInstructions }}}\n\nDevelopment rules." })
+    expect(edited.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: "Edited rules.\n\nAnswer {{{ context.customInstructions }}}\n\nDevelopment rules." })
+    expect(replaced.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: "Replacement." })
+    expect(standalone.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: "Standalone." })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: ["Base rules.", "Answer {{{ context.customInstructions }}}"] })
+  })
+
+  it("passes per-Invocation and template instructions to a child extend function when the Driver resolves them", async () => {
+    const parentCallback = vi.fn(({ context }: { context: { get: (key: string) => unknown } }) => `Reply to ${String(context.get("customer"))}.`)
+    const dynamic = defineAgent({ workspace: {}, driver: codexDriver({ instructions: ["Base rules.", parentCallback] }) })
+    const template = defineAgent({ workspace: {}, driver: codexDriver({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } }) })
+    const extend = { extend: (inherited: string) => `${inherited}\n\nChild rules.` }
+    const dynamicChild = defineAgent({ extends: dynamic, driver: { instructions: extend } })
+    const templateChild = defineAgent({ extends: template, driver: { instructions: extend } })
+    const context = { context: new Map([["customer", "Ada"]]) }
+    // SAFETY: Instruction callbacks in this test read only the Invocation context.
+    const resolve = (agent: typeof dynamicChild) => resolveAgentInstructions(agent.__vitehubWorkspaceAgentOptions.driver.instructions, context as never)
+    await expect(resolve(dynamicChild)).resolves.toBe("Base rules.\n\nReply to Ada.\n\nChild rules.")
+    expect(parentCallback).toHaveBeenCalledWith(context)
+    await expect(resolve(templateChild)).resolves.toBe("Before\nDefault\nAfter\n\nChild rules.")
+  })
+
+  it("gives a model Driver the instructions that a child extend function returns", async () => {
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ type: "text", text: "done" }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const base = defineAgent({ driver: { model, instructions: "Base rules." }, runtime: false })
+    const child = defineAgent({ extends: base, driver: { instructions: { extend: inherited => `${inherited}\n\nChild rules.` } } })
+    await runAgentWithContext(child, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Hello" })
+    const system = model.doGenerateCalls[0]!.prompt.filter(message => message.role === "system")
+    expect(system).toEqual([expect.objectContaining({ content: expect.stringMatching(/^Base rules\.\n\nChild rules\./) })])
+  })
+
+  it("rejects a child extend function that does not return a string", () => {
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ instructions: "Base rules." }) })
+    expect(() => defineAgent({ extends: base, driver: { instructions: { extend: () => undefined as never } } }))
+      .toThrow("driver.instructions extend() must return a string")
   })
 })
