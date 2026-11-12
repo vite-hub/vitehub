@@ -1102,6 +1102,7 @@
     "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
+    "uqr": "catalog:ui",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",
     "vite-plus": "catalog:tooling",

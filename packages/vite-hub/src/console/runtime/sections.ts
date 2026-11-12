@@ -1,8 +1,11 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "setup"] as const
+export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "site", "setup"] as const
 
-/** Sections that only a development server has. They are tools, not primitives, so the Overview does not offer them. */
-export const consoleDevelopmentSectionIds: readonly ConsoleBuiltinSectionId[] = ["setup"]
+/**
+ * Sections that are tools, not primitives, so the Overview does not offer them: Setup, which only a development server
+ * has, and Site access, which comes with the page tools.
+ */
+export const consoleToolSectionIds: readonly ConsoleBuiltinSectionId[] = ["setup", "site"]
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -63,6 +66,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "KV",
     routeName: "vitehub-console-kv",
   },
+  site: {
+    description: "Choose who uses the page tools on the site without signing in: your browsers and invited guests.",
+    icon: "i-lucide-globe-lock",
+    label: "Site access",
+    routeName: "vitehub-console-site",
+  },
   setup: {
     description: "Turn features on and off for this app. Development only.",
     icon: "i-lucide-blocks",
@@ -98,6 +107,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   auth: "platform",
   email: "platform",
   "rate-limits": "platform",
+  site: "platform",
   setup: "platform",
 }
 
@@ -226,6 +236,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   env: "e",
   email: "m",
   "rate-limits": "r",
+  site: "c",
   setup: "y",
 }
 

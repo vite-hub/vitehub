@@ -27,13 +27,45 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
    * visitors never open.
    */
   allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
+  /**
+   * What a page pass may hold for this tool, such as `comments.write`. The Console offers them when someone invites a
+   * guest. The tool checks them itself, on its own API, through `readViteHubPagePass()`.
+   */
+  grants?: readonly ViteHubPageGrant[]
 }
+
+/** One permission that a page pass may hold, such as `{ id: "comments.write", label: "Write comments" }`. */
+export interface ViteHubPageGrant {
+  id: string
+  label: string
+  description?: string
+}
+
+/**
+ * A browser that the Console linked to the app: a member of the Console team, or a guest that a member invited. The
+ * `vitehub-pass` cookie names it. `grants` are the permissions it holds, such as `comments.write`, and `console` for a
+ * member.
+ */
+export interface ViteHubPagePass {
+  id: string
+  kind: "member" | "guest"
+  person: { id: string, name: string, email?: string, image?: string }
+  grants: readonly string[]
+}
+
+/** Seconds that a page pass lasts after its last use. */
+export const viteHubPagePassLifetime: number = 60 * 60 * 24 * 90
+
+type PagePassReader = (request: Request) => Promise<ViteHubPagePass | undefined>
 
 interface PageToolsState {
   tools: WeakMap<object, Map<string, ViteHubPageTool>>
   apps: WeakMap<object, object>
   installed: WeakSet<object>
   bases: WeakMap<object, string>
+  grants?: Map<string, ViteHubPageGrant>
+  passReader?: PagePassReader
+  passes?: WeakMap<Request, Promise<ViteHubPagePass | undefined>>
 }
 
 const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
@@ -55,6 +87,45 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
     tools.set(nitroApp, registry)
   }
   registry.set(tool.id, tool)
+  const grants = state().grants ??= new Map()
+  for (const grant of tool.grants ?? []) grants.set(grant.id, grant)
+}
+
+/** The grants that the registered page tools declare, in registration order. */
+export function viteHubPageGrants(): ViteHubPageGrant[] {
+  return [...state().grants?.values() ?? []]
+}
+
+/** Sets the reader of the `vitehub-pass` cookie. The Console installs it with its page tool. */
+export function registerViteHubPagePassReader(reader: PagePassReader | undefined): void {
+  const current = state()
+  current.passReader = reader
+  current.passes = new WeakMap()
+}
+
+/** Whether an app reads page passes: it has the Console page tool. Without it, nobody holds a pass. */
+export function hasViteHubPagePassReader(): boolean {
+  return state().passReader !== undefined
+}
+
+/**
+ * The page pass of a request, or undefined: no cookie, an unknown or revoked pass, or an app without the Console. A
+ * request is read once, so the tools of one session check share the answer. A reader that fails counts as no pass.
+ */
+export async function readViteHubPagePass(request: Request): Promise<ViteHubPagePass | undefined> {
+  const current = state()
+  const reader = current.passReader
+  if (!reader) return undefined
+  const cache = current.passes ??= new WeakMap()
+  let pass = cache.get(request)
+  if (!pass) {
+    pass = reader(request).catch((error: unknown) => {
+      console.error("[vitehub] Reading the page pass failed. The request counts as having none.", error)
+      return undefined
+    })
+    cache.set(request, pass)
+  }
+  return await pass
 }
 
 /** The path of a URL below the app base. A path outside the base stays as it is. */
@@ -129,10 +200,12 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
   const at = pathname.lastIndexOf(viteHubPageSessionPath)
   const base = at > 0 ? pathname.slice(0, at) : ""
   const tools = registered
-    .flatMap(({ allowed: _allowed, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
+    .flatMap(({ allowed: _allowed, grants: _grants, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
       ? [{ ...tool, ...(checks[index] === "lazy" ? { lazy: true } : {}), script: withViteHubBase(base, tool.script) }]
       : [])
-  return sessionResponse({ tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0) })
+  // A page pass lasts 90 days from its last use, so its hint lasts as long: the bootstrap asks again within that time.
+  const pass = tools.length > 0 ? await readViteHubPagePass(request) : undefined
+  return sessionResponse({ tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0, pass ? viteHubPagePassLifetime : undefined) })
 }
 
 /**
