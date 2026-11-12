@@ -322,6 +322,15 @@ export function useViteHubModule(editor: ConfigEditor, config: NuxtConfigFile, r
   return [`modules: [${moduleText}]`]
 }
 
+export const nodePresetNote = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
+
+/** The preset to add when nuxt.config sets none, instead of "node". */
+export interface DefaultPreset {
+  preset: string
+  /** A follow-up about the choice, if any. */
+  note?: string
+}
+
 /** One property that a codemod adds under `vitehub`. */
 export interface ViteHubOption {
   key: string
@@ -346,7 +355,7 @@ export interface PresetPlan {
   note?: string
 }
 
-export function planPreset(config: NuxtConfigFile): PresetPlan {
+export function planPreset(config: NuxtConfigFile, defaultPreset?: DefaultPreset): PresetPlan {
   const existingPreset = findViteHubOption(config, "preset")
   if (existingPreset) {
     const value = literalValue(existingPreset.value)
@@ -362,18 +371,20 @@ export function planPreset(config: NuxtConfigFile): PresetPlan {
       ? { preset: mapped, add: mapped }
       : { note: `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
   }
-  return { preset: "node", add: "node", note: `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.` }
+  return defaultPreset
+    ? { preset: defaultPreset.preset, add: defaultPreset.preset, note: defaultPreset.note }
+    : { preset: "node", add: "node", note: nodePresetNote }
 }
 
 /**
  * Adds `options` under `vitehub`, and a deployment preset when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
  */
-export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node> }): ViteHubOptionsResult {
+export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node>, defaultPreset?: DefaultPreset }): ViteHubOptionsResult {
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const planned = planPreset(config)
+  const planned = planPreset(config, input.defaultPreset)
   let vitehubPreset = planned.add
   let presetNote = planned.note
   const unit = style.indent
