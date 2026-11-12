@@ -160,6 +160,11 @@
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
     },
+    "./sessions": {
+      "types": "./dist/sessions.d.ts",
+      "import": "./dist/sessions.js",
+      "default": "./dist/sessions.js"
+    },
     "./state": {
       "types": "./dist/state.d.ts",
       "import": "./dist/state.js",
