@@ -551,7 +551,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ...channelOptions,
         app: {
           token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login, appId: host.appId?.() } } : {}),
+          ...(login ? { identity: { login, appId: host.appId?.(), ...(identity.email ? { email: identity.email } : {}) } } : {}),
         },
       })
     },
