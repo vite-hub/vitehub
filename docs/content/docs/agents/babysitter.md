@@ -104,7 +104,7 @@ For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capab
 
 With `ready: 'approved-if-outside'`, the host merges a pull request from someone without write access only after a maintainer approves it:
 
-```ts
+```ts fragment
 merge: { strategy: 'direct', ready: 'approved-if-outside' },
 ```
 
