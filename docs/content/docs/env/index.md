@@ -8,133 +8,135 @@ icon: i-lucide-key-round
 ---
 
 ::product-hero{tagline="Declare your settings and secrets once, then read them as typed values in browser and server code." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  import { env } from 'vite-hub/env'
+  :hero-figure{name="env"}
+::
 
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
-      preset: 'node',
-      env: {
-        // Safe to show in the browser
-        public: {
-          appName: env({ default: 'Acme', mode: 'build' }),
+::code-tree
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      // Safe to show in the browser
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      // Only server code can read these
+      server: {
+        github: {
+          token: env({
+            secret: true,
+            source: env.source('GITHUB_TOKEN'),
+          }),
         },
-        // Only server code can read these
-        server: {
-          github: {
-            token: env({
-              secret: true,
-              source: env.source('GITHUB_TOKEN'),
-            }),
-          },
-          dryRun: env.boolean({ default: true }),
-        },
+        dryRun: env.boolean({ default: true }),
       },
     },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { nitro } from 'nitro/vite'
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
-  import { env } from 'vite-hub/env'
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
-  export default defineConfig({
-    plugins: [vitehub({
-      preset: 'node',
-      env: {
-        // Safe to show in the browser
-        public: {
-          appName: env({ default: 'Acme', mode: 'build' }),
-        },
-        // Only server code can read these
-        server: {
-          github: {
-            token: env({
-              secret: true,
-              source: env.source('GITHUB_TOKEN'),
-            }),
-          },
-          dryRun: env.boolean({ default: true }),
-        },
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      // Safe to show in the browser
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
       },
-    }), nitro()],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
-  import { env } from 'vite-hub/env'
-
-  export default defineConfig({
-    plugins: [vitehub({
-      preset: 'node',
-      env: {
-        // Safe to show in the browser
-        public: {
-          appName: env({ default: 'Acme', mode: 'build' }),
+      // Only server code can read these
+      server: {
+        github: {
+          token: env({
+            secret: true,
+            source: env.source('GITHUB_TOKEN'),
+          }),
         },
-        // Only server code can read these
-        server: {
-          github: {
-            token: env({
-              secret: true,
-              source: env.source('GITHUB_TOKEN'),
-            }),
-          },
-          dryRun: env.boolean({ default: true }),
-        },
+        dryRun: env.boolean({ default: true }),
       },
-    })],
-  })
-  ```
-  ::::
+    },
+  }), nitro()],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
-  ```ts [src/app.ts]
-  import { usePublicEnv } from '#vitehub/env/public'
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      // Safe to show in the browser
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      // Only server code can read these
+      server: {
+        github: {
+          token: env({
+            secret: true,
+            source: env.source('GITHUB_TOKEN'),
+          }),
+        },
+        dryRun: env.boolean({ default: true }),
+      },
+    },
+  })],
+})
+```
+:::
 
-  // Public values work in browser code
-  const { appName } = usePublicEnv()
-  document.title = appName
-  ```
+```ts [src/app.ts]
+import { usePublicEnv } from '#vitehub/env/public'
 
-  ```ts [server/api/issues.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { useServerEnv } from '#vitehub/env/server'
+// Public values work in browser code
+const { appName } = usePublicEnv()
+document.title = appName
+```
 
-  export default defineEventHandler(async () => {
-    const { github } = useServerEnv()
+```ts [server/api/issues.get.ts]
+import { defineEventHandler } from 'h3'
+import { useServerEnv } from '#vitehub/env/server'
 
-    // A secret stays hidden until you unseal it
-    const token = github.token.unseal()
-    const response = await fetch(
-      'https://api.github.com/issues',
-      { headers: { authorization: `Bearer ${token}` } },
-    )
-    return response.json()
-  })
-  ```
+export default defineEventHandler(async () => {
+  const { github } = useServerEnv()
 
-  ```ts [server/api/publish.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { useServerEnv } from '#vitehub/env/server'
+  // A secret stays hidden until you unseal it
+  const token = github.token.unseal()
+  const response = await fetch(
+    'https://api.github.com/issues',
+    { headers: { authorization: `Bearer ${token}` } },
+  )
+  return response.json()
+})
+```
 
-  export default defineEventHandler(() => {
-    // dryRun is a boolean, not the text "true"
-    const { dryRun } = useServerEnv()
-    if (dryRun) return { published: false }
+```ts [server/api/publish.post.ts]
+import { defineEventHandler } from 'h3'
+import { useServerEnv } from '#vitehub/env/server'
 
-    return { published: true }
-  })
-  ```
-  :::
+export default defineEventHandler(() => {
+  // dryRun is a boolean, not the text "true"
+  const { dryRun } = useServerEnv()
+  if (dryRun) return { published: false }
+
+  return { published: true }
+})
+```
 ::
 
 ::product-features

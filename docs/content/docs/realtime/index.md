@@ -8,142 +8,144 @@ icon: i-lucide-radio
 ---
 
 ::product-hero{tagline="Let several people edit one document at the same time, with live changes and automatic saves to a file." hosts="Cloudflare, Node, Docker"}
-  :::code-tree{feature="realtime"}
-  ```ts [server/realtime/docs.ts]
-  import { defineRealtime } from 'vite-hub/realtime'
+  :hero-figure{name="realtime"}
+::
 
-  // This file defines the docs room.
-  export default defineRealtime({
-    // Save each document to the docs Workspace
-    document: { workspace: 'docs' },
-    // Let the editor save a version on request
-    history: {
-      checkpoint: { message: 'Save document' },
-    },
-  })
-  ```
+::code-tree{feature="realtime"}
+```ts [server/realtime/docs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
 
-  ```vue [src/App.vue]
-  <script setup lang="ts">
-  import { EditorContent, useEditor } from '@tiptap/vue-3'
-  import {
-    useRealtimeTiptap,
-  } from 'vite-hub/realtime/vue'
-  import PeopleList from './components/PeopleList.vue'
+// This file defines the docs room.
+export default defineRealtime({
+  // Save each document to the docs Workspace
+  document: { workspace: 'docs' },
+  // Let the editor save a version on request
+  history: {
+    checkpoint: { message: 'Save document' },
+  },
+})
+```
 
-  // Everyone on this page edits the same file
-  const realtime = useRealtimeTiptap('docs', 'welcome.md')
-  const { people, history } = realtime
-  const editor = useEditor({
-    extensions: realtime.extensions.value,
-  })
-  </script>
+```vue [src/App.vue]
+<script setup lang="ts">
+import { EditorContent, useEditor } from '@tiptap/vue-3'
+import {
+  useRealtimeTiptap,
+} from 'vite-hub/realtime/vue'
+import PeopleList from './components/PeopleList.vue'
 
-  <template>
-    <PeopleList :people="people" />
-    <EditorContent :editor="editor" />
-    <button @click="history.checkpoint()">
-      Save version
-    </button>
-  </template>
-  ```
+// Everyone on this page edits the same file
+const realtime = useRealtimeTiptap('docs', 'welcome.md')
+const { people, history } = realtime
+const editor = useEditor({
+  extensions: realtime.extensions.value,
+})
+</script>
 
-  ```vue [src/components/PeopleList.vue]
-  <script setup lang="ts">
-  import type { RealtimePerson } from 'vite-hub/realtime'
+<template>
+  <PeopleList :people="people" />
+  <EditorContent :editor="editor" />
+  <button @click="history.checkpoint()">
+    Save version
+  </button>
+</template>
+```
 
-  // Each person has a name and a color
-  defineProps<{ people: RealtimePerson[] }>()
-  </script>
+```vue [src/components/PeopleList.vue]
+<script setup lang="ts">
+import type { RealtimePerson } from 'vite-hub/realtime'
 
-  <template>
-    <ul>
-      <li
-        v-for="person in people"
-        :key="person.clientId"
-        :style="{ color: person.color }"
-      >
-        {{ person.name }}
-      </li>
-    </ul>
-  </template>
-  ```
+// Each person has a name and a color
+defineProps<{ people: RealtimePerson[] }>()
+</script>
 
-  ```ts [server/workspaces/docs.ts]
-  import { defineWorkspace } from 'vite-hub/workspace'
+<template>
+  <ul>
+    <li
+      v-for="person in people"
+      :key="person.clientId"
+      :style="{ color: person.color }"
+    >
+      {{ person.name }}
+    </li>
+  </ul>
+</template>
+```
 
-  // The files that the docs room saves to.
-  // Memory is for development only.
-  export default defineWorkspace({
-    store: { provider: 'memory' },
-    rules: {
-      '/**': { write: true, mediaType: 'text/markdown' },
-    },
-  })
-  ```
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace } from 'vite-hub/workspace'
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
+// The files that the docs room saves to.
+// Memory is for development only.
+export default defineWorkspace({
+  store: { provider: 'memory' },
+  rules: {
+    '/**': { write: true, mediaType: 'text/markdown' },
+  },
+})
+```
+
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    // Keep rooms in this server process
+    realtime: { authority: 'memory' },
+    workspace: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    nitro(),
+    vitehub({
       preset: 'node',
       // Keep rooms in this server process
       realtime: { authority: 'memory' },
       workspace: true,
-    },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import vue from '@vitejs/plugin-vue'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+    }),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
 
-  export default defineConfig({
-    plugins: [
-      vue(),
-      nitro(),
-      vitehub({
-        preset: 'node',
-        // Keep rooms in this server process
-        realtime: { authority: 'memory' },
-        workspace: true,
-      }),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import vue from '@vitejs/plugin-vue'
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({
+      preset: 'node',
+      // Keep rooms in this server process
+      realtime: { authority: 'memory' },
+      workspace: true,
+    }),
+  ],
+})
+```
+:::
 
-  export default defineConfig({
-    plugins: [
-      vue(),
-      vitehub({
-        preset: 'node',
-        // Keep rooms in this server process
-        realtime: { authority: 'memory' },
-        workspace: true,
-      }),
-    ],
-  })
-  ```
-  ::::
+```ts [Checkpoint] fragment
+const [error, checkpoint] = await realtime.history.checkpoint()
+if (error) throw error
 
-  ```ts [Checkpoint] fragment
-  const [error, checkpoint] = await realtime.history.checkpoint()
-  if (error) throw error
-
-  checkpoint.document.body
-  checkpoint.snapshot
-  ```
-  :::
+checkpoint.document.body
+checkpoint.snapshot
+```
 ::
 
 ::product-features
