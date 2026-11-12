@@ -1,11 +1,11 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRuntimeConfig, useState } from "#app"
 
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { createAuthClient, setNuxtAppResolver, setSessionSeedResolver } from "../vue.ts"
+import { createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver } from "../vue.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
 
@@ -90,6 +90,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   enforce: "pre",
   setup(nuxtApp: NuxtApp) {
     setNuxtAppResolver(() => tryUseNuxtApp() as NuxtApp | undefined)
+    setNuxtErrorFactory(createError)
     const config = useRuntimeConfig().public?.vitehubAuth as false | { basePath?: string, redirects?: AuthRedirects } | undefined
     if (config === false) return
     const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth")
