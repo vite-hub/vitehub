@@ -139,9 +139,18 @@ describe("hosted Blob consumer runtime", () => {
         expect(consumerManifest.dependencies).not.toHaveProperty("files-sdk")
         expect(consumerManifest.dependencies).not.toHaveProperty("@vercel/blob")
         for (const name of awsRuntimePackages) expect(consumerManifest.dependencies).not.toHaveProperty(name)
-        await run("pnpm", ["run", "build"], appDir)
-
-        await probePrivateVercelBlobRuntime(appDir)
+        // A test value only. The fixture reads it from env, so the build output has the mask, and the probe reads it at runtime.
+        const previousToken = process.env.BLOB_READ_WRITE_TOKEN
+        process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test"
+        try {
+          await run("pnpm", ["run", "build"], appDir)
+          expect(await readFile(join(appDir, "dist/vercel/server.mjs"), "utf8")).not.toContain("vercel_blob_rw_test")
+          await probePrivateVercelBlobRuntime(appDir)
+        }
+        finally {
+          if (previousToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN
+          else process.env.BLOB_READ_WRITE_TOKEN = previousToken
+        }
 
         await cp(
           join(cloudflareFixtureRoot, "vite.config.ts"),
