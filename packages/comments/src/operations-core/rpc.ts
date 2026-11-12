@@ -40,9 +40,10 @@ export class CommentsRpcError extends Error {
 }
 
 /**
- * A transport over the operations RPC at `POST /_vitehub/rpc`, one birpc call for each request. The browser sends its
- * session cookie, and the server runs `console.authorize` and the `authorize` of `server/comments.ts`. It has no
- * `subscribe`: the client refreshes when the window gets focus.
+ * A transport over the operations RPC at `POST /_vitehub/rpc`, one birpc call for each request, for development only.
+ * A browser cannot sign Console calls, so it works on a development server with `console: { auth: false }` or without
+ * the `console` option. Pages of a production app use `createRestTransport()` from `@vite-hub/comments/client`. It has
+ * no `subscribe`: the client refreshes when the window gets focus.
  */
 export function createRpcTransport(options: RpcTransportOptions = {}): CommentsTransport {
   const base = (options.base ?? "").replace(/\/+$/, "")
