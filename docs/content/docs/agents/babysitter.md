@@ -75,6 +75,8 @@ export default defineAgent({
 
 Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it in its instruction slot.
 
+The preset prompt already carries the generic repair rules: it classes findings from P0 (security hole, data loss, broken main path) to P3 (style), repairs automated reviewers' P0 and P1 findings and only small in-scope P2s, treats findings from people separately because a person does not re-review every push, fixes failing required checks before review findings, compares a failing check with the base before pushing, makes at most one repair commit per pass, and runs the repository's focused-test recipe. Keep `instructions.md` for what is specific to your project, such as the names of your review bots or a rule about screenshots.
+
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
