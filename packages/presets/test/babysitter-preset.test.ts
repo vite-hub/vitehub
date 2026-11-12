@@ -1580,6 +1580,40 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("keeps read tools working after new evidence arrives mid-pass", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 601, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("ends the pass at the first write that new evidence refuses", async () => {
+    const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
+    f.choose("updatePullRequest", { title: "Fix value now" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 602, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("evidence changed");
+      expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("does not count a push that repairs a failing check against the review push budget", async () => {
     const f = await fixture(false, false, { options: { reviewPushBudget: 1 } });
     f.reportCheckRun({ id: 9, name: "lint", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });

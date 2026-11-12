@@ -1347,12 +1347,18 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               };
               let observePendingPush: ((current: Snapshot) => void) | undefined;
               const pendingInboxHeads = new Set([pullRequest.headRefOid]);
-              const assertLease = async () => {
+              // Reads need only the lease: new evidence cannot make a log or feedback read unsafe.
+              const readOperation = new AsyncLocalStorage<boolean>();
+              const assertLeaseHeld = async () => {
                 abortSignal.throwIfAborted();
                 const current = await pullRequestInbox.get(repository, number);
                 if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
                 }
+                return current;
+              };
+              const assertLease = async () => {
+                const current = await assertLeaseHeld();
                 observePendingPush?.(current);
                 for (const [id, reopens] of ownedResolutions) {
                   if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
@@ -1372,7 +1378,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 const selfHead = observedHead !== pullRequest.headRefOid && verifiedPushHeads.has(observedHead ?? "");
                 if (current.generation !== inboxClaim.generation
                   && !((selfHead || repairOperation.getStore()) && repairEvidenceKey(current) === repairEvidenceKey(inboxClaim.snapshot, current))) {
-                  throw new DOMException("Pull request evidence changed.", "AbortError");
+                  // Every later write would be refused too, so end the pass and let the claim requeue.
+                  const changed = new DOMException("Pull request evidence changed.", "AbortError");
+                  schedulerEvent("babysitter.pass.evidence_changed", { ...owner, head_sha: pullRequest.headRefOid, observed_head: observedHead });
+                  passController.abort(changed);
+                  throw changed;
                 }
                 return current;
               };
@@ -1437,7 +1447,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // Operations ask for a provider before each request group, so every group checks the lease.
               const operationHost: Pick<GitHubHost, "forge"> = {
                 forge: async (input) => {
-                  await assertLease();
+                  await (readOperation.getStore() ? assertLeaseHeld() : assertLease());
                   return await github.forge(input);
                 },
               };
@@ -1542,6 +1552,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   }
                 },
               });
+              const { readCheckLogs, readBaseCheckEvidence, readBaseCheckLogs } = operations;
+              operations.readCheckLogs = runId => readOperation.run(true, () => readCheckLogs(runId));
+              operations.readBaseCheckEvidence = () => readOperation.run(true, () => readBaseCheckEvidence());
+              operations.readBaseCheckLogs = runId => readOperation.run(true, () => readBaseCheckLogs(runId));
               const resolveThread = operations.resolveThread;
               operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
@@ -1597,7 +1611,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
-                readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
+                readFeedback: async input => readBabysitterFeedback(await assertLeaseHeld(), input),
                 readState: async () => {
                   let current = await assertLease();
                   const directory = providerDirectory ?? checkout;
