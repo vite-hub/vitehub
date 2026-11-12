@@ -17,6 +17,7 @@ import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
@@ -373,16 +374,16 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter reviewPushBudget must be a positive integer or false.");
     }
     if (minorReviewRounds !== false && (!Number.isSafeInteger(minorReviewRounds) || minorReviewRounds < 1)) {
-      throw new TypeError("[vitehub] Babysitter minorReviewRounds must be a positive integer or false.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "minorReviewRounds", expected: "a positive integer or false" });
     }
     if (minorReviewRounds !== false && reviewPushBudget === false) {
-      throw new TypeError("[vitehub] Babysitter minorReviewRounds needs a reviewPushBudget.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_MINOR_ROUNDS_NEED_BUDGET();
     }
     if (reviewConvergencePushes !== false && (!Number.isSafeInteger(reviewConvergencePushes) || reviewConvergencePushes < 1)) {
-      throw new TypeError("[vitehub] Babysitter reviewConvergencePushes must be a positive integer or false.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "reviewConvergencePushes", expected: "a positive integer or false" });
     }
     if (!hasRuntimeType(ignoreAssessedBotThreads, "boolean")) {
-      throw new TypeError("[vitehub] Babysitter ignoreAssessedBotThreads must be a boolean.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "ignoreAssessedBotThreads", expected: "a boolean" });
     }
     if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) {
       throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
