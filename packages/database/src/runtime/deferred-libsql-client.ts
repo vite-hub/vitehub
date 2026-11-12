@@ -16,8 +16,12 @@ export function deferLibsqlClient(protocol: string, open: () => Promise<Client>)
     return value
   }
 
+  // A failed load lets the next call try again.
   async function client() {
-    return closeIfClosed(await (opening ??= open().then(value => (opened = value))))
+    return closeIfClosed(await (opening ??= open().then(value => (opened = value)).catch((error: unknown) => {
+      opening = undefined
+      throw error
+    })))
   }
 
   return {

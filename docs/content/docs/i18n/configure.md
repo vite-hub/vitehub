@@ -102,9 +102,9 @@ const { locale, locales, setLocale } = useLocale()
 
 ## Use i18n in Nuxt 5
 
-Select the Nuxt tab in [Choose the locales](#choose-the-locales) and add `i18n` to the options of the `vite-hub/nuxt` module.
+Set the locales as in [Choose the locales](#choose-the-locales).
 
-The module installs the Vue plugin for you, so you do not call `createI18n()`. The server renders each page in the locale of the request. The page then loads in the browser in the same locale, so the HTML does not change after load. The module also sets `<html lang>` and auto-imports `useLocale()`.
+The `vite-hub/nuxt` module installs the Vue plugin for you, so you do not call `createI18n()`. The server renders each page in the locale of the request. The page then loads in the browser in the same locale, so the HTML does not change after load. The module also sets `<html lang>` and auto-imports `useLocale()`.
 
 ```vue [app/pages/index.vue]
 <script setup lang="ts">
