@@ -41,6 +41,7 @@ const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
 const generatedNitroBlobRuntime = ".vitehub/nitro/blob/runtime.mjs"
 const generatedNitroBlobMiddleware = ".vitehub/nitro/blob/middleware.ts"
 const generatedBlobServeRouteHandler = ".vitehub/blob/serve-route.ts"
+const generatedBlobTypes = ".vitehub/types/blob.d.ts"
 const blobServeModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 const AUTH_SERVER_ID = "#vitehub/auth/server"
 const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
@@ -420,6 +421,8 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
 async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false, requestBodyLimit?: number): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
+  // Editors and type checks read the types after `nuxt prepare` too.
+  await writeFileIfChanged(resolve(root, generatedBlobTypes), renderBlobStoreTypes(blob, importBase))
   // `nuxt prepare` replays the hooks as a build. No type reads these files, and a running dev server loads them.
   if (Reflect.get(config, VITEHUB_PREPARE) !== true) {
     await Promise.all([
@@ -432,6 +435,21 @@ async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, b
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase, authorizeModule))
+}
+
+/** Declares the configured store names, so `blob.store()` rejects an unknown name at compile time. */
+function renderBlobStoreTypes(blob: BlobViteRuntimeConfig["blob"], importBase: string): string {
+  if (!blob) return "export {}\n"
+  return [
+    "export {}",
+    "",
+    `declare module ${JSON.stringify(importBase)} {`,
+    "  interface BlobStoreRegistry {",
+    ...Object.keys(blob.stores ?? { default: blob.store }).map(name => `    ${JSON.stringify(name)}: true`),
+    "  }",
+    "}",
+    "",
+  ].join("\n")
 }
 
 function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCloudflareR2 = false) {

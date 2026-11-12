@@ -71,6 +71,8 @@ import { blob } from 'vite-hub/blob'
 export const reports = blob.store('reports')
 ```
 
+ViteHub writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Then a store name that is not in `blob.stores` is a type error in `blob.store()`, `file()`, and `image()`. A name in a `string` variable is also a type error. Check the name, then pass it as `BlobStoreName`. Before ViteHub writes the file, any name type checks. At runtime, an unknown name throws [`BLOB_R0027`](/docs/blob/diagnostics/blob_r0027) with the configured names.
+
 ### Read-only handles
 
 Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
