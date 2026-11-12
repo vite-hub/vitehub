@@ -424,7 +424,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`.
+The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`. Read [Protect pages in Nuxt](https://vitehub.dev/docs/auth/protect-pages) for the full task.
 
 ## GitHub organization membership
 
