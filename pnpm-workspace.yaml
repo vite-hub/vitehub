@@ -167,19 +167,12 @@ catalogs:
     "@azure/identity": ^4.13.3
     "@azure/storage-blob": ^12.34.0
     "@google-cloud/storage": ^8.4.0
-    "@googleapis/drive": ^26.0.2
-    "@microsoft/microsoft-graph-client": ^3.0.7
-    "@supabase/storage-js": ^2.117.2
     "@upstash/redis": ^1.39.0
     "@vercel/blob": ^2.8.0
     aws4fetch: ^1.0.20
-    box-typescript-sdk-gen: ^1.19.1
-    dropbox: ^10.47.0
     files-sdk: ^3.1.1
-    google-auth-library: ^11.3.1
     ioredis: ^5.11.1
     unstorage: 2.0.0-beta.0
-    uploadthing: ^7.7.4
   tooling:
     "@yarnpkg/parsers": 3.1.0
     "@types/node": ^24.19.1

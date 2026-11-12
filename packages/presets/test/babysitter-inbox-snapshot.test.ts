@@ -16,6 +16,22 @@ test('claim hydration persists feedback/checks and reuses it on the same generat
  assert.equal(calls, 6)
  await hydrateSnapshot(inbox, claim, fetch); assert.equal(calls, 6)
 })
+test('unknown mergeability rereads only the pull request', async t => {
+ const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
+ const paths: string[] = []
+ const fetch = async (path: string) => { paths.push(path); return path.endsWith('/pulls/7') ? [{ ...pr, mergeable: true, mergeable_state: 'blocked' }] : read(path) }
+ const claim = (await inbox.claim(1))[0]!
+ assert.equal(await hydrateSnapshot(inbox, claim, fetch), true)
+ await inbox.finish(claim, { text: 'Waiting for CI' })
+ await inbox.ingest('edited', 'pull_request', { repository: { full_name: repo }, action: 'edited', pull_request: { ...pr, title: 'Renamed', mergeable: null, mergeable_state: 'unknown' } })
+ paths.length = 0
+ const next = (await inbox.claim(1))[0]!
+ assert.equal(next.snapshot.pr?.mergeable, null)
+ assert.equal(await hydrateSnapshot(inbox, next, fetch), true)
+ assert.deepEqual(paths, [`repos/${repo}/pulls/7`])
+ assert.equal(next.snapshot.pr?.mergeable_state, 'blocked')
+ assert.equal(next.snapshot.checks['check_run:1']?.conclusion, 'success')
+})
 test('new webhook during hydration wins over stale REST projection', async t => {
  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
  const claim = (await inbox.claim(1))[0]!
