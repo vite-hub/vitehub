@@ -31,8 +31,10 @@ export interface DocsDocument {
 
 export interface DocsParserOptions {
   /**
-   * comark-ui's preset options, merged over the built-in ones: `{ typeset: false, chips: false, badge: { download:
-   * false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
+   * comark-ui's preset options, merged over the built-in ones: `{ typeset: false, chips: false, diagrams: false,
+   * badge: { download: false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
+   * `diagrams: true` draws D2, PlantUML, and Graphviz fences through kroki.io, which receives their source. Set
+   * `diagrams: { server }` to use your own Kroki server.
    */
   comarkUi?: PresetOptions
   /** Blocks that show their first fenced block rendered, next to its source. */
@@ -56,15 +58,19 @@ const languages = [css, diff, html, markdownLanguage, mdc]
 const themes = { light: githubLight, dark: githubDark }
 
 /**
- * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, and the rest. The
- * site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web link into a chip
- * and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`.
+ * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, Mermaid diagrams,
+ * and the rest. The site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web
+ * link into a chip and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`. Kroki diagrams are
+ * off: they send each D2, PlantUML, or Graphviz fence to kroki.io while the page parses. Mermaid stays on, since
+ * comark-pele draws it in the process.
  *
  * The plugins are the HTML preset's, so annotate, comments, diff, and quiz parse too, with the Vue preset's copy of
  * every plugin the two share.
  */
 function docsBlocks(options: PresetOptions = {}) {
-  const merged = defu(options, { typeset: false, chips: false, badge: { download: false } }) as PresetOptions
+  const merged = defu(options, { typeset: false, chips: false, diagrams: false, badge: { download: false } }) as PresetOptions
+  // Keep the plugin's authored-SVG rejection when remote drawing is off, without changing explicit opt-ins.
+  if (merged.diagrams === false) merged.diagrams = { draw: false }
   const vue = new Map(comarkUi(merged).plugins.map(plugin => [plugin.name, plugin]))
   return comarkUiHtml(merged).plugins.map(plugin => vue.get(plugin.name) ?? plugin)
 }
