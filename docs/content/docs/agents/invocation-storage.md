@@ -195,7 +195,7 @@ export default defineConfig({
 :::
 ::
 
-In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
+The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 
 `agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. Every app-wide journal requires Nitro-hosted Agents. For Netlify and Deno Agent output, set `agent.invocations: false` and configure journals on each Agent Definition. `false` records no app-wide journal. When the Console is enabled, it shows the app-wide journal.
 
