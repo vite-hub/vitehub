@@ -602,4 +602,6 @@ export default defineDatabase({
 
 A Postgres Definition has its own connection. It ignores the top-level `connection`, the D1 options, and the local SQLite default. With a Hyperdrive binding at runtime, ViteHub uses its connection string, else `connection.url`. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. A query fails with `DATABASE_MISSING_CONNECTION` when none is set.
 
+The client drops the notices of the server, such as `relation already exists, skipping` for each `CREATE ... IF NOT EXISTS`, and prints each Postgres warning with `console.warn`. Errors still reject the query.
+
 Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.

@@ -67,6 +67,15 @@ function readHyperdriveConnectionString(binding: unknown) {
 }
 
 /**
+ * Receives the notices of the server. postgres.js prints each one on stdout by default, so every `CREATE ... IF NOT
+ * EXISTS` that KV, leases or Queue run at boot printed a NOTICE object. This drops notices and keeps warnings visible.
+ * Errors are not notices: they reject the query.
+ */
+function printPostgresWarning(notice: postgres.Notice) {
+  if (notice.severity === "WARNING") console.warn(`[vitehub] Postgres warning: ${notice.message}`)
+}
+
+/**
  * Creates the Drizzle client for a Postgres Database Definition.
  *
  * A Cloudflare Hyperdrive binding takes precedence over `connection.url`. Inside a Cloudflare
@@ -100,7 +109,7 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>, 
   function createInstance(connection: PostgresConnection, requestScoped: boolean): PostgresInstance<TSchema, TRelations> {
     // Cloudflare limits concurrent connections per request. Hyperdrive pools the origin connections.
     // Type discovery stays on, because array columns need the type metadata that postgres.js reads.
-    const options = requestScoped ? { max: 5 } : {}
+    const options = { onnotice: printPostgresWarning, ...requestScoped ? { max: 5 } : {} }
     const client = connection.url ? postgres(connection.url, options) : postgres(options)
     const db: RuntimePostgresDatabase<TSchema, TRelations> = keepOwnClient(drizzle({ client: trackPostgresClient(client), relations }), client)
     return { client, db, key: connection.key }

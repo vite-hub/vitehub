@@ -5,6 +5,7 @@ import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
+import { end, parseProgram, start } from "@vite-hub/internal/ast";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
@@ -143,6 +144,7 @@ const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
 const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const agentDeclarationRoot = `${resolve(import.meta.dirname, "../agent/dist").replaceAll("\\", "/")}/`;
 
 export default defineConfig({
   pack: [
@@ -580,6 +582,21 @@ export default defineConfig({
       treeshake: { moduleSideEffects: false },
       dts: { tsconfig: "tsconfig.declarations.json", emitDtsOnly: true },
       plugins: [{
+        name: "vite-hub-agent-configuration-declarations",
+        transform: {
+          order: "pre",
+          handler(code, id) {
+            if (!id.replaceAll("\\", "/").startsWith(agentDeclarationRoot) || !id.endsWith(".d.ts")) return;
+            // Agent runtime augmentations retain optional model and Workspace tool types.
+            // The framework root only inlines configuration types from this owner.
+            const augmentations = parseProgram(code).program.body.filter(node => node.type === "TSModuleDeclaration" && node.kind !== "namespace");
+            if (!augmentations.length) return;
+            let result = code;
+            for (const node of augmentations.reverse()) result = result.slice(0, start(node)) + result.slice(end(node));
+            return result;
+          },
+        },
+      }, {
         name: "vite-hub-env-config-declarations",
         generateBundle(_options, bundle) {
           const chunk = bundle["index.d.ts"];

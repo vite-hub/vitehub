@@ -12,7 +12,7 @@ import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
-import type { AgentActor } from "@vite-hub/agent"
+import type { AgentInvoker } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
 export { consoleOpenAccessWarning, installConsoleAccess } from "./access-policy.ts"
@@ -207,8 +207,8 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
   return available.filter(section => consoleAccessAllows(access, section))
 }
 
-/** Map the verified Console user to the Agent Actor used by invocations and replay. */
-export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | undefined {
+/** Map the verified Console user to the Agent Invoker used by invocations and replay. */
+export function consoleAccessInvoker(user: ConsoleUser | undefined): AgentInvoker | undefined {
   if (!user?.id) return undefined
   const label = "email" in user && typeof user.email === "string" && user.email
     ? user.email

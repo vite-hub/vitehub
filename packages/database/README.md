@@ -236,7 +236,7 @@ export default defineDatabase({
 })
 ```
 
-ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
+ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. The client drops server notices, such as `relation already exists, skipping`, and prints each Postgres warning with `console.warn`. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
 
 Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
 

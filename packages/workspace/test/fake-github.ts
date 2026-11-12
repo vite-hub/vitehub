@@ -93,7 +93,8 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   const branches = new Map<string, string>()
   const trees = new Map<string, FakeTreeEntry[]>()
   const requests: FakeRequest[] = []
-  const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, merged: boolean, number: number, state: "closed" | "open", title: string }> = []
+  /** `headRepo` names the fork that a pull request comes from. Without it, the head branch is in this repository. */
+  const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, headRepo?: string, labels?: string[], merged: boolean, number: number, state: "closed" | "open", title: string }> = []
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
   let commitIndex = 0
   let treeIndex = 0
@@ -253,10 +254,11 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
 
   function pullBody(pull: (typeof pulls)[number]) {
     return {
-      base: { ref: pull.base, sha: branches.get(pull.base) ?? zeroOid },
+      base: { ref: pull.base, repo: { full_name: `${owner}/${repo}` }, sha: branches.get(pull.base) ?? zeroOid },
       body: pull.body,
       draft: pull.draft,
-      head: { ref: pull.head, sha: branches.get(pull.head) ?? zeroOid },
+      head: { ref: pull.head, repo: { full_name: pull.headRepo ?? `${owner}/${repo}` }, sha: branches.get(pull.head) ?? zeroOid },
+      labels: (pull.labels ?? []).map(name => ({ name })),
       html_url: `https://github.com/${owner}/${repo}/pull/${pull.number}`,
       merged: pull.merged,
       node_id: `PR_${pull.number}`,
@@ -372,6 +374,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const state = url.searchParams.get("state") ?? "open"
       const head = url.searchParams.get("head")
       return page(pulls.filter(pull => (state === "all" || pull.state === state) && (!head || head === `${owner}:${pull.head}`)).map(pullBody).reverse(), url)
+    }
+    if (/^\/pulls\/\d+$/.test(rest) && method === "GET") {
+      const pull = pulls.find(entry => entry.number === Number(rest.slice("/pulls/".length)))
+      return pull ? json(pullBody(pull)) : failure(404, "Not Found")
     }
     if (rest === "/branches" && method === "GET") {
       return page([...branches].sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ commit: { sha }, name, protected: false })), url)
@@ -536,9 +542,12 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     pulls,
     /** Every branch name. */
     branchNames: () => [...branches.keys()],
-    /** Open a pull request for branches that exist, as a person would. */
-    openPull(head: string, base: string, title: string) {
-      const pull = { base, body: null, draft: false, head, merged: false, number: pulls.length + 1, state: "open" as const, title }
+    /**
+     * Open a pull request for branches that exist, as a person would. `fork` names the repository of the head branch:
+     * GitHub serves the commits of a fork pull request through the base repository too.
+     */
+    openPull(head: string, base: string, title: string, options: { fork?: string, labels?: string[] } = {}) {
+      const pull = { base, body: null, draft: false, head, ...(options.fork ? { headRepo: options.fork } : {}), labels: options.labels ?? [], merged: false, number: pulls.length + 1, state: "open" as const, title }
       pulls.push(pull)
       return pull.number
     },

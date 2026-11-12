@@ -330,6 +330,31 @@ describe("Postgres runtime", () => {
     expect(driver.clients[0]!.end).not.toHaveBeenCalled()
   })
 
+  it("drops server notices and keeps warnings, on every client", async () => {
+    clearActiveCloudflareEnv()
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://app" })
+    clientOf(db)
+    await runWithActiveCloudflareEnv({ HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }, () => clientOf(db))
+    const log = vi.spyOn(console, "log").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      for (const { options } of driver.clients) {
+        const onnotice = options.onnotice as (notice: Record<string, string>) => void
+        // postgres.js parses each notice into these fields. `severity` is not translated.
+        onnotice({ code: "42P07", message: "relation \"kv\" already exists, skipping", severity: "NOTICE", severity_local: "NOTICE" })
+        onnotice({ code: "01000", message: "disk almost full", severity: "WARNING", severity_local: "WARNUNG" })
+      }
+      expect(driver.clients).toHaveLength(2)
+      expect(log).not.toHaveBeenCalled()
+      expect(warn.mock.calls).toEqual([["[vitehub] Postgres warning: disk almost full"], ["[vitehub] Postgres warning: disk almost full"]])
+    }
+    finally {
+      log.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
   it("keys requests by the installed env when the host cannot wrap the request", async () => {
     const { createPostgresDatabase } = await loadPostgresRuntime()
     const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
@@ -354,7 +379,7 @@ describe("Postgres runtime", () => {
       })
 
       expect(clientOf(db)).toBe(clientOf(db))
-      expect(driver.clients).toEqual([expect.objectContaining({ options: {}, url: "postgres://first/app" })])
+      expect(driver.clients).toEqual([expect.objectContaining({ options: { onnotice: expect.any(Function) }, url: "postgres://first/app" })])
 
       vi.stubEnv("VITEHUB_TEST_DATABASE_URL", "postgres://second/app")
       expect(clientOf(db)).toMatchObject({ url: "postgres://second/app" })
@@ -419,7 +444,7 @@ describe("Postgres runtime", () => {
 
       expect(clientOf(db)).toBe(clientOf(db))
       // Without a URL argument, postgres.js reads its own PG* environment fallback.
-      expect(driver.clients.map(client => client.args)).toEqual([[{}]])
+      expect(driver.clients.map(client => client.args)).toEqual([[{ onnotice: expect.any(Function) }]])
     })
 
     it("replaces the pool when the PG* environment changes", async () => {
