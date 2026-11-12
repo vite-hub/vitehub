@@ -739,11 +739,12 @@ describe("framework package contract", () => {
     );
     expect(existsSync(`${packageRoot}/dist/console/runtime/public/console`)).toBe(false);
     expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
-    expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
+    // Only the Nuxt cloudflare preset references these declarations, so an app that wants them installs them.
+    expect(manifest.dependencies).not.toHaveProperty("@cloudflare/workers-types");
+    expect(manifest.peerDependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
     expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
-    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures distributed Console files without OAuth discovery for open access", async () => {

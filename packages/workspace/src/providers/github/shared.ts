@@ -156,7 +156,14 @@ export function connectGitHubRepository(repository: string, credential: string |
     provider: async () => {
       splitGitHubRepository(repository);
       const current = await token();
-      if (provider?.token !== current) provider = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace" }) };
+      if (provider?.token !== current) {
+        const next = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace" }) };
+        // A failed load lets the next request try again.
+        next.provider.catch(() => {
+          if (provider === next) provider = undefined;
+        });
+        provider = next;
+      }
       return await provider.provider;
     },
     ref: (client) => {

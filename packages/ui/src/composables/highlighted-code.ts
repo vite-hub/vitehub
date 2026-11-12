@@ -35,7 +35,11 @@ function loadHighlighter(): Promise<HighlighterCore> {
     import("shiki/themes/github-dark-default.mjs"),
   ]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }, light, dark]) =>
     createHighlighterCore({ engine: createJavaScriptRegexEngine(), langs: [], themes: [light.default, dark.default] }),
-  );
+  ).catch((error: unknown) => {
+    // A failed load, such as a chunk that a flaky network did not deliver, lets the next render try again.
+    highlighter = undefined;
+    throw error;
+  });
   return highlighter;
 }
 

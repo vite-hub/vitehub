@@ -221,6 +221,45 @@ describe("contentSource", () => {
     expect(prepared.at(-1)).toBe("2")
   })
 
+  it("reads one known document on get instead of every Source item", async () => {
+    const files = new Map(Array.from({ length: 50 }, (_, index) => [`page-${index}.md`, `# Page ${index}\n`]))
+    const reads: string[] = []
+    let listings = 0
+    const docs = defineSource({
+      name: "docs",
+      async getKeys() {
+        listings++
+        return [...files.keys()]
+      },
+      async getItem(key) {
+        reads.push(key)
+        const content = files.get(key)
+        if (content === undefined) throw new Error(`missing ${key}`)
+        return { content, key, path: key }
+      },
+    })
+    const content = defineContent({ sources: { docs } })
+
+    await expect(content.list("docs")).resolves.toHaveLength(50)
+    reads.length = 0
+    listings = 0
+    files.set("page-1.md", "# Edited\n")
+    expect((await content.get("/page-1"))?.nodes).toEqual(expect.arrayContaining([expect.arrayContaining(["h1"])]))
+    expect(JSON.stringify((await content.get("/page-1"))?.nodes)).toContain("Edited")
+    await content.get("/page-2")
+    expect(reads).toEqual(["page-1.md", "page-2.md"])
+    expect(listings).toBe(0)
+
+    files.set("page-new.md", "# New\n")
+    files.delete("page-3.md")
+    await content.cache.refresh("docs")
+    const paths = (await content.list("docs")).map(document => document.path)
+    expect(paths).toContain("/page-new")
+    expect(paths).not.toContain("/page-3")
+    await expect(content.get("/page-new")).resolves.toEqual(expect.objectContaining({ path: "/page-new" }))
+    await content.dispose()
+  })
+
   it("keeps separate Content instances on their own adapted Source loads", async () => {
     let revision = 0
     const source = contentSource(() => ({

@@ -76,6 +76,18 @@ describe("libSQL at startup", () => {
     await expect(client.execute("select 1")).rejects.toThrow()
   })
 
+  it("loads @libsql/client again on the next query after a failed load", async () => {
+    const { createClient } = await import("@libsql/client")
+    vi.mocked(createClient).mockImplementationOnce(() => {
+      throw new Error("transient libSQL failure")
+    })
+    const client = localLibsql.createClient({ url: ":memory:" })
+
+    await expect(client.execute("select 1 as one")).rejects.toThrow("transient libSQL failure")
+    expect((await client.execute("select 1 as one")).rows[0]?.one).toBe(1)
+    client.close()
+  })
+
   it("reconnects after close(), before and after the first query", async () => {
     const one = async (client: ReturnType<typeof localLibsql.createClient>) => (await client.execute("select 1 as one")).rows[0]?.one
 
