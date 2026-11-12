@@ -16,6 +16,7 @@ import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
@@ -377,13 +378,13 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
     }
     if (dailyPushBudget !== false && (!Number.isSafeInteger(dailyPushBudget) || dailyPushBudget < 1)) {
-      throw new TypeError("[vitehub] Babysitter dailyPushBudget must be a positive integer or false.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "dailyPushBudget", expected: "a positive integer or false" });
     }
     if (!Array.isArray(priorityLabels) || priorityLabels.some(label => !hasRuntimeType(label, "string") || !label.trim())) {
-      throw new TypeError("[vitehub] Babysitter priorityLabels must list GitHub label names.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "priorityLabels", expected: "a list of GitHub label names" });
     }
     if (mainRepairBranchPrefix !== undefined && !(hasRuntimeType(mainRepairBranchPrefix, "string") && mainRepairBranchPrefix.trim())) {
-      throw new TypeError("[vitehub] Babysitter mainRepairBranchPrefix must be a non-empty branch name prefix.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "mainRepairBranchPrefix", expected: "a non-empty branch name prefix" });
     }
     if (!hasRuntimeType(deferWhilePending, "boolean")) {
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
@@ -398,7 +399,7 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
     }
     if (!Number.isSafeInteger(providerRetries) || providerRetries < 0) {
-      throw new TypeError("[vitehub] Babysitter providerRetries must be a non-negative integer.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "providerRetries", expected: "a non-negative integer" });
     }
     if (!Number.isSafeInteger(providerCooldownMs) || providerCooldownMs < 1000 || providerCooldownMs > 60 * 60_000) {
       throw new TypeError("[vitehub] Babysitter providerCooldownMs must be an integer from 1000 to 3600000.");

@@ -50,6 +50,7 @@ import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
 import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
@@ -1585,7 +1586,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       beforePush: async head => {
                         const current = await assertLease(); await assertRepairBase();
                         const window = await repairPushWindow(current, await requiredCheckState(current), current.pr?.mergeable === false);
-                        if (window && !window.allowed) throw new Error(`Daily push budget spent: this PR has ${window.count} repair pushes in the last 24 hours, and the next push is allowed at ${new Date(window.nextAt).toISOString()}. Do not push or commit again. Reply to and resolve the remaining review threads, then report the current PR head as reviewedHead.`);
+                        if (window && !window.allowed) throw presetsErrorDiagnostics.PRESETS_DAILY_PUSH_BUDGET_SPENT({ count: window.count, nextAt: new Date(window.nextAt).toISOString() });
                         if (head && !await pullRequestInbox.registerProspectivePush({ ...inboxClaim, generation: current.generation, snapshot: current }, head)) {
                           throw new DOMException("Publication candidate lease changed.", "AbortError");
                         }
