@@ -215,6 +215,26 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(container.destroyed).toBe(1);
   });
 
+  it("reads the idle policy again at the next start after a failed read", async () => {
+    const { container, timeouts } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const get = vi.fn()
+      .mockRejectedValueOnce(new Error("transient storage failure"))
+      .mockResolvedValue({ sleepAfter: "30s" });
+    const sandbox = new Sandbox({ container, id: { name: "a", toString: () => "a" }, storage: { get, put: async () => {} } }, {});
+
+    await expect(sandbox.mkdir("/workspace/a")).rejects.toThrow("transient storage failure");
+    // The Container went to sleep, so the next call starts it again.
+    (container as { running: boolean }).running = false;
+    await expect(sandbox.mkdir("/workspace/a")).resolves.toEqual({ success: true });
+    expect(timeouts).toEqual([30_000]);
+  });
+
   it("retries a completed deletion after its response is lost", async () => {
     vi.useFakeTimers();
     const { files, objects, runtime } = setup();
