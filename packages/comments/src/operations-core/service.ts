@@ -3,6 +3,7 @@ import * as v from "valibot"
 import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
+import { foldName } from "../fold-name.ts"
 import { guestIdPrefix } from "../identity.ts"
 
 import type {
@@ -180,11 +181,12 @@ function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: 
 /** People that `@` suggests to `user`, without the ones that may not be mentioned in the thread. */
 export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
   const found = await peopleOf(runtime, input.user, input.gate).search(input.query, input.limit * 2)
-  const needle = input.query.trim().toLowerCase()
+  // Accents and case do not count, as in the menu, so an app's `search` that finds "José" for "jose" keeps him.
+  const needle = foldName(input.query.trim())
   const people: CommentUser[] = []
   for (const person of found) {
     if (people.length >= input.limit) break
-    if (isGuestId(person.id) || (needle && !(person.name ?? person.id).toLowerCase().includes(needle))) continue
+    if (isGuestId(person.id) || (needle && !foldName(person.name ?? person.id).includes(needle))) continue
     if (await mayMention(runtime, input.user, person, input)) people.push(personOf(person))
   }
   return people
