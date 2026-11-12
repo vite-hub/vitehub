@@ -50,9 +50,9 @@ function codexEvents(): StreamEvent[] {
     { activity: { kind: "tool" }, id: "exec-1", input: command("exec-1", failingScript), name: "command_execution", title: failingScript, type: "tool-call" },
     { data: { kind: "content.delta", value: { delta: longOutput, streamKind: "command_output" } }, id: "exec-1", type: "data-agent-event" },
     { activity: { kind: "tool" }, durationMs: 4200, error: "Command failed with exit code 1.", id: "exec-1", name: "command_execution", output: { item: { ...command("exec-1", failingScript).item, aggregatedOutput: longOutput, exitCode: 1, status: "failed" } }, title: failingScript, type: "tool-result" },
-    { activity: { kind: "tool" }, id: "patch-1", input: { item: { changes: [{ diff: "@@ -1 +1 @@\n-a\n+b\n", kind: "update", path: "/workspace/src/sync.ts" }], id: "patch-1", type: "fileChange" } }, name: "file_change", type: "tool-call" },
-    { activity: { kind: "tool" }, durationMs: 12, id: "patch-1", name: "file_change", output: { item: { changes: [{ path: "/workspace/src/sync.ts" }], status: "completed", type: "fileChange" } }, type: "tool-result" },
-    { usageRecord: { model: "gpt-5.5-codex", provider: "codex", usage: { inputTokens: 18_000, inputTokenDetails: { cacheReadTokens: 12_000 }, outputTokens: 900, outputTokenDetails: { reasoningTokens: 400 }, totalTokens: 18_900 } }, type: "usage" },
+    { activity: { kind: "tool" }, id: "patch-1", input: { toolName: "file_change", fileName: "/workspace/src/sync.ts", diff: "@@ -1 +1 @@\n-a\n+b\n" }, name: "file_change", type: "tool-call" },
+    { activity: { kind: "tool" }, durationMs: 12, id: "patch-1", name: "file_change", output: { toolName: "file_change", fileName: "/workspace/src/sync.ts", diff: "@@ -1 +1 @@\n-a\n+b\n" }, type: "tool-result" },
+    { usageRecord: { cost: { display: "$0.01", estimated: false, source: "provider", usd: "0.010000000000000001" }, model: "gpt-5.5-codex", provider: "codex", usage: { inputTokens: 18_000, inputTokenDetails: { cacheReadTokens: 12_000 }, outputTokens: 900, outputTokenDetails: { reasoningTokens: 400 }, totalTokens: 18_900 } }, type: "usage" },
     { id: "assistant_text:msg_2:0", messageId: "msg_2", phase: "final", text: "Fixed the cursor bug.", type: "text-delta" },
     { reason: "completed", type: "finish" },
   ]
@@ -125,8 +125,8 @@ describe("vitehub agent invocations export --activity", () => {
       title: failingScript,
     })
     expect(failed.output.length).toBeLessThan(invocationActivityLimits.failedOutput + 32)
-    expect(codex.activity[3]).toEqual({ at: expect.any(String), durationMs: 12, id: "patch-1", kind: "tool", name: "file_change", outputBytes: expect.any(Number), paths: ["/workspace/src/sync.ts"], status: "completed" })
-    expect(codex.activity[4]).toEqual({ at: expect.any(String), cachedInputTokens: 12_000, inputTokens: 18_000, kind: "usage", model: "gpt-5.5-codex", outputTokens: 900, provider: "codex", reasoningTokens: 400, totalTokens: 18_900 })
+    expect.soft(codex.activity[3]).toEqual({ at: expect.any(String), durationMs: 12, id: "patch-1", kind: "tool", name: "file_change", outputBytes: expect.any(Number), paths: ["/workspace/src/sync.ts"], status: "completed" })
+    expect.soft(codex.activity[4]).toEqual({ at: expect.any(String), cachedInputTokens: 12_000, costUsd: "0.010000000000000001", inputTokens: 18_000, kind: "usage", model: "gpt-5.5-codex", outputTokens: 900, provider: "codex", reasoningTokens: 400, totalTokens: 18_900 })
     expect(codex.activity[5]).toEqual({ at: expect.any(String), kind: "message", phase: "final", text: "Fixed the cursor bug." })
 
     expect(model.activity).toEqual([
@@ -135,6 +135,15 @@ describe("vitehub agent invocations export --activity", () => {
       { at: expect.any(String), inputTokens: 1200, kind: "usage", model: "gpt-5-mini", outputTokens: 80, provider: "openai", totalTokens: 1280 },
       { at: expect.any(String), kind: "message", text: "No ticket 7." },
     ])
+  })
+
+  it("keeps paths from native file-change items", async () => {
+    const { invocationActivityTrace } = await import("../src/invocations/activity.ts")
+    const trace = invocationActivityTrace([
+      { attributes: { "tool.id": "patch", "tool.input": { item: { changes: [{ path: "/workspace/src/sync.ts" }] } }, "tool.name": "file_change" }, name: "agent.tool.start", sequence: 1, timestamp: "2026-11-10T10:00:00.000Z", type: "run" },
+    ])
+    expect(trace.activity[0]).toMatchObject({ paths: ["/workspace/src/sync.ts"] })
+    expect(trace.activity[0]).not.toHaveProperty("input")
   })
 
   it("cuts long text and caps the entries", async () => {

@@ -47,7 +47,7 @@ interface InvocationTextActivity {
 interface InvocationUsageActivity {
   at: string
   cachedInputTokens?: number
-  costUsd?: number
+  costUsd?: string
   inputTokens?: number
   kind: "usage"
   model?: string
@@ -185,9 +185,11 @@ function applyToolInput(entry: InvocationToolActivity, input: unknown): void {
   const paths = changes?.flatMap(change => {
     const path = stringValue(record(change)?.path)
     return path ? [path] : []
-  })
-  if (paths?.length) entry.paths = paths
-  const text = command ? shellScript(command) : typeof input === "string" ? input : paths?.length ? undefined : json(input)
+  }) ?? []
+  const fileName = entry.name === "file_change" ? stringValue(item?.fileName) : undefined
+  if (fileName && !paths.includes(fileName)) paths.push(fileName)
+  if (paths.length) entry.paths = paths
+  const text = command ? shellScript(command) : typeof input === "string" ? input : paths.length ? undefined : json(input)
   if (text) entry.input = head(text, invocationActivityLimits.text)
 }
 
@@ -277,10 +279,12 @@ export function invocationActivityTrace(observations: readonly TraceEventLogEntr
       const provider = stringValue(attributes["usage.provider"])
       if (model) usage.model = model
       if (provider) usage.provider = provider
-      for (const key of ["inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens", "costUsd"] as const) {
+      for (const key of ["inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens"] as const) {
         const value = numberValue(attributes[`usage.${key}`])
         if (value !== undefined) usage[key] = value
       }
+      const costUsd = stringValue(attributes["usage.costUsd"])
+      if (costUsd !== undefined) usage.costUsd = costUsd
       entries.push({ entry: usage, sequence: observation.sequence })
       continue
     }
