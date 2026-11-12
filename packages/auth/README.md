@@ -14,7 +14,7 @@ Most applications install `vite-hub`, `@vite-hub/auth`, and `better-auth`, and e
 ## Install
 
 ```sh
-pnpm add @vite-hub/auth better-auth nitro
+pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5 nitro
 pnpm add -D vite
 ```
 
@@ -72,7 +72,7 @@ export default defineAuth({
 });
 ```
 
-`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `consoleMcpOAuth()` needs, the `organization`, `member`, and `invitation` tables and `session.activeOrganizationId` for `organization()`, the `passkey` table for `passkey()` from `@better-auth/passkey`, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins that only add tables go in the Database Definition.
+`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `mcpOAuth()` needs, the `organization`, `member`, and `invitation` tables and `session.activeOrganizationId` for `organization()`, the `passkey` table for `passkey()` from `@better-auth/passkey`, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins that only add tables go in the Database Definition.
 
 The owned core tables have fixed columns. `authDatabase()` rejects `additionalFields` on `user`, `session`, `account`, and `verification` with `AUTH_C0055`. It also rejects plugins that add unsupported columns to owned tables, and model or field remapping, with `AUTH_C0056`. Use another Better Auth adapter with a schema that matches those options. A Database contribution cannot extend the owned tables.
 
@@ -80,9 +80,9 @@ The owned core tables have fixed columns. `authDatabase()` rejects `additionalFi
 
 `VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
-For an app without social sign-in, `vitehub auth claim` prints a one-time code and the `VITEHUB_ADMIN_CLAIM` value (its SHA-256) to set on the host. The first signed-in user who enters the code on the Console's Access denied page, or sends it to `POST <auth base>/vitehub/admin-claim`, gets the admin role. A row in the `verification` table marks the code as used. A malformed value fails with `AUTH_C0059`.
+For an app without social sign-in, `vitehub auth claim` prints a one-time code and the `VITEHUB_ADMIN_CLAIM` value (its SHA-256) to set on the host. The first signed-in user who sends it to `POST <auth base>/vitehub/admin-claim` gets the admin role. A row in the `verification` table marks the code as used. A malformed value fails with `AUTH_C0059`.
 
-The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value.
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
@@ -203,10 +203,10 @@ export const photo = withAuthorization(
 
 Annotate the input type when the host does not infer it, for example inside `defineEventHandler()`.
 
-`withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
+`withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. Every JSON refusal of the guards has one body in H3's error format: `{ status, statusText, message, data: { code } }`. The code is `SIGNED_OUT` for `401` and `FORBIDDEN` for `403`. Read the code, not the message. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
 `withAnonymousAuthorization(authorize, handler, definition?)` also runs the callback for a signed-out caller, with `session` and `user` set to `null`. `false` returns `401` for that caller and `403` for a signed-in one. Blob serve routes use it with `serve.anonymous: true`.
 
-To check inside a handler, call `requireAuth(event)` or `requireAuthorization(event, authorize)`. Each returns the frozen `authorization` or throws an H3 `HTTPError`, so the rest of the handler runs only after the check passes. The errors match the guards above: `requireAuth()` throws `401` or the `access.signIn` redirect, and `requireAuthorization()` throws `401`, `403`, or an HTTP error from the callback's `Response`.
+To check inside a handler, call `requireAuth(event)` or `requireAuthorization(event, authorize)`. Each returns the frozen `authorization` or throws an H3 `HTTPError`, so the rest of the handler runs only after the check passes. The errors match the guards above: `requireAuth()` throws `401` or the `access.signIn` redirect, and `requireAuthorization()` throws `401`, `403`, or an HTTP error from the callback's `Response`. The error has the same code in `data.code`, also for the text `403` of an HTML request.
 
 The inline guards use H3's JSON error format. They keep the response status and headers, except `content-length`, which changes with the body. JSON object fields stay at the top level, and other JSON values become `data`. JSON media types, such as `application/problem+json`, stay unchanged. Text becomes `message` with a JSON content type. Use `withAuthorization()` when the response body must stay unchanged.
 
@@ -289,7 +289,7 @@ export { default } from '#vitehub/auth/server'
 
 For a manual adapter that creates plain Web `Request` objects, use `createAuthHandler(definition)` from `@vite-hub/auth/server` and call the returned handler as `handler(request, { clientAddress })`. Read `clientAddress` from the host's peer address, such as Node's `incomingMessage.socket.remoteAddress`, never from a client-sent header. Auth uses it for per-client rate limiting and `session.ipAddress`; without it, plain Web requests share an addressless rate-limit bucket. srvx requests already carry their host address as `ip`.
 
-App Auth loads Better Auth on demand. Nitro imports the Auth route on its first request. The generated access middleware imports `#vitehub/auth/server` only for a request that an access route matches, and the Console with `console: { auth: "app" }` imports it on its first request. An independent `console.auth` Definition still loads Better Auth at startup. Generated app Auth startup code imports `@vite-hub/auth/runtime/server`, which has no Better Auth import. Your own code loads Better Auth when it imports `@vite-hub/auth/server`, so import it in routes, not in plugins or global middleware, to keep it out of the startup.
+App Auth loads Better Auth on demand. Nitro imports the Auth route on its first request. The generated access middleware imports `#vitehub/auth/server` only for a request that an access route matches. Generated app Auth startup code imports `@vite-hub/auth/runtime/server`, which has no Better Auth import. Your own code loads Better Auth when it imports `@vite-hub/auth/server`, so import it in routes, not in plugins or global middleware, to keep it out of the startup.
 
 Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, `runtime`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
 Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, `runtime`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
@@ -369,6 +369,33 @@ client.$store.listen("$sessionSignal", () => {});
 ```
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-started/concepts/client) for framework entrypoints and session helpers.
+
+## Abilities
+
+Write named permission rules once in `shared/abilities.ts`, next to the `server/` folder. The server and the app run the same rules. The design comes from [Capsa](https://github.com/OrlS15/nuxt-capsa) by Orlando Sica.
+
+```ts
+// shared/abilities.ts
+import { defineAbilities, deny, guest } from "@vite-hub/auth/abilities";
+
+export interface Post { authorId: string; published: boolean }
+
+export default defineAbilities({
+  "posts.read": guest((user, post: Post) => post.published || user?.id === post.authorId),
+  "posts.edit": (user, post: Post) => user.id === post.authorId || "not-author",
+  "posts.publish": (user, post: Post) => user.id === post.authorId || deny("not-found", { status: 404 }),
+});
+```
+
+A rule gets the signed-in user, then its arguments, and returns at once. `true` allows. `false` and a code refuse with `403`, and `deny(code, { status, details })` with another 4xx status. A signed-out visitor gets `401` with the code `signed-out` before the rule runs, except in a `guest()` rule, where `user` is `null`. The Vite plugin serves the file as `#vitehub/auth/abilities` and registers its type in `.vitehub/types/auth.d.ts`, so ability names and arguments type-check.
+
+- Server: `requireAbility(event, name, ...args)` from `@vite-hub/auth/server` returns the checked `{ request, session, user }`, or throws `AbilityError`. H3 2 sends it with the rule's status and `{ code, details }` in `data`. `can(event, name, ...args)` returns a boolean.
+- Vue: `useAbility().can(name, ...args)`, `useAbility().cannot(name, ...args)`, `<Can do="posts.edit" :with="post">`, and `<Cannot>` from `@vite-hub/auth/vue`. They give no answer (`undefined`, or no content) until the session is known. `<Can>` and `<Cannot>` take the one argument of a rule in `with`, the list of any other rule in `args` (`:args="[from, to]"`), and `pending` to show nothing while data loads. The arguments go to the rule as they are, the same as on the server. `<Can>` renders the `#denied` slot with `{ code, details }` when the rule refuses. `<Cannot>` renders its default slot with `{ code, details }` only when the rule refuses. The Nuxt module auto-imports all of them.
+- Vue pages: `await useAbility().authorize(name, ...args)` throws when the rule refuses, with the status and `{ code, details }` data of `requireAbility()`. In Nuxt, the error is fatal and shows the error page. Without Nuxt, it is an `AbilityError`. In the browser, except while Nuxt hydrates, it sends one `/get-session` request for the current session. On the server, a session that the server could not read counts as signed out.
+
+Nuxt uses the Auth Definition's base path for the shared browser client. In other Vue apps, call `provideAuthClient(client)` from `@vite-hub/auth/vue` in a parent component's setup to share a custom client with descendant Auth composables and `<Can>`. You can also pass a client directly to `useAbility(client)`.
+
+`requireAuthorization(event, authorize)` checks inside the handler, and `withAuthorization()` wraps it. Use them for checks that need only the user. A rule that needs data the handler loads belongs in `shared/abilities.ts`.
 
 ## Nuxt: server session and page guard
 

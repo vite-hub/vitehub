@@ -191,7 +191,7 @@ describe("defineContent({ extends: cms })", () => {
     const root = await temporaryRoot()
     const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
     cleanup.push(() => client.close())
-    const database = drizzle(client, { schema: workspaceHistorySchema })
+    const database = drizzle({ client: client })
     const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
     for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
     const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
@@ -466,10 +466,16 @@ describe("the cms preset on the GitHub store", () => {
   })
 
   it("publishes with pull requests only on the GitHub store with publish: pr", () => {
-    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr" })
-    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content" })
-    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content" })
-    expect(cms.configure({ ...cms.options, access: "roles", store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function) })
+    const privateBranches = ["vitehub/content"]
+    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", privateBranches })
+    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content", privateBranches })
+    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content", privateBranches })
+    expect(cms.configure({ ...cms.options, access: "roles", store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function), privateBranches })
+  })
+
+  it("keeps the draft branch of the GitHub store private for content.sources.allow()", () => {
+    expect(cms.configure({ ...cms.options, store: "github", draftBranch: "drafts/site" }).privateBranches).toEqual(["drafts/site"])
+    expect(cms.configure({ ...cms.options }).privateBranches).toBeUndefined()
   })
 
   it("contributes only the sessions table, and needs no Blob store", async () => {

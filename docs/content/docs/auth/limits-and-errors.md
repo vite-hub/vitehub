@@ -43,10 +43,50 @@ console.log(error.toJSON())
 | `AUTH_C0057` | `VITEHUB_ADMIN_EMAILS` is set. It is removed: list the admin's social account in `VITEHUB_ADMINS`. |
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
 | `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
+| `AUTH_C0060` | Both `shared/abilities.ts` and another `shared/abilities.*` file exist. Keep one. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
+| `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
+| `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, and invalid Auth Definitions, `authenticated()` config, or custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
+
+## Read a refusal
+
+The guards refuse a request with one JSON body: `withAuth()`, `withAuthorization()`, `withAnonymousAuthorization()`, `requireAuth()`, `requireAuthorization()`, and the checks of `access.routes`. The body uses H3's error format, so a returned refusal and a thrown H3 error have the same `status`, `statusText`, `message`, and `data`. Nitro and Nuxt add `error: true` to a thrown error, and a stack in development.
+
+```json
+{ "status": 401, "statusText": "Unauthorized", "message": "Unauthorized.", "data": { "code": "SIGNED_OUT" } }
+```
+
+| `data.code` | Status | When |
+| --- | --- | --- |
+| [`SIGNED_OUT`](#signed_out) | `401` | The request has no Auth Session. |
+| [`FORBIDDEN`](#forbidden) | `403` | The caller is signed in, but `authorize` does not return `true`. |
+
+Read the code, not the message, in client code. The message can change.
+
+```ts [app/utils/delete-post.ts]
+export async function deletePost(id: string): Promise<'deleted' | 'sign-in' | 'forbidden'> {
+  const response = await fetch(`/api/posts/${id}`, { method: 'DELETE' })
+  if (response.ok) return 'deleted'
+  const body: { data?: { code?: string } } = await response.json()
+  if (body.data?.code === 'SIGNED_OUT') return 'sign-in'
+  if (body.data?.code === 'FORBIDDEN') return 'forbidden'
+  throw new Error(`Delete failed with HTTP ${response.status}.`)
+}
+```
+
+- An HTML `GET` that `withAuth()` or an access route refuses still gets the `access.signIn` redirect. When `withAuthorization()` or an access route refuses it with `403`, it gets the text `Forbidden.`. `requireAuth()` and `requireAuthorization()` still put the code in `data` of their error.
+- A `Response` that `authorize` returns goes to the client as it is, without a code.
+
+## SIGNED_OUT
+
+The request has no Auth Session, or the session ended. Sign in, then send the request again with the session cookie. A `fetch()` from another origin must send `credentials: 'include'`. After a failed sign-in, the URL has `auth_error`, and an HTML `GET` gets the text `403` `Unauthorized.` instead of a new redirect. `requireAuth()` then throws `403` with `SIGNED_OUT`.
+
+## FORBIDDEN
+
+The caller is signed in, but the `authorize` callback of the guard or the access route returned `false` or another value that is not `true`. An access route that has `authorize: true` in its route metadata also refuses when its callback is not there at runtime. Check the callback, or the roles of the user.
 
 ## AUTH_CONSOLE_INVALID_REQUEST
 

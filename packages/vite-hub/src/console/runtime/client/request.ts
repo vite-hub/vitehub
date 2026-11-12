@@ -58,7 +58,7 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+/** Whether the project refused a Console request with `401`, such as a signature that it does not accept. */
 export function isConsoleSignInRequired(error: unknown): boolean {
   return error instanceof ConsoleRequestError && error.status === 401
 }
@@ -69,6 +69,9 @@ const textField = (value: unknown): string | undefined =>
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
 export function consoleErrorFields(value: unknown): ConsoleErrorFields {
   const body = record(value)
+  // An Auth guard refusal only has the HTTP phrase as its message. The Console code and sentence of the status say more.
+  const authRefusal = record(body?.data)?.code
+  if (body?.code === undefined && (authRefusal === "SIGNED_OUT" || authRefusal === "FORBIDDEN")) return {}
   const nested = record(body?.error)
   const source = nested ?? body
   const docs = textField(source?.docs)

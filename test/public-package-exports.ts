@@ -74,14 +74,14 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
+  ["vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
-  // The Console signs people in with Better Auth and keeps the Agent journal in libSQL.
-  // `consoleMcpOAuth()` loads `@better-auth/cimd` when the Auth starts.
-  ["vite-hub/console/auth", { "@better-auth/cimd": "runtime", "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
+  // The Console keeps the Agent journal in libSQL.
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
+  ["vite-hub/env/database", { "drizzle-orm": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   ["vite-hub/logs", { "evlog": "both" }],

@@ -136,7 +136,7 @@ vi.mock("@vite-hub/workflow/vite", () => ({
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace, workspaceConsoleSection: integrationMocks.consoleSection("workspaces") }))
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
-import { getResolvedFeatureOptions, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
@@ -545,7 +545,7 @@ describe("vitehub", () => {
       expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
-      expect(generated).toMatch(/installConsoleSections\([^\n]+"blob"[^\n]+false, \["setup"\]\)/)
+      expect(generated).toMatch(/installConsoleSections\([^\n]+"blob"[^\n]+\["setup"\]\)/)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -578,68 +578,29 @@ describe("vitehub", () => {
     ]))
   })
 
-  it("passes discovered Auth access policy to production Console builds", async () => {
+  it("adds the Auth section and its impersonation route to a production Console with app Auth", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
-        access: {
-          routes: [
-            { authorize: true, route: "/_vitehub/**" },
-            { authorize: true, method: "GET", route: "/_vitehub/api/**" },
-          ],
-        },
-      })
-      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { auth: "app" }, preset: "node" }), "vite-hub/console")
-      const config: Record<string, unknown> = { root }
+      integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({ access: { routes: [] } })
+      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: true, preset: "node" }), "vite-hub/console")
+      const config: { nitro?: { handlers?: Array<{ route?: string }> }, root: string } = { root }
 
       await callHook(plugin.config, [config, { command: "build", mode: "production" }])
 
-      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, {
-        serverDirs: undefined,
-      })
-      expect(config.nitro).toMatchObject({
-        handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/sign-in", middleware: true }),
-          expect.objectContaining({ route: "/_vitehub/rpc" }),
-        ]),
-      })
+      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
+      const routes = config.nitro?.handlers?.map(handler => handler.route)
+      expect(routes).toContain("/_vitehub/rpc")
+      expect(routes).not.toContain("/_vitehub/auth/manage")
+      expect(routes).not.toContain("/_vitehub/sign-in")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
   })
 
-  it("installs the server Auth bridge for independent Console Auth without Primary Auth", () => {
-    const plugins = vitehub({
-      console: {
-        auth: {
-          provider: "github",
-          allowedEmails: ["maintainer@example.com"],
-          databasePath: "/data/console-auth.sqlite",
-        },
-      },
-      preset: "node",
-    })
-    expect(pluginNames(plugins)).toContain("@vite-hub/auth/vite")
-    expect(integrationMocks.hubAuth).toHaveBeenCalledWith(false, { importBase: "vite-hub/auth" })
-  })
-
-  it("keeps Cloudflare Access Console auth independent of the Auth owner", () => {
-    const plugins = vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
-    expect(pluginNames(plugins)).not.toContain("@vite-hub/auth/vite")
-  })
-
-  it("accepts production Auth policy whose /_vitehub/** rule covers the Console API", async () => {
-    integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
-      access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
-    })
-    const plugin = dependencyPluginByName(
-      vitehub({ agent: true, auth: true, console: { auth: "app" }, preset: "node" }),
-      "vite-hub/console",
-    )
-
-    await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }])).resolves.not.toThrow()
+  it("adds no Auth owner for the Console alone", () => {
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).not.toContain("@vite-hub/auth/vite")
   })
 
   it("omits implicitly disabled Netlify Workflow from the standalone Console", async () => {
@@ -775,6 +736,7 @@ describe("vitehub", () => {
       "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
+      "vite-hub/cloudflare-pkce-challenge",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -865,7 +827,9 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "cloudflare-module" })
+    expect(integrationMocks.hubKv).toHaveBeenCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "cloudflare-module" })
+    // With `kv` unset, the list also has the KV case for a `github()` Content Source.
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -1221,11 +1185,11 @@ describe("vitehub", () => {
     }))
 
     vitehub({
-      agent: { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } },
+      agent: { providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } },
       preset: "cloudflare",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+      providers: { state: { driver: "libsql", url: "libsql://state.example.test" } },
     }))
 
     vitehub({
@@ -1481,11 +1445,9 @@ describe("vitehub", () => {
   })
 
   it.each([
-    ["deno", false, 2, "deno-deploy"],
-    ["cloudflare", true, 2, "cloudflare-durable"],
-    ["deno", false, 3, "deno-server"],
-    ["cloudflare", true, 3, "cloudflare-module"],
-  ] as const)("selects the %s preset with realtime %s on Nitro %s during Nuxt config replay", async (preset, realtime, nitroMajorVersion, nitroPreset) => {
+    ["deno", false, "deno-server"],
+    ["cloudflare", true, "cloudflare-module"],
+  ] as const)("selects the %s preset with realtime %s during Nuxt config replay", async (preset, realtime, nitroPreset) => {
     const plugins = vitehub({ cache: { driver: "kv" }, kv: true, preset, realtime })
     const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
     const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
@@ -1496,7 +1458,6 @@ describe("vitehub", () => {
       for (const initialPreset of [undefined, nitroPreset]) {
         const config = {
           [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-          [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion,
           command: "build",
           nitro: { preset: initialPreset },
         }
@@ -1504,8 +1465,8 @@ describe("vitehub", () => {
         expect(config.nitro.preset).toBe(nitroPreset)
         await callHook(deployment.config, [config, { command: "build", mode: "production" }])
         expect(config.nitro.preset).toBe(nitroPreset)
-        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "storage.cache.driver" : "kv.cache.driver", kvCacheDriver)
-        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "devStorage.cache.driver" : "$development.kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty("kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty("$development.kv.cache.driver", kvCacheDriver)
         expect(() => callHook(output.configResolved, [config])).not.toThrow()
       }
     }
@@ -2010,7 +1971,7 @@ describe("vitehub", () => {
   ] as const)("resolves the Blob driver with the %s preset in development (explicit=%s)", async (preset, explicit) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-app-driver-"))
     try {
-      const plugins = vitehub({ preset, blob: explicit ? { driver: "vercel-blob", token: "app-token" } : true })
+      const plugins = vitehub({ preset, blob: explicit ? { driver: "vercel-blob" } : true })
       const args = integrationMocks.hubBlob.mock.lastCall
       if (!args) throw new Error("Expected the Blob plugin to be installed.")
       const { hubBlob } = await import("../../blob/src/vite.ts")
@@ -2027,7 +1988,7 @@ describe("vitehub", () => {
       }, "serve")
 
       const store = explicit
-        ? { driver: "vercel-blob", token: "app-token" }
+        ? { driver: "vercel-blob" }
         : preset === "cloudflare" ? { driver: "cloudflare-r2", localFallback: { driver: "fs" } } : { driver: "fs" }
       expect(blob.api.getConfig().blob).toMatchObject({ store })
       const [inspector] = blob.vitehub.inspect!().definitions!
@@ -2052,8 +2013,8 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "node", blob: false }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
-    // Only the `cms` preset case of the default list builds Blob.
-    expect(integrationMocks.hubBlob).toHaveBeenCalledOnce()
+    // Only the `cms` preset case of the default list builds Blob, once without and once with KV for `github()` Sources.
+    expect(integrationMocks.hubBlob).toHaveBeenCalledTimes(2)
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")

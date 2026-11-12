@@ -19,7 +19,7 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 ::details{summary="Why Node.js 22.22?"}
 ViteHub uses Nitro, which needs Node.js 22.22. A package installed alone, without `vite-hub`, can need less: Queue needs 22.19, and most others 22.18.
 
-On Node.js 22, features that open a local SQLite file (a `file:` Database, Console sign-in, and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
+On Node.js 22, features that open a local SQLite file (a `file:` Database and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
 ::
 
 ## Set up the app
@@ -212,6 +212,12 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 [vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
+When an installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
+
+```text [output/unsupported-package.txt]
+[vitehub] drizzle-orm 0.44.7 is installed, but vite-hub 0.1.0 supports drizzle-orm@^0.45.3. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@^0.45.3'
+```
+
 ::details{summary="Which features need their own package?"}
 `vite-hub` includes Env, Source, Logs, and the Console endpoint. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
@@ -238,8 +244,6 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
-| Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
-| OAuth sign-in for a Console on another origin, with `consoleMcpOAuth()` | `@vite-hub/auth better-auth @better-auth/oauth-provider @better-auth/cimd` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/decisions` | `@vite-hub/decisions` |
 | `vite-hub/forge` | `@vite-hub/forge` |

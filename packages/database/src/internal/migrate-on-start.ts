@@ -1,10 +1,7 @@
-import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
-
-import { join, resolve } from "pathe"
+import { resolve } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { readJournal, readPendingMigration } from "./migration-journal.ts"
+import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
 import type { StartMigration } from "../runtime/migrate-on-start.ts"
 import type { DatabaseIntegrationOptions, ResolvedDBViteConfig } from "../types.ts"
@@ -14,19 +11,39 @@ export const migrateOnStartPluginFile = ".vitehub/nitro/database/migrate-on-star
 
 export interface MigrateOnStartSettings {
   allowDataLoss: boolean
+  /** The app set `migrateOnStart`. Without it, only Postgres databases of a Node build migrate on start. */
+  explicit: boolean
 }
 
+/** `false` turns migrate on start off. Unset turns it on for Postgres databases only. */
 export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationOptions, "migrateOnStart"> | undefined): MigrateOnStartSettings | undefined {
-  const value = options ? options.migrateOnStart : undefined
-  if (!value) return
-  return { allowDataLoss: value !== true && value.allowDataLoss === true }
+  if (options === false) return
+  const value = options?.migrateOnStart
+  if (value === false) return
+  if (value === undefined) return { allowDataLoss: false, explicit: false }
+  return { allowDataLoss: value !== true && value.allowDataLoss === true, explicit: true }
 }
 
-interface RenderMigrateOnStartOptions extends MigrateOnStartSettings {
+/**
+ * Returns the databases that the server migrates when it starts. An explicit `migrateOnStart` takes every database and
+ * fails the build when one cannot migrate in the server process. The default takes the Postgres databases of a build
+ * whose host is known to be Node, and nothing when the host is another one or unknown.
+ */
+export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | undefined, settings: MigrateOnStartSettings, host: string | undefined): string[] {
+  if (settings.explicit) {
+    assertMigrateOnStartSupported(config, host)
+    return config?.databaseNames ?? []
+  }
+  if (!config || host !== "node") return []
+  return config.databaseNames.filter(name => config.databases[name]!.dialect === "postgresql")
+}
+
+interface RenderMigrateOnStartOptions {
+  allowDataLoss: boolean
+  /** The names that `selectMigrateOnStartDatabases()` returned. */
+  databases: string[]
   /** Module that exports `useDatabase()` in the server build. */
   drizzleImport: string
-  /** The resolved host, or the explicit preset when its host is unknown. */
-  host: string | undefined
   /** Module that exports `migrateOnStart()`. */
   runtimeImport: string
 }
@@ -34,19 +51,22 @@ interface RenderMigrateOnStartOptions extends MigrateOnStartSettings {
 /**
  * Renders a Nitro plugin that applies each database's pending migrations before the server handles requests. The
  * migrations are read now and written into the plugin, so the server output does not need the migrations folder.
+ * Returns `undefined` when no database has migrations.
  */
-export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string {
-  assertMigrateOnStartSupported(config, options.host)
-  const databases = config.databaseNames
-    .map(name => ({ migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir)), name }))
+export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
+  const databases = options.databases
+    .map(name => ({ dialect: config.databases[name]!.dialect, migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name), name }))
     .filter(database => database.migrations.length)
+  if (!databases.length) return
   return [
     `import { useDatabase } from ${JSON.stringify(options.drizzleImport)}`,
     `import { migrateOnStart } from ${JSON.stringify(options.runtimeImport)}`,
     "",
     "// Nitro imports plugins before it listens, so the server handles requests only after this finishes.",
-    "await migrateOnStart([",
-    ...databases.map(database => `  { db: useDatabase(${JSON.stringify(database.name)}).db, migrations: ${JSON.stringify(database.migrations)}, name: ${JSON.stringify(database.name)} },`),
+    "// A failed migration rejects this import, and the server stops before it listens.",
+    "// The prerender server runs during the build and must not migrate the runtime database.",
+    "if (!import.meta.prerender) await migrateOnStart([",
+    ...databases.map(database => `  { db: useDatabase(${JSON.stringify(database.name)}).db, dialect: ${JSON.stringify(database.dialect)}, migrations: ${JSON.stringify(database.migrations)}, name: ${JSON.stringify(database.name)} },`),
     `], { allowDataLoss: ${options.allowDataLoss} })`,
     "",
     "export default () => {}",
@@ -61,21 +81,17 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
   }
   if (!config) return
   for (const name of config.databaseNames) {
-    const database = config.databases[name]!
-    if (database.dialect === "postgresql") {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: "It is a Postgres database." })
-    }
-    if (database.cloudflare?.http) {
+    if (config.databases[name]!.cloudflare?.http) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: "It uses Cloudflare D1 over HTTP." })
     }
   }
 }
 
-function readStartMigrations(migrationsDir: string): StartMigration[] {
-  const entries = readJournal(migrationsDir)
+/** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
+export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+  const entries = readMigrations(migrationsDir, database)
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
-    const hash = createHash("sha256").update(readFileSync(join(migrationsDir, `${entry.tag}.sql`), "utf8")).digest("hex")
-    return { dataLoss, hash, name: entry.tag, statements, when: entry.when }
+    return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
   })
 }
