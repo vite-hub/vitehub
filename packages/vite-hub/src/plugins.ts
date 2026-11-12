@@ -46,6 +46,7 @@ import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOpti
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -426,6 +427,15 @@ export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" |
   database?: string
 }
 
+export interface ViteHubNodeOptions {
+  /**
+   * The number of server instances that run this build. The server fails at boot when it is greater than 1 and a
+   * primitive keeps its state in one process or on one host, such as the `fs-lite` KV store or the memory Rate Limit.
+   * `VITEHUB_INSTANCES` overrides it when the server starts. Default: 1.
+   */
+  instances?: number
+}
+
 export interface ViteHubOptions {
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
@@ -459,6 +469,8 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsOptions
   /** Options for the `cloudflare` preset. Other presets ignore them. */
   cloudflare?: CloudflareOptions
+  /** Options for the `node` preset. Other presets ignore them. */
+  node?: ViteHubNodeOptions
   /**
    * App-owned OAuth and API key Connections in `server/connections/`. They store grants in the `default` Database, or
    * in the Database that `database` names, and enable `database` when it is unset.
@@ -1630,6 +1642,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
+  // A Node server prints where each primitive keeps its state, and fails at boot when several instances would split it.
+  if (plan.preset === "node") plugins.push(viteHubDurabilityPlugin(options.node))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({

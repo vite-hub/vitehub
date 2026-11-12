@@ -3,6 +3,8 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -29,6 +31,7 @@ import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.
 import { createDatabaseProvisionStep } from "./provision.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -87,7 +90,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & {
+  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & DurabilityPluginMetadata & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -187,6 +190,33 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
     ...entries,
     "}",
     "export default databases",
+    "",
+  ].join("\n")
+}
+
+/** Evaluate the same Definitions and precedence as the Database runtime, without opening a connection. */
+function renderDatabaseDurabilityModule(config: ResolvedDBViteConfig, dev: boolean) {
+  const safeConfig: ResolvedDBViteConfig = {
+    ...config,
+    databases: Object.fromEntries(Object.entries(config.databases).map(([name, database]) => [name, {
+      ...database,
+      connection: database.connection?.url === undefined ? undefined : { url: databaseDurabilityUrl(database.connection.url) },
+    }])),
+  }
+  const entries = config.definitions.map((definition, index) => {
+    const expression = renderDatabaseConfigExpression(definition.name, safeConfig, `definition_${index}`)
+    return dev ? `resolveDevRemoteConfig(${expression}, definition_${index}.remote)` : expression
+  })
+  return [
+    `import { databaseDurability as report } from ${JSON.stringify(durabilityModuleFile(import.meta.url))}`,
+    `import { resolveDevRemoteConfig, resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`,
+    ...config.definitions.map((definition, index) => `import definition_${index} from ${JSON.stringify(definition.handler)}`),
+    "export function databaseDurability(_input, context) {",
+    `  const databases = [${entries.join(",\n")}].map(database => ({`,
+    "    dialect: database.dialect, name: database.name, http: database.cloudflare?.http, url: database.connection?.url,",
+    "  }))",
+    "  return report({ databases }, context)",
+    "}",
     "",
   ].join("\n")
 }
@@ -468,6 +498,12 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
       },
     },
     vitehub: {
+      durability: () => {
+        if (!runtimeConfig) return []
+        const module = resolve(databaseRoot(), ".vitehub/database/durability.mjs")
+        writeFileIfChangedSync(module, renderDatabaseDurabilityModule(runtimeConfig, resolved?.command === "serve"))
+        return [{ export: "databaseDurability", input: {}, module, primitive: "database" }]
+      },
       cli: async () => {
         const db = resolvedOptions()
         if (db === false) return

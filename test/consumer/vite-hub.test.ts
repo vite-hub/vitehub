@@ -98,6 +98,38 @@ async function availablePort() {
   return port
 }
 
+/** Starts a built server with `env`. Resolves with the status of `/api/ping` when it serves, or with its exit code. */
+async function startNodeServer(entry: string, cwd: string, env: NodeJS.ProcessEnv): Promise<{ code?: number | null, output: string, status?: number }> {
+  const port = await availablePort()
+  const child = spawn(process.execPath, [entry], {
+    cwd,
+    env: { ...process.env, ...env, HOST: "127.0.0.1", PORT: String(port) },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let output = ""
+  child.stdout.on("data", chunk => { output += String(chunk) })
+  child.stderr.on("data", chunk => { output += String(chunk) })
+  let exit: number | null | undefined
+  child.once("exit", (code) => { exit = code })
+  try {
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      if (exit !== undefined) return { code: exit, output }
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/api/ping`)
+        return { output, status: response.status }
+      }
+      catch {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+    throw new Error(`The server neither served nor exited:\n${output}`)
+  }
+  finally {
+    child.kill("SIGKILL")
+  }
+}
+
 async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: string) => Promise<T>) {
   const port = await availablePort()
   const child = spawn(process.execPath, [entry], {
@@ -804,6 +836,73 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         const files = await readdir(join(appDir, ".vitehub/data/kv"))
         expect(files.some(file => file.startsWith("key-nitro-cache%3A") && file.endsWith(".json"))).toBe(true)
       }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+
+  it("prints the durability table and checks the instance count in a packed Nuxt 5 Node server", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-durability-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+    try {
+      await Promise.all([
+        mkdir(join(appDir, "app"), { recursive: true }),
+        mkdir(join(appDir, "server/api"), { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "app/app.vue"), "<template><main>Durability</main></template>"),
+        writeFile(join(appDir, "nuxt.config.ts"), `
+          export default {
+            modules: ["vite-hub/nuxt"],
+            nitro: { preset: "node-server" },
+            vitehub: { agent: false, kv: true, preset: "node" },
+          }
+        `),
+        writeFile(join(appDir, "server/api/ping.get.ts"), "export default () => ({ ok: true })\n"),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            "@vite-hub/kv": specs["@vite-hub/kv"],
+            h3: "2.0.8",
+            nitro: "3.0.261102-rc",
+            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            rolldown: "1.1.5",
+            unplugin: "3.3.0",
+            vite: "8.0.8",
+            "vite-hub": specs["vite-hub"],
+          },
+          packageManager: "pnpm@10.33.0",
+          private: true,
+          devDependencies: { typescript: "6.0.3", "vite-plus": "0.1.24", "vue-tsc": "3.3.7" },
+          scripts: { build: "nuxt build" },
+          type: "module",
+        }, null, 2)),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
+          "oxc-parser": "0.140.0",
+          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
+          nitro: "3.0.261102-rc",
+          "nitro>h3": "2.0.8",
+          rolldown: "1.2.4",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
+        })),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await run("pnpm", ["run", "build"], appDir)
+
+      // The default fs-lite KV store keeps files on one host, so 3 instances must not start.
+      const split = await startNodeServer(join(appDir, ".output/server/index.mjs"), appDir, { VITEHUB_INSTANCES: "3" })
+      expect(split.status).toBeUndefined()
+      expect(split.code).not.toBe(0)
+      expect(split.output).toContain("RUNTIME_R0017")
+      expect(split.output).toContain("  - kv: fs-lite (host). Files in .vitehub/data/kv on this host.")
+
+      const single = await startNodeServer(join(appDir, ".output/server/index.mjs"), appDir, { VITEHUB_INSTANCES: "1" })
+      expect(single.status).toBe(200)
+      expect(single.output).toContain("[vitehub] Durability (1 instance, from VITEHUB_INSTANCES):")
+      expect(single.output).toMatch(/ {2}kv {2}fs-lite {2}host {2}Files in \.vitehub\/data\/kv on this host\./)
     }
     finally {
       await rm(root, { recursive: true, force: true })

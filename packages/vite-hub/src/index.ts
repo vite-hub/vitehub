@@ -32,6 +32,7 @@ export type {
   SandboxTaskOptions,
   ScheduleOptions,
   SystemdOptions,
+  ViteHubNodeOptions,
   ViteHubOptions,
   WorkflowOptions,
   WorkspaceOptions,

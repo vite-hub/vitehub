@@ -587,6 +587,11 @@
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
+    "./runtime/durability": {
+      "types": "./dist/runtime/durability.d.ts",
+      "import": "./dist/runtime/durability.js",
+      "default": "./dist/runtime/durability.js"
+    },
     "./runtime/h3": {
       "types": "./dist/runtime/h3.d.ts",
       "import": "./dist/runtime/h3.js",
