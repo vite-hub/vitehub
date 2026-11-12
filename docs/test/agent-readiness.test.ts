@@ -81,6 +81,22 @@ describe("agent-ready HTTP contracts", () => {
 
     expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt"]);
   });
+
+  it("pins the Nuxt 5 toolchain and disables DevTools", () => {
+    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
+    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
+    const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
+
+    expect(workspace).toContain("nuxt: npm:nuxt-nightly@5.0.0-2611052317-a04317f");
+    expect(workspace).toContain('nuxt: ">=5.0.0-0"');
+    expect(lockfile).toContain("nuxt-nightly@5.0.0-2611052317-a04317f:");
+    expect(lockfile).toContain("nitro@3.0.261103-rc:");
+    expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
+    expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
+    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
+    expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
+  });
 });
 
 describe("ViteHub OpenAPI document", () => {
