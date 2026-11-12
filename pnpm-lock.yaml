@@ -4155,6 +4155,36 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@vite-hub/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../../packages/blob
+      '@vite-hub/cms':
+        specifier: workspace:*
+        version: link:../../packages/cms
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../../packages/comments
+      '@vite-hub/content':
+        specifier: workspace:*
+        version: link:../../packages/content
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../../packages/kv
+      '@vite-hub/realtime':
+        specifier: workspace:*
+        version: link:../../packages/realtime
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../../packages/schedule
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.0.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
