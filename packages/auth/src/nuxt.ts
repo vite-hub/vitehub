@@ -173,7 +173,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
-      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/hosts. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
+      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/protect-pages. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
     })
   }
 

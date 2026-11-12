@@ -1760,27 +1760,6 @@
     width: 100%;
   }
 
-  /* Away: the face fades into the avatar's own background, so it never shows the avatar behind it, and an outline
-     ring loses the person's color. */
-  [data-slot="avatar-stack-item"] > * {
-    transition: filter 200ms ease, opacity 200ms ease;
-  }
-
-  [data-slot="avatar-stack-item"][data-idle="true"] > * {
-    filter: grayscale(1);
-    opacity: 0.45;
-  }
-
-  [data-slot="avatar-stack"][data-variant="outline"] [data-slot="avatar-stack-item"][data-idle="true"] {
-    box-shadow: 0 0 0 2px var(--vh-bg), 0 0 0 4px var(--vh-border);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="avatar-stack-item"] > * {
-      transition: none;
-    }
-  }
-
   :is([data-slot="connection-status"], [data-slot="sync-status"]) {
     align-items: center;
     color: var(--vh-muted);
