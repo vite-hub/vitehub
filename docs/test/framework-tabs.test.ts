@@ -12,6 +12,7 @@ const frameworks = ["Nuxt", "Nitro", "Vite"]
  */
 const singleFramework: Record<string, string> = {
   "development/testing.md vite.config.ts": "Vitest reads a Vite plugin config, including when the app uses Nuxt.",
+  "frameworks-hosts/node-self-hosted.md vite.config.ts": "The systemd unit is checked for vitehub() in vite.config.ts builds only, not for the Nuxt module yet.",
   "docs-site/assistant.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/configure.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/get-started.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
