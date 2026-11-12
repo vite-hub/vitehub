@@ -165,10 +165,11 @@ function withoutCloudflareWorkspaceAliases(alias: Record<string, string>) {
 
 function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   const schemaImports = config.databaseNames.map((name, index) =>
-    `import schema_${index} from ${JSON.stringify(createImportPath(file, config.generatedSchemaFilesByDatabase[name]!))}`)
+    `import schema_${index}, { relations as relations_${index} } from ${JSON.stringify(createImportPath(file, config.generatedSchemaFilesByDatabase[name]!))}`)
   const databaseEntries = config.databaseNames.map((name, index) => [
     `  ${JSON.stringify(name)}: {`,
-    `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, schema_${index}),`,
+    `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, relations_${index}),`,
+    `    relations: relations_${index},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
