@@ -540,8 +540,7 @@ export function createGitHubPullRequestOperations(
       await provider.threads.update(pullRequest, update, { signal })
     },
     async checkDependencies() {
-      if (!options.checkDependencies) throw new Error("This worker has no dependency status operation.")
-      return await options.checkDependencies()
+      return await options.checkDependencies?.() ?? { current: true, changedInputs: [], reason: "This worker has no host dependency install." }
     },
     async refreshDependencies() {
       if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")

@@ -4,6 +4,7 @@ import { glob, lstat, readdir, readFile, realpath, stat } from "node:fs/promises
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse, parseAllDocuments } from "yaml";
 import { parseSyml } from "@yarnpkg/parsers";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const inputNames = new Set([".npmrc", ".yarnrc.yml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock"]);
@@ -132,7 +133,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
     await checkPath(value, base);
     const path = resolve(base, decodeURIComponent(value));
     const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") throw new Error(`Dependency patch ${relative(root, path)} does not exist in this checkout. Restore it or remove it from patchedDependencies.`);
+      if (error.code === "ENOENT") throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCH_MISSING({ path: relative(root, path) });
       throw error;
     });
     if (!info.isFile()) throw new Error("Dependency patches must be regular files.");

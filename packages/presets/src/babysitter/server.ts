@@ -5,6 +5,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
 import { GitHubDependencyConflictError } from "../github/index.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import * as v from "valibot";
 import { join } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
@@ -1458,11 +1459,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 eligible: (current) =>
                   pullRequestInbox.eligible(repository, normalizePullRequest(current)),
                 checkDependencies: async () => {
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
                   if (presetOptions.install === false) return { current: true, changedInputs: [], reason: "Host dependency installation is disabled." };
                   if (!hostInstall()) return { current: true, changedInputs: [], reason: "The Sandbox installs dependencies. Call refreshDependencies after you change dependency inputs." };
-                  return await readGitHubDependencyStatus(providerDirectory);
+                  return await readGitHubDependencyStatus(providerDirectory ?? checkout);
                 },
                 refreshDependencies: async () => {
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
@@ -1609,9 +1609,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
                 admitRefresh: () => {
-                  if (refreshLimit !== undefined && dependencyRefreshes >= refreshLimit) {
-                    throw new Error(`refreshDependencies already ran ${refreshLimit} time${refreshLimit === 1 ? "" : "s"} in this pass, the limit. Do not call it again. Read .git/vitehub-install.json for the last install result, then commit your dependency fixes and let hosted CI validate them, or report the install failure as the blocker.`);
-                  }
+                  if (refreshLimit !== undefined && dependencyRefreshes >= refreshLimit) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_REFRESH_LIMIT({ limit: refreshLimit });
                   dependencyRefreshes++;
                   return () => { dependencyRefreshes--; };
                 },
