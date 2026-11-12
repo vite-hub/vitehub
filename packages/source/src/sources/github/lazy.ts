@@ -21,6 +21,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     },
     name: "github",
     authenticated: async () => await (await load()).authenticated(),
+    resolveRef: async (ref, refOptions) => await (await load()).resolveRef(ref, refOptions),
     resolveRevision: async ctx => await (await load()).resolveRevision(ctx),
     getKeys: async ctx => await (await load()).getKeys(ctx),
     getItems: async ctx => await (await load()).getItems(ctx),
