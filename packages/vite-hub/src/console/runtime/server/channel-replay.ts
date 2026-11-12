@@ -3,7 +3,7 @@ import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-
 
 import { console } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessActor, readConsoleAccessUser, type ConsoleAccess } from "./access.ts"
+import { consoleAccessInvoker, readConsoleAccessUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError } from "./request.ts"
 
 import type { AgentRuntimeContext } from "@vite-hub/agent"
@@ -44,11 +44,11 @@ export async function replayConsoleChannel(
 ): Promise<unknown> {
   const agent = getConsoleAgentDefinition(name)
   if (!agent) throw consoleRequestError(404, "Channel replay is not available. Enable Console invocation for this Agent.")
-  const actor = consoleAccessActor(readConsoleAccessUser(context.access))
+  const invoker = consoleAccessInvoker(readConsoleAccessUser(context.access))
   const tasks = createRuntimeWaitUntilController({ forward: context.waitUntil })
   const runtime = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
-    ...(actor ? { actor } : {}),
+    ...(invoker ? { invoker } : {}),
     capabilities: { ...await getConsoleAgentCapabilities(), console },
     memo: memo(),
     ...(context.request ? { request: context.request } : {}),
@@ -56,7 +56,7 @@ export async function replayConsoleChannel(
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  const response = await handleChannelReplayRequest(agent, replay, { ...(actor ? { actor } : {}), maxLimit: maximumReplayItemsPerRequest, runtime })
+  const response = await handleChannelReplayRequest(agent, replay, { ...(invoker ? { invoker } : {}), maxLimit: maximumReplayItemsPerRequest, runtime })
   const body: unknown = await response.json()
   if (response.ok) return body
   const message = Reflect.get(Object(body), "message")

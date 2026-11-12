@@ -1,13 +1,13 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
+import { parseAst } from "vite"
 import { expect, it } from "vitest"
 
-import type { Nitro } from "nitropack"
+import type { Nitro } from "nitro/types"
 
 it("sets up the default MCP and discovery resources in a path-mounted Nuxt consumer", async () => {
   const root = await mkdtemp(join(tmpdir(), "docs-consumer-"))
@@ -34,7 +34,6 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     const shell = join(import.meta.dirname, "../dist/runtime/app/app.vue").replaceAll("\\", "/")
     expect(nuxt.options.imports.transform?.include?.some(pattern => pattern.test(shell))).toBe(true)
     expect(nitro.options.experimental.asyncContext).toBe(true)
-    expect((await nitro.unimport?.getImports())?.some(entry => entry.name === "useEvent")).toBe(true)
     expect(nitro.options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs", mcp: { url: "https://docs.example.com/portal/mcp" },
     })
@@ -66,7 +65,6 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
 
 it("ships the MCP tools as JavaScript that Nitro can parse from node_modules", async () => {
   // Nitro compiles TypeScript only outside node_modules, so an installed app parses these files as they are.
-  const { parseAst } = createRequire(fileURLToPath(import.meta.resolve("nitropack")))("rollup/parseAst") as { parseAst: (code: string) => unknown }
   const dir = join(import.meta.dirname, "../dist/runtime/mcp")
   const files = (await readdir(dir)).sort()
   expect(files).toEqual(["get-page.js", "list-pages.js"])

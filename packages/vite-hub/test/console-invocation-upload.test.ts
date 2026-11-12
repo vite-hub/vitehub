@@ -102,12 +102,12 @@ it("passes configured capabilities and the Console request to Agent startup", as
   expect(context.request.headers.get("cookie")).toBe("session=verified")
 })
 
-it("uses the person that the Console signed as the Agent Actor", async () => {
+it("uses the person that the Console signed as the Agent Invoker", async () => {
   const signer = await signedConsoleAccess()
   try {
     const request = await signer.sign(new Request("https://console.test/_vitehub/rpc", { body: "{}", method: "POST" }), { email: "user@example.com", id: "console-user" })
     await invoke({ prompt: "test" }, request)
-    expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ context: { actor: { id: "console-user", kind: "authUser", meta: { authUserId: "console-user" } } } })
+    expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ context: { invoker: { id: "console-user", kind: "authUser", meta: { authUserId: "console-user" } } } })
   }
   finally {
     signer.restore()
