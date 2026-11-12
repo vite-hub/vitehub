@@ -169,21 +169,24 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     const filePath = options.importsFrom || "@vite-hub/auth/vue"
     // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
     ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
-      if (components.some(component => component.pascalName === "Can")) return
-      components.push({
-        chunkName: "components/can",
-        export: "Can",
-        filePath,
-        global: false,
-        kebabName: "can",
-        meta: {},
-        mode: "all",
-        pascalName: "Can",
-        prefetch: false,
-        preload: false,
-        priority: 0,
-        shortPath: filePath,
-      })
+      for (const name of ["Can", "Cannot"]) {
+        // An app component with the same name wins.
+        if (components.some(component => component.pascalName === name)) continue
+        components.push({
+          chunkName: `components/${name.toLowerCase()}`,
+          export: name,
+          filePath,
+          global: false,
+          kebabName: name.toLowerCase(),
+          meta: {},
+          mode: "all",
+          pascalName: name,
+          prefetch: false,
+          preload: false,
+          priority: 0,
+          shortPath: filePath,
+        })
+      }
     })
   }
 
