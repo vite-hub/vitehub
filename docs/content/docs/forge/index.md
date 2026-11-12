@@ -10,7 +10,7 @@ icon: i-lucide-git-pull-request
 ::product-hero{tagline="Call GitHub as your GitHub App, or GitLab and Forgejo with a token. You write no JWT or token code."}
   :::code-tree
   ```sh [.env]
-  # The GitHub App of this deployment
+  # Local development: the private PEM file must exist at runtime
   VITEHUB_GITHUB_APP_ID=123456
   VITEHUB_GITHUB_PRIVATE_KEY_PATH=./github-app.pem
   ```
@@ -43,6 +43,8 @@ icon: i-lucide-git-pull-request
   ```
   :::
 ::
+
+For production, [provide credentials for your host](/docs/forge/get-started#in-production).
 
 ::product-features
   :::product-feature-item{title="Act as your GitHub App" icon="i-lucide-badge-check" to="/docs/forge/get-started"}

@@ -14,7 +14,7 @@ Forge has no `vitehub()` option. It reads its credentials from the env when you 
 | --- | --- |
 | `VITEHUB_GITHUB_APP_ID` | The App ID or the Client ID of the GitHub App. |
 | `VITEHUB_GITHUB_PRIVATE_KEY` | The App private key in PEM. An escaped `\n` becomes a new line. |
-| `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | A file with the private key, when the host cannot store a multi-line value. |
+| `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | A private PEM file that is available at runtime. On Cloudflare, use a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding instead. |
 | `VITEHUB_GITHUB_INSTALLATION_ID` | Optional. One fixed installation. Without it, `useForge()` finds the installation of each repository. |
 | `VITEHUB_GITHUB_TOKEN` | A token to use when there is no App, such as `${{ secrets.GITHUB_TOKEN }}` in GitHub Actions. |
 | `VITEHUB_GITLAB_TOKEN`, `VITEHUB_GITLAB_BASE_URL` | GitLab. |

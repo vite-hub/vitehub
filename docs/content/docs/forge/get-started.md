@@ -28,7 +28,7 @@ pnpm add @vite-hub/forge
 ::tutorial-step{title="Set the env"}
 ## Set the env
 
-Add the App ID and the private key to `.env`:
+For local development, save the private key as `github-app.pem` in the app root. Add the App ID and key path to `.env`:
 
 ```sh [.env]
 VITEHUB_GITHUB_APP_ID=123456
@@ -36,7 +36,9 @@ VITEHUB_GITHUB_PRIVATE_KEY_PATH=./github-app.pem
 ```
 
 - `VITEHUB_GITHUB_APP_ID` is the App ID or the Client ID of the GitHub App.
-- `VITEHUB_GITHUB_PRIVATE_KEY_PATH` names a file with the private key in PEM. Or set the key itself in `VITEHUB_GITHUB_PRIVATE_KEY`.
+- `VITEHUB_GITHUB_PRIVATE_KEY_PATH` names a file with the private key in PEM. The file must be available at runtime. Or set the key itself in `VITEHUB_GITHUB_PRIVATE_KEY`.
+
+Keep the private key and `.env` out of version control and public assets.
 
 When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` uses the App. [Configure](/docs/forge/configure) lists every variable.
 
@@ -77,7 +79,12 @@ The answer has the URL of the new issue. The issue author is the bot user of the
 
 ## In production
 
-Set the same variables on the host. On Cloudflare, `useForge()` reads the bindings of the request. When the App has many installations, `useForge()` finds the installation of each repository. Set `VITEHUB_GITHUB_INSTALLATION_ID` to use one fixed installation.
+Set `VITEHUB_GITHUB_APP_ID` on the host and provide the private key in a form the host can read at runtime:
+
+- On Cloudflare, store the PEM itself in a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding. Remove the local `VITEHUB_GITHUB_PRIVATE_KEY_PATH` setting: a deployed Worker does not have your local `github-app.pem` file. `useForge()` reads the bindings of the request.
+- On hosts where a private key file is available at runtime, set `VITEHUB_GITHUB_PRIVATE_KEY_PATH` to that file. Otherwise, store the PEM in `VITEHUB_GITHUB_PRIVATE_KEY` through the host's secret settings.
+
+When the App has many installations, `useForge()` finds the installation of each repository. Set `VITEHUB_GITHUB_INSTALLATION_ID` to use one fixed installation.
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/forge/configure"}
