@@ -87,6 +87,8 @@ A new report returns `{ id, reported: true }`. When delivery of a new report fai
 The default index is in memory, one for each `papercuts()` call, so it resets when the server restarts. To keep counts in your own store, pass a `PapercutIndex` as `dedupe`. To deliver every report, set `dedupe: false`.
 
 ```ts
+import type { Papercut } from 'vite-hub/agent/capabilities'
+
 interface PapercutIndex {
   /** Count the papercut against a recent similar report, or remember it as new with `count: 1`. */
   record: (papercut: Papercut) => PapercutOccurrence | Promise<PapercutOccurrence>
