@@ -677,6 +677,11 @@
       "import": "./dist/ui.js",
       "default": "./dist/ui.js"
     },
+    "./ui/agent-session": {
+      "types": "./dist/ui/agent-session.d.ts",
+      "import": "./dist/ui/agent-session.js",
+      "default": "./dist/ui/agent-session.js"
+    },
     "./ui/attachment": {
       "types": "./dist/ui/attachment.d.ts",
       "import": "./dist/ui/attachment.js",

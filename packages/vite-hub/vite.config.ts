@@ -127,6 +127,7 @@ const runtimeEntries = [
   "src/console/runtime/server/rpc.ts",
   "src/console/runtime/server/invocation.get.ts",
   "src/console/runtime/server/invocation-workspace.get.ts",
+  "src/console/runtime/server/workspace-files.get.ts",
   "src/console/runtime/server/invocations.get.ts",
   "src/console/runtime/server/env.get.ts",
   "src/console/runtime/server/auth.ts",
@@ -329,6 +330,18 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-session-navbar.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-agent-session.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-copy-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-workspace-browser.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -539,6 +552,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/rpc"];
           delete exports["./console/runtime/server/invocation.get"];
           delete exports["./console/runtime/server/invocation-workspace.get"];
+          delete exports["./console/runtime/server/workspace-files.get"];
           delete exports["./console/runtime/server/invocations.get"];
           delete exports["./console/runtime/server/env.get"];
           delete exports["./console/runtime/server/auth"];
