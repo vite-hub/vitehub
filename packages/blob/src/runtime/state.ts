@@ -48,6 +48,17 @@ export {
   setActiveCloudflareEnv,
 }
 
+/**
+ * The env that holds the store credentials at runtime: the text values of the active Cloudflare Worker env, then
+ * `process.env`. A Worker does not always copy its secrets into `process.env`.
+ */
+export function blobRuntimeEnv(): Record<string, string | undefined> {
+  const processEnv = typeof process === "undefined" ? {} : process.env
+  const worker = getActiveCloudflareEnv()
+  if (!worker) return processEnv
+  return { ...processEnv, ...Object.fromEntries(Object.entries(worker).filter((entry): entry is [string, string] => typeof entry[1] === "string")) }
+}
+
 /** The Cloudflare bindings in the Standard Context of a request event, when the host provides them. */
 export function getRequestCloudflareEnv(event: ViteHubContext): Record<string, unknown> | undefined {
   return getStandardContext(event).runtime?.cloudflare?.env
