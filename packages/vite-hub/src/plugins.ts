@@ -24,7 +24,7 @@ import { deploymentPresetFromNitro, detectPreset, normalizeNitroPreset, resolveD
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
@@ -46,6 +46,7 @@ import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOpti
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -339,19 +340,9 @@ function frameworkDependencyResolver(
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
-      // Many facades share a package, and each resolution of a package that is not installed walks every node_modules folder.
-      const installed = new Map<string, boolean>()
-      const isInstalled = (packageName: string) => {
-        let result = installed.get(packageName)
-        if (result === undefined) {
-          result = isPackageInstalled(packageName)
-          installed.set(packageName, result)
-        }
-        return result
-      }
       for (const specifier of Object.keys(aliases)) {
         const feature = ownerFacadeFeature(specifier)
-        if (feature && !optionalFeaturePackages[feature].every(isInstalled)) delete aliases[specifier]
+        if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
       }
       // Each alias matches its specifier alone. A Vite alias given as a string also matches the subpaths under it, so
       // a subpath the package doesn't export, such as `vite-hub/realtime/nope`, would load `dist/realtime.js/nope`
@@ -361,6 +352,11 @@ function frameworkDependencyResolver(
           alias: Object.entries(aliases).map(([specifier, replacement]) => ({ find: exactSpecifier(specifier), replacement })),
         },
       }
+    },
+    // Vite closes the plugins when the dev server stops and when a build ends. Nuxt closes its Vite server before it
+    // reloads the app. The next start must see the packages that the app installed or removed in the meantime.
+    closeBundle() {
+      forgetPackageChecks()
     },
     configResolved(config) {
       if (envPlugin && config.root) {
@@ -431,6 +427,15 @@ export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" |
   database?: string
 }
 
+export interface ViteHubNodeOptions {
+  /**
+   * The number of server instances that run this build. The server fails at boot when it is greater than 1 and a
+   * primitive keeps its state in one process or on one host, such as the `fs-lite` KV store or the memory Rate Limit.
+   * `VITEHUB_INSTANCES` overrides it when the server starts. Default: 1.
+   */
+  instances?: number
+}
+
 export interface ViteHubOptions {
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
@@ -464,6 +469,8 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsOptions
   /** Options for the `cloudflare` preset. Other presets ignore them. */
   cloudflare?: CloudflareOptions
+  /** Options for the `node` preset. Other presets ignore them. */
+  node?: ViteHubNodeOptions
   /**
    * App-owned OAuth and API key Connections in `server/connections/`. They store grants in the `default` Database, or
    * in the Database that `database` names, and enable `database` when it is unset.
@@ -1561,6 +1568,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
+      databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1634,6 +1642,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
+  // A Node server prints where each primitive keeps its state, and fails at boot when several instances would split it.
+  if (plan.preset === "node") plugins.push(viteHubDurabilityPlugin(options.node))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({

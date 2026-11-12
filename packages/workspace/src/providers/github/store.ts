@@ -28,7 +28,7 @@ import {
   resolveGitHubRefsOption,
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
-  resolveGitHubTokenOption,
+  resolveGitHubCredential,
   type GitFileMode,
   type GitHubRepository,
   type GitHubTreeEntry,
@@ -236,10 +236,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         "a repository",
         resolveGitHubRepositoryOption(this.options),
       );
-      const token = requireGitHubOption("a token", resolveGitHubTokenOption(this.options));
       return {
         branch: resolveGitHubBranchOption(this.options),
-        client: connectGitHubRepository(repository, token),
+        client: connectGitHubRepository(repository, resolveGitHubCredential(this.options)),
         repository,
         root: resolveGitHubRootOption(this.options, this.workspaceName),
       };
