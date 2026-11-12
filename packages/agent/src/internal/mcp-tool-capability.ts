@@ -253,6 +253,7 @@ async function readMcpRequestBody(request: Request): Promise<string> {
 /** The config without the ViteHub server options that the MCP client does not read. */
 function withoutServerOptions(config: McpClientConfig | McpConnectionServerConfig): Omit<McpClientConfig, "connection" | "tools" | "transport"> {
   const rest: Record<string, unknown> = { ...config }
+  delete rest.channels
   delete rest.connection
   delete rest.optional
   delete rest.skills

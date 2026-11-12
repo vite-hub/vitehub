@@ -182,13 +182,16 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts."),
 ]
 
-/** Guides that the Overview links next to the primitives. */
-export const consoleGuides: readonly { readonly description: string, readonly href: string, readonly icon: string, readonly label: string }[] = [
-  { description: "Enable the Console, inspect primitives, and protect its routes.", href: `${consoleDocsBase}/development/console`, icon: "i-vitehub-docs", label: "Console guide" },
-  { description: "Add local KV to a small Vite server and return one stored value.", href: `${consoleDocsBase}/getting-started/first-server-primitive`, icon: "i-vitehub-start", label: "First Server Primitive" },
-  { description: "Vue components for chat, Agent Invocations, traces, diffs, and file trees.", href: `${consoleDocsBase}/ui`, icon: "i-vitehub-ui", label: "UI kit" },
-  { description: "Run package-owned development workflows through the local Vite config.", href: `${consoleDocsBase}/development/cli`, icon: "i-vitehub-development", label: "CLI" },
-]
+/**
+ * The guide that the Overview links under Learn, before the docs of each enabled section. It is for the people who run
+ * the app, so it explains the Console, not how to build with ViteHub.
+ */
+export const consoleGuide: { readonly description: string, readonly href: string, readonly icon: string, readonly label: string } = {
+  description: "What each page of this Console does, and who can open it.",
+  href: `${consoleDocsBase}/development/console`,
+  icon: "i-vitehub-docs",
+  label: "Console guide",
+}
 
 /** Returns the documentation link of a section, or undefined for a contributed section that the Console does not know. */
 export function resolveConsoleSectionDocs(section: ConsoleSectionId): string | undefined {

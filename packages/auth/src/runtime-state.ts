@@ -10,6 +10,8 @@ export type AuthAccessIdentityResolver = (request: Request, event: AuthRequestIn
 export interface AuthRuntimeState {
   auth?: ViteHubAuth
   definition?: AuthDefinition
+  /** The request instances of each Auth Definition, by the key of their resolved options. Oldest first. */
+  providers?: WeakMap<object, Map<string, ViteHubAuth>>
   /**
    * Set once by the generated Nitro plugin. It lives here, not in the server module, because a dev reload re-runs the
    * server module when the app's Auth Definition changes, and the plugin does not run again.
@@ -48,4 +50,5 @@ export function resetAuth(): void {
   const state = getAuthRuntimeState()
   state.auth = undefined
   state.definition = undefined
+  state.providers = undefined
 }
