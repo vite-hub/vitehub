@@ -192,7 +192,7 @@ Public errors include only bounded ids, categories, retry delays, reset times, a
 
 ## Bundle checks
 
-`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning.
+`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning. [Bundle checks](/docs/bundle/checks) shows how to run them in CI.
 
 ### BUNDLE_STARTUP_UNUSED
 
