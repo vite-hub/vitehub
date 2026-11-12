@@ -111,7 +111,7 @@ describe("raw Markdown route", () => {
     expect(useKV).toHaveBeenCalledWith("assets:docs-agent")
   })
 
-  it.each(["/raw/missing.md", "/raw/docs/kv.html"])("returns 404 for %s", async (path) => {
+  it.each(["/raw/missing.md", "/raw/docs/kv.html", "/raw/docs/kv/index.md"])("returns 404 for %s", async (path) => {
     const response = await app.fetch(new Request(`https://docs.example.com${path}`))
     expect(response.status).toBe(404)
   })

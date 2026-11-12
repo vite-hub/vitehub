@@ -5,7 +5,7 @@ import { useKV } from "nitro/kv"
 import { useRuntimeConfig } from "nitro/runtime-config"
 import { docsAgentCopy, docsAgentPages, docsContentSource } from "../agent-copy.ts"
 import { docsDocumentOf, docsMarkdown } from "../markdown.ts"
-import { docsManifestPages } from "../navigation.ts"
+import { docsManifestPages, docsRawPath, findDocsPage } from "../navigation.ts"
 import { docsParserOptions } from "./documents.ts"
 
 import type { ContentDocumentsRuntime, ContentRuntime } from "@vite-hub/content"
@@ -31,6 +31,29 @@ export type DocsContent = ContentRuntime & ContentDocumentsRuntime
 
 let content: { runtime: DocsContent, siteUrl: string } | undefined
 
+/** The agent copy of a page from its file. The `rawMarkdown` option runs at build time, and the build keeps each page that it changed. */
+async function docsPageCopy(page: DocsPage, text: string, siteUrl: string): Promise<DocsMarkdownCopy> {
+  const rewritten = await useKV("assets:docs-agent").getItem<string>(`${docsContentSource(page)}/${page.file}`)
+  return docsAgentCopy(manifest, page, rewritten === null ? text : String(rewritten), siteUrl)
+}
+
+/**
+ * The agent copy at a raw path such as `/raw/docs/kv.md`, or null. Content finds a Source page by its URL only after it lists every file,
+ * which costs a cold Worker about 250 ms on a large site. The manifest knows the file of each URL, so this reads the
+ * one file and renders it with the copy that Content serves in `llms-full.txt` and the MCP server.
+ */
+export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
+  const path = rawPath.replace(/^\/raw/, "").replace(/\.md$/, "")
+  const found = findDocsPage(manifest, path === "/index" ? "/" : path)
+  // One copy per page: `/raw/docs/kv/index.md` is not the copy of `/docs/kv`.
+  if (!found || docsRawPath(found.page.path) !== rawPath) return null
+  const config = useRuntimeConfig().public.docs as DocsPublicConfig
+  const text = await useKV(`assets:${found.page.source ?? "docs"}`).getItem(found.page.file)
+  if (text === null) return null
+  const copy = await docsPageCopy(found.page, String(text), `${config.site.url}${config.appBase.replace(/\/+$/, "")}`)
+  return `${copy.markdown}${copy.footer}`
+}
+
 /**
  * The docs pages as Content, parsed with the site's parser. The first read creates it. Each page has its URL from the
  * manifest, so Content serves the agent files: the `/raw/<page>.md` copies, `llms.txt`, `llms-full.txt`, `sitemap.md`,
@@ -54,10 +77,7 @@ export function docsContent(): DocsContent {
       },
       markdown: async ({ key, text }): Promise<DocsMarkdownCopy | null> => {
         const page = byKey.get(key)
-        if (!page) return null
-        // The `rawMarkdown` option runs at build time. The build keeps each page that it changed.
-        const rewritten = await useKV("assets:docs-agent").getItem<string>(`${name}/${key}`)
-        return docsAgentCopy(manifest, page, rewritten === null ? text : String(rewritten), siteUrl)
+        return page ? await docsPageCopy(page, text, siteUrl) : null
       },
     })]
   }))
