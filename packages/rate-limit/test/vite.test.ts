@@ -19,6 +19,11 @@ function runBuildEnd(plugin: ReturnType<typeof hubRateLimit>): void {
   ;(plugin.buildEnd as unknown as () => void)()
 }
 
+async function runBuildStart(plugin: ReturnType<typeof hubRateLimit>): Promise<void> {
+  // SAFETY: This focused test invokes Rate Limit's buildStart hook without a Rollup context; it does not use one.
+  await (plugin.buildStart as () => Promise<void>)()
+}
+
 async function writeCloudflareDeclaration(root: string): Promise<void> {
   await writeFile(join(root, "upload.ts"), [
     'import { requireRateLimit } from "@vite-hub/rate-limit"',
@@ -56,7 +61,8 @@ describe("hubRateLimit", () => {
     await writeCloudflareDeclaration(root)
     const plugin = hubRateLimit({ kvImport: "vite-hub/kv", provider: "kv" } as Parameters<typeof hubRateLimit>[0])
     const warn = vi.fn()
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "build", logger: { warn }, plugins: [], resolve: { alias: [] }, root } as never)
+    const kvPlugin = { api: { getConfig: () => ({ kv: { store: { driver: "redis" } } }) }, name: "@vite-hub/kv/vite" }
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "build", logger: { warn }, plugins: [kvPlugin], resolve: { alias: [] }, root } as never)
 
     const generated = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(generated).toContain('import { getKVStoreDriver, kv } from "vite-hub/kv"')
@@ -64,6 +70,48 @@ describe("hubRateLimit", () => {
     expect(generated).toContain("resolveRateLimitProvider()")
     const manifest = JSON.parse(await readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8"))
     expect(manifest.rateLimits).toEqual([{ capabilities: { enforcement: "strict", rejectedAttempts: "counted", scope: "global" }, name: "upload", provider: "kv" }])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each(["fs-lite", "redis", "database", "upstash"])("reports the effective guarantees for KV driver %s", async (driver) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-kv-manifest-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const warn = vi.fn()
+    const kvPlugin = { api: { getConfig: () => ({ kv: { store: { driver } } }) }, name: "@vite-hub/kv/vite" }
+    const plugin = hubRateLimit({ provider: "kv" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn }, plugins: [kvPlugin], root } as never)
+    const manifest = JSON.parse(await readFile(join(root, ".vitehub/rate-limit/manifest.json"), "utf8"))
+    const shared = driver !== "fs-lite"
+    expect(manifest.rateLimits).toEqual([{
+      capabilities: { enforcement: "strict", rejectedAttempts: shared ? "counted" : "not-counted", scope: shared ? "global" : "process" },
+      name: "upload",
+      provider: shared ? "kv" : "memory",
+    }])
+    await runBuildStart(plugin)
+    await runBuildStart(plugin)
+    expect(warn).toHaveBeenCalledTimes(shared ? 0 : 1)
+    if (!shared) expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts requests in the memory of each server process"))
+  })
+
+  it("refreshes KV guarantees after Database resolves without an early memory warning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-kv-final-manifest-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const warn = vi.fn()
+    let driver = "fs-lite"
+    const kvPlugin = { api: { getConfig: () => ({ kv: { store: { driver } } }) }, name: "@vite-hub/kv/vite" }
+    const plugin = hubRateLimit({ provider: "kv" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn }, plugins: [kvPlugin], root } as never)
+    expect(warn).not.toHaveBeenCalled()
+    driver = "database"
+    await runBuildStart(plugin)
+    const manifest = JSON.parse(await readFile(join(root, ".vitehub/rate-limit/manifest.json"), "utf8"))
+    expect(manifest.rateLimits).toEqual([{
+      capabilities: { enforcement: "strict", rejectedAttempts: "counted", scope: "global" },
+      name: "upload",
+      provider: "kv",
+    }])
     expect(warn).not.toHaveBeenCalled()
   })
 

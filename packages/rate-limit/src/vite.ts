@@ -17,6 +17,7 @@ import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
+import { resolveKVRateLimitProvider } from "./internal/kv-provider.ts"
 import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
@@ -48,6 +49,19 @@ type ResolvedRateLimitProvider = RateLimitRuntimeConfig["provider"]
 export type RateLimitVitePluginOptions = RateLimitOptions
 export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 type RateLimitConfig = UserConfig | ResolvedConfig
+
+/** The part of the KV integration that describes its build-selected default store. */
+interface KVVitePlugin {
+  api?: { getConfig?: () => { kv: false | { store: { driver: string } } } }
+}
+
+function effectiveProvider(provider: ResolvedRateLimitProvider, config: ResolvedConfig): ResolvedRateLimitProvider {
+  if (provider !== "kv") return provider
+  // SAFETY: The plugin name identifies KV, which owns driver selection and this configuration API.
+  const kvPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
+  const kv = kvPlugin?.api?.getConfig?.().kv
+  return resolveKVRateLimitProvider(kv ? kv.store.driver : undefined)
+}
 
 function mergeNitroConfig(
   config: RateLimitConfig,
@@ -141,6 +155,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   let provider: ResolvedRateLimitProvider = "memory"
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
+  let warnedAboutMemory = false
 
   const discoverRateLimitCatalog = createRateLimitCatalogDiscovery()
 
@@ -157,7 +172,13 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     if (!projectRoot || !resolved) return
     collectDeclarations()
     if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
-    await writeRateLimitManifest(projectRoot, declarations, provider)
+    await writeRateLimitManifest(projectRoot, declarations, effectiveProvider(provider, resolved))
+  }
+
+  const warnAboutMemory = (): void => {
+    if (!resolved || warnedAboutMemory || resolved.command !== "build" || declarations.length === 0 || effectiveProvider(provider, resolved) !== "memory") return
+    resolved.logger.warn(memoryBuildWarning)
+    warnedAboutMemory = true
   }
 
   const inspectionRoot = (): string => projectRoot ?? resolveViteHubProjectRoot(process.cwd(), { projectRoot: rateLimit.projectRoot })
@@ -211,6 +232,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async configResolved(config) {
       resolved = config
+      warnedAboutMemory = false
       rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
@@ -229,11 +251,17 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         nitroCloudflare,
         projectRoot,
       )
-      await writeRateLimitManifest(projectRoot, declarations, provider)
+      await writeRateLimitManifest(projectRoot, declarations, effectiveProvider(provider, config))
       const pluginFile = resolve(projectRoot, generatedNitroPlugin)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
       await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, kvImport))
-      if (config.command === "build" && provider === "memory" && declarations.length > 0) config.logger.warn(memoryBuildWarning)
+      // KV rereads Database's resolved definitions at buildStart; avoid warning before that choice is final.
+      if (provider !== "kv") warnAboutMemory()
+    },
+    async buildStart() {
+      if (provider !== "kv") return
+      await refreshDeclarations()
+      warnAboutMemory()
     },
     configureServer(server) {
       publishStandaloneOperationServer(server)
@@ -263,4 +291,3 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
   }
 }
-

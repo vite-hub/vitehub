@@ -2,6 +2,7 @@ import { kvRateLimitDriver } from "../drivers/kv.ts"
 import { memoryRateLimitDriver } from "../drivers/memory.ts"
 import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 import { createRateLimiter } from "../limiter.ts"
+import { resolveKVRateLimitProvider } from "../internal/kv-provider.ts"
 import { normalizeRateLimitPolicy } from "../policy.ts"
 
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
@@ -17,9 +18,6 @@ export interface RateLimitKVRuntime {
   /** The KV store name, for the boot log. */
   store: string
 }
-
-/** KV drivers with an atomic `increment` that every server process shares. */
-const sharedKVDrivers = new Set(["database", "redis", "upstash"])
 
 let runtimeConfig: RateLimitRuntimeConfig = { provider: "memory" }
 let kvRuntime: RateLimitKVRuntime | undefined
@@ -52,7 +50,7 @@ function requireKVRuntime(): RateLimitKVRuntime {
 
 async function resolveKVProvider(kv: RateLimitKVRuntime): Promise<RateLimitRuntimeConfig["provider"]> {
   const driver = await kv.driver()
-  if (sharedKVDrivers.has(driver)) {
+  if (resolveKVRateLimitProvider(driver) === "kv") {
     console.info(`[vitehub] Rate Limit counts in the KV store "${kv.store}" (${driver}). Every server process that uses this store shares the counts.`)
     return "kv"
   }

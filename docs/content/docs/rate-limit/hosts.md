@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Inspect generated guarantees
 
-ViteHub writes `.vitehub/rate-limit/manifest.json` at config time for agents and tools to inspect. Application code keeps using the guard.
+ViteHub writes `.vitehub/rate-limit/manifest.json` at config time for agents and tools to inspect, and refreshes it at build start after KV selects its driver. Application code keeps using the guard. With the `kv` provider, the manifest reports the effective provider and guarantees: shared KV drivers report `kv`, while stores such as `fs-lite` report the process-local `memory` fallback.
 
 The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows`. It does not repeat the optional response metadata.
 
