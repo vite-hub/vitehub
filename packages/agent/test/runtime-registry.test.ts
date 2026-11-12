@@ -10,6 +10,7 @@ import { createServer, mergeConfig } from 'vite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from '@vite-hub/internal/build/vite'
 import { agentRuntimeModule, hubAgent } from '../src/vite.ts'
+import { createViteWorkspaceAgentLoader } from '../src/vite/runtime-adapter.ts'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -321,6 +322,50 @@ it('keeps the inherited Skills that a child Agent with its own Skills does not r
     expect(await (await server.ssrLoadModule(entry)).inspect()).toEqual(inheritedSkillsResult)
   } finally { await server.close() }
 }, 30_000)
+
+it('replaces and clears local Skills across repeated Vite discovery', async () => {
+  const { root } = await inheritedSkillsFixture()
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+  const symbol = Symbol.for('vitehub.agent.colocatedSkills')
+  try {
+    const load = createViteWorkspaceAgentLoader(server, { name: 'bot-dev', handler: join(root, 'server/agents/bot-dev/index.ts') })
+    const first = (await load()).default
+    const getter = Object.getOwnPropertyDescriptor(first, symbol)?.get
+    for (let i = 0; i < 5; i++) {
+      const agent = (await load()).default
+      expect(Object.getOwnPropertyDescriptor(agent, symbol)?.get).toBe(getter)
+      expect(Object.keys(Reflect.get(agent, symbol))).toHaveLength(3)
+    }
+    await rm(join(root, 'server/agents/bot-dev/skills'), { recursive: true })
+    const cleared = (await load()).default
+    expect(Object.values(Reflect.get(cleared, symbol))).toHaveLength(3)
+    expect(Reflect.get(cleared, symbol)).not.toHaveProperty('__vitehubAgentSkill:.agents/skills/draft/SKILL.md')
+  } finally { await server.close() }
+}, 30_000)
+
+it('updates the generated helper local Skills without wrapping its inherited getter', async () => {
+  const { root } = await inheritedSkillsFixture()
+  const catalog = await readFile(join(root, '.vitehub/agent/registry-agents.mjs'), 'utf8')
+  const start = catalog.indexOf('function withWorkspaceSourceRoot(')
+  const end = catalog.indexOf('\n}', start) + 2
+  expect(start).toBeGreaterThan(-1)
+  // SAFETY: Execute only the helper emitted by this fixture's registry generator.
+  const decorate = new Function(`${catalog.slice(start, end)}; return withWorkspaceSourceRoot`)() as (agent: object, root: string, instructions: undefined, skills: Record<string, { content: string, workspacePath: string }> | undefined) => object
+  const symbol = Symbol.for('vitehub.agent.colocatedSkills')
+  const inherited = { base: { content: 'Base', workspacePath: '.agents/skills/base/SKILL.md' } }
+  const agent = Object.defineProperty({}, symbol, { configurable: true, get: () => inherited })
+  const first = { first: { content: 'First', workspacePath: '.agents/skills/first/SKILL.md' } }
+  for (let i = 0; i < 10_000; i++) decorate(agent, root, undefined, first)
+  expect(Reflect.get(agent, symbol)).toEqual({ ...inherited, ...first })
+  const second = { second: { content: 'Second', workspacePath: '.agents/skills/second/SKILL.md' } }
+  decorate(agent, root, undefined, second)
+  expect(Reflect.get(agent, symbol)).toEqual({ ...inherited, ...second })
+  decorate(agent, root, undefined, undefined)
+  expect(Reflect.get(agent, symbol)).toEqual(inherited)
+})
 
 // Without the Vite transform, the registry decorates the parent only when it loads the parent.
 it('keeps the inherited Skills that a child Agent with its own Skills does not replace, in a bundled registry', async () => {
