@@ -155,15 +155,16 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
 
   const imports = config.definitions.map((definition, index) => [
     `import definition_${index} from ${JSON.stringify(definition.handler)}`,
-    `import schema_${index} from ${JSON.stringify(config.generatedSchemaFilesByDatabase[definition.name])}`,
+    `import schema_${index}, { relations as relations_${index} } from ${JSON.stringify(config.generatedSchemaFilesByDatabase[definition.name])}`,
   ].join("\n"))
   const entries = config.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     config.databases[definition.name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`)},`
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`, `relations_${index}`)},`
       : dev
         ? `    config: resolveDevRemoteConfig(${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)}, definition_${index}.remote),`
         : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)},`,
+    `    relations: relations_${index},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -179,6 +180,33 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
     ...entries,
     "}",
     "export default databases",
+    "",
+  ].join("\n")
+}
+
+/** Evaluate the same Definitions and precedence as the Database runtime, without opening a connection. */
+function renderDatabaseDurabilityModule(config: ResolvedDBViteConfig, dev: boolean) {
+  const safeConfig: ResolvedDBViteConfig = {
+    ...config,
+    databases: Object.fromEntries(Object.entries(config.databases).map(([name, database]) => [name, {
+      ...database,
+      connection: database.connection?.url === undefined ? undefined : { url: databaseDurabilityUrl(database.connection.url) },
+    }])),
+  }
+  const entries = config.definitions.map((definition, index) => {
+    const expression = renderDatabaseConfigExpression(definition.name, safeConfig, `definition_${index}`)
+    return dev ? `resolveDevRemoteConfig(${expression}, definition_${index}.remote)` : expression
+  })
+  return [
+    `import { databaseDurability as report } from ${JSON.stringify(durabilityModuleFile(import.meta.url))}`,
+    `import { resolveDevRemoteConfig, resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`,
+    ...config.definitions.map((definition, index) => `import definition_${index} from ${JSON.stringify(definition.handler)}`),
+    "export function databaseDurability(_input, context) {",
+    `  const databases = [${entries.join(",\n")}].map(database => ({`,
+    "    dialect: database.dialect, name: database.name, http: database.cloudflare?.http, url: database.connection?.url,",
+    "  }))",
+    "  return report({ databases }, context)",
+    "}",
     "",
   ].join("\n")
 }
@@ -455,14 +483,9 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     vitehub: {
       durability: () => {
         if (!runtimeConfig) return []
-        const databases = Object.values(runtimeConfig.databases).map(database => ({
-          dialect: database.dialect,
-          ...(database.cloudflare?.http ? { http: true } : {}),
-          name: database.name,
-          // Only SQLite needs the URL, to tell a local file from a remote libSQL server. A Postgres URL can hold a password.
-          ...(database.dialect === "sqlite" && database.connection?.url !== undefined ? { url: databaseDurabilityUrl(database.connection.url) } : {}),
-        }))
-        return [{ export: "databaseDurability", input: { databases }, module: durabilityModuleFile(import.meta.url), primitive: "database" }]
+        const module = resolve(databaseRoot(), ".vitehub/database/durability.mjs")
+        writeFileIfChangedSync(module, renderDatabaseDurabilityModule(runtimeConfig, resolved?.command === "serve"))
+        return [{ export: "databaseDurability", input: {}, module, primitive: "database" }]
       },
       cli: async () => {
         const db = resolvedOptions()

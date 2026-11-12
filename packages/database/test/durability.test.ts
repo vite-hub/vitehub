@@ -40,4 +40,11 @@ describe("databaseDurabilityUrl", () => {
     expect(databaseDurability({ databases: [{ dialect: "sqlite", name: "default", url }] }, context({}))).toMatchObject([{ store: "libsql", scope: "shared" }])
     expect(databaseDurability({ databases: [{ dialect: "sqlite", name: "default", url }] }, context({ TURSO_URL: "file:local.db" }))).toMatchObject([{ store: "sqlite", scope: "host" }])
   })
+
+  it("keeps a local URL with a case-insensitive scheme, including an Env default", () => {
+    for (const value of ["FILE:instance.db", { kind: "env-variable" as const, source: { kind: "env" as const, name: "DATABASE_URL" }, default: "FiLe:instance.db" }]) {
+      const url = databaseDurabilityUrl(value)
+      expect(databaseDurability({ databases: [{ dialect: "sqlite", name: "default", url }] }, { env: {}, find: () => undefined })).toMatchObject([{ scope: "host" }])
+    }
+  })
 })

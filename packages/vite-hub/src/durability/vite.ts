@@ -68,6 +68,15 @@ export function viteHubDurabilityPlugin(options: DurabilityPluginOptions = {}): 
       name: "vite-hub/durability",
       // Claim the virtual id before Vite treats `#vitehub/*` as package imports.
       enforce: "pre",
+      nitro: {
+        name: "vite-hub/durability",
+        setup(nitro) {
+          // Prerender uses a separate builder and is not a deployment instance.
+          nitro.hooks.hook("prerender:config", (config) => {
+            config.plugins = config.plugins?.filter(plugin => !plugin.replace(/\\/g, "/").endsWith("/.vitehub/nitro/durability/plugin.mjs"))
+          })
+        },
+      },
       config(_config, env) {
         dev = env.command !== "build"
       },

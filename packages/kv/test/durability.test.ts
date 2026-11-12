@@ -24,10 +24,10 @@ describe("kvDurability", () => {
     ])
   })
 
-  it("lets REDIS_URL replace an inferred store at boot", () => {
+  it("keeps the build-selected driver when REDIS_URL is present at boot", () => {
     const store = { base: ".vitehub/data/kv", driver: "fs-lite", inferred: true }
-    expect(kvDurability({ stores: { default: store } }, context({ REDIS_URL: "redis://cache:6379" }))).toMatchObject([{ store: "redis", scope: "shared" }])
-    expect(kvDurability({ stores: { default: store } }, context())[0]).toMatchObject({ scope: "host", fix: expect.stringContaining("REDIS_URL") })
+    expect(kvDurability({ stores: { default: store } }, context({ REDIS_URL: "redis://cache:6379" }))).toMatchObject([{ store: "fs-lite", scope: "host" }])
+    expect(kvDurability({ stores: { default: store } }, context())[0]).toMatchObject({ scope: "host", fix: expect.stringContaining('driver: "redis"') })
     expect(kvDurability({ stores: { default: { driver: "fs-lite" } } }, context({ REDIS_URL: "redis://cache:6379" }))).toMatchObject([{ store: "fs-lite", scope: "host" }])
   })
 

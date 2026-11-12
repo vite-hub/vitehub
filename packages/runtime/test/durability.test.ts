@@ -119,6 +119,7 @@ describe("classifySqliteUrl", () => {
 
   it("keeps file URLs and hides remote ones", () => {
     expect(sqliteUrlInput("file:data.db")).toBe("file:data.db")
+    expect(sqliteUrlInput("FiLe:data.db")).toBe("FiLe:data.db")
     expect(sqliteUrlInput("libsql://app.turso.io?authToken=secret")).toBe("remote")
   })
 })

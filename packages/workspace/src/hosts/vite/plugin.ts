@@ -2,12 +2,11 @@ import { readFile } from "node:fs/promises"
 import { dirname, extname, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
-import { resolveDurabilityModule } from "@vite-hub/internal/durability"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
 
@@ -1102,18 +1101,23 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
     vitehub: {
       durability: () => {
         if (!resolvedOptions) return []
-        const store = publicOptions ? publicOptions.store : undefined
-        const module = resolveDurabilityModule(import.meta.url, "@vite-hub/workspace/durability")
-        if (isWorkspaceStore(store)) return [{ export: "workspaceDurability", input: { custom: true }, module, primitive: "workspace" }]
-        const configuredRoot: unknown = Reflect.get(resolvedOptions.store, "root")
-        const root = typeof configuredRoot === "string" ? resolve(projectRoot ?? process.cwd(), configuredRoot) : resolvedOptions.root
-        const relativeRoot = projectRoot ? relative(projectRoot, root) : root
-        const input = {
-          ...(store === undefined ? { inferred: true } : {}),
-          provider: resolvedOptions.store.provider,
-          root: relativeRoot && !relativeRoot.startsWith("..") ? relativeRoot : root,
-        }
-        return [{ export: "workspaceDurability", input, module, primitive: "workspace" }]
+        const root = projectRoot ?? process.cwd()
+        const module = resolve(root, ".vitehub/nitro/workspace/durability.mjs")
+        const registry = resolve(root, generatedNitroWorkspaceRegistry)
+        const definitions = discoverDefinitions({ projectRoot: root, viteRoot: viteRoot ?? root }, serverDirs, contributions)
+        const config = shouldConfigureRuntime(publicOptions, resolvedOptions) ? resolvedOptions : false
+        writeFileIfChangedSync(module, [
+          `import { workspaceDefinitionsDurability } from ${JSON.stringify(ownModule(import.meta.url, "durability"))}`,
+          ...(definitions.length ? [
+            `import registry from ${JSON.stringify(registry)}`,
+            "const definitions = Object.fromEntries(await Promise.all(Object.entries(registry).map(async ([name, load]) => [name, (await load()).default])))",
+          ] : ["const definitions = {}"]),
+          "export function workspaceDurability(_input, context) {",
+          `  return workspaceDefinitionsDurability(definitions, ${renderRuntimeValue(config)}, context)`,
+          "}",
+          "",
+        ].join("\n"))
+        return [{ export: "workspaceDurability", input: {}, module, primitive: "workspace" }]
       },
       // The Console, `vitehub workspace history|refs|show`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: ownModule(import.meta.url, "operations") }],

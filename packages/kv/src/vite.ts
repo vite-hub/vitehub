@@ -388,7 +388,6 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
             driver: store.driver,
             ...("base" in store && store.base ? { base: store.base } : {}),
             ...(typeof database === "string" ? { database } : {}),
-            ...(Reflect.get(store, "inferred") === true ? { inferred: true } : {}),
           }]
         }))
         return [{ export: "kvDurability", input: { stores }, module: durabilityModuleFile(import.meta.url), primitive: "kv" }]

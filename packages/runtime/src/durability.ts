@@ -83,7 +83,7 @@ export function collectDurability(entries: readonly DurabilityEntry[], env: Reco
 export function classifySqliteUrl(url: string): Pick<Durability, "reason" | "scope" | "store"> {
   if (url === ":memory:" || url === "file::memory:") return { store: "sqlite", scope: "process", reason: "SQLite in the memory of this process." }
   if (url === "remote" || /^(?:libsql|https?|wss?):/i.test(url)) return { store: "libsql", scope: "shared", reason: "A remote libSQL server." }
-  return { store: "sqlite", scope: "host", reason: `The SQLite file ${url.replace(/^file:(?:\/\/)?/, "")} on this host.` }
+  return { store: "sqlite", scope: "host", reason: `The SQLite file ${url.replace(/^file:(?:\/\/)?/i, "")} on this host.` }
 }
 
 /**
@@ -91,7 +91,7 @@ export function classifySqliteUrl(url: string): Pick<Durability, "reason" | "sco
  * becomes `remote`, which `classifySqliteUrl()` reads as a remote server.
  */
 export function sqliteUrlInput(url: string): string {
-  return url.startsWith("file:") || url === ":memory:" ? url : "remote"
+  return /^file:/i.test(url) || url === ":memory:" ? url : "remote"
 }
 
 /** A configuration value that can name runtime environment variables, as the Database and Workflow options do. */

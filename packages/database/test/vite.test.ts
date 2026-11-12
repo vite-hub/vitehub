@@ -16,6 +16,8 @@ import { VITEHUB_FEATURES, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { supportsHostedDatabaseRuntime } from "../src/internal/vite-build.ts"
+import { checkDurability } from "@vite-hub/runtime/durability"
+import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -103,6 +105,43 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
+  it("reports evaluated Definition connection and Cloudflare overrides", async () => {
+    const rootDir = await createTempProject()
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    for (const [name, options] of Object.entries({
+      default: '{ connection: { url: "file:instance.db" }, schema: {} }',
+      remote: '{ connection: { url: { kind: "env-variable", source: { kind: "env", name: "REMOTE_URL" }, default: remoteDefault } }, schema: {} }',
+      edge: '{ cloudflare, schema: {} }',
+    })) {
+      await writeFile(join(rootDir, `server/databases/${name}.ts`), [
+        'import { defineDatabase } from "@vite-hub/database"',
+        'const remoteDefault = "libsql://shared.example?authToken=secret"',
+        'const cloudflare = { databaseId: "d1-id", http: true }',
+        `const options = ${options.replace("{", `{ name: ${JSON.stringify(name)},`)}`,
+        `export default defineDatabase(${name === "default" ? "options" : options.replace("{", `{ name: ${JSON.stringify(name)},`)})`,
+      ].join("\n"))
+    }
+    const plugin = hubDb({ connection: { url: "libsql://integration.example?authToken=secret" } })
+    await resolveConfigResolved(plugin)({ command: "build", root: rootDir })
+    const contribution = plugin.vitehub?.durability?.()[0]
+    expect(contribution).toBeDefined()
+    const server = await createViteServer({ configFile: false, logLevel: "silent", root: rootDir, server: { middlewareMode: true, watch: null } })
+    try {
+      const module = await server.ssrLoadModule(contribution!.module) as { databaseDurability: (input: unknown, context: DurabilityContext) => Durability[] }
+      const reports = module.databaseDurability(contribution!.input, { env: {}, find: () => undefined })
+      expect(reports).toEqual(expect.arrayContaining([
+        expect.objectContaining({ primitive: "database", store: "sqlite", scope: "host" }),
+        expect.objectContaining({ name: "remote", store: "libsql", scope: "shared" }),
+        expect.objectContaining({ name: "edge", store: "d1", scope: "shared" }),
+      ]))
+      expect(() => checkDurability(reports, { instances: 2, log: false })).toThrow(expect.objectContaining({ name: "RUNTIME_R0017" }))
+      expect(() => checkDurability(reports.filter(report => report.name), { instances: 2, log: false })).not.toThrow()
+      expect(JSON.stringify({ contribution, reports })).not.toContain("secret")
+    }
+    finally { await server.close() }
+  })
+
   it("filters resolveId, load, and transform to the ids Database owns", () => {
     const plugin = hubDb()
     const filter = (hook: unknown) => (hook as { filter: { id: RegExp } }).filter.id
@@ -779,7 +818,7 @@ describe("hubDb", () => {
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
       `import * as generated from ${JSON.stringify(DB_VIRTUAL_SCHEMA_ID)}`,
-      "export const tables = () => Object.keys(generated).filter(key => key !== 'default' && key !== 'schema').toSorted()",
+      "export const tables = () => Object.keys(generated).filter(key => key !== 'default' && key !== 'relations' && key !== 'schema').toSorted()",
       "",
     ].join("\n"))
 
@@ -894,10 +933,11 @@ describe("hubDb", () => {
     const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     const code = await load((await resolveId(DB_VIRTUAL_DATABASES_ID))!)
     const evaluable = code!.replace(/^import .+$/gm, "").replace("export const databases", "const databases").replace("export default databases", "return databases")
-    const registry = new Function("definition_0", "schema_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", schema: {} }, { notes: "schema-marker" }, (value: unknown) => value) as Record<string, { schema: unknown }>
+    const registry = new Function("definition_0", "schema_0", "relations_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", schema: {} }, { notes: "schema-marker" }, { notes: "relations-marker" }, (value: unknown) => value) as Record<string, { relations: unknown, schema: unknown }>
 
     expect(Object.hasOwn(registry, "__proto__")).toBe(true)
     expect(registry["__proto__"]?.schema).toEqual({ notes: "schema-marker" })
+    expect(registry["__proto__"]?.relations).toEqual({ notes: "relations-marker" })
   })
 
   it("resolves discovery and generated artifacts from projectRoot", async () => {
