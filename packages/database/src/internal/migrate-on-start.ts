@@ -55,7 +55,7 @@ interface RenderMigrateOnStartOptions {
  */
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
   const databases = options.databases
-    .map(name => ({ dialect: config.databases[name]!.dialect, migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir)), name }))
+    .map(name => ({ dialect: config.databases[name]!.dialect, migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name), name }))
     .filter(database => database.migrations.length)
   if (!databases.length) return
   return [
@@ -88,8 +88,8 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
 }
 
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
-export function readStartMigrations(migrationsDir: string): StartMigration[] {
-  const entries = readMigrations(migrationsDir)
+export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+  const entries = readMigrations(migrationsDir, database)
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
