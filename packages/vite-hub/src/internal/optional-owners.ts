@@ -1,13 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
-// The `semver` entry loads every one of its 47 modules. These three load a handful.
-import satisfies from "semver/functions/satisfies.js"
-import validVersion from "semver/functions/valid.js"
-import validRange from "semver/ranges/valid.js"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -223,6 +220,7 @@ export function unsupportedPackageVersionsWarning(
   manifest: unknown = readViteHubManifest(),
 ): string | undefined {
   const peers = isPlainObject(manifest) && isPlainObject(manifest.peerDependencies) ? manifest.peerDependencies : {}
+  const { satisfies, validRange, validVersion } = semverFunctions()
   const unsupported = [...new Set(packages)].flatMap((name) => {
     const range = peers[name]
     if (typeof range !== "string" || validRange(range) === null) return []
@@ -237,6 +235,29 @@ export function unsupportedPackageVersionsWarning(
   const previews = installArguments(unsupported.map(({ name }) => name), manifest)
   const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!))
   return `[vitehub] ${lines.join(" ")} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${install.join(" ")}`
+}
+
+interface SemverFunctions {
+  satisfies: typeof import("semver/functions/satisfies.js")
+  validRange: typeof import("semver/ranges/valid.js")
+  validVersion: typeof import("semver/functions/valid.js")
+}
+
+let semver: SemverFunctions | undefined
+
+/**
+ * Loads semver when a version check runs, so `vite-hub/nuxt` starts without it. The `semver` entry loads every one of
+ * its 47 modules. These three load a handful.
+ */
+function semverFunctions(): SemverFunctions {
+  if (semver) return semver
+  const require = createRequire(import.meta.url)
+  semver = {
+    satisfies: require("semver/functions/satisfies.js"),
+    validRange: require("semver/ranges/valid.js"),
+    validVersion: require("semver/functions/valid.js"),
+  }
+  return semver
 }
 
 const checkedPackageVersions = new Set<string>()
