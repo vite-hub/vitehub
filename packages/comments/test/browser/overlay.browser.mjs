@@ -147,6 +147,24 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
+  await t.test("every item of the Comments segment centers on the pill's line, in comment mode too", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
+    try {
+      // Avatars and dividers do not fill the row's height, so they show it first when the alignment is lost.
+      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .divider, .toolbar .people")]
+        .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
+      assert.ok(centers.some(([name]) => name === "divider"), "comment mode shows its dividers")
+      const line = centers[0][1]
+      for (const [name, center] of centers) assert.ok(Math.abs(center - line) <= 0.5, `${name} centers at ${center}, the pill at ${line}`)
+    }
+    finally {
+      await page.keyboard.press("Escape")
+    }
+  })
+
   await t.test("in comment mode a drag comments on an area", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
@@ -212,18 +230,34 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   })
 
   await t.test("on a narrow screen a new comment stays on screen", async () => {
-    await page.setViewportSize({ width: 390, height: 720 })
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
     await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
-    // In the middle and near the right edge, where the card opens on the left of the spot.
-    for (const x of [200, 380]) {
-      await page.mouse.click(x, 30)
-      await composer.waitFor({ timeout: 5000 })
-      const card = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").boundingBox()
-      assert.ok(card.x >= 0 && card.x + card.width <= 390, `at x ${x} the card is at ${card.x}..${card.x + card.width}`)
-      await page.keyboard.press("Escape")
-      await composer.waitFor({ state: "detached", timeout: 5000 })
+    for (const rootSize of [16, 10]) {
+      await page.evaluate(size => { document.documentElement.style.fontSize = `${size}px` }, rootSize)
+      for (const width of [375, 390]) {
+        await page.setViewportSize({ width, height: 720 })
+        // Include a spot with too little room on either side, plus the middle and right edge.
+        for (const x of [100, 180, 200, width - 10]) {
+          await page.mouse.click(x, 30)
+          await composer.waitFor({ timeout: 5000 })
+          const bubble = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
+          await bubble.evaluate(card => Promise.all(card.getAnimations().map(animation => animation.finished)))
+          await composer.fill("A visible Send button")
+          const card = await bubble.boundingBox()
+          assert.ok(card.x >= 0 && card.x + card.width <= width, `at x ${x} in ${width}px (${rootSize}px root) the card is at ${card.x}..${card.x + card.width}`)
+          const send = bubble.locator("button[aria-label='Comment']")
+          assert.equal(await send.isEnabled(), true)
+          const button = await send.boundingBox()
+          assert.ok(button.x >= 0 && button.x + button.width <= width, `Send is at ${button.x}..${button.x + button.width}`)
+          const anchor = await bubble.evaluate(card => Number.parseFloat(card.parentElement.style.left))
+          assert.ok(Math.abs(anchor - x) < 1, `the pin stays on its anchor at ${x} (got ${anchor})`)
+          await composer.fill("")
+          await page.keyboard.press("Escape")
+          await composer.waitFor({ state: "detached", timeout: 5000 })
+        }
+      }
     }
+    await page.evaluate(() => { document.documentElement.style.fontSize = "" })
     await page.setViewportSize({ width: 1024, height: 720 })
   })
 

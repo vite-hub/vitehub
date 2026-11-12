@@ -264,9 +264,9 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /**
    * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
-   * credential. It receives the target `repository`.
+   * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
    */
-  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal }) => string | undefined | Promise<string | undefined>)
+  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
   /** Trusted identity of the host's authenticated GitHub user or App. */
   identity?: { login: string, appId?: number }
   apiBaseUrl?: string
@@ -532,7 +532,16 @@ export const pullRequest = {
   },
 }
 
+/**
+ * How a pull request run treats hosted CI after it pushes.
+ * `report` runs local checks, pushes, reports pending hosted checks, and finishes.
+ * `wait` keeps the run open until hosted CI passes.
+ */
+export type PullRequestCiMode = "report" | "wait"
+
 export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /** How the run treats hosted CI after it pushes. Defaults to `report`. */
+  ci?: PullRequestCiMode
   ignored?: (reason: string) => Response
   filter?: GitHubPullRequestFilter
   when?: (context: GitHubPullRequestFilterContext) => MaybePromise<boolean>
@@ -636,6 +645,8 @@ export interface PullRequestTrigger {
 export type PullRequestLifecycleEvent = "opened" | "reopened" | "synchronize" | "ready_for_review"
 
 export interface PullRequestOptions<TLifecycleEvent extends PullRequestLifecycleEvent = PullRequestLifecycleEvent> {
+  /** How the run treats hosted CI after it pushes. Defaults to `report`. */
+  ci?: PullRequestCiMode
   filter?: PullRequestFilter
   when?: (context: GitHubPullRequestFilterContext) => MaybePromise<boolean>
   maxBodyLength?: number
@@ -1472,19 +1483,21 @@ function githubPullRequestRunContext(
 function pullRequestCommandInput(
   command: GitHubPullRequestCommand,
   pullRequest: GitHubPullRequestRunContext,
+  ci: PullRequestCiMode | undefined,
 ): AgentRunInput {
   return {
     context: {
       github: command,
       pullRequest,
     },
-    prompt: githubPullRequestTaskPrompt(command, pullRequest),
+    prompt: githubPullRequestTaskPrompt(command, pullRequest, ci),
   }
 }
 
 function githubPullRequestTaskPrompt(
   command: GitHubPullRequestCommand,
   pullRequest: GitHubPullRequestRunContext,
+  ci: PullRequestCiMode = "report",
 ): string {
   const commentUrl = pullRequest.trigger.comment.htmlUrl
   const { head, source } = pullRequest.pullRequest
@@ -1509,7 +1522,12 @@ function githubPullRequestTaskPrompt(
     "Follow the scope of the request. For review-only requests, report findings without making changes.",
     "When changes are requested:",
     "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
-    "- Make sure CI is green.",
+    ...ci === "wait"
+      ? ["- After you push, wait for hosted CI. Fix failures until all checks pass."]
+      : [
+          "- Run the project's local checks for your changes before you push.",
+          "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.",
+        ],
     "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
     "",
     `Request: ${command.body || "Inspect and resolve the requested pull request work."}`,
@@ -1705,12 +1723,14 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
+  minLifetime?: number,
 ) {
   const options = githubAppOptions(app) || {}
   if (options.token) {
     const token = typeof options.token === "function" ? await options.token(context, {
       repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
       signal,
+      ...(minLifetime === undefined ? {} : { minLifetime }),
     }) : options.token
     return requiredString(token, 'token')
   }
@@ -1732,7 +1752,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     const installationId = (configuredInstallation === undefined || configuredInstallation === "") && repository
       ? await credentials.installation(repository, signal)
       : requiredNumber(configuredInstallation, "installationId")
-    return (await credentials.installationToken(installationId, { signal })).token
+    return (await credentials.installationToken(installationId, { signal, minLifetime })).token
   }
   catch (error) {
     const status = forgeErrorStatus(error)
@@ -1748,12 +1768,13 @@ async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntim
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
+  minLifetime?: number,
 ) {
   const env = await githubEnv(context)
   const token = cleanSecret(env.token)
   if (!app) return token
   try {
-    return await githubAppInstallationToken(app, context, installation, repository, signal)
+    return await githubAppInstallationToken(app, context, installation, repository, signal, minLifetime)
   }
   catch (error) {
     if (token) return token
@@ -3298,11 +3319,12 @@ function githubPullRequestDevTaskPrompt(
   input: Record<string, unknown>,
   command: GitHubPullRequestCommand,
   pullRequest: GitHubPullRequestRunContext,
+  ci: PullRequestCiMode | undefined,
 ): string {
   return githubPullRequestTaskPrompt({
     ...command,
     body: githubPullRequestDevPrompt(input, pullRequest),
-  }, pullRequest)
+  }, pullRequest, ci)
 }
 
 function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined {
@@ -3446,7 +3468,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             delivery: { finishEffects: githubPullRequestCommentFinishEffects(options) },
             input: {
               ...accepted.input,
-              ...pullRequestCommandInput(acceptedCommand, refreshed),
+              ...pullRequestCommandInput(acceptedCommand, refreshed, options.ci),
               context: { ...accepted.input.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
             },
             webhook: {
@@ -3526,7 +3548,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         const invocation: AgentTriggerRunInvokeResult = {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
-          input: pullRequestCommandInput(command, pullRequestContext),
+          input: pullRequestCommandInput(command, pullRequestContext, options.ci),
           run,
         }
         if (ownership) {
@@ -3565,7 +3587,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
                 pullRequest: existingPullRequest,
               },
               prompt: command
-                ? githubPullRequestDevTaskPrompt(inputRecord, command, existingPullRequest)
+                ? githubPullRequestDevTaskPrompt(inputRecord, command, existingPullRequest, options.ci)
                 : githubPullRequestDevPrompt(inputRecord, existingPullRequest),
             },
             run: githubPullRequestRunMetadata(existingPullRequest, context.trigger.channelId),
@@ -3600,7 +3622,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             prompt: githubPullRequestTaskPrompt({
               ...command,
               body: maybeString(inputRecord.prompt) || command.body,
-            }, pullRequest),
+            }, pullRequest, options.ci),
           },
           run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
         }
@@ -3979,7 +4001,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
-      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal)
+      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
       return token ? { token, baseUrl: appOptions === true ? undefined : appOptions.apiBaseUrl } : undefined
     }
     Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
@@ -4077,7 +4099,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
         }
         const invocation: AgentTriggerRunInvokeResult = {
           ...result,
-          input: { ...result.input, context: { ...contextValues, forge: { ...command, event: forgeEventName(command.event) }, pullRequest: neutral }, prompt: githubPullRequestTaskPrompt(command, neutral) },
+          input: { ...result.input, context: { ...contextValues, forge: { ...command, event: forgeEventName(command.event) }, pullRequest: neutral }, prompt: githubPullRequestTaskPrompt(command, neutral, pullOptions.ci) },
           message: neutral,
           run,
         }

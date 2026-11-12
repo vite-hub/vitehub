@@ -1,13 +1,13 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
-import { blobResult } from "../errors.ts"
+import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
-import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
+import { resolveRuntimeBlobSecrets, resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
-import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
+import { blobRuntimeEnv, getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { Result } from "@vite-hub/runtime"
@@ -41,7 +41,11 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {
       if (getOptionalBucket(config)) return nativeDriver
-      fallbackDriver ||= importRuntimeDriverModule(config)
+      // A failed load lets the next call try again.
+      fallbackDriver ||= importRuntimeDriverModule(config).catch((error: unknown) => {
+        fallbackDriver = undefined
+        throw error
+      })
       return fallbackDriver
     }
     // Multipart uploads use the R2 binding API; the HTTP fallback has no multipart support.
@@ -83,7 +87,8 @@ async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
   return module.createDriver(config)
 }
 
-function resolveRuntimeBlobStore(store: ResolvedBlobStoreConfig): ResolvedBlobStoreConfig {
+function resolveRuntimeBlobStore(configured: ResolvedBlobStoreConfig): ResolvedBlobStoreConfig {
+  const store = resolveRuntimeBlobSecrets(configured, blobRuntimeEnv())
   if (store.driver === "minio") {
     return resolveRuntimeMinioBlobStore(store, process.env)
   }
@@ -134,7 +139,7 @@ function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, nam
   if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
   const stores = config.stores || { default: config.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  if (!store) throw new UnknownBlobStoreError(unknownBlobStoreMessage(name, stores))
   return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
 }
 

@@ -51,6 +51,16 @@ The build and the development server include only the Console routes and server 
 
 ## Open your app in the Console
 
+The `console` option has three states:
+
+| `console` | Development server | Production build |
+| --- | --- | --- |
+| Not set | The [Operations endpoint](/docs/development/operations#access) answers loopback requests, so `vitehub <command>` works. | Nothing under `/_vitehub`. |
+| `false` | Nothing under `/_vitehub`. | Nothing under `/_vitehub`. |
+| `true` or an object | The Console endpoint with the configured access policy. | The Console endpoint with the configured access policy. `auth: false` is refused. |
+
+With `console: false`, ViteHub registers no Console RPC route, Console Nitro plugin, or Console public asset path, also on a development server. Commands such as `vitehub kv` and `vitehub schedule run` cannot reach the development server then. Remove the option to get the development endpoint back.
+
 ### In development
 
 The Console calls each app from its server, so it cannot reach a `vite dev` server on your machine. During development, use the [`vitehub` commands](/docs/development/cli). Without a `console` option, `vite dev` serves the Operations endpoint for them, and answers only this machine. `console: { auth: false }` works the same way. See [Share a development server](#share-a-development-server).
@@ -155,13 +165,50 @@ The Console has no Connections section. To connect a provider account, use [`vit
 
 Set `console.mcpClient` to `true` to add the MCP client section. It runs on the server and connects to MCP servers over Streamable HTTP as the Console caller. It lists and calls their tools, reads their resources, gets their prompts, and shows each result as the server sent it.
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  console: { mcpClient: true },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { mcpClient: true },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { mcpClient: true },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { mcpClient: true },
+    }),
+  ],
+})
+```
+:::
+::
 
 The section uses the MCP SDK. Install it in your app first:
 
@@ -550,13 +597,50 @@ When the endpoint takes calls without a signature, the dev server prints a note 
 
 `invoke` lets the Console start Agent Invocations and run manual Schedules. It is `true` on the development server and `false` in a production build by default:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  console: { authorize: './server/console-authorize.ts', invoke: true },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { authorize: './server/console-authorize.ts', invoke: true },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { authorize: './server/console-authorize.ts', invoke: true },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { authorize: './server/console-authorize.ts', invoke: true },
+    }),
+  ],
+})
+```
+:::
+::
 
 The invocation operations call `authorize`, so it decides who can start invocations. A user also needs the `agents` section. `invoke: false` keeps inspection and turns off new invocations. Fixture mode always turns them off.
 

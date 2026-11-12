@@ -52,7 +52,7 @@ export default defineConfig({
 :::
 ::
 
-Options that affect discovery, generated files, provider bindings, or deployment go in `vite.config.ts`. Options for one named item go in its Definition.
+Options that affect discovery, generated files, provider bindings, or deployment go in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Options for one named item go in its Definition.
 
 ## Use Provider Output as build evidence
 
@@ -69,21 +69,70 @@ Read [Definition discovery](/docs/development/definition-discovery), [Runtime He
 
 ## Persistent Node storage
 
-Set `dataDir` in `vitehub()` to pick one local storage directory on a Node host:
+Set `dataDir` in the ViteHub options to pick one local storage directory on a Node host:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: "node",
-  dataDir: "/var/lib/app",
-  agent: true,
-  console: { authorize: "./server/console-authorize.ts" },
-  kv: true,
-  blob: true,
-  workspace: true,
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    dataDir: "/var/lib/app",
+    agent: true,
+    console: { authorize: "./server/console-authorize.ts" },
+    kv: true,
+    blob: true,
+    workspace: true,
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      dataDir: "/var/lib/app",
+      agent: true,
+      console: { authorize: "./server/console-authorize.ts" },
+      kv: true,
+      blob: true,
+      workspace: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      dataDir: "/var/lib/app",
+      agent: true,
+      console: { authorize: "./server/console-authorize.ts" },
+      kv: true,
+      blob: true,
+      workspace: true,
+    }),
+  ],
+})
+```
+:::
+::
 
 Turned-on integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv/`, `blob/`, and `workspaces/` in this directory. Named local KV and Blob stores get their own subdirectories. Explicit paths and remote providers win, and disabled services stay off. Relative paths resolve from the working directory of the configuration process.
 
@@ -95,27 +144,105 @@ To keep an existing storage location, use `agent.providers.state.url`, `agent.in
 
 ## Public URL
 
-Set `publicUrl` in `vitehub()` to your deployed app's public origin. ViteHub uses it for Console invocation links, GitHub activity links, Chat error links, trigger `failed` events, telemetry `session_url` values, the default Auth `baseURL`, and the Connections OAuth callback and origin check:
+Set `publicUrl` in the ViteHub options to your deployed app's public origin. ViteHub uses it for Console invocation links, GitHub activity links, Chat error links, trigger `failed` events, telemetry `session_url` values, the default Auth `baseURL`, and the Connections OAuth callback and origin check:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: "node",
-  publicUrl: "https://agents.example.com",
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    publicUrl: "https://agents.example.com",
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      publicUrl: "https://agents.example.com",
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      publicUrl: "https://agents.example.com",
+    }),
+  ],
+})
+```
+:::
+::
 
 Use a function when one build serves Agents from different origins. ViteHub calls it once per Agent at build time, with the name from its file. An explicit definition name gets the same origin at runtime. A shared definition found under several names gets no implicit alias:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: "node",
-  publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
+    }),
+  ],
+})
+```
+:::
+::
 
 Standalone provider bundles get the origin and app base from their own build configuration. Concurrent builds do not share URL constants.
 
@@ -145,14 +272,53 @@ When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels hist
 
 On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and no port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid hostnames leave routing alone:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: "cloudflare",
-  publicUrl: process.env.APP_URL, // https://calories.example.com
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "cloudflare",
+    publicUrl: process.env.APP_URL, // https://calories.example.com
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "cloudflare",
+      publicUrl: process.env.APP_URL, // https://calories.example.com
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "cloudflare",
+      publicUrl: process.env.APP_URL, // https://calories.example.com
+    }),
+  ],
+})
+```
+:::
+::
 
 ```json [.output/server/wrangler.json]
 {

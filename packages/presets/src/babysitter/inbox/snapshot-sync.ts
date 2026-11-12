@@ -136,7 +136,11 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads)
   const ingest = async (event: string, payload: GitHubDelivery) => {
     const full = { repository: { full_name: s.repository }, ...payload }
-    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, full])).digest('hex')}`
+    // Reviews and comments embed the whole PR, whose updated_at and mergeability change with any
+    // activity. Hash only its number and head so an unchanged review keeps its delivery ID.
+    const pr = full.pull_request as { number?: number, head?: { sha?: string } } | undefined
+    const identity = event === 'pull_request' || !pr ? full : { ...full, pull_request: { number: pr.number, head: pr.head?.sha } }
+    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, identity])).digest('hex')}`
     await inbox.ingest(id, event, full)
   }
   await ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })

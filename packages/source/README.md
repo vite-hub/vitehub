@@ -88,6 +88,13 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 token. Content serves a `github()` Source from a validated head commit only when
 it does.
 
+`resolveRef()` returns the commit that a ref of the repository points to now:
+`{ sha }` for `{ sha }` or `{ branch }`, and `{ sha, pull }` for `{ pull: 12 }`.
+`pull` has the state, the head and base branches, `fork`, and the label names. A
+branch must match its full name, and a SHA must be a full commit SHA. It returns
+undefined when the repository has no such ref. Content uses it for
+`content.sources.at()`.
+
 `glob()` takes a pattern or options. In a pattern, the folders before the first
 wildcard are `cwd`, so keys are the paths below them:
 

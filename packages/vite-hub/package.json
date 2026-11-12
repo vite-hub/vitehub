@@ -982,7 +982,6 @@
     "test": "vp run --cache -t vite-hub#build && vp test"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^5.20261016.1",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
@@ -1014,6 +1013,7 @@
     "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@google-cloud/storage": "catalog:storage",
@@ -1110,6 +1110,7 @@
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@better-auth/oauth-provider": "catalog:auth",
+    "@cloudflare/workers-types": ">=4",
     "@google-cloud/storage": "catalog:storage",
     "@json-render/core": "0.21.0",
     "@json-render/vue": "0.21.0",
@@ -1185,6 +1186,9 @@
       "optional": true
     },
     "@better-auth/oauth-provider": {
+      "optional": true
+    },
+    "@cloudflare/workers-types": {
       "optional": true
     },
     "@google-cloud/storage": {

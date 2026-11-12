@@ -10,12 +10,13 @@ icon: i-lucide-sliders-horizontal
 
 A room authority is the one place that holds a document's live Yjs state.
 Every client of a document must reach the same authority. Set it with
-`realtime.authority` in `vitehub()`, as in
+`realtime.authority` in the ViteHub options in `nuxt.config.ts` or
+`vite.config.ts`, as in
 [Get started](/docs/realtime/get-started#configure-realtime).
 
 | Authority | Use |
 | --- | --- |
-| `auto` | Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ preset: 'cloudflare' })`. Other production builds fail until you pick an authority. On the dev server, rooms run in memory. |
+| `auto` | Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `preset: 'cloudflare'`. Other production builds fail until you pick an authority. On the dev server, rooms run in memory. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
 | `memory` | Keeps rooms in one process, for local development or a single-process Node deploy. Room state is lost when the process stops. |
 
