@@ -280,6 +280,8 @@ export default defineConfig({
 
 Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK.
 
+Blob never writes a credential into the server bundle. Leave `credentials` out so the SDK reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at runtime, or set each credential option from `process.env`. ViteHub then writes only the name of the env variable that holds the value at build time, and reads that variable when the store starts. This applies to the credential options of every driver, such as `secretAccessKey`, `token`, `accountKey`, and `credentials.private_key`. A URL option with a user name, password, or query, and an option that the driver does not know, are also credentials. A literal credential fails `vite dev` and the build with `BLOB_C0019`. A value that more than one env variable holds fails with `BLOB_C0020`. A variable that the server does not have fails with `BLOB_R0044` when the store starts.
+
 ## MinIO
 
 MinIO is the Docker-friendly S3-compatible path. Select it explicitly:
