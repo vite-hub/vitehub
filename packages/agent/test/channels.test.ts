@@ -1552,7 +1552,7 @@ describe("agent channels", () => {
       "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
       "- Run the project's local checks for your changes before you push.",
       "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.",
-      "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+      "- Resolve merge conflicts with the vitehub-resolving-merge-conflicts skill.",
       "",
       "Request: /review please",
     ].join("\n"))
@@ -1623,6 +1623,11 @@ describe("agent channels", () => {
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
     expect(result.input.prompt).toContain(location)
     expect(result.input.prompt).toContain("The pull request head is commit head-sha on branch feature.")
+    // The Skill is installed only with the pull request Workspace.
+    expect(result.input.prompt).toContain(workspace === false
+      ? "- Resolve merge conflicts. Keep the intent of both sides, run the checks, and finish the merge or rebase. Do not abort it."
+      : "- Resolve merge conflicts with the vitehub-resolving-merge-conflicts skill.")
+    expect(channel.capabilities?.some(capability => capability.id === "github-pull-request-skills")).toBe(workspace !== false)
     expect(result.input.prompt).not.toContain("Your checkout has commit")
     expect(result.input.prompt).toContain("For review-only requests, report findings without making changes.")
     if (workspace === false) expect(result.input.prompt).not.toContain("The repository checkout is mounted")
