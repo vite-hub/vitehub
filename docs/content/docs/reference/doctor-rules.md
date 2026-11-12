@@ -991,6 +991,8 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `contentImportBase` was removed.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
+The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.
+
 ```ts [vite.config.ts] fails=TS2769
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'

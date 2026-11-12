@@ -93,7 +93,7 @@ A Database Definition is the file where you write your tables, next to the serve
 
 Use `server/databases/<name>/index.ts` when the Database has other files, such as schema modules. A folder with an `index.ts` is one Database, so ViteHub does not read its other files as Definitions. Every other file in `server/databases/` is a Definition. The migrations of the Database `<name>` are in `server/databases/<name>/migrations/`.
 
-`src/database.ts` cannot be used beside Named Databases, and two Default Databases fail discovery. Before this release, Databases used `server/databases/config.ts` and `server/databases/<name>/config.ts`. Those files now fail with `DATABASE_LEGACY_CONFIG_FILE`, and `npx @vite-hub/codemods define-forms` moves them.
+`src/database.ts` cannot be used beside Named Databases, and two Default Databases fail discovery. Before this release, Databases used `server/databases/config.ts` and `server/databases/<name>/config.ts`. Those files now fail with `DATABASE_LEGACY_CONFIG_FILE`, and the [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) moves them.
 
 An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/default.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/default/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
 

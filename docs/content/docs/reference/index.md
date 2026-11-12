@@ -61,7 +61,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads the Vite config and runs each package's CLI commands. |
-| `@vite-hub/codemods` | Public CLI package | Migrates apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
+| `@vite-hub/codemods` | Public CLI package | [Codemods](/docs/codemods) that migrate apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
 | `@vite-hub/console` | Private app, not published | Console server with sign-in, linked projects, and a forward to each project's Operations endpoint. The Console page is in progress. |
 | `@vite-hub/icons` | Internal package | The ViteHub icon set (`i-vitehub-*`). `@vite-hub/ui` and the Console bundle it. Not published. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
