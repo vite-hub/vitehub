@@ -250,7 +250,7 @@ interface AgentDiscoveryOptions {
   source?: string | false
   siteName?: string
   routes?: Array<string | { path: string, raw?: string }>
-  discovery?: { links?: Array<{ href: string, rel: string, type?: string, title?: string, anchor?: string }>, mcpServerCard?: false | { endpoint: string, name?: string } }
+  discovery?: { links?: Array<{ href: string, rel: string, type?: string, title?: string, anchor?: string, header?: boolean }>, mcpServerCard?: false | { endpoint: string, name?: string } }
 }
 
 /** Options of the modules that the docs module installs. Their own option types load only with their runtime. */
@@ -412,7 +412,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         links: [
           { href: "/sitemap.md", rel: "sitemap", type: "text/markdown", title: "Sitemap (Markdown): every page on the site" },
           { href: "/llms.txt", rel: "describedby", type: "text/plain", title: "llms.txt: index of the documentation for LLMs" },
+          { href: "/llms.txt", rel: "service-desc", type: "text/plain", anchor: "/", header: false },
           { href: "/llms-full.txt", rel: "describedby", type: "text/plain", title: "llms-full.txt: the full documentation as a single file" },
+          { href: "/llms-full.txt", rel: "service-desc", type: "text/plain", anchor: "/", header: false },
           // At the site root nuxt-agent-discovery writes the robots.txt Sitemap line, but only for the exact link
           // `/sitemap.xml`. Mounted below a path, the app does not own the host's robots.txt, so the link is absolute.
           { href: config.appBase === "/" ? "/sitemap.xml" : `${config.site.url}${docsAppPath("/sitemap.xml", config.appBase)}`, rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" },

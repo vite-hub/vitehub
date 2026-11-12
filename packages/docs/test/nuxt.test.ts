@@ -584,7 +584,7 @@ describe("docs Nuxt setup", () => {
     // Content serves the copies, so nuxt-agent-discovery only negotiates to them.
     expect(options.agentDiscovery.source).toBe(false)
     expect(options.agentDiscovery.discovery).toMatchObject({
-      links: [{ href: "/sitemap.md" }, { href: "/llms.txt" }, { href: "/llms-full.txt" }, { href: "https://docs.example.com/portal/sitemap.xml" }],
+      links: [{ href: "/sitemap.md" }, { href: "/llms.txt" }, { href: "/llms.txt", anchor: "/" }, { href: "/llms-full.txt" }, { href: "/llms-full.txt", anchor: "/" }, { href: "https://docs.example.com/portal/sitemap.xml" }],
       mcpServerCard: { endpoint: "https://docs.example.com/portal/mcp" },
     })
     expect(options.agentDiscovery.routes).toEqual(expect.arrayContaining([
