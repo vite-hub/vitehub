@@ -720,6 +720,21 @@ describe("workspace public API", () => {
     ])
   })
 
+  it("loads the Workspace Definition again on the next read after a failed load", async () => {
+    const definition = defineWorkspace({
+      store: { provider: "memory" },
+      sources: { repo: file({ content: "# Repo\n", workspacePath: "README.md" }) },
+    })
+    const load = vi.fn()
+      .mockRejectedValueOnce(new Error("transient definition load failure"))
+      .mockResolvedValue({ default: definition })
+    setWorkspaceRegistry({ docs: load })
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.readFile("README.md")).rejects.toThrow("transient definition load failure")
+    await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Repo\n")
+  })
+
   it("caps merged read-only search results", async () => {
     setWorkspaceRuntimeAssetsRegistry({
       docs: createWorkspaceAssets({
