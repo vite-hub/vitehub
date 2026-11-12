@@ -18,9 +18,13 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 // The server module loads Better Auth. Agent routes import this module at startup, so load the server on first use.
-// One shared import also keeps Vitest module mocks in place for concurrent first calls.
+// One shared import also keeps Vitest module mocks in place for concurrent first calls. A failed import lets the next
+// call try again.
 let server: Promise<typeof import("./server.ts")> | undefined
-const loadServer = () => server ??= import("./server.ts")
+const loadServer = () => server ??= import("./server.ts").catch((error: unknown) => {
+  server = undefined
+  throw error
+})
 
 export interface AuthenticatedUser {
   email?: string | null
