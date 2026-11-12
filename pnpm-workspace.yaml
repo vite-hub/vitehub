@@ -202,10 +202,10 @@ catalogs:
   unjs:
     defu: ^6.1.7
     exsolve: ^1.1.3
-    h3: 2.0.8
+    h3: ^2.0.8
     jiti: ^2.7.0
     mlly: ^1.8.2
-    nitro: 3.0.261103-rc
+    nitro: ^3.0.261103-rc
     nitropack: ^2.13.4
     ocache: ^0.3.1
     ofetch: ^1.5.1
