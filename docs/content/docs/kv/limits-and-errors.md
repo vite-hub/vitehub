@@ -120,7 +120,7 @@ The `deno-kv` driver needs `Deno.openKv()`. Run on Deno with KV enabled, or pick
 
 ### KV_DISABLED
 
-The runtime has no KV config. Add `hubKv()` to the Vite config and do not set `kv: false`.
+The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKv()` to the Vite plugins and do not pass `false` to it.
 
 ### KV_INVALID_CONFIG
 

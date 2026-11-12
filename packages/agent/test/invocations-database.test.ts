@@ -79,6 +79,25 @@ describe("createDatabaseAgentInvocationStore", () => {
     client.close()
   })
 
+  it("reads observations after a sequence through the SQLite Drizzle adapter", async () => {
+    const { createClient } = await import("@libsql/client")
+    const { drizzle } = await import("drizzle-orm/libsql")
+    const client = createClient({ url: "file::memory:" })
+    useDatabase.mockReturnValue({ db: drizzle({ client }) })
+
+    const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
+    const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
+    const observations = ["agent.tool.call", "agent.invocation.finish", "agent.invocation.finish"]
+      .map((name, index) => ({ name, sequence: index + 1, timestamp: input.createdAt, type: "run" as const }))
+    await store.create({ ...input, observations })
+
+    const sequences = async (options: { afterSequence: number, observationNames?: string[] }) =>
+      (await store.get(input.id, options))?.observations.map(observation => observation.sequence)
+    await expect(sequences({ afterSequence: 1 })).resolves.toEqual([2, 3])
+    await expect(sequences({ afterSequence: 2, observationNames: ["agent.invocation.finish"] })).resolves.toEqual([3])
+    client.close()
+  })
+
   it("reinitializes when a runtime proxy switches its database client", async () => {
     const dialect = new SQLiteDialect()
     const createDatabase = (client: object) => {

@@ -90,6 +90,8 @@ export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOpt
 
 export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions, provider?: BlobProvider) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
+  // A store with `secretEnv` has env variable names in place of its credentials. They are read when the driver starts.
+  const secrets = stores.some(store => store.secretEnv)
   const nativeCloudflareR2 = stores
     .filter(store => store.driver === "cloudflare-r2")
     .every(store => isCloudflareR2StoreWithBucket(store) && !store.remote)
@@ -102,7 +104,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("index")))}`,
-    `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
+    `import { ${secrets ? "blobRuntimeEnv, " : ""}setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
     imports.push(`import { createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload, blobStoreMode, readonlyBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
@@ -115,7 +117,10 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   if (localFallback) {
     imports.push(`import { getOptionalBucket } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("drivers/cloudflare-native")))}`)
   }
-  const runtimeStoreResolvers = [...new Set(stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean))]
+  const runtimeStoreResolvers = [...new Set([
+    ...stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean),
+    ...(secrets ? ["resolveRuntimeBlobSecrets"] : []),
+  ])]
   if (runtimeStoreResolvers.length > 0) {
     imports.push(`import { ${runtimeStoreResolvers.join(", ")} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
@@ -125,7 +130,8 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     const driverImport = driverImports[driverModule]
     if (!driverImport) return undefined
     const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
-    const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(store, process.env)` : "store"
+    const store = secrets ? "resolveRuntimeBlobSecrets(store, blobRuntimeEnv())" : "store"
+    const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(${store}, process.env)` : store
     if (driver === "cloudflare-r2" && localFallback) {
       return `    case ${JSON.stringify(driver)}: return store.localFallback && !getOptionalBucket(store) ? ${driverImports[driverModules.fs]}(store.localFallback) : ${driverImport}(${storeExpression})`
     }
@@ -182,9 +188,9 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function resolveBlobStoreConfig(name) {",
           "  const stores = blobConfig.stores || { default: blobConfig.store }",
-          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name)",
+          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name, stores)",
           "  const store = stores[name]",
-          "  if (!store) throw unknownBlobStoreError(name)",
+          "  if (!store) throw unknownBlobStoreError(name, stores)",
           "  return store",
           "}",
           "",
