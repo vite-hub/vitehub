@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { build } from "esbuild"
 import ts from "typescript"
 import { resolveConfig } from "vite"
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import {
   getResolvedFeatureOptions,
@@ -35,6 +35,7 @@ import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
 
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const kvCacheDriver = kvNitroCacheDriver
@@ -640,6 +641,9 @@ describe("ViteHub Nuxt integration", () => {
         return resolved
       },
     })
+    // The earlier tests found the owners in this process. A new process checks them again.
+    forgetPackageChecks()
+    onTestFinished(forgetPackageChecks)
     try {
       for (const [source, owner] of facades) {
         await expect(bundleFacade(source)).rejects.toMatchObject({
@@ -651,6 +655,7 @@ describe("ViteHub Nuxt integration", () => {
     finally {
       hooks.deregister()
     }
+    // The owners are back, as after `pnpm add`. The import that failed now resolves.
     for (const [source] of facades) await expect(bundleFacade(source)).resolves.toBeDefined()
   })
 
@@ -661,6 +666,7 @@ describe("ViteHub Nuxt integration", () => {
         return nextResolve(specifier, context)
       },
     })
+    forgetPackageChecks()
     try {
       expect(await viteHubNuxtModule.getModuleDependencies()).toEqual({})
       const { nuxt, runIconHook } = createNuxt()
@@ -670,6 +676,31 @@ describe("ViteHub Nuxt integration", () => {
     }
     finally {
       hooks.deregister()
+      forgetPackageChecks()
+    }
+  })
+
+  it("sees Nuxt UI that the app installed after a Nuxt start that failed before Vite", async () => {
+    let hidden = true
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (hidden && (specifier === "@nuxt/ui" || specifier.startsWith("@nuxt/ui/"))) throw new Error(`Cannot find package '${specifier}'`)
+        return nextResolve(specifier, context)
+      },
+    })
+    forgetPackageChecks()
+    try {
+      expect(await viteHubNuxtModule.getModuleDependencies()).toEqual({})
+      // The setup fails before Vite starts, so no Vite plugin closes. The developer installs Nuxt UI, and Nuxt reloads.
+      const failed = createNuxt()
+      failed.nuxt.options.nitro = { preset: "vercel" }
+      await expect(viteHubNuxtModule({ console: false, env: false, preset: "node" }, failed.nuxt)).rejects.toMatchObject({ code: "VITE_HUB_B0009" })
+      hidden = false
+      expect(await viteHubNuxtModule.getModuleDependencies()).not.toEqual({})
+    }
+    finally {
+      hooks.deregister()
+      forgetPackageChecks()
     }
   })
 

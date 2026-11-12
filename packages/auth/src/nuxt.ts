@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -45,6 +46,7 @@ type NuxtLike = {
     rootDir?: string
     routeRules?: Record<string, Record<string, unknown>>
     serverDir?: string
+    srcDir?: string
     vite?: {
       define?: Record<string, unknown>
       plugins?: unknown[]
@@ -74,6 +76,17 @@ const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
+const manifestRegistered = new WeakSet<object>()
+
+/** Better Auth's Vue client file, which `createAuthClient()` imports on first use. */
+function resolveBetterAuthVueClient(): string | undefined {
+  try {
+    return realpathSync(fileURLToPath(import.meta.resolve("better-auth/vue")))
+  }
+  catch {
+    return undefined
+  }
+}
 
 /** A static segment or `:name`. */
 const routeSegment = /^(?:[^:*?+(){}/]+|:[A-Za-z_]\w*)$/
@@ -226,6 +239,20 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
           shortPath: filePath,
         })
       }
+    })
+  }
+
+  if (!manifestRegistered.has(nuxt) && nuxt.hook) {
+    manifestRegistered.add(nuxt)
+    // Nuxt prefetches the dynamic imports of the app entry on every page. The Auth plugin's client imports Better Auth
+    // on first use, so remove that import from the hints: a page that does not use Auth does not download Better Auth.
+    ;(nuxt.hook as unknown as (name: "build:manifest", handler: (manifest: Record<string, { dynamicImports?: string[] }>) => void) => void)("build:manifest", (manifest) => {
+      const client = resolveBetterAuthVueClient()
+      // Vite writes manifest keys relative to its root. Nuxt resolves `vite.root` to `srcDir` unless the app sets it.
+      const root = nuxt.options.vite?.root || nuxt.options.srcDir || nuxt.options.rootDir || process.cwd()
+      const key = client && Object.keys(manifest).find(id => resolve(root, id) === client)
+      if (!key) return
+      for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => id !== key)
     })
   }
 

@@ -230,6 +230,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0483",
   "AGENT_R0484",
   "AGENT_R0485",
+  "AGENT_R1038",
   "AGENT_R0486",
   "AGENT_R0487",
   "AGENT_R0488",
@@ -1511,6 +1512,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1014: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
+    },
+    AGENT_R1038: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+      fix: "Pass driver.workspaceWrite as { network?: boolean, packageCaches?: boolean }, or remove it.",
     },
     AGENT_R1037: {
       why: ({ name }: { name: string }) => `[vitehub] Agent "${name}" owns a Workspace, but the defineAgent() options that its file exports have no workspace key. A Capability, Channel, preset, parent, or configure callback added the Workspace. Add workspace: {} to its defineAgent() options.`,

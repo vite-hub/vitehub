@@ -77,6 +77,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0004: withFix("Pass a non-empty `message` of at most 16,384 characters to `authenticated()`, or remove `message`."),
     AUTH_C0060: withFix("Keep one abilities file at `shared/abilities.ts`. Remove the other files listed in the message, or add the app file to replace layer rules."),
     AUTH_B0001: withFix("Set `env.projectRoot` of `@vite-hub/auth/nuxt` to the `projectRoot` of the `hubEnv()` plugin, or remove `env.projectRoot`."),
+    AUTH_B0002: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a rule for the guarded path that turns the cache off, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. If the page is public, remove the route from `access.routes`."),
     AUTH_B0003: withFix("Start each key of `vitehub.auth.routes` with `/` and use only static segments, `:name`, and a last `**`. Keep one key for the same pages, and set each value to `'user'`, `'guest'`, or `false`, for example `routes: { '/dashboard/**': 'user', '/login': 'guest' }`. For an optional segment, add one key with the segment and one key without it."),
     AUTH_R0005: withFix("Add `server/auth.ts` with `export default defineAuth({})`. For a Nuxt layer, add it to the app."),
     AUTH_R0006: withFix("Send the `Origin` header with the request. Browsers send it. A server-side caller must set it, for example `headers: { origin: 'https://app.example.com' }`."),

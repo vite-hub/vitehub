@@ -259,8 +259,13 @@ run more than one process.
 The [table above](#defaults-on-the-node-preset) shows which features have a
 remote store today.
 
-Keep runtime secrets in [Server Env](/docs/env). Check the deployed app by
-starting the built server, not only by typechecking.
+The Schedule Process Runtime runs each occurrence on one server when the app has
+a Postgres or remote libSQL Default Database. The servers claim each occurrence in the
+`vitehub_leases` table. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server).
+
+Keep runtime secrets in [Server Env](/docs/env). Verify the
+deployed application by starting the built server, not only by typechecking
+package code.
 
 ## Next steps
 
