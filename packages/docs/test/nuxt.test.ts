@@ -207,7 +207,7 @@ describe("docs in an existing app", () => {
     expect(contents).toContain(`@source "${app.dir}";`)
     expect(contents).toMatch(/@source ".*runtime\/app";/)
     // The header grid is a design class. A path source to the built theme found none, so the header broke on wide screens.
-    expect(contents).toMatch(/@source inline\(".*lg:grid-cols-\[minmax\(0,1fr\)_minmax\(0,24rem\)_minmax\(0,1fr\)\].*"\);/)
+    expect(contents).toMatch(/@source inline\(".*lg:grid-cols-\[minmax\(max-content,1fr\)_minmax\(0,24rem\)_minmax\(max-content,1fr\)\].*"\);/)
   })
 
   it("keeps the docs Tailwind imports when regenerating its own stylesheet", async () => {
