@@ -11,7 +11,7 @@ import { isBabysitterCheckRun } from '../check-run.ts'
 import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSchema, statusDeliverySchema, statusOutboxPrefix, statusSentPrefix, statusWriterPrefix, statusTargetKey, workerBlockerPrefix, type StatusDelivery } from './status-delivery.ts'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
-import { matchesGitHubPullRequestFilter } from '@vite-hub/agent/channels'
+import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 
 export type Snapshot = {
@@ -941,7 +941,7 @@ export class PullRequestInbox {
     return this.mainRepairBranchPrefix !== undefined && Boolean(pr?.head?.ref?.startsWith(this.mainRepairBranchPrefix))
   }
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
-    return Boolean(pr && pr.state === 'open' && matchesGitHubPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
+    return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
   }
   async seed(repository: string, value: unknown): Promise<Snapshot> {
     repository = repository.toLowerCase()
@@ -1025,7 +1025,7 @@ export class PullRequestInbox {
         const s = existing ?? this.empty(repository, number)
         // Event filters govern admission only. Lifecycle evidence must still
         // invalidate active work when the author, labels, head, or state changes.
-        if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
+        if (!existing && !matchesBabysitterPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
         const pushRefMatch = event === 'push' && (payload.ref === `refs/heads/${s.pr?.base?.ref}` || payload.ref === `refs/heads/${s.pr?.head?.ref}`)
         const pendingHead = sha && (check || event === 'status') && (s.wait?.headSha === sha || s.lease && s.leaseUntil > this.clock() && (s.sourcePushHeads?.includes(sha) || s.prospectivePush?.token === s.lease && s.prospectivePush.heads.includes(sha)))
         if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch && !pendingHead) continue // unrelated old-head CI cannot wake current head

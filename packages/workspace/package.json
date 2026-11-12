@@ -153,7 +153,6 @@
     "minimatch": "catalog:workspace",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ofetch": "catalog:unjs",
     "valibot": "catalog:runtime",
     "yaml": "catalog:tooling",
     "@vite-hub/markdown-template": "workspace:*",

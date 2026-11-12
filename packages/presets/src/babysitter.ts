@@ -18,6 +18,7 @@ import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
+import { githubAuthorAssociations } from "./babysitter/pull-request-filter.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
@@ -79,9 +80,11 @@ export interface BabysitterOptions {
    */
   placement?: BabysitterPlacement;
   /**
-   * Select PRs with the same rules as the GitHub Channel. Without `repository.allow`, the Babysitter
-   * serves every repository that its GitHub App installations can access, except archived ones and
-   * those in `repository.deny`, so installing the App on a repository enrolls it.
+   * Select PRs with the same rules as the GitHub Channel, with two differences. A PR passes when it
+   * matches either `author.allow` or `authorAssociation.allow`; a match on either deny list rejects it.
+   * Logins match case-insensitively and in either bot spelling, so `renovate[bot]` also matches `renovate`.
+   * Without `repository.allow`, the Babysitter serves every repository that its GitHub App installations
+   * can access, except archived ones and those in `repository.deny`, so installing the App on a repository enrolls it.
    */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
@@ -378,6 +381,12 @@ function lifecycleLabels(labels: unknown): GitHubPullRequestFilterRules {
   return rules;
 }
 
+function validAuthorAssociationRules(rules: unknown): boolean {
+  if (rules === undefined) return true;
+  if (!isRuntimeRecord(rules) || Array.isArray(rules)) return false;
+  return [rules.allow, rules.deny].every(list => list === undefined || (Array.isArray(list) && list.every(value => (githubAuthorAssociations as readonly unknown[]).includes(value))));
+}
+
 /** Combines explicit lifecycle labels with the shared GitHub PR filter. */
 export function resolveBabysitterLifecycleFilter(
   filter: GitHubPullRequestFilter,
@@ -502,6 +511,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
+    }
+    if (!validAuthorAssociationRules(filter.authorAssociation)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "filter.authorAssociation", expected: `{ allow, deny } lists of ${githubAuthorAssociations.join(", ")}` });
     }
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.

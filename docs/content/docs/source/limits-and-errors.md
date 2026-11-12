@@ -18,3 +18,9 @@ icon: i-lucide-circle-alert
 - `array()` Collections tie each cursor to the data digest and query. A cursor used after the data changed, or with another filter or search, returns HTTP `409` with `SOURCE_R0027`. Reload from the first page.
 - `array()` loads the whole array on each request. Keep it small enough to filter in memory, or use `table()`.
 - Collection `authorize` controls the whole route. It does not filter rows per user.
+
+## SOURCE_R0034
+
+The default `useCollection()` requester received an unsuccessful HTTP status. The error keeps the status in `status` and identifies the Collection endpoint in `why`.
+
+Check the Collection route and server logs for that status, correct the request or server error, then refresh the Collection. HTTP `401` and `403` still become `CollectionAccessError` with `SOURCE_R0026`.
