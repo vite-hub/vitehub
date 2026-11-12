@@ -1,6 +1,6 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
-import { blobResult } from "../errors.ts"
+import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
@@ -51,7 +51,11 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {
       if (getOptionalBucket(config)) return nativeDriver
-      fallbackDriver ||= importRuntimeDriverModule(config)
+      // A failed load lets the next call try again.
+      fallbackDriver ||= importRuntimeDriverModule(config).catch((error: unknown) => {
+        fallbackDriver = undefined
+        throw error
+      })
       return fallbackDriver
     }
     // Multipart uploads use the R2 binding API; the HTTP fallback has no multipart support.
@@ -145,7 +149,7 @@ function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, nam
   if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
   const stores = config.stores || { default: config.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  if (!store) throw new UnknownBlobStoreError(unknownBlobStoreMessage(name, stores))
   return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
 }
 

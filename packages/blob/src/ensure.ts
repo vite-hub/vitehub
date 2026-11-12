@@ -1,5 +1,6 @@
 import { createError } from "h3"
 
+import { isActiveContentType } from "./internal/active-content.ts"
 import { blobSizeToBytes } from "./internal/size.ts"
 
 import type { BlobEnsureOptions, BlobType } from "./types.ts"
@@ -30,11 +31,13 @@ export function ensureBlob(blob: Blob, options: BlobEnsureOptions = {}): void {
     }
   }
 
-  const blobShortType = blob.type.split("/")[0]
+  // A broad type such as `image` or `text` does not accept a type that a browser opens as a page, such as SVG or HTML.
+  // The app must list that type exactly.
+  const blobShortType = isActiveContentType(blob.type) ? undefined : blob.type.split("/")[0]
   if (
     options.types?.length
     && !options.types.includes(blob.type as BlobType)
-    && !options.types.includes(blobShortType as BlobType)
+    && !(blobShortType && options.types.includes(blobShortType as BlobType))
     && !(options.types.includes("pdf") && blob.type === "application/pdf")
   ) {
     throw createError({
