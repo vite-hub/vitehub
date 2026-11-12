@@ -506,6 +506,8 @@ Channels with `history: { collection, key, thread?, invocationItem? }` export Co
 
 For GitHub Channels, `activity: true` links pull request webhook activity to its ViteHub Console invocation when `vitehub({ publicUrl })` is set. `activity: { publicUrl }` overrides the origin for one Channel. Without a public URL, the application supplies its own links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
 
+`pullRequest.ci` sets how a pull request run treats hosted CI after it pushes. With `"report"`, the default, the prompt tells the Agent to run local checks, push, report pending hosted checks, and finish without waiting. With `"wait"`, the prompt tells the Agent to wait for hosted CI and fix failures until all checks pass. GitLab and Forgejo Channels accept the same option. See [Hosted CI](../../docs/content/docs/agents/channels.md#hosted-ci).
+
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
 
 ## Default invocation journal
