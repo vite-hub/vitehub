@@ -37,7 +37,7 @@ pnpm add @vite-hub/runtime
 Create a Runtime Context, register one Runtime Capability, and read it back:
 
 ```ts [scripts/health.ts]
-import { createRuntimeContext, defineCapability, getCapability } from 'vite-hub/runtime'
+import { createRuntimeContext, defineCapability, getCapability } from '@vite-hub/runtime'
 
 const context = createRuntimeContext({
   capabilities: {
