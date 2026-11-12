@@ -22,7 +22,7 @@ Start from the app of [Installation](/docs/getting-started/installation). You ne
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @anthropic-ai/claude-agent-sdk@0.3.246
+pnpm add @vite-hub/agent @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
 The SDK installs one native Claude Code package for your OS and CPU. ViteHub uses that package and downloads nothing during the build or at startup.

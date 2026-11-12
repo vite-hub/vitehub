@@ -76,7 +76,7 @@ The built-in Drivers reuse T3 Code's Codex and Claude Code runtime. ViteHub owns
 
 ```sh
 pnpm add @openai/codex@0.149.1
-pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
 Declare the Codex credentials in Server Env:
