@@ -17,8 +17,8 @@ corepack pnpm exec vp run e2e:multi-instance
 corepack pnpm exec vp run e2e:multi-instance --no-redis
 ```
 
-Run both modes. A store can pick its backend from `REDIS_URL` first and then
-from the Postgres Database, so each mode tests a different backend.
+Run both modes. The fixture selects the Redis KV driver when `REDIS_URL` is
+set. Without Redis, KV infers the Postgres Default Database.
 
 On Slimbook, run it through the shared lock:
 `heavy corepack pnpm exec vp run e2e:multi-instance`.
@@ -66,14 +66,14 @@ them to the script.
 
 ## What the instances share
 
-On the `node` preset, the default file stores of Queue, KV and Blob resolve
+On the `node` preset, the default file stores of Queue and Blob resolve
 `.vitehub/data` from the working directory when the server starts. Three
 processes in one directory would share these files by accident, without a lock.
 Real instances run on different hosts and do not share them. So each instance
 starts in its own working directory, and only these stores are shared:
 
 - Postgres, through `DATABASE_URL`. The Database and OpenWorkflow use it.
-- Redis, through `REDIS_URL`, unless you pass `--no-redis`.
+- KV, through Redis at `REDIS_URL`, or the Postgres Default Database with `--no-redis`.
 - Blob, set by hand in `app/nuxt.config.ts` to one `fs` directory, as a volume
   that every instance mounts.
 - Workflow, set by hand to `provider: 'openworkflow'`. ViteHub does not start
@@ -81,10 +81,10 @@ starts in its own working directory, and only these stores are shared:
   starts one. Remove that plugin when #3839 lands, because then ViteHub starts
   the worker.
 
-The fixture ships one migration in `app/server/databases/migrations/`. The
-harness does not run `vitehub db migrate`, because `migrations-once` checks that
+The fixture ships one migration in `app/server/databases/default/migrations/`. The
+harness does not run `vitehub database migrate`, because `migrations-once` checks that
 the instances apply it when they start. When you change the fixture schema,
-build the app with `--keep`, run `pnpm exec vitehub db generate` in the kept
+build the app with `--keep`, run `pnpm exec vitehub database generate` in the kept
 `app` directory, and copy the new files back.
 
 The fixture app writes what happened to an `oracle_events` table in Postgres

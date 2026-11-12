@@ -11,7 +11,8 @@ export default {
     // run.mjs sets this directory at build time. It stands for a volume that every instance mounts.
     blob: { driver: "fs", base: process.env.MULTI_INSTANCE_SHARED_BLOB_DIR },
     database: true,
-    kv: true,
+    // Redis requires an explicit driver. Without it, KV infers the Postgres Default Database.
+    kv: process.env.REDIS_URL ? { driver: "redis" } : true,
     preset: "node",
     queue: true,
     rateLimit: true,

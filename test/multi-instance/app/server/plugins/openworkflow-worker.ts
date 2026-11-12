@@ -1,4 +1,4 @@
-import { startOpenWorkflowWorker } from "@vite-hub/workflow/runtime/openworkflow-worker"
+import { startOpenWorkflowWorker } from "@vite-hub/workflow/openworkflow"
 import { definePlugin } from "nitro"
 
 import { record } from "../oracle"

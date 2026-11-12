@@ -32,10 +32,10 @@ const { values: options } = parseArgs({
 // The feature packages that the fixture enables. Packing follows their workspace dependencies.
 const fixturePackages = ["vite-hub", "blob", "cli", "database", "kv", "queue", "rate-limit", "realtime", "schedule", "workflow"]
 
-// Pins that match the packed Nuxt 5 consumer tests in test/consumer/vite-hub.test.ts.
+// Framework pins match the packed Nuxt 5 consumer tests. Drizzle matches the Database package.
 const appDependencies = {
-  "drizzle-kit": "0.31.11",
-  "drizzle-orm": "0.45.3",
+  "drizzle-kit": "1.0.0-rc.5",
+  "drizzle-orm": "1.0.0-rc.5",
   h3: "2.0.8",
   nitro: "3.0.261102-rc",
   nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",

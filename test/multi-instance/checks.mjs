@@ -76,7 +76,7 @@ export const checks = [
       const ids = Array.from({ length: 1000 }, (_, index) => `${run}-${index}`)
       for (let start = 0; start < ids.length; start += 100) {
         const { errors } = await post(a, "/api/queue", { ids: ids.slice(start, start + 100) })
-        if (errors.length) return fail(`runQueue failed: ${errors[0]}`)
+        if (errors.length) return fail(`sendQueue failed: ${errors[0]}`)
       }
       const read = async () => {
         const [totals] = await context.sql`select count(*)::int as total, count(distinct key)::int as distinct from oracle_events where kind = 'job' and key like ${`${run}-%`}`
@@ -169,8 +169,8 @@ export const checks = [
     title: "three cold starts apply the Database migrations once",
     async run(context) {
       needInstances(context, ["a", "b", "c"])
-      const journal = await readdir(join(context.appDir, "server/databases/migrations"))
-      const expected = journal.filter(file => file.endsWith(".sql")).length
+      const journal = await readdir(join(context.appDir, "server/databases/default/migrations"), { withFileTypes: true })
+      const expected = journal.filter(entry => entry.isDirectory() && /^\d{14}_/.test(entry.name)).length
       const [state] = await context.sql`select to_regclass('drizzle.__drizzle_migrations') is not null as ledger, to_regclass('public.notes') is not null as notes`
       const applied = state.ledger ? (await context.sql`select count(*)::int as count from drizzle.__drizzle_migrations`)[0].count : 0
       const queries = await Promise.all(context.instances.map(instance =>
@@ -236,7 +236,7 @@ export const checks = [
       const ids = Array.from({ length: 20 }, (_, index) => `${run}-${index}`)
       // The delay keeps every job waiting while A stops, so no job is half done on A.
       const { errors } = await post(a, "/api/queue", { delaySeconds: 5, ids })
-      if (errors.length) return fail(`runQueue failed: ${errors[0]}`)
+      if (errors.length) return fail(`sendQueue failed: ${errors[0]}`)
       await context.stop("a")
       const read = async () => {
         const [totals] = await context.sql`select count(*)::int as total, count(distinct key)::int as distinct from oracle_events where kind = 'job' and key like ${`${run}-%`}`
