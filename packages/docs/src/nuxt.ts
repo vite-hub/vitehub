@@ -555,7 +555,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // lists the folders that Tailwind scans, so the docs folders go there. An app with its own `@import "@nuxt/ui"`
     // then builds the docs classes in its one Tailwind build. A second build would put its utilities after the docs
     // ones, so `flex` would win over `xl:hidden`. An app without one gets the Tailwind build of the docs.
-    const cssSources = [join(runtime, "app"), resolver.resolve("./theme.js"), ...contentDirsToWatch].map(source => `@source "${source}";`).join("\n")
+    // The design classes go in as an inline source. The build moves `theme.ts` into a shared chunk with a hashed name,
+    // and `dist/theme.js` only re-exports it, so a path source found none of them.
+    const cssSources = [
+      ...[join(runtime, "app"), ...contentDirsToWatch].map(source => `@source "${source}";`),
+      `@source inline(${JSON.stringify(themeClasses(design).join(" "))});`,
+    ].join("\n")
     nuxt.hook("app:templates", (app) => {
       const ui = app.templates.find(template => template.filename === "ui.css")
       const getContents = ui?.getContents
@@ -854,6 +859,13 @@ function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Rec
 }
 
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
+/** Every class in the design, for Tailwind. Words that are not classes, such as menu titles, generate no CSS. */
+function themeClasses(value: unknown): string[] {
+  if (typeof value === "string") return value.split(/\s+/).filter(Boolean)
+  if (typeof value !== "object" || value === null) return []
+  return [...new Set(Object.values(value).flatMap(themeClasses))]
+}
+
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
