@@ -268,8 +268,11 @@ export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
    * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
    */
   token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
-  /** Trusted identity of the host's authenticated GitHub user or App. */
-  identity?: { login: string, appId?: number }
+  /**
+   * Trusted identity of the host's authenticated GitHub user or App. Provider Drivers and the `git()` Capability
+   * commit as `login` with `email`.
+   */
+  identity?: { login: string, appId?: number, email?: string }
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -4029,7 +4032,13 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
       const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
-      return token ? { token, baseUrl: appOptions === true ? undefined : appOptions.apiBaseUrl } : undefined
+      if (!token) return undefined
+      const identity = app?.identity
+      return {
+        token,
+        baseUrl: app?.apiBaseUrl,
+        ...(identity?.login ? { identity: { login: identity.login, ...(identity.email ? { email: identity.email } : {}) } } : {}),
+      }
     }
     Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
   }
