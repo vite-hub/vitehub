@@ -23,23 +23,13 @@ class UnknownBlobStoreError extends Diagnostic {
 }
 
 const driverModules = {
-  akamai: "akamai",
   azure: "azure",
-  box: "box",
   "cloudflare-r2": "cloudflare",
-  "digitalocean-spaces": "digitalocean-spaces",
-  dropbox: "dropbox",
   fs: "fs",
   gcs: "gcs",
-  "google-drive": "google-drive",
-  hetzner: "hetzner",
   minio: "minio",
   "netlify-blobs": "netlify-blobs",
-  onedrive: "onedrive",
   s3: "s3",
-  storj: "storj",
-  supabase: "supabase",
-  uploadthing: "uploadthing",
   "vercel-blob": "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 

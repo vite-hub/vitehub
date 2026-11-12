@@ -1,4 +1,4 @@
-import { Response as ForeignFetchResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
+import { Response as ForeignFetchResponse } from "@whatwg-node/node-fetch"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { streamAgentOutputToEvents } from "../src/agent-output.ts"
 import { isResponse } from "../src/internal/response.ts"
@@ -7,7 +7,7 @@ import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationR
 
 const HostResponse = Response
 
-function foreignResponse(body = "foreign", init?: ResponseInit): Response {
+function foreignResponse(body = "foreign", init?: ConstructorParameters<typeof ForeignFetchResponse>[1]): Response {
   const response = new ForeignFetchResponse(body, init)
   vi.stubGlobal("Response", class extends HostResponse {})
   expect(response).not.toBeInstanceOf(Response)
