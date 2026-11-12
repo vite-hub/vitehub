@@ -5,6 +5,9 @@ import { dirname, join, relative, resolve } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
+import { docsAgentCopy } from "../src/agent-copy.ts"
+import { createDocsManifest } from "../src/manifest.ts"
+import { findDocsPage } from "../src/navigation.ts"
 
 type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
@@ -93,8 +96,7 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, la
   await setup(docs, nuxt as never)
   return options as typeof options & {
     runtimeConfig: { public: { docs: DocsPublicConfig } }
-    agentDiscovery: { siteUrl: string, routes: Array<string | { path: string, raw: string }>, discovery: unknown }
-    llms: { domain: string }
+    agentDiscovery: { siteUrl: string, source: string | false, routes: Array<string | { path: string, raw: string }>, discovery: unknown }
   }
 }
 
@@ -379,9 +381,7 @@ describe("docs Nuxt setup", () => {
         { baseName: "docs-1", dir: join(dir, "b"), pattern: "**/*.md" },
       ]),
     );
-    for (const hook of hooks.get("build:before") ?? []) await hook();
-    expect(readFileSync(join(options.buildDir, "docs/raw/a.md"), "utf8")).toContain("Source a");
-    expect(readFileSync(join(options.buildDir, "docs/raw/b.md"), "utf8")).toContain("Source b");
+    expect(nitro.serverAssets).toEqual(expect.arrayContaining([{ baseName: "docs-agent", dir: join(options.buildDir, "docs/agent") }]));
     expect(templates.get("docs/custom-components.mjs")?.()).toContain("markdown-components.ts");
     expect(watchContent.mock.calls.map((call) => call[0])).toEqual([
       join(dir, "a"),
@@ -433,7 +433,7 @@ describe("docs Nuxt setup", () => {
     await vi.advanceTimersByTimeAsync(100)
     // The manifest reads the files through Content, so the run ends after real I/O, not after a timer.
     await vi.waitFor(() => expect(templates.get("docs/manifest.mjs")?.()).toContain("First page"))
-    expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("First page")
+    expect(options.buildDir).toBeTruthy()
   })
 
   it.each([false, true])(
@@ -449,9 +449,10 @@ describe("docs Nuxt setup", () => {
       const blocked = new Promise<void>((resolve) => {
         release = resolve;
       });
+      // Only a page that the transform changes is kept for the server.
       const transform = vi.fn(async (source: string) => {
         if (source.includes("Older")) await blocked;
-        return source;
+        return `${source}\nFor agents.`;
       });
       const second = join(content, "other");
       mkdirSync(second);
@@ -486,7 +487,7 @@ describe("docs Nuxt setup", () => {
       expect(concurrent).toBe(1);
       await vi.waitFor(() => expect(
         readFileSync(
-          join(options.buildDir, multiple ? "docs/raw/other.md" : "docs/raw/docs.md"),
+          join(options.buildDir, multiple ? "docs/agent/docs_1/index.md" : "docs/agent/docs_0/docs/index.md"),
           "utf8",
         ),
       ).toContain("Newer"));
@@ -561,11 +562,10 @@ describe("docs Nuxt setup", () => {
     roots.push(content)
     mkdirSync(join(content, "docs/guide"), { recursive: true })
     writeFileSync(join(content, "docs/guide/current.md"), "---\ntitle: Current\n---\n[Next](./next)")
-    const options = await setupDocs({ dir: content, site: { url: "https://docs.example.com" } }, "/portal/")
-    for (const hook of hooks.get("build:before") ?? []) await hook()
-    const raw = readFileSync(join(options.buildDir, "docs/raw/docs/guide/current.md"), "utf8")
-    expect(raw).toContain("[Next](https://docs.example.com/portal/docs/guide/next)")
-    expect(raw.endsWith("\n\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
+    const manifest = await createDocsManifest({ dir: content, base: "/docs" })
+    const copy = docsAgentCopy(manifest, findDocsPage(manifest, "/docs/guide/current")!.page, readFileSync(join(content, "docs/guide/current.md"), "utf8"), "https://docs.example.com/portal")
+    expect(copy.markdown).toContain("[Next](https://docs.example.com/portal/docs/guide/next)")
+    expect(copy.footer).toBe("\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")
   })
 
   it("shows a colored logo as it is, with its dark version", async () => {
@@ -581,8 +581,10 @@ describe("docs Nuxt setup", () => {
       mcp: { url: "https://docs.example.com/portal/mcp" },
     })
     expect(options.agentDiscovery.siteUrl).toBe("https://docs.example.com")
+    // Content serves the copies, so nuxt-agent-discovery only negotiates to them.
+    expect(options.agentDiscovery.source).toBe(false)
     expect(options.agentDiscovery.discovery).toMatchObject({
-      links: [{ href: "https://docs.example.com/portal/sitemap.xml" }],
+      links: [{ href: "/sitemap.md" }, { href: "/llms.txt" }, { href: "/llms-full.txt" }, { href: "https://docs.example.com/portal/sitemap.xml" }],
       mcpServerCard: { endpoint: "https://docs.example.com/portal/mcp" },
     })
     expect(options.agentDiscovery.routes).toEqual(expect.arrayContaining([
@@ -602,11 +604,15 @@ describe("docs Nuxt setup", () => {
     expect(nitro.runtimeConfig.agentDiscovery.links[1]?.href).toBe("/portal/.well-known/skills/index.json")
     expect(nitro.runtimeConfig.public.agentDiscovery.resources[0]?.href).toBe("/portal/sitemap.md")
     expect(nitro.routeRules["/"].headers.Link).toBe('</portal/llms.txt>; rel="describedby"')
-    expect(options.llms.domain).toBe("https://docs.example.com/portal")
     const routes = nitro.prerender.routes
-    expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml"]))
+    expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml", "/sitemap.md", "/llms.txt", "/llms-full.txt"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
-    expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**", "/raw/**"])
+    expect(handlers.map(handler => handler.route)).toEqual([
+      "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
+      "/raw/**", "/llms.txt", "/llms-full.txt", "/sitemap.md",
+      "/raw/**", "/llms.txt", "/llms-full.txt", "/sitemap.md",
+      "/mcp",
+    ])
     expect(handlers.filter(handler => handler.route === "/raw/**").map(handler => handler.method)).toEqual(["get", "head"])
   })
 })

@@ -21,3 +21,9 @@ declare module "#docs/example-sources" {
   const examples: Record<string, string>
   export default examples
 }
+
+/** The `llms` option of the docs module. */
+declare module "#docs/agent" {
+  const agent: { llms: import("../../nuxt.ts").DocsLlmsOptions }
+  export default agent
+}

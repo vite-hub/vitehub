@@ -24,7 +24,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-llms`, `nuxt-agent-discovery`, `nuxt-link-checker`, and `@nuxtjs/mcp-toolkit` for you. Do not add them to `modules`. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
+The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you. Do not add them to `modules`. Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
 
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
@@ -197,6 +197,7 @@ Most changes are options in `nuxt.config.ts`:
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
+| `llms` | None | `{ details, sections }`. Text under the description of `/llms.txt`, and sections of links before the page sections. |
 | `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
 | `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DocsSeoError`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, and a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
-import { createRequire, findPackageJSON } from "node:module"
+import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 
 import {
   addComponent,
@@ -29,14 +29,15 @@ import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-n
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
 import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
-import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
-import { toRawMarkdown } from "./raw.ts"
+import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
 import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
+import type { ContentLlmsSection } from "@vite-hub/content"
 import type { Nuxt } from "nuxt/schema"
 
 import type { DocsSource } from "./manifest.ts"
@@ -113,10 +114,15 @@ export interface DocsModuleOptions {
   /** Icon maps of the rail and the sidebar. */
   icons?: Partial<DocsIcons>
   /**
-   * The docs MCP server at `/mcp`, with `list-pages` and `get-page` tools. `name` is the server name that page actions
-   * suggest, and `guide` is the page that explains how to connect it. `false` turns it off.
+   * The docs MCP server at `/mcp`, with the `list-pages` and `get-page` tools of Content. `name` is the server name that
+   * page actions suggest, and `guide` is the page that explains how to connect it. `false` turns it off.
    */
   mcp?: { name?: string, guide?: string } | false
+  /**
+   * More text for `/llms.txt`. `details` goes under the site description, such as rules for agents. `sections` adds
+   * sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages.
+   */
+  llms?: DocsLlmsOptions
   /**
    * Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors.
    * Also checks cross-page fragments against the final HTML output.
@@ -143,7 +149,8 @@ export interface DocsModuleOptions {
   comments?: boolean | DocsCommentsOptions
   /**
    * Rewrites a page's Markdown before it becomes the copy that agents read at `/raw/<page>.md`, for example to expand
-   * a component into plain Markdown. The built-in rewrites run after it. Runs at build time.
+   * a component into plain Markdown. The built-in rewrites run after it. Runs at build time, and the server keeps the
+   * pages that it changed.
    */
   rawMarkdown?: (markdown: string, page: DocsPage) => string | Promise<string>
   /**
@@ -164,6 +171,12 @@ export interface DocsModuleOptions {
    * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
    */
   examples?: string
+}
+
+/** `llms` of the docs module options. */
+export interface DocsLlmsOptions {
+  details?: string
+  sections?: ContentLlmsSection[]
 }
 
 /** The site mark: `mask` fills `src` with the text color, else `src` shows as it is, and `dark` in dark mode. */
@@ -228,23 +241,15 @@ interface NitroOptions {
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
-  experimental?: { asyncContext?: boolean }
 }
 
 interface AgentDiscoveryOptions {
   errors?: boolean
   siteUrl?: string
-  source?: string
+  source?: string | false
   siteName?: string
   routes?: Array<string | { path: string, raw?: string }>
   discovery?: { links?: Array<{ href: string, rel: string, type?: string, title?: string, anchor?: string }>, mcpServerCard?: false | { endpoint: string, name?: string } }
-}
-
-interface LlmsOptions {
-  domain?: string
-  title?: string
-  description?: string
-  full?: { title?: string, description?: string }
 }
 
 /** Options of the modules that the docs module installs. Their own option types load only with their runtime. */
@@ -254,7 +259,6 @@ interface DocsNuxtOptions {
   _layers: ReadonlyArray<{ config: { appConfig?: { ui?: DocsThemeUi } } }>
   runtimeConfig: { public: { mdc?: unknown } }
   agentDiscovery?: AgentDiscoveryOptions
-  llms?: LlmsOptions
   linkChecker?: { excludeLinks?: Array<string | RegExp> }
   fonts?: { families?: Array<{ name: string, global?: boolean }> }
 }
@@ -268,7 +272,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
   meta: { configKey: "docs", name: "@vite-hub/docs" },
   defaults: {},
   // Nuxt installs these after this module, so the options that the setup writes reach them. Most resolve from this
-  // package, so the app does not list them. nuxt-agent-discovery feeds nuxt-llms only when nuxt-llms comes first.
+  // package, so the app does not list them.
   moduleDependencies: async (nuxt) => {
     // Nuxt passes the inline options only to setup, so read them from the `modules` entry too.
     // SAFETY: the `docs` key and the inline entry options of this module are its options.
@@ -280,7 +284,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},
-      [dependency("nuxt-llms")]: {},
       [dependency("nuxt-agent-discovery")]: {},
       // Site name, URL, and description for every Nuxt SEO module: the link checker, share images, and Schema.org.
       [dependency("nuxt-site-config")]: { defaults: { name: docs.site?.name ?? "Docs", url: docs.site?.url, description: docs.site?.description, defaultLocale: "en" } },
@@ -294,24 +297,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         [fileURLToPath(new URL("./link-checker-redirects.js", import.meta.url))]: {},
         [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } },
       },
-      // The toolkit's own llms.txt block repeats what nuxt-agent-discovery writes.
-      ...docs.mcp === false ? {} : { [dependency("@nuxtjs/mcp-toolkit")]: { defaults: { name: docs.site?.name ?? "Docs", llms: false } } },
     }
   },
   async setup(options, nuxt) {
-    // @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1, and Nitro 3's runtime then cannot import `h3/rules`.
-    // Registered after every module's own hook, so the alias is gone before Nitro builds.
-    nuxt.hook("modules:done", () => {
-      nuxt.hook("nitro:config", (config) => {
-        const alias: unknown = Reflect.get(config, "alias")
-        const h3: unknown = alias instanceof Object ? Reflect.get(alias, "h3") : undefined
-        if (!(alias instanceof Object) || typeof h3 !== "string") return
-        const manifest = findPackageJSON(pathToFileURL(h3), import.meta.url)
-        const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
-        const version: unknown = pkg instanceof Object ? Reflect.get(pkg, "version") : undefined
-        if (typeof version === "string" && version.startsWith("1.")) Reflect.deleteProperty(alias, "h3")
-      })
-    })
     const resolver = createResolver(import.meta.url)
     const runtime = resolver.resolve("./runtime")
     // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so this
@@ -326,7 +314,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
     const sources = options.sources?.map(source => ({ ...source, dir: resolve(nuxt.options.rootDir, source.dir) }))
     const contentDirsToWatch = sources?.map(source => source.dir) ?? [contentDir]
-    const rawDir = join(nuxt.options.buildDir, "docs/raw")
+    const agentDir = join(nuxt.options.buildDir, "docs/agent")
     const base = normalizeDocsBase(options.base ?? (sources || existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
     const manifestOptions = { dir: contentDir, base, sources, sections: options.sections }
     const config = publicConfig(options, base, nuxt.options.app.baseURL)
@@ -360,20 +348,25 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     let manifest = await createDocsManifest(manifestOptions)
     /**
-     * Writes the agent copy of every page, with the links of its section at the end. `nuxi build` empties the build
-     * folder after the modules load, so it runs before the build.
+     * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
+     * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
+     * build folder after the modules load, so it runs before the build.
      */
-    async function writeRaw(snapshot = manifest) {
-      rmSync(rawDir, { force: true, recursive: true })
-      const siteUrl = `${config.site.url}${config.appBase.replace(/\/+$/, "")}`
+    async function writeAgentSources(snapshot = manifest) {
+      rmSync(agentDir, { force: true, recursive: true })
+      mkdirSync(agentDir, { recursive: true })
+      const rawMarkdown = options.rawMarkdown
+      if (!rawMarkdown) return
       for (const page of docsManifestPages(snapshot)) {
-        const target = join(rawDir, docsRawFile(page.path))
-        mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(page.source ? sources![Number(page.source.slice(5))]!.dir : contentDir, page.file), "utf8")
-        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot, page.path, siteUrl))
+        const rewritten = await rawMarkdown(source, page)
+        if (rewritten === source) continue
+        const target = join(agentDir, docsContentSource(page), page.file)
+        mkdirSync(dirname(target), { recursive: true })
+        writeFileSync(target, rewritten)
       }
     }
-    nuxt.hook("build:before", writeRaw)
+    nuxt.hook("build:before", writeAgentSources)
     // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     if (options.linkChecker !== false) {
@@ -408,20 +401,21 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // with its own `app.vue`, the head stays the app's, and the docs layouts set the docs head on docs pages.
     if (ownsApp) setDocsHead(nuxt.options.app.head, config.site.name)
 
-    moduleOptions.llms = defu(moduleOptions.llms, {
-      domain: config.site.url ? `${config.site.url}${config.appBase.replace(/\/+$/, "")}` : "",
-      title: config.site.name,
-      description: config.site.description,
-      full: { title: config.site.name, description: config.site.description },
-    })
     const discovery: AgentDiscoveryOptions = {
-      source: join(runtime, "server/agent-source.js"),
+      // Content serves the copies at `/raw/<page>.md`. nuxt-agent-discovery negotiates `.md` twins and
+      // `Accept: text/markdown` to them, and answers Markdown 404s.
+      source: false,
       siteName: config.site.name,
       siteUrl: config.site.url,
       discovery: {
-        // At the site root nuxt-agent-discovery writes the robots.txt Sitemap line, but only for the exact link
-        // `/sitemap.xml`. Mounted below a path, the app does not own the host's robots.txt, so the link is absolute.
-        links: [{ href: config.appBase === "/" ? "/sitemap.xml" : `${config.site.url}${docsAppPath("/sitemap.xml", config.appBase)}`, rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" }],
+        links: [
+          { href: "/sitemap.md", rel: "sitemap", type: "text/markdown", title: "Sitemap (Markdown): every page on the site" },
+          { href: "/llms.txt", rel: "describedby", type: "text/plain", title: "llms.txt: index of the documentation for LLMs" },
+          { href: "/llms-full.txt", rel: "describedby", type: "text/plain", title: "llms-full.txt: the full documentation as a single file" },
+          // At the site root nuxt-agent-discovery writes the robots.txt Sitemap line, but only for the exact link
+          // `/sitemap.xml`. Mounted below a path, the app does not own the host's robots.txt, so the link is absolute.
+          { href: config.appBase === "/" ? "/sitemap.xml" : `${config.site.url}${docsAppPath("/sitemap.xml", config.appBase)}`, rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" },
+        ],
         mcpServerCard: config.mcp ? { endpoint: `${config.site.url}${docsAppPath("/mcp", config.appBase)}`, name: config.mcp.name } : false,
       },
     }
@@ -441,11 +435,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
     moduleOptions.agentDiscovery = agentDiscoveryOptions
 
-    if (config.mcp) {
-      Reflect.apply(nuxt.hook, nuxt, ["mcp:definitions:paths", (paths: { tools: string[] }) => {
-        paths.tools.push(join(runtime, "mcp"))
-      }])
-    }
+    // The `llms` option for Content's `llms.txt`. Server code only, so it stays out of the page payload.
+    const agentFile = addTemplate({
+      filename: "docs/agent.mjs",
+      write: true,
+      getContents: () => `export default ${JSON.stringify({ llms: { ...options.llms?.details ? { details: options.llms.details } : {}, ...options.llms?.sections ? { sections: options.llms.sections } : {} } })}\n`,
+    }).dst
 
     // The manifest is data, not code: the server imports the whole manifest, and the app a copy with only the page
     // fields that it reads. Both are written from the same manifest, so both see a content change.
@@ -530,7 +525,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
               try {
                 const next = await createDocsManifest(manifestOptions)
                 const changed = JSON.stringify(next) !== JSON.stringify(manifest)
-                await writeRaw(next)
+                await writeAgentSources(next)
                 manifest = next
                 // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
                 if (changed && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
@@ -663,9 +658,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addServerHandler({ route: "/api/_docs/page/**", handler: resolver.resolve("./runtime/server/page.js") })
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
-    // The raw copy is the file as written, without the frontmatter that nuxt-agent-discovery adds to its own raw route.
-    // HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
-    for (const method of ["get", "head"] as const) addServerHandler({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") })
+    // Content serves the agent files. HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
+    for (const method of ["get", "head"] as const) {
+      addServerHandler({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") })
+      for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })
+    }
+    if (config.mcp) addServerHandler({ route: "/mcp", handler: resolver.resolve("./runtime/server/mcp.js") })
 
     /**
      * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
@@ -681,8 +679,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         ]),
         "/api/_docs/search.json",
         "/sitemap.xml",
-        // nuxt-agent-discovery serves the Markdown sitemap per request. Its pages are known at build time.
+        // Content serves the agent indexes per request. Their pages are known at build time.
         "/sitemap.md",
+        "/llms.txt",
+        "/llms-full.txt",
       ]
     }
 
@@ -741,11 +741,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }
       }
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/agent": agentFile }
       // Pages are read at runtime, so a host without a file system serves them too.
-      nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
-      // A removed page has no raw file. Fall through so a redirect route rule answers it.
-      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
+      nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-agent", dir: agentDir }]
+      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
       // Docs below a prefix of an app list every page and crawl nothing, so the build does not prerender the app's
@@ -761,8 +760,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           return unindexed.has(normalizeDocsPath(prefix && route.startsWith(`${prefix}/`) ? route.slice(prefix.length) : route))
         }]
       }
-      // The MCP toolkit reads the current request through Nitro's async context.
-      if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
   },
 })

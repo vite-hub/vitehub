@@ -1,18 +1,20 @@
-import { defineContent } from "@vite-hub/content"
+import { contentSource, defineContent } from "@vite-hub/content"
+import agent from "#docs/agent"
 import manifest from "#docs/manifest"
 import { useKV } from "nitro/kv"
+import { useRuntimeConfig } from "nitro/runtime-config"
+import { docsAgentCopy, docsAgentPages, docsContentSource } from "../agent-copy.ts"
 import { docsDocumentOf, docsMarkdown } from "../markdown.ts"
 import { docsManifestPages } from "../navigation.ts"
 import { docsParserOptions } from "./documents.ts"
 
-import type { ContentRuntime } from "@vite-hub/content"
+import type { ContentDocumentsRuntime, ContentRuntime } from "@vite-hub/content"
+import type { DocsMarkdownCopy } from "../agent-copy.ts"
 import type { DocsDocument } from "../markdown.ts"
+import type { DocsPublicConfig } from "../nuxt.ts"
 import type { DocsPage } from "../types.ts"
 
 type ContentSource = Extract<NonNullable<Parameters<typeof defineContent>[0]>["sources"], object>[string]
-
-/** The Content Source of a page, named like `createDocsContent()` names it: `docs_<index>` for the server asset `docs-<index>`. */
-const sourceOf = (page: Pick<DocsPage, "source">) => `docs_${page.source ? page.source.slice("docs-".length) : 0}`
 
 /** The pages of one docs folder from the server assets that the build bundles, as a Content Source. */
 function serverAssets(base: string): ContentSource {
@@ -24,17 +26,56 @@ function serverAssets(base: string): ContentSource {
   }
 }
 
-let content: ContentRuntime | undefined
+/** The docs Content: its reads, and the agent files of its Source pages. */
+export type DocsContent = ContentRuntime & ContentDocumentsRuntime
 
-/** The docs pages as Content, parsed with the site's parser. The first page read creates it. */
-function docsContent(): ContentRuntime {
-  const assets = new Map(docsManifestPages(manifest).map(page => [sourceOf(page), page.source ?? "docs"]))
-  return content ??= defineContent({
+let content: { runtime: DocsContent, siteUrl: string } | undefined
+
+/**
+ * The docs pages as Content, parsed with the site's parser. The first read creates it. Each page has its URL from the
+ * manifest, so Content serves the agent files: the `/raw/<page>.md` copies, `llms.txt`, `llms-full.txt`, `sitemap.md`,
+ * the sitemap pages, and the MCP server.
+ */
+export function docsContent(): DocsContent {
+  const config = useRuntimeConfig().public.docs as DocsPublicConfig
+  // The public origin with the app base, such as `https://docs.example.com/portal`. Empty keeps links relative.
+  const siteUrl = `${config.site.url}${config.appBase.replace(/\/+$/, "")}`
+  if (content?.siteUrl === siteUrl) return content.runtime
+  const pages = docsAgentPages(manifest)
+  const assets = new Map(docsManifestPages(manifest).map(page => [docsContentSource(page), page.source ?? "docs"]))
+  const sources = Object.fromEntries([...assets].map(([name, base]) => {
+    const byKey = pages.get(name) ?? new Map<string, DocsPage>()
+    return [name, contentSource(serverAssets(base), {
+      url: ({ key }) => key === undefined ? null : byKey.get(key)?.path ?? null,
+      label: "Docs",
+      seo: ({ key }) => {
+        const page = key === undefined ? undefined : byKey.get(key)
+        return page && { title: page.sourceTitle, ...page.description ? { description: page.description } : {}, ...page.seo?.index === false ? { noindex: true } : {} }
+      },
+      markdown: async ({ key, text }): Promise<DocsMarkdownCopy | null> => {
+        const page = byKey.get(key)
+        if (!page) return null
+        // The `rawMarkdown` option runs at build time. The build keeps each page that it changed.
+        const rewritten = await useKV("assets:docs-agent").getItem<string>(`${name}/${key}`)
+        return docsAgentCopy(manifest, page, rewritten === null ? text : String(rewritten), siteUrl)
+      },
+    })]
+  }))
+  const runtime = defineContent({
     route: false,
     live: false,
     markdown: docsMarkdown(docsParserOptions),
-    sources: Object.fromEntries([...assets].map(([name, base]) => [name, serverAssets(base)])),
+    sources,
+    seo: {
+      ...config.site.url ? { site: siteUrl } : {},
+      sitemap: true,
+      markdown: { prefix: "/raw" },
+      llms: { title: config.site.name, ...config.site.description ? { description: config.site.description } : {}, ...agent.llms },
+      mcp: config.mcp ? { name: config.mcp.name } : false,
+    },
   })
+  content = { runtime, siteUrl }
+  return runtime
 }
 
 /**
@@ -42,6 +83,6 @@ function docsContent(): ContentRuntime {
  * here, so a page parses once per server. Development parses on each read.
  */
 export async function readDocsPage(page: Pick<DocsPage, "file" | "source">): Promise<DocsDocument | null> {
-  const document = await docsContent().get(`${sourceOf(page)}/${page.file}`, { fresh: import.meta.dev })
+  const document = await docsContent().get(`${docsContentSource(page)}/${page.file}`, { fresh: import.meta.dev })
   return document ? docsDocumentOf(document) : null
 }
