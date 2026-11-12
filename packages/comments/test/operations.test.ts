@@ -291,6 +291,14 @@ it("checks read access before searching mention suggestions", async () => {
   expect(search).not.toHaveBeenCalled()
 })
 
+it("keeps the people that the app's search finds without accents or case", async () => {
+  const zoe = { id: "zoe", name: "Zoë Ávila" }
+  setup(defineComments({ authorize: () => true }), { byIds: async () => [], search: async () => [member, zoe, admin] })
+  expect(await call("comments.users", { query: "zoe" })).toEqual({ ok: true, value: [zoe] })
+  expect(await call("comments.users", { query: "AVILA" })).toEqual({ ok: true, value: [zoe] })
+  expect(await call("comments.users", { query: "zoé" })).toEqual({ ok: true, value: [zoe] })
+})
+
 it("returns no threads for an anonymous mine query", async () => {
   setup(defineComments({ authorize: () => true }))
   await create()
