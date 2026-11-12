@@ -2,11 +2,14 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
-import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
+import { Status } from "@vite-hub/ui";
+
+import { loadOperationItems, operationCell, operationLink, operationStatus, operationTime, operationValue } from "../client/operation-view";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
@@ -149,7 +152,7 @@ onBeforeUnmount(() => controller?.abort());
               <thead class="text-xs text-muted">
                 <tr>
                   <th v-for="column in view.columns" :key="column.key" class="px-2 py-1.5 font-medium">{{ column.label }}</th>
-                  <th v-if="view.link" class="px-2 py-1.5" />
+                  <th v-if="view.link" class="w-10 px-2 py-1.5"><span class="sr-only">{{ view.link.label ?? "Open" }}</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -159,7 +162,12 @@ onBeforeUnmount(() => controller?.abort());
                   class="border-t border-default"
                   :class="detail ? 'relative hover:bg-elevated' : undefined"
                 >
-                  <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">
+                  <td
+                    v-for="column in view.columns"
+                    :key="column.key"
+                    class="px-2 py-2 align-top"
+                    :class="{ 'whitespace-nowrap text-muted tabular-nums': column.format === 'datetime', 'whitespace-nowrap': column.format === 'status' }"
+                  >
                     <!-- The button overlay makes the whole row open the item. The theme rings the button itself. -->
                     <button
                       v-if="detail && column === openColumn"
@@ -167,11 +175,29 @@ onBeforeUnmount(() => controller?.abort());
                       class="rounded-md text-left after:absolute after:inset-0"
                       @click="selectThread(itemId(item))"
                     >{{ operationCell(item, column) }}</button>
+                    <template v-else-if="column.format === 'status' && operationStatus(item, column)">
+                      <Status :tone="operationStatus(item, column)!.tone" :label="operationStatus(item, column)!.label" />
+                    </template>
+                    <!-- Above the row button, so the tooltip with the exact time opens on hover. -->
+                    <span v-else-if="column.format === 'datetime' && operationTime(item, column)" class="relative"><ConsoleRelativeTime :value="operationTime(item, column)!" /></span>
                     <template v-else>{{ operationCell(item, column) }}</template>
                   </td>
-                  <td v-if="view.link" class="px-2 py-2 text-right">
-                    <!-- Above the row button, so the link still opens the page. -->
-                    <a v-if="operationLink(item, view)" class="relative text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>
+                  <td v-if="view.link" class="px-2 py-1 text-right align-top">
+                    <!-- Above the row button, so the link still opens the page. One icon keeps the row on one line. -->
+                    <UTooltip v-if="operationLink(item, view)" :text="view.link.label ?? 'Open'">
+                      <UButton
+                        class="relative"
+                        icon="i-lucide-external-link"
+                        color="neutral"
+                        variant="ghost"
+                        size="sm"
+                        :aria-label="view.link.label ?? 'Open'"
+                        :href="operationLink(item, view)"
+                        external
+                        target="_blank"
+                        rel="noreferrer"
+                      />
+                    </UTooltip>
                   </td>
                 </tr>
               </tbody>

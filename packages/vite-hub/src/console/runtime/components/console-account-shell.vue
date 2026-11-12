@@ -5,8 +5,8 @@ import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
-import { accountAppStatusLabels, canManageConsoleProjects, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
-import { accountProjectPath, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountAppStatusLabels, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
+import { accountProjectPath, canManageConsoleProjects, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
