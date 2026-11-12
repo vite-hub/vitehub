@@ -4,7 +4,7 @@ import { github } from "../src/channels.ts"
 import { defineCapability } from "../src/capability-runtime.ts"
 import { defineAgent } from "../src/index.ts"
 import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
-import { forgeAccessKey, readForgeAccess } from "../src/internal/forge-access.ts"
+import { forgeAccessKey, forgeGitEnvironment, readForgeAccess } from "../src/internal/forge-access.ts"
 import type { AgentCallbackContext, AgentRuntimeContext } from "../src/types.ts"
 
 function runtime(): AgentRuntimeContext {
@@ -114,5 +114,13 @@ describe("Agent forge access", () => {
     })
 
     expect(await runAgentInline(agent, runtime(), {})).toBeUndefined()
+  })
+
+  it("asks the github() Channel App for a token that lasts most of the hour for git and gh", async () => {
+    const token = tokenSource()
+    const channel = github({ app: { token } })
+    // SAFETY: the test token source does not read the callback context.
+    await forgeGitEnvironment(runtime() as AgentCallbackContext, { [forgeAccessKey]: readForgeAccess(channel) }, { repository: "acme/app" })
+    expect(token).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/app", minLifetime: 55 * 60_000 }))
   })
 })
