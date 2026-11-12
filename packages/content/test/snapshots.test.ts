@@ -9,6 +9,7 @@ import type { ContentFile, ContentPlugin } from "comark-content"
 
 import { buildContentSnapshots, defineContent, registerContentSnapshots } from "../src/index.ts"
 import type { BuiltContentSnapshot, ContentSnapshot } from "../src/index.ts"
+import { withContentSnapshot } from "../src/snapshots.ts"
 import { buildContentSnapshotModules, hubContent } from "../src/vite.ts"
 
 const docs = {
@@ -90,6 +91,32 @@ describe("Content snapshots", () => {
     expect(loaded).toEqual([1])
     await content.handler(new Request("http://localhost/api/content/snapshot/docs.json"))
     expect(loaded.sort()).toEqual([0, 1, 2])
+  })
+
+  it("loads the snapshot and a shard again after a failed load", async () => {
+    const snapshot = await snapshotOf(docs)
+    const serve = served(snapshot)
+    let failShard = true
+    const load = vi.fn()
+      .mockRejectedValueOnce(new Error("transient snapshot failure"))
+      .mockImplementation(async () => {
+        const loaded = await serve()
+        return {
+          ...loaded,
+          shards: loaded.shards.map(shard => async () => {
+            if (!failShard) return await shard()
+            failShard = false
+            throw new Error("transient shard failure")
+          }),
+        }
+      })
+    // SAFETY: The snapshot reads only its loader and the Source keys; it keeps the origin for refresh() alone.
+    const parsed = withContentSnapshot({} as never, load, async () => Object.keys(docs))
+
+    await expect(parsed.manifest!()).rejects.toThrow("transient snapshot failure")
+    await expect(parsed.manifest!()).resolves.toBeDefined()
+    await expect(parsed.get!("guide/install.md")).rejects.toThrow("transient shard failure")
+    await expect(parsed.get!("guide/install.md")).resolves.toMatchObject({ path: "/guide/install" })
   })
 
   it("reads no file of the Source until refresh()", async () => {
