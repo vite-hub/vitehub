@@ -188,6 +188,14 @@ describe("Babysitter check waits", () => {
     expect(wakeReasons(snapshot, "pending", ignoring)).toEqual(["feedback-changed"]);
   });
 
+  it("matches configured feedback authors in either bot spelling", async () => {
+    const ignoring = { ...policy, ignoreFeedbackAuthors: new Set(["preview[bot]"]) };
+    const snapshot = await parked();
+    snapshot.wait = { headSha: head, ...createCheckWait(snapshot, ignoring) };
+    snapshot.comments["15"] = { id: 15, body: "Preview deployed", author: { login: "Preview", __typename: "Bot" } };
+    expect(wakeReasons(snapshot, "pending", ignoring)).toEqual([]);
+  });
+
   it("holds an external dependency through an unrelated green PR check", async () => {
     expect(wakeReasons(await parked(s => { s.wait!.wake = { kind: "checks", repository, headSha: "b".repeat(40) }; s.wait!.reason = "base CI"; }), "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
   });

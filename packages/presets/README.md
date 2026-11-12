@@ -79,6 +79,14 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+`filter.authorAssociation` selects authors by their GitHub `author_association`,
+such as `{ allow: ["OWNER", "MEMBER", "COLLABORATOR"] }`. A pull request passes
+when its author matches `filter.author.allow` or `filter.authorAssociation.allow`,
+and a match on either deny list excludes it. Bots usually report `NONE`, so list
+them in `filter.author`. Logins match without case and in either bot spelling,
+so `renovate[bot]` also matches the GraphQL login `renovate`; this also applies
+to `filter.actor` and `ignoreFeedbackAuthors`.
+
 `driver` selects the provider Driver that repairs each checkout: `"codex"` (the
 default) or `"claude-code"`. Set its model and other provider settings with the
 ordinary `driver` field. Model and custom run Drivers cannot repair a checkout.
