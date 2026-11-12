@@ -1,4 +1,4 @@
-// Auth: one bento block of what Better Auth gives the app from server/auth.ts. Sign-in methods on the left, plugins
+// Auth: a bento grid of what Better Auth gives the app from server/auth.ts. Sign-in methods on the left, plugins
 // in the bottom row, and a protected /admin page tile. The user signs in with one method, the page tile opens and
 // greets them, then plugin tiles light up one by one and add what they give to the page. Each loop uses another
 // sign-in method, user, and plugin order.
@@ -43,14 +43,14 @@ type AuthPlan = TimelinePlan<{ via: Method; name: string; order: Plugin[]; A: Ti
 const css = `.vh-hero-auth svg.icon{position:static;width:auto;height:auto}
 .vh-hero-auth .icon path{stroke-dasharray:none;vector-effect:none;transition:none;fill:inherit;stroke:inherit;stroke-width:inherit}
 .vh-hero-auth .icon path[fill="none"],.vh-hero-auth .icon g[fill="none"] path{fill:none;stroke:currentColor;stroke-width:2}
-.vh-hero-auth .au{position:absolute;inset:0;display:flex;flex-direction:column;border-radius:12px;box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
-.vh-hero-auth .au-h{display:flex;align-items:center;gap:8px;height:34px;flex-shrink:0;padding:0 14px;box-shadow:inset 0 -1px 0 var(--line);font:12px var(--mono);color:var(--muted);white-space:nowrap}
+.vh-hero-auth .au{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px}
+.vh-hero-auth .au-h{display:flex;align-items:center;gap:8px;height:20px;flex-shrink:0;padding:0 2px;font:12px var(--mono);color:var(--muted);white-space:nowrap}
 .vh-hero-auth .au-h b{font-weight:500;color:var(--fg);font-family:var(--font-sans);font-size:13px}
 .vh-hero-auth .au-h .r{margin-left:auto}
-.vh-hero-auth .au-g{flex:1;display:grid;gap:1px;background:var(--line);grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));
+.vh-hero-auth .au-g{flex:1;display:grid;gap:8px;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));
   grid-template-areas:"mail gh page page" "gg pk page page" "tf ml org adm"}
-.vh-hero-auth .tl{position:relative;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 12px;background:var(--bg);min-width:0;transition:background-color 300ms ease}
-.vh-hero-auth .tl:before{content:"";position:absolute;inset:0;box-shadow:inset 0 0 0 1px var(--fg);opacity:0;transition:opacity 300ms ease}
+.vh-hero-auth .tl{position:relative;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 12px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line);background:var(--bg);min-width:0;transition:background-color 300ms ease}
+.vh-hero-auth .tl:before{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px var(--fg);opacity:0;transition:opacity 300ms ease}
 .vh-hero-auth .tl.on:before{opacity:1}
 .vh-hero-auth .tl.on{background:var(--soft)}
 .vh-hero-auth .tl .lb{display:flex;align-items:center;gap:7px;font-size:13px;white-space:nowrap;color:var(--muted);transition:color 300ms ease}
@@ -61,8 +61,8 @@ const css = `.vh-hero-auth svg.icon{position:static;width:auto;height:auto}
 .vh-hero-auth .tl .sub .ok{color:var(--ok)}
 .vh-hero-auth .tl .st{position:absolute;top:8px;right:9px;display:flex;color:var(--ok)}
 .vh-hero-auth .sp{display:inline-block;width:10px;height:10px;border:1.5px solid var(--line);border-top-color:var(--fg);border-radius:99px;animation:vh-fig-s 700ms linear infinite}
-.vh-hero-auth .pg{grid-area:page;position:relative;background:var(--bg);overflow:hidden}
-.vh-hero-auth .pg:before{content:"";position:absolute;inset:0;box-shadow:inset 0 0 0 1px var(--ok);opacity:0;transition:opacity 400ms ease}
+.vh-hero-auth .pg{grid-area:page;position:relative;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line);background:var(--bg);overflow:hidden}
+.vh-hero-auth .pg:before{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px var(--ok);opacity:0;transition:opacity 400ms ease}
 .vh-hero-auth .pg.flash:before{opacity:1}
 .vh-hero-auth .pg-u{position:absolute;top:10px;left:12px;display:flex;align-items:center;gap:6px;font:12px var(--mono);color:var(--muted)}
 .vh-hero-auth .pg-v{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:26px 10px 8px;text-align:center;transition:opacity 400ms var(--out),transform 400ms var(--out)}
@@ -80,7 +80,7 @@ const css = `.vh-hero-auth svg.icon{position:static;width:auto;height:auto}
   .vh-hero-auth .tl[data-id="mail"] .lb .full{display:none}.vh-hero-auth .tl[data-id="mail"] .lb .short{display:inline}
 }
 @container (max-width:560px){
-  .vh-hero-auth .au-h{padding:0 10px}
+  .vh-hero-auth .au-g{gap:6px}
   .vh-hero-auth .tl{padding:0 8px;gap:2px}
   .vh-hero-auth .tl .lb{font-size:12px;gap:5px}
   .vh-hero-auth .tl .sub{font-size:10px;opacity:0}
