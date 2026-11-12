@@ -535,7 +535,7 @@ export interface MinioBlobStoreConfig extends HostedBlobStoreConfig {
 }
 export type StorjBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "storj" }
 
-export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig {
+export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig, ResolvedBlobStoreSecrets {
   binding: string
   /** Set only in `vite dev` for a store that the Cloudflare preset picks: without the R2 binding, the store uses this local store. */
   localFallback?: ResolvedFsBlobStoreConfig
@@ -560,12 +560,18 @@ export interface ResolvedMinioBlobStoreConfig extends MinioBlobStoreConfig {
   region: string
 }
 
-export type ResolvedBlobStoreConfig =
+export interface ResolvedBlobStoreSecrets {
+  /** The env variable that holds each credential option, by option path. The resolved config has the mask in place of the value. */
+  secretEnv?: Record<string, string>
+}
+
+export type ResolvedBlobStoreConfig = ResolvedBlobStoreSecrets & (
   | Exclude<BlobStoreConfig, CloudflareR2BlobStoreConfig | FsBlobStoreConfig | MinioBlobStoreConfig | VercelBlobStoreConfig>
   | ResolvedCloudflareR2BlobStoreConfig
   | ResolvedFsBlobStoreConfig
   | ResolvedMinioBlobStoreConfig
   | ResolvedVercelBlobStoreConfig
+)
 
 export type BlobStoreName = "default" | (string & {})
 
