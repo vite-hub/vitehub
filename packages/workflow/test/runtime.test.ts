@@ -587,7 +587,7 @@ describe("workflow runtime", () => {
     await expect(startWorkflow("duplicate", {})).rejects.toThrow(/Duplicate workflow name "duplicate"/)
   })
 
-  it("prefers inline definitions registered while loading discovered entries", async () => {
+  it("prefers resolved registry definitions over inline definitions registered during loading", async () => {
     const discovered = vi.fn(async () => "discovered")
     const inline = vi.fn(async () => "inline")
 
@@ -605,13 +605,13 @@ describe("workflow runtime", () => {
     await vi.waitFor(async () => {
       const firstResult = (await getWorkflowRun("mixed", firstRun.id))?.result
       assert(firstResult instanceof Response)
-      await expect(firstResult.clone().text()).resolves.toBe("inline")
+      await expect(firstResult.clone().text()).resolves.toBe("discovered")
       const secondResult = (await getWorkflowRun("mixed", secondRun.id))?.result
       assert(secondResult instanceof Response)
-      await expect(secondResult.clone().text()).resolves.toBe("inline")
+      await expect(secondResult.clone().text()).resolves.toBe("discovered")
     })
-    expect(inline).toHaveBeenCalledTimes(2)
-    expect(discovered).not.toHaveBeenCalled()
+    expect(discovered).toHaveBeenCalledTimes(2)
+    expect(inline).not.toHaveBeenCalled()
   })
 
   it("uses a single inline definition registered by a discovered location entry", async () => {
