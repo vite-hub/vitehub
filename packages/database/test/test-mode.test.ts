@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { db } from "../src/runtime/drizzle-runtime.ts"
+import { readPostgresConnectionUrl } from "../src/runtime/postgres-connection.ts"
 
 const fixture = vi.hoisted(() => ({ enabled: true }))
 vi.mock("#vitehub/database/databases", async () => {
@@ -52,6 +53,13 @@ afterAll(async () => {
   await enableViteHubTestMode({ root }).reset()
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.test"))
   await rm(root, { force: true, recursive: true })
+})
+
+it("returns no Postgres URL without creating a test database", async () => {
+  const mode = enableViteHubTestMode({ root })
+  await mode.reset()
+  expect(readPostgresConnectionUrl({ default: { db } }, "default")).toBeUndefined()
+  expect(mode.peek("database:default")).toBeUndefined()
 })
 
 it("gives the default database an in-memory SQLite with the app's migrations, empty after each reset", async () => {

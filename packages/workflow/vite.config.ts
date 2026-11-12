@@ -11,6 +11,7 @@ const privateEntries = new Set([
   "./runtime/cloudflare-vite",
   "./runtime/dev-runs",
   "./runtime/execute",
+  "./runtime/openworkflow-worker",
   "./runtime/vercel-vite",
 ])
 
@@ -32,6 +33,7 @@ export default defineConfig({
       "src/runtime/dev-runs.ts",
       "src/runtime/execute.ts",
       "src/runtime/openworkflow.ts",
+      "src/runtime/openworkflow-worker.ts",
       "src/openworkflow.ts",
       "src/runtime/state.ts",
       "src/runtime/vercel-vite.ts",

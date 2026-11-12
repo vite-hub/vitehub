@@ -2,14 +2,12 @@ import { onShutdown } from "@vite-hub/runtime/shutdown"
 
 import { describeOpenWorkflowStorage, detachOpenWorkflowRuntimes, getOpenWorkflowRuntime, registerOpenWorkflowDefinition, setOpenWorkflowDatabaseUrl, setOpenWorkflowImporter } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
-import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
-import { assertWorkflowDefinitionName } from "../definition.ts"
 
 import type { ShutdownApp } from "@vite-hub/runtime/shutdown"
-import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 type OpenWorkflowWorker = ReturnType<Awaited<ReturnType<typeof getOpenWorkflowRuntime>>["client"]["newWorker"]>
@@ -34,32 +32,6 @@ function getProcess(): {
   return globalThis.process
 }
 
-function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
-  return isRuntimeRecord(value)
-    && Object.hasOwn(value, "handler")
-    && typeof value.handler === "function"
-}
-
-async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
-  const definitions = new Map<string, WorkflowDefinition>()
-  for (const name of Object.keys(registry).sort()) {
-    const loaded = await registry[name]?.()
-    const definition = (isRuntimeRecord(loaded) && "default" in loaded
-      ? loaded.default
-      : loaded)
-    if (isWorkflowDefinition(definition)) {
-      assertWorkflowDefinitionName(name, definition)
-      definitions.set(name, definition)
-      continue
-    }
-    const inlineDefinition = takeInlineWorkflowDefinitionForModule(name, loaded)
-    if (inlineDefinition) {
-      definitions.set(name, inlineDefinition)
-    }
-  }
-  return definitions
-}
-
 /** Registers every Workflow Definition of the registry on the OpenWorkflow client, before a worker copies them. */
 async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions) {
   const config = options.config ?? getWorkflowRuntimeConfig()
@@ -70,12 +42,13 @@ async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOption
   const registry = options.registry ?? getWorkflowRuntimeRegistry() ?? {}
 
   setWorkflowRuntimeConfig(config)
-  setWorkflowRuntimeRegistry(registry)
+  // Startup already installed this registry. Keep its resolved definitions and pending request loads on retries.
+  if (registry !== getWorkflowRuntimeRegistry()) setWorkflowRuntimeRegistry(registry)
 
   const runtime = await getOpenWorkflowRuntime(config)
-  const definitions = await loadRegistryDefinitions(registry)
-  for (const [name, definition] of definitions) {
-    await registerOpenWorkflowDefinition(runtime, name, definition)
+  for (const name of Object.keys(registry).sort()) {
+    const definition = await loadWorkflowDefinition(name)
+    if (definition && Object.hasOwn(definition, "handler")) await registerOpenWorkflowDefinition(runtime, name, definition)
   }
 
   return {
@@ -256,6 +229,8 @@ function hasPermanentSetupError(error: unknown): boolean {
 const openWorkflowStartMaxDelayMs = 30_000
 
 interface ActiveOpenWorkflowInstall {
+  /** Detaches the runtime cache of the module evaluation that acquired the backend. */
+  detachRuntimes(): () => Promise<void>
   /** Resolves when the stopped worker finished the runs that it executes. */
   finished(): Promise<void>
   /** Stops claiming runs. It does not wait for the runs that the worker executes. */
@@ -337,14 +312,14 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
     stopped = Promise.resolve().then(() => current.stop()).catch(report)
   }
   const finished = () => stopped
-  const previous = replaceActiveInstall({ finished, release })
+  const previous = replaceActiveInstall({ detachRuntimes: detachOpenWorkflowRuntimes, finished, release })
 
   started = (async () => {
     if (previous) {
       // The OpenWorkflow client keeps the definitions that it registered, so a fresh runtime takes the changed ones.
       // The old backend stays open until the old worker finishes its runs.
       await previous.release()
-      const closeRuntimes = detachOpenWorkflowRuntimes()
+      const closeRuntimes = previous.detachRuntimes()
       void previous.finished().then(closeRuntimes).catch(report)
     }
     // Inline and Agent Workflows never enter OpenWorkflow storage. Drain an old dev worker above, but do not

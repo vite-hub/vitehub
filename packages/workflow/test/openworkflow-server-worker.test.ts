@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { installOpenWorkflow } from "../src/runtime/openworkflow-worker.ts"
 import { createWorkflowDevPluginModule } from "../src/internal/dev-registry.ts"
-import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { createWorkflow, startWorkflow } from "../src/runtime/client.ts"
+import { loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 import type { ResolvedWorkflowOptions } from "../src/types.ts"
 
@@ -27,7 +28,7 @@ const fake = vi.hoisted(() => {
 
     defineWorkflow(spec: { name: string }) {
       this.definitions.push(spec.name)
-      return { run: () => {} }
+      return { run: async () => ({ workflowRun: { id: "run", status: "pending", workflowName: spec.name } }) }
     }
 
     newWorker(options?: unknown): FakeWorker {
@@ -95,6 +96,81 @@ afterEach(async () => {
 })
 
 describe("installOpenWorkflow", () => {
+  it.each(["default", "named"])("keeps a discovered %s handle available for dispatch after startup and reinstall", async (exportName) => {
+    let loaded: object | undefined
+    const loader = vi.fn(async () => loaded ??= { [exportName]: createWorkflow("welcome", async () => "ok") })
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({ welcome: loader })
+    const app = createApp()
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await expect(installOpenWorkflow(app)).resolves.toBe(true)
+        await expect(startWorkflow("welcome")).resolves.toMatchObject({ provider: "openworkflow", status: "queued" })
+      }
+      expect(loader).toHaveBeenCalledOnce()
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it("shares a pending request definition load with worker startup", async () => {
+    let complete!: () => void
+    const pending = new Promise<void>(resolve => { complete = resolve })
+    const loader = vi.fn(async () => {
+      await pending
+      return { default: createWorkflow("welcome", async () => "ok") }
+    })
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({ welcome: loader })
+    const definition = loadWorkflowDefinition("welcome")
+    const app = createApp()
+    const started = installOpenWorkflow(app)
+    await flush()
+    complete()
+    try {
+      await expect(started).resolves.toBe(true)
+      expect(await loadWorkflowDefinition("welcome")).toBe(await definition)
+      expect(loader).toHaveBeenCalledOnce()
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it("closes the predecessor backend after a full runtime module reload drains its worker", async () => {
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ handler: async () => "old" }) })
+    const oldApp = createApp()
+    await expect(installOpenWorkflow(oldApp)).resolves.toBe(true)
+    const [oldWorker] = fake.state.workers
+    let finish!: () => void
+    oldWorker!.stop.mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+
+    vi.resetModules()
+    const state = await import("../src/runtime/state.ts")
+    const runtime = await import("../src/runtime/openworkflow.ts")
+    const installer = await import("../src/runtime/openworkflow-worker.ts")
+    state.setWorkflowRuntimeConfig(config)
+    state.setWorkflowRuntimeRegistry({ welcome: async () => ({ handler: async () => "new" }) })
+    const app = createApp()
+    try {
+      await expect(installer.installOpenWorkflow(app)).resolves.toBe(true)
+      expect(oldWorker!.stop).toHaveBeenCalledOnce()
+      expect(fake.state.backendStops).toBe(0)
+      finish()
+      await flush()
+      expect(fake.state.backendStops).toBe(1)
+    }
+    finally {
+      finish()
+      await app.close()
+      await oldApp.close()
+      await runtime.resetOpenWorkflowRuntime()
+      state.resetWorkflowRuntime()
+    }
+  })
+
   it.each([undefined, "@vite-hub/database/drizzle"])("leaves storage untouched when the generated startup plugin has no discovered Workflows: %s", async (databaseImport) => {
     const app = createApp()
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
