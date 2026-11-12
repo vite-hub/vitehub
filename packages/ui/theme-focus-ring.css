@@ -21,3 +21,14 @@
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 14%, transparent);
   }
 }
+
+/* The draft bubble owns its focus ring; its nested row field stays ring-free. */
+[data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+  outline: 2px solid var(--vh-focus, var(--vh-primary));
+  outline-offset: 2px;
+}
+
+[data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] [data-slot="comment-composer"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+  border-color: transparent;
+  box-shadow: none;
+}
