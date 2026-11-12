@@ -12,6 +12,7 @@ import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validWarmWorkspaces, type BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
@@ -371,7 +372,7 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
     }
     if (!validWarmWorkspaces(warmWorkspaces)) {
-      throw new TypeError("[vitehub] Babysitter warmWorkspaces must be a boolean or { resumeThreads, budgetGb, idleDays, minFreePercent, sweepMinutes } with non-negative numbers.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "warmWorkspaces", expected: "a boolean or { resumeThreads, budgetGb, idleDays, minFreePercent, sweepMinutes } with non-negative numbers" });
     }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");

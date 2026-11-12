@@ -47,9 +47,8 @@ async function sanitizeProviderGitConfig(git: Git, destination: string): Promise
   await sanitize('--worktree')
 }
 
-/** Restore PR checkout history in a separate materialized provider workspace. */
-export async function prepareGitHubPullRequestWorkspace(checkout: string, target: string, options: { signal?: AbortSignal, restoreInstructions?: boolean } = {}): Promise<void> {
-  options.signal?.throwIfAborted()
+/** Resolves a prepared host clone and a provider workspace that neither contains the other. */
+async function separateCheckouts(checkout: string, target: string): Promise<{ source: string, destination: string }> {
   const source = await realpath(checkout)
   const destination = await realpath(target)
   const overlaps = (left: string, right: string) => {
@@ -62,6 +61,26 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   if (!(await lstat(join(source, '.git'))).isDirectory()) {
     throw new Error('Expected independent prepared Git clone.')
   }
+  return { source, destination }
+}
+
+function assertRemotesWithoutCredentials(urls: Iterable<string>): void {
+  for (const remote of urls) {
+    if (URL.canParse(remote)) {
+      const url = new URL(remote)
+      if (url.username || url.password) throw new Error('Prepared checkout remotes must not contain credentials.')
+    }
+  }
+}
+
+function assertProviderCheckout(matches: boolean): void {
+  if (!matches) throw new Error('Provider checkout head or remote mismatch.')
+}
+
+/** Restore PR checkout history in a separate materialized provider workspace. */
+export async function prepareGitHubPullRequestWorkspace(checkout: string, target: string, options: { signal?: AbortSignal, restoreInstructions?: boolean } = {}): Promise<void> {
+  options.signal?.throwIfAborted()
+  const { source, destination } = await separateCheckouts(checkout, target)
   // Ignore a caller's Git binding so verification targets each directory's own index.
   const env = { ...process.env }
   delete env.GIT_DIR
@@ -85,12 +104,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     for (const url of (await git(source, ['remote', 'get-url', '--all', name])).split('\n')) remoteUrls.add(url)
     for (const url of (await git(source, ['remote', 'get-url', '--all', '--push', name])).split('\n')) remoteUrls.add(url)
   }
-  for (const remote of remoteUrls) {
-    if (URL.canParse(remote)) {
-      const url = new URL(remote)
-      if (url.username || url.password) throw new Error('Prepared checkout remotes must not contain credentials.')
-    }
-  }
+  assertRemotesWithoutCredentials(remoteUrls)
   options.signal?.throwIfAborted()
   // Record materialized paths, but keep the repair index aligned with the PR head.
   const destinationGit = await lstat(join(destination, '.git')).catch((error: NodeJS.ErrnoException) => {
@@ -137,11 +151,9 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
         await appendFile(join(destination, '.git', 'info', 'exclude'), `\n${patterns.join('\n')}\n`)
       }
     }
-    if (await git(destination, ['rev-parse', 'HEAD']) !== expected
-      || await git(destination, ['remote', 'get-url', '--all', 'origin']) !== origin
-      || await git(destination, ['remote', 'get-url', '--all', '--push', 'origin']) !== push) {
-      throw new Error('Provider checkout head or remote mismatch.')
-    }
+    assertProviderCheckout(await git(destination, ['rev-parse', 'HEAD']) === expected
+      && await git(destination, ['remote', 'get-url', '--all', 'origin']) === origin
+      && await git(destination, ['remote', 'get-url', '--all', '--push', 'origin']) === push)
     await recordProviderCheckout(destination, expected)
   }
   catch (error) {
@@ -170,18 +182,7 @@ export async function preparePersistentGitHubPullRequestWorkspace(
   options: { signal?: AbortSignal, reuse?: boolean, reason?: string } = {},
 ): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse }> {
   options.signal?.throwIfAborted()
-  const source = await realpath(checkout)
-  const destination = await realpath(target)
-  const overlaps = (left: string, right: string) => {
-    const relation = relative(left, right)
-    return !relation || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation))
-  }
-  if (overlaps(source, destination) || overlaps(destination, source)) {
-    throw new Error('Provider workspace must be separate from prepared checkout.')
-  }
-  if (!(await lstat(join(source, '.git'))).isDirectory()) {
-    throw new Error('Expected independent prepared Git clone.')
-  }
+  const { source, destination } = await separateCheckouts(checkout, target)
   const env = { ...process.env }
   for (const key of Object.keys(env)) if (key.startsWith('GIT_') || key === 'GH_TOKEN' || key === 'GITHUB_TOKEN') delete env[key]
   env.GIT_CONFIG_GLOBAL = '/dev/null'
@@ -197,11 +198,7 @@ export async function preparePersistentGitHubPullRequestWorkspace(
   }
   const expected = await git(source, ['rev-parse', 'HEAD'])
   const remotes = await remoteUrls(source)
-  for (const remote of remotes) {
-    for (const url of remote.slice(remote.indexOf('=') + 1).split('\n')) {
-      if (URL.canParse(url) && (new URL(url).username || new URL(url).password)) throw new Error('Prepared checkout remotes must not contain credentials.')
-    }
-  }
+  assertRemotesWithoutCredentials(remotes.flatMap(remote => remote.slice(remote.indexOf('=') + 1).split('\n')))
   const metadata = join(destination, '.git')
   const previous = `${destination}.previous-git`
   await rm(previous, { recursive: true, force: true })
@@ -232,9 +229,7 @@ export async function preparePersistentGitHubPullRequestWorkspace(
       await Promise.all(entries.map(entry => rm(join(destination, entry), { recursive: true, force: true, maxRetries: 3 })))
       await git(destination, ['reset', '--hard', '--quiet', expected])
     }
-    if (await git(destination, ['rev-parse', 'HEAD']) !== expected || JSON.stringify(await remoteUrls(destination)) !== JSON.stringify(remotes)) {
-      throw new Error('Provider checkout head or remote mismatch.')
-    }
+    assertProviderCheckout(await git(destination, ['rev-parse', 'HEAD']) === expected && JSON.stringify(await remoteUrls(destination)) === JSON.stringify(remotes))
     await recordProviderCheckout(destination, expected)
   }
   catch (error) {

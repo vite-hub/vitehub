@@ -91,6 +91,7 @@ export function validWarmWorkspaces(value: unknown): value is boolean | Babysitt
 /** `owner+name+number`: GitHub names never contain `+`, so an entry name maps back to one PR. */
 function entryName(repository: string, number: number): string {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !Number.isSafeInteger(number) || number < 1) {
+    // Internal invariant: the inbox only claims PRs of configured owner/name repositories.
     throw new Error("Expected a GitHub repository in owner/name form and a pull request number.");
   }
   return `${repository.toLowerCase().replace("/", "+")}+${number}`;
