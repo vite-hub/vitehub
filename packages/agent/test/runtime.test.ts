@@ -5106,7 +5106,7 @@ describe("agent message protocol", () => {
       },
       driver: { run: (context) => {
           expect(context.prompt).toContain("Work on PR #42 in vite-hub/vitehub")
-          expect(context.prompt).toContain("- Make sure CI is green.")
+          expect(context.prompt).toContain("- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.")
           expect(context.prompt).toMatch(/Request:$/)
           return {
             text: "Review completed.",

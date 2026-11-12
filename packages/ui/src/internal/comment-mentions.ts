@@ -1,5 +1,5 @@
 import type { MarkdownProps } from "@comark/vue";
-import type { CommentUser } from "@vite-hub/comments/client";
+import { foldName, type CommentUser } from "@vite-hub/comments/client";
 import type MarkdownIt from "markdown-it";
 import { displayName } from "./comment-person.ts";
 
@@ -21,9 +21,6 @@ export function mentionQuery(text: string, caret: number): { start: number; quer
   return { start, query };
 }
 
-/** Lower case without accents, so `jose` finds `José`. */
-export const fold = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-
 export interface RankPeopleOptions {
   /** Ids of people in the conversation. They come first in each group. */
   participants?: readonly string[];
@@ -38,14 +35,14 @@ export interface RankPeopleOptions {
  * does not open the menu again.
  */
 export function rankPeople(people: readonly CommentUser[], query: string, options: RankPeopleOptions = {}): CommentUser[] {
-  const q = fold(query);
+  const q = foldName(query);
   const participants = new Set(options.participants);
   const seen = new Set<string>();
   const groups: CommentUser[][] = [[], [], [], []];
   for (const person of people) {
     if (person.id === options.exclude || seen.has(person.id)) continue;
     seen.add(person.id);
-    const name = fold(displayName(person));
+    const name = foldName(displayName(person));
     const tier = name.startsWith(q) ? 0 : name.split(/\s+/u).some((word, index) => index > 0 && word.startsWith(q)) ? 1 : undefined;
     if (tier !== undefined) groups[tier * 2 + (participants.has(person.id) ? 0 : 1)]!.push(person);
   }
