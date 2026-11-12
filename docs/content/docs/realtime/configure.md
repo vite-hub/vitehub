@@ -10,7 +10,8 @@ icon: i-lucide-sliders-horizontal
 
 A room authority is the one place that holds a document's live Yjs state.
 Every client of a document must reach the same authority. Set it with
-`realtime.authority` in `vitehub()`, as in
+`realtime.authority` in the ViteHub options in `nuxt.config.ts` or
+`vite.config.ts`, as in
 [Get started](/docs/realtime/get-started#configure-realtime).
 
 | Authority | Use |

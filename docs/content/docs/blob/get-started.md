@@ -24,7 +24,7 @@ Install the Blob package in the app:
 pnpm add @vite-hub/blob
 ```
 
-Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
+Add `blob: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep any other enabled features and plugins.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}

@@ -29,7 +29,7 @@ pnpm add @vite-hub/email
 ::tutorial-step{title="Configure Resend"}
 ## Configure Resend
 
-Add `email` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `email` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
