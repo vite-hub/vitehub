@@ -33,6 +33,15 @@ async function resolvePapercutTool(report: PapercutsOptions["report"]) {
   return resolved.tools!.report_papercut!
 }
 
+async function invocationTool(capability: ReturnType<typeof papercuts>, runId: string) {
+  const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, { ...runtime(), run: { runId } }, {})
+  return resolved.tools!.report_papercut!
+}
+
+const skillsMissing = "The support-reply skill requested by the job is missing, and .agents/skills/quiver-evidence exists without its SKILL.md. Continuing with available evidence."
+const skillsMissingAgain = "The support draft invocation requests support-reply and quiver-evidence skills, but support-reply is not mounted and quiver-evidence has no SKILL.md. I'm continuing."
+const gitIdentityMissing = "Committing the verified PR fix failed because this fresh checkout has no Git author identity configured."
+
 describe("papercuts capability", () => {
   it("defines one model-facing reporting tool", async () => {
     const report = vi.fn((_event: PapercutReportEvent) => undefined)
@@ -142,5 +151,53 @@ describe("papercuts capability", () => {
     const backend = posthogPapercuts({ apiKey: "secret", fetch })
     await backend.report({ context: runtime() as never, papercut: { id: "p", createdAt: new Date().toISOString(), message: "x", source: "tool" } })
     expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("counts a repeated papercut in the same Invocation instead of reporting it again", async () => {
+    const report = vi.fn((_event: PapercutReportEvent) => undefined)
+    const tool = await invocationTool(papercuts({ report }), "run-1")
+
+    const first = await tool.execute?.({ message: skillsMissing })
+    const repeat = await tool.execute?.({ message: skillsMissingAgain })
+
+    expect(report).toHaveBeenCalledOnce()
+    expect(first).toEqual({ id: report.mock.calls[0]![0].papercut.id, reported: true })
+    expect(repeat).toMatchObject({ id: report.mock.calls[0]![0].papercut.id, reported: false, count: 2 })
+    expect(repeat).toHaveProperty("message", expect.stringMatching(/^Already known: 2 reports since \d{4}-\d{2}-\d{2}\. Do not report it again\. Continue the task\.$/))
+  })
+
+  it("counts a papercut that another Invocation already reported", async () => {
+    const report = vi.fn((_event: PapercutReportEvent) => undefined)
+    const capability = papercuts({ report })
+
+    await (await invocationTool(capability, "run-1")).execute?.({ message: skillsMissing })
+    await (await invocationTool(capability, "run-2")).execute?.({ message: skillsMissingAgain })
+    const third = await (await invocationTool(capability, "run-3")).execute?.({ message: skillsMissing })
+
+    expect(report).toHaveBeenCalledOnce()
+    expect(third).toMatchObject({ reported: false, count: 3 })
+  })
+
+  it("reports distinct papercuts separately", async () => {
+    const report = vi.fn((_event: PapercutReportEvent) => undefined)
+    const tool = await invocationTool(papercuts({ report }), "run-1")
+
+    await tool.execute?.({ message: skillsMissing })
+    await expect(tool.execute?.({ message: gitIdentityMissing })).resolves.toMatchObject({ reported: true })
+
+    expect(report.mock.calls.map(([event]) => event.papercut.message)).toEqual([skillsMissing, gitIdentityMissing])
+  })
+
+  it("reports a repeat again when the first report failed or dedupe is off", async () => {
+    const failing = vi.fn(async (_event: PapercutReportEvent) => { if (failing.mock.calls.length === 1) throw new Error("store down") })
+    const tool = await invocationTool(papercuts({ report: failing }), "run-1")
+    await expect(tool.execute?.({ message: skillsMissing })).rejects.toThrow("store down")
+    await expect(tool.execute?.({ message: skillsMissing })).resolves.toMatchObject({ reported: true })
+
+    const report = vi.fn((_event: PapercutReportEvent) => undefined)
+    const undeduped = await invocationTool(papercuts({ report, dedupe: false }), "run-1")
+    await undeduped.execute?.({ message: skillsMissing })
+    await undeduped.execute?.({ message: skillsMissing })
+    expect(report).toHaveBeenCalledTimes(2)
   })
 })

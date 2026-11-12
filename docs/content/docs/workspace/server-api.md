@@ -165,10 +165,10 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | --- | --- |
 | `history.commit({ ref?, ifHead, files, message?, metadata? })` | A revision with `id`, `ref`, `parentId`, `createdAt`, optional message and metadata, file count `files`, and total `bytes`. |
 | `history.commit({ ref?, ifHead, changes: { put?, delete? }, message?, metadata? })` | The same revision, built from the ref head plus the changes. |
-| `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. |
+| `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. On the GitHub Store, revisions from `head()` and `list()` have no `files` and `bytes`, because counting them needs one more request per commit. `open(id).revision` has them. |
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
-| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. |
+| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 

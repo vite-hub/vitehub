@@ -894,6 +894,22 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("doubles the merge gate timer while a reviewed head stays blocked", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      await f.reconcile();
+      const delays: number[] = [];
+      for (let retry = 0; retry < 6; retry++) {
+        const clock = (await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! + 1;
+        const now = vi.spyOn(Date, "now").mockReturnValue(clock);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        delays.push((await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! - clock);
+      }
+      expect(f.passes).toHaveLength(1);
+      expect(delays).toEqual([240_000, 480_000, 960_000, 1_800_000, 1_800_000, 1_800_000]);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("does not retain a merge assessment for an external wait", async () => {
     const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
     try {
@@ -1543,6 +1559,10 @@ describe("Babysitter preset runtime", () => {
 
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
+    for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
+      expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: authorAssociation as never } } })).toThrow(/filter\.authorAssociation must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: { allow: ["OWNER", "MEMBER"], deny: ["NONE"] } } } })).not.toThrow();
     for (const noProgressBudget of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }
