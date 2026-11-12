@@ -240,11 +240,12 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         }
         const runId = toRunId("static", entry.name, input.scheduledAt)
         try {
-          const result = await claims.run(runId, () => executeStaticSchedule({
+          const result = await claims.run(runId, onExecution => executeStaticSchedule({
             claimed: true,
             cron: entry.cron,
             definition,
             name: entry.name,
+            onExecution,
             scheduledAt: input.scheduledAt,
             waitUntil,
           }))

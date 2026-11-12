@@ -105,6 +105,8 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   function take(): ProcessScheduleWake | undefined {
     for (const [key, input] of queued) {
       queued.delete(key)
+      // Completion markers outlast this window. Old queued work must not run after its marker can expire.
+      if (input.scheduledAt.getTime() < floorUTCMinute(now()) - catchUpMs) continue
       return input
     }
     return undefined

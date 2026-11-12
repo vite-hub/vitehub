@@ -26,6 +26,7 @@ const controllers: Array<{ close(): Promise<void> }> = []
 
 afterEach(async () => {
   await Promise.all(controllers.splice(0).map(controller => controller.close()))
+  vi.useRealTimers()
 })
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -75,6 +76,34 @@ async function install(server: ServerProcess, options: InstallOptions) {
 }
 
 describe("Process Runtime on more than one process", () => {
+  it("does not run a queued occurrence after its completion marker expires", async () => {
+    vi.useFakeTimers({ now: minute("2026-11-09T08:00:00.000Z") })
+    const leases = createMemoryLeaseStore()
+    let finishSlow!: () => void
+    const slow = vi.fn(() => new Promise<void>(resolve => { finishSlow = resolve }))
+    const target = vi.fn()
+    const registry = {
+      slow: async () => defineSchedule({ cron: "0 8 * * *", handler: slow }),
+      target: async () => defineSchedule({ cron: "0 8 * * *", handler: target }),
+    }
+    try {
+      await install(await startProcess(), { leases, now: () => new Date(), registry })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(slow).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1000)
+      await install(await startProcess(), { leases, now: () => new Date(), registry })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(target).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(4 * 60_000)
+      expect((await leases.get("vitehub:schedule/schedule/srun_static_target_2026-11-09T08:00:00.000Z/done"))[1]).toBeNull()
+    }
+    finally {
+      finishSlow?.()
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    expect(target).toHaveBeenCalledTimes(1)
+  })
+
   it("isolates apps that share leases and use different prefixes", async () => {
     const leases = createMemoryLeaseStore()
     const handler = vi.fn()

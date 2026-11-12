@@ -187,7 +187,7 @@ export default defineConfig({
 });
 ```
 
-Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, concurrency `1`, catch-up `catchUpMs` of one hour, and `leaseTtlMs` of one minute. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. After a restart, the runtime runs the due minutes that no process checked, within `catchUpMs`, for each Schedule that already has a run. Run ids are deterministic, so a minute that already ran does not run again. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, concurrency `1`, catch-up `catchUpMs` of one hour, and `leaseTtlMs` of one minute. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. A queued occurrence can start while its scheduled minute is within `catchUpMs` of the current minute; older queued work is dropped. With `catchUpMs: 0`, it can start only in its scheduled minute. After a restart, the runtime runs the due minutes that no process checked, within `catchUpMs`, for each Schedule that already has a run. Run ids are deterministic, so a minute that already ran does not run again. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
 
 ### Run on more than one server
 

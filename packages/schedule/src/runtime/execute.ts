@@ -18,6 +18,8 @@ interface ExecuteScheduleOptions {
    */
   claimed?: boolean
   definition: ScheduleDefinition
+  /** Signals that the handler can start, or an existing run already consumed this occurrence. */
+  onExecution?: () => void
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
@@ -32,6 +34,7 @@ interface ExecuteStaticScheduleOptions {
   cron: string
   definition: ScheduleDefinition
   name: string
+  onExecution?: () => void
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
@@ -210,11 +213,15 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   // A claimed run that did not finish lost its process, so it runs again.
   const runStore = options.runStore ?? getScheduleRunStore()
   if (!created) {
-    if (!options.claimed || run.status === "succeeded" || run.status === "failed") return run
+    if (!options.claimed || run.status === "succeeded" || run.status === "failed") {
+      options.onExecution?.()
+      return run
+    }
     await failStoppedAttempts(run, runStore)
   }
 
   const attempt = await startAttempt(run, runStore)
+  options.onExecution?.()
   try {
     const value = await runWithScheduleWaitUntil(
       waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
@@ -234,6 +241,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   return await executeSchedule({
     ...(options.claimed ? { claimed: true } : {}),
     definition: options.definition,
+    onExecution: options.onExecution,
     scheduleId: options.name,
     source: "static",
     scheduledAt: options.scheduledAt,

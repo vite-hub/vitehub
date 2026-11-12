@@ -161,12 +161,17 @@ async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedS
     throw startedScheduleErrors.SCHEDULE_NOT_STARTABLE({ name: schedule.name })
   }
   const claims = getScheduleOccurrenceClaims()
-  const run = async () => {
+  const run = async (markFinal?: () => void) => {
+    let final = false
     try {
       await executeSchedule({
         captureHandlerFailure: true,
         ...(claims ? { claimed: true } : {}),
         definition: { handler: context => definition.handler({ ...context, payload: schedule.payload }) },
+        onExecution() {
+          final = true
+          markFinal?.()
+        },
         scheduleId: schedule.id,
         scheduledAt,
         source: "started",
@@ -176,7 +181,7 @@ async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedS
     }
     finally {
       // A one-time Schedule runs once, also when the handler fails. The failed run stays in the run history.
-      if (schedule.at) await runtime.store.delete(schedule.id)
+      if (schedule.at && final) await runtime.store.delete(schedule.id)
     }
   }
   if (!claims) {
@@ -219,7 +224,8 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
       else held.set(runId, { scheduleId: schedule.id, scheduledAt })
       return
     }
-    held.delete(runId)
+    // A first tick can fail before checkedThrough is set. Keep that occurrence for the next tick as well.
+    held.set(runId, { scheduleId: schedule.id, scheduledAt })
     console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
   if (results.every(result => result.status === "fulfilled")) {

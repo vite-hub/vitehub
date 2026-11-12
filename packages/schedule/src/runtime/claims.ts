@@ -23,9 +23,10 @@ export type OccurrenceClaimResult = "done" | "held" | "ran"
 export interface OccurrenceClaims {
   /**
    * Runs `run` when this process gets the claim on `runId` and no process finished it. While `run` works, the claim is
-   * renewed. After `run`, a done marker stays for `doneTtlMs`, also when `run` throws: a failed run is final.
+   * renewed. Call `markFinal` before invoking the handler or when an existing run is final. Then a done marker stays
+   * for `doneTtlMs`, also when the handler throws. Errors before `markFinal` leave the occurrence retryable.
    */
-  run(runId: string, run: () => Promise<unknown>): Promise<OccurrenceClaimResult>
+  run(runId: string, run: (markFinal: () => void) => Promise<unknown>): Promise<OccurrenceClaimResult>
 }
 
 /** The lease key of one occurrence within an app's Schedule prefix. */
@@ -74,21 +75,24 @@ export function createOccurrenceClaims(options: OccurrenceClaimsOptions): Occurr
         if (doneError) throw doneError
         if (done) return "done"
         const stop = keepAlive(lease, options.ttlMs, options.reportError)
+        let final = false
         try {
-          await run()
+          await run(() => { final = true })
         }
         finally {
           await stop()
-          const [markError, marked] = await options.leases.acquire(occurrenceDoneKey(runId, options.prefix), { ttl: doneTtl, ...owner })
-          if (markError) {
-            // Keep the claim for the same window as the missing marker. Renew checks the holder's ID.
-            release = false
-            options.reportError(markError)
-            const [renewError, renewed] = await lease.renew({ ttl: doneTtl })
-            if (renewError) options.reportError(renewError)
-            else if (!renewed) options.reportError(new Error(`[vitehub] Schedule occurrence "${runId}" lost its claim before its done marker could be saved. Another process can run it too.`))
+          if (final) {
+            const [markError, marked] = await options.leases.acquire(occurrenceDoneKey(runId, options.prefix), { ttl: doneTtl, ...owner })
+            if (markError) {
+              // Keep the claim for the same window as the missing marker. Renew checks the holder's ID.
+              release = false
+              options.reportError(markError)
+              const [renewError, renewed] = await lease.renew({ ttl: doneTtl })
+              if (renewError) options.reportError(renewError)
+              else if (!renewed) options.reportError(new Error(`[vitehub] Schedule occurrence "${runId}" lost its claim before its done marker could be saved. Another process can run it too.`))
+            }
+            else if (!marked) options.reportError(new Error(`[vitehub] Schedule occurrence "${runId}" already had a done marker. Two processes ran it.`))
           }
-          else if (!marked) options.reportError(new Error(`[vitehub] Schedule occurrence "${runId}" already had a done marker. Two processes ran it.`))
         }
         return "ran"
       }

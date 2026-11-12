@@ -406,6 +406,21 @@ describe("Process Schedule Wake Driver", () => {
     await driver.close()
   })
 
+  it.each([1, 2])("bounds queued work by the catch-up window (minutes waiting: %s)", async (minutesWaiting) => {
+    vi.useFakeTimers({ now: new Date("2026-07-11T09:00:20.000Z") })
+    let releaseFirst!: () => void
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {
+      if (wake.mock.calls.length === 1) await new Promise<void>(resolve => { releaseFirst = resolve })
+    })
+    const driver = await createDriver({ reportError: vi.fn(), wake }, { catchUpMs: 60_000, concurrency: 1, intervalMs: 1_000 })
+    await driver.reconcile([record("blocker", { cron: "0 9 * * *" }), record("target", { cron: "0 9 * * *" })])
+    await vi.advanceTimersByTimeAsync(minutesWaiting * 60_000)
+    releaseFirst()
+    await flushAsyncWork()
+    expect(wake).toHaveBeenCalledTimes(minutesWaiting === 1 ? 2 : 1)
+    await driver.close()
+  })
+
   it("drops queued wakes when reconciliation removes the schedule", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))

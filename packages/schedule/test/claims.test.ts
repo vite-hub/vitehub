@@ -28,7 +28,10 @@ describe("Schedule occurrence claims", () => {
     })
     const handler = vi.fn(async () => { if (fails) throw new Error("Handler failed") })
     const onError = vi.fn()
-    const first = claims(leases, onError).run("occurrence", handler)
+    const first = claims(leases, onError).run("occurrence", async (markFinal) => {
+      markFinal()
+      await handler()
+    })
     if (fails) await expect(first).rejects.toThrow("Handler failed")
     else expect(await first).toBe("ran")
 
@@ -58,7 +61,10 @@ describe("Schedule occurrence claims", () => {
     })
     let finishRun!: () => void
     const onError = vi.fn()
-    const run = claims(leases, onError).run("occurrence", () => new Promise<void>(resolve => { finishRun = resolve }))
+    const run = claims(leases, onError).run("occurrence", (markFinal) => {
+      markFinal()
+      return new Promise<void>(resolve => { finishRun = resolve })
+    })
     await vi.advanceTimersByTimeAsync(100)
     finishRun()
     await vi.advanceTimersByTimeAsync(0)

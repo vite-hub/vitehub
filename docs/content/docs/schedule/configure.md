@@ -87,7 +87,7 @@ The Process Runtime loads the discovered registry and runs each Static Schedule 
 
 - It records Schedule Runs in the default KV store (the `kv` option) under the prefix, reports errors through Nitro, and stops on Nitro shutdown.
 - By default it checks once per minute, with one run at a time. `intervalMs` cannot be more than one minute.
-- Each check covers every minute since the last one, so a late timer skips nothing.
+- Each check covers the minutes since the last one that are still inside `catchUpMs`, plus the current minute.
 - After a restart, it runs due minutes that no process checked, such as during a deploy, for each schedule that already has a run. It looks back at most one hour (`installProcessScheduleRuntime({ catchUpMs })`, `0` turns it off).
 - Run ids are fixed per minute, so a minute never runs twice.
 - `runtime` and `providerOutput` are separate. Setting one does not set the other.
@@ -107,6 +107,8 @@ Every server checks every Schedule. While the holder keeps its lease, one server
 | The done marker write fails | The server reports the error and tries to extend its claim for the same time as the marker, without releasing it. If that also fails, another server can run the occurrence after the claim expires. |
 | The server loses the Database, or its event loop pauses, for longer than `leaseTtlMs` | Its lease can expire while its handler still runs. Another server can then run the same occurrence at the same time. The runtime reports renewal failures, but cannot stop the handler or undo its effects. Choose a TTL longer than expected pauses and make external effects idempotent. |
 | The lease store fails before the run starts | The server reports the error and retries at its next scan, while the occurrence is inside `catchUpMs`. |
+| The run store fails before the handler starts | No done marker is written. The occurrence can retry after the store recovers. A one-time started Schedule stays until its handler can start. |
+| A Static occurrence waits for a free worker | It can start while its scheduled minute is inside `catchUpMs` of the current minute. Older queued occurrences are dropped. With `catchUpMs: 0`, queued work can start only in its scheduled minute. |
 | The handler fails | The run is final, as on one server. No server retries it. |
 | The server stops during the run | Its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless a done marker exists. The run gets a new attempt, and the stopped attempt is marked as failed. |
 | Every server restarts after a crash | At start, each server reads the Static Schedule runs inside `catchUpMs` that are still pending or running. It tries them like a held occurrence: one server runs each of them when the lease of the stopped server ends. |
