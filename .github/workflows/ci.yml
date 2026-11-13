@@ -568,7 +568,8 @@ jobs:
       - uses: ./.github/actions/setup
 
       # Cache the package builds, but generate the deployable app in this job, as the docs job does.
-      - run: vp run --cache -t vite-hub#build -t @vite-hub/docs#build
+      - run: vp run --cache -t vite-hub#build
+      - run: vp run --cache -t @vite-hub/docs#build
       - run: vp run --no-cache --filter playground-docs-demo build
       - name: Verify Worker bundle
         run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/docs/playground/.output/server/wrangler.json
