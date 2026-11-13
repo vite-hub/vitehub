@@ -58,6 +58,7 @@ import { providerSessionDecision, workspaceDecision, type PullRequestWorkspaceEn
 import type { BabysitterRepositories } from "./repositories.ts";
 import { createBabysitterCheckRuns } from "./check-run.ts";
 import { isTransientNetworkError, retryTransient } from "./transient.ts";
+import { isFailedBaseRun, mainRepairWorkerContext, repairBaseBranch, type MainRepairGitHub } from "./main-repair.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
@@ -178,6 +179,11 @@ export interface BabysitterRuntime {
     accepting?: () => boolean,
   ): Promise<void>;
   workload(): { running: number };
+  /**
+   * Makes the next reconcile check the default branch of the delivery's repository when the delivery
+   * is a failed push run of a watched workflow there. Returns whether it did.
+   */
+  observeMainRepair(event: string, payload: unknown): Promise<boolean>;
 }
 
 export function createBabysitterRuntime(options: BabysitterRuntimeOptions): BabysitterRuntime {
@@ -358,6 +364,55 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     rest: (path, signal, key) => readRest(path, key ? `.${key}[]` : ".[]", signal),
     page: readOnePage,
   };
+
+  // Main repair: one check per repository every 10 minutes, or at once after a failed push run on the default branch.
+  const mainRepairPrefix = presetOptions.mainRepairBranchPrefix;
+  const mainRepair = presetOptions.mainRepair && mainRepairPrefix ? presetOptions.mainRepair : undefined;
+  const mainRepairRepositories = mainRepair?.repositories?.map(repository => repository.toLowerCase());
+  const mainRepairIntervalMs = 10 * 60_000;
+  const mainRepairRunning = new Set<string>();
+  const mainRepairKey = (repository: string) => `main-repair-next:${repository.toLowerCase()}`;
+  const mainRepairWatches = (repository: string) => repositorySource.known().includes(repository.toLowerCase())
+    && (!mainRepairRepositories || mainRepairRepositories.includes(repository.toLowerCase()));
+  function mainRepairGitHub(repository: string, signal: AbortSignal): MainRepairGitHub {
+    return {
+      async read(path, query) {
+        const { provider } = await forge(repository, signal);
+        try {
+          return (await retryTransient(() => provider.request<unknown>("GET", `/${path}`, { query, signal }), signal)).data;
+        } catch (error) {
+          if (forgeErrorStatus(error) === 404) return undefined;
+          throw error;
+        }
+      },
+      async write(path, body) {
+        const { provider } = await forge(repository, signal);
+        return (await provider.request<unknown>("POST", `/${path}`, { body, signal })).data;
+      },
+    };
+  }
+  async function checkMainRepairs(repositories: readonly string[], track: ProcessReconcilerRunContext["track"]) {
+    if (!mainRepair || !mainRepairPrefix) return;
+    for (const repository of repositories) {
+      if (!mainRepairWatches(repository) || mainRepairRunning.has(repository)) continue;
+      if ((await pullRequestInbox.metaNumber(mainRepairKey(repository)) ?? 0) > Date.now()) continue;
+      await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs);
+      mainRepairRunning.add(repository);
+      void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, mainRepair, event: schedulerEvent })
+        .catch(async (error: unknown) => {
+          await noteForgeQuota(error, "main-repair");
+          schedulerError("babysitter.main_repair.failed", error, { repository });
+        })
+        .finally(() => mainRepairRunning.delete(repository)));
+    }
+  }
+  async function observeMainRepair(event: string, payload: unknown): Promise<boolean> {
+    if (!mainRepair || !isFailedBaseRun(event, payload, mainRepair.workflows)) return false;
+    const repository = isRuntimeRecord(payload) && isRuntimeRecord(payload.repository) ? payload.repository.full_name : undefined;
+    if (!hasRuntimeType(repository, "string") || !mainRepairWatches(repository)) return false;
+    await pullRequestInbox.setMeta(mainRepairKey(repository), 0);
+    return true;
+  }
 
   /**
    * Marks a reviewed draft ready for review when `merge.markDraftsReady` lists its author and its head
@@ -1436,6 +1491,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerError("babysitter.bootstrap.failed", error, { repository });
       }
     }
+    await checkMainRepairs(repositories, track);
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
       await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap);
@@ -2434,6 +2490,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     mode: "write",
                     store: { provider: "local", root: keptWork ?? checkout, locks: "process" },
                   } });
+              const repairCandidate = mainRepair && mainRepairPrefix && mainRepairWatches(repository)
+                && pullRequest.headRepository?.nameWithOwner.toLowerCase() === repository.toLowerCase()
+                && pullRequest.headRefName.startsWith(mainRepairPrefix);
+              const repairRepository = repairCandidate ? await readOnePage(`repos/${repository}`, abortSignal) : undefined;
+              const mainRepairContext = mainRepairWorkerContext({
+                enabled: Boolean(repairCandidate), repository, sourceRepository: pullRequest.headRepository?.nameWithOwner,
+                branch: pullRequest.headRefName, prefix: mainRepairPrefix, base: pullRequest.baseRefName,
+                defaultBranch: isRuntimeRecord(repairRepository) ? repairRepository.default_branch : undefined,
+              });
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);
               const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, then finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a dependency such as a pkg.pr.new build keeps no integrity and the frozen install fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
@@ -2452,7 +2517,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const reviewPushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
               const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
               const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
-              const userMessage = `${prompt}${resumeContext}\n\n${snapshotContext}${installContext}${pushContext}${severityContext}${convergenceContext}`;
+              const userMessage = `${prompt}${mainRepairContext}${resumeContext}\n\n${snapshotContext}${installContext}${pushContext}${severityContext}${convergenceContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
@@ -2729,7 +2794,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     track(batch);
   }
 
-  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload };
+  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload, observeMainRepair };
 }
 
 function fixedOrSource(repositories: readonly string[] | BabysitterRepositories): BabysitterRepositories {
