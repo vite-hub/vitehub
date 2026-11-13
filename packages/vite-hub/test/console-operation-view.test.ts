@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
-import { loadOperationItems, operationCell, operationItems, operationLink, operationValue } from "../src/console/runtime/client/operation-view.ts"
+import { loadOperationItems, operationCell, operationItems, operationLink, operationStatus, operationTime, operationValue } from "../src/console/runtime/client/operation-view.ts"
 import { consoleCommentsTransport, consoleCommentSubjectLabel, isConsoleCommentThread, readConsoleCommentSession } from "../src/console/runtime/client/comment-thread.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { ConsoleRequestError, requestConsoleOperation } from "../src/console/runtime/client/request.ts"
@@ -51,6 +51,31 @@ describe("operation view", () => {
     expect(operationLink({ id: "7", kind: "page" }, section.view)).toBe("/items/7")
     expect(operationLink({ id: "7", kind: "content" }, section.view)).toBeUndefined()
     expect(operationLink({ kind: "page" }, section.view)).toBeUndefined()
+  })
+
+  it("opens a page link on the app origin when the Console forwards its calls", () => {
+    if (section.view.kind !== "operation-view") throw new Error("expected an operation view")
+    setConsoleProject({ app: { base: "", origin: "https://app.example.com" }, base: "/p/one", origin: "", remote: true })
+    expect(operationLink({ id: "7", kind: "page" }, section.view)).toBe("https://app.example.com/items/7")
+  })
+
+  it("reads status and time cells", () => {
+    const column = { format: "status", key: "status", label: "Status", tones: { resolved: "success" } } as const
+    expect(operationStatus({ status: "resolved" }, column)).toEqual({ label: "Resolved", tone: "success" })
+    expect(operationStatus({ status: "open" }, column)).toEqual({ label: "Open", tone: "neutral" })
+    expect(operationStatus({ status: "toString" }, column)).toEqual({ label: "ToString", tone: "neutral" })
+    expect(operationStatus({}, column)).toBeUndefined()
+    expect(operationTime({ at: Date.UTC(2026, 0, 2, 3, 4) }, { format: "datetime", key: "at", label: "" })).toBe("2026-01-02T03:04:00.000Z")
+    expect(operationTime({ at: "soon" }, { format: "datetime", key: "at", label: "" })).toBeUndefined()
+  })
+
+  it("keeps the status tones of a section and drops unknown ones", () => {
+    const parsed = parseConsoleContributedSection({
+      ...section,
+      view: { columns: [{ format: "status", key: "status", label: "Status", tones: { done: "success", odd: "purple" } }], kind: "operation-view", notice: "N.", operation: "x.list" },
+    })
+    const view = parsed?.view.kind === "operation-view" ? parsed.view : undefined
+    expect(view?.columns).toEqual([{ format: "status", key: "status", label: "Status", tones: { done: "success" } }])
   })
 
   it("takes the objects of an operation result", () => {

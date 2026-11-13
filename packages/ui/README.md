@@ -70,7 +70,7 @@ export default defineEventHandler(async (event) => {
 
 ## Run an app in the browser
 
-The workspace parts render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as that README shows.
+The workspace parts render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
 
 `@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "tutorial" | "playground"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (an iframe with a path bar, Reload, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
 

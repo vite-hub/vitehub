@@ -98,6 +98,93 @@ Copy the whole `.output` directory to the server. With a built-in coding
 provider, build on the server's operating system and CPU type, because the
 build packages only the build machine's native binaries.
 
+## Run the server with systemd
+
+A production build on the `node` preset also writes a systemd unit to
+`.output/<name>.service`. The name is the deployment name: `vitehub({ name })`,
+else the `package.json` name.
+
+```ini [.output/my-app.service]
+[Unit]
+Description=my-app (ViteHub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/my-app
+ExecStart=/usr/bin/env node .output/server/index.mjs
+EnvironmentFile=-/srv/my-app/.env
+Environment="NODE_ENV=production"
+SyslogIdentifier=my-app
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target default.target
+```
+
+The unit starts the server in the project root of the build, so relative data
+paths such as `.vitehub/data` stay where they were. It reads `.env` from that
+directory when the file exists. `node` comes from the unit's `PATH`, so a
+Node.js upgrade does not make the unit stale. On stop, systemd sends `SIGTERM`
+and ViteHub [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+`TimeoutStopSec` is the `agent.shutdown.drainMs` budget (0 by default) plus 30 seconds, which
+covers the 15-second settle time, the 10-second close hooks, and 5 seconds more.
+
+Link the unit and start it:
+
+```bash [Terminal]
+sudo systemctl link /srv/my-app/.output/my-app.service
+sudo systemctl enable --now my-app
+```
+
+`systemctl restart my-app` drains the old process before it starts the new one.
+After a new build, run `sudo systemctl daemon-reload` before the restart, so
+systemd reads the new file. As a user service, use `systemctl --user` with the
+same commands; the unit then starts at login, or at boot with
+`loginctl enable-linger`.
+
+Set the deploy path, the system user, and fixed variables in `vitehub()`. Use
+`systemd: false` to write no unit:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: { shutdown: { drainMs: 45_000 } },
+      systemd: {
+        user: 'app',
+        workingDirectory: '/srv/my-app',
+        environment: { PORT: '3000' },
+      },
+    }),
+  ],
+})
+```
+
+Each build replaces the unit, so put other settings in a drop-in. A drop-in
+stays when the unit changes:
+
+```bash [Terminal]
+sudo systemctl edit my-app
+```
+
+```ini [/etc/systemd/system/my-app.service.d/override.conf]
+[Service]
+Environment="PATH=/opt/node/bin:/usr/bin"
+MemoryMax=2G
+```
+
+Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
+`.env`, because the build cannot read that file.
+
 ## Defaults on the node preset
 
 "Several instances" means two or more Node processes behind one load balancer,
@@ -164,16 +251,63 @@ host address as `ip`. Behind a trusted proxy, configure
 [`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
 Do not import a generated Nitro route.
 
+## Durability and instances
+
+When the server starts, it prints one line for each enabled primitive. The
+line shows the store and where its state lives.
+
+```txt [Terminal]
+[vitehub] Durability (1 instance. Set VITEHUB_INSTANCES when you run more):
+  kv          fs-lite  host     Files in .vitehub/data/kv on this host.
+  rate-limit  memory   process  Counters live in the memory of this process. Each instance counts on its own.
+```
+
+| Scope | Meaning |
+| --- | --- |
+| `shared` | All instances read and write the same store, such as Postgres or Upstash Redis. |
+| `host` | Files on this host. They survive a restart, but another host or container does not see them. |
+| `process` | Memory of this process. A restart loses it, and other processes do not see it. |
+
+Each primitive reports the driver that it uses in this server, so a driver
+that an environment variable or the Default Database selects at boot shows
+correctly. Agent state, the Agent Invocation journal, and Workspace files
+report too. Run
+`vitehub durability list` to read the same report from the dev server. It is
+the `durability.list` [operation](/docs/development/operations). On a
+deployment, `--url` works when the app enables the Console, with credentials
+for the `durability` section. Server code can read the report with
+`getDurabilityReport()` from `vite-hub/runtime/durability`.
+
+Tell the server how many instances run this build. Set `VITEHUB_INSTANCES`
+where you start the server, or set `node.instances` in `vitehub()`.
+`VITEHUB_INSTANCES` wins. The default is 1.
+
+```bash [Terminal]
+VITEHUB_INSTANCES=3 node .output/server/index.mjs
+```
+
+When the count is greater than 1 and a primitive is `host` or `process`
+scoped, the server does not start. The error (`RUNTIME_R0017`) lists each
+primitive and how to make it shared. For example, the default `fs-lite` KV store
+fails with 3 instances. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` at build
+time to use Upstash Redis.
+
 ## Production notes
 
 Local files and memory belong to one process on one host. Replicas do not
 share them. Use a persistent volume for `dataDir`, or remote stores when you
-run more than one process.
+run more than one process. Set `VITEHUB_INSTANCES` so the server checks this
+at boot.
 The [table above](#defaults-on-the-node-preset) shows which features have a
 remote store today.
 
-Keep runtime secrets in [Server Env](/docs/env). Check the deployed app by
-starting the built server, not only by typechecking.
+The Schedule Process Runtime runs each occurrence on one server when the app has
+a Postgres or remote libSQL Default Database. The servers claim each occurrence in the
+`vitehub_leases` table. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server).
+
+Keep runtime secrets in [Server Env](/docs/env). Verify the
+deployed application by starting the built server, not only by typechecking
+package code.
 
 ## Next steps
 

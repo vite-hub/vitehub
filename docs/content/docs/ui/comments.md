@@ -65,6 +65,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - `?comment=<n>` in the URL opens thread `n` when the page loads.
 - Type `@` to mention a person. The client's `users` call finds people. Names that start with your text come first, then names with a later word that starts with it. Accents and case do not count, so `@jose` finds José. People who already wrote in the thread come first. You are never in the list.
 - In the mention menu, arrow keys move, `Enter` or `Tab` picks, and `Esc` closes only the menu. `Shift+Enter` still breaks the line.
+- When `@` and two or more letters find no one, the menu shows one line instead of a list: "No one by that name can be mentioned here.", or "Could not load people." when the lookup fails. The composer logs the error with `console.warn`. The line is not an option, so `Enter` and `Tab` do not pick it. After a space, the menu stays closed, because the text is then more likely a sentence.
 - A posted message shows each mention as a chip. A mention of you has another color.
 - Paste, drop, or pick files when the app gives an `upload` function. See [Attachments](#attachments).
 - Select text, then press `C`: the comment is about that text.
@@ -262,10 +263,11 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: upload
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
 | `CommentComposer` | `extra` | | Above the text field, such as a suggested-change field. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
+| `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
 
-`CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra` and `mention-item` to its page box.
+`CommentThread` passes `body`, `attachments`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 
 ::example{name="CommentThreadSlotsExample" height=8}
 ::
@@ -310,7 +312,7 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 
 - A pin is a button. Its label has the number, author, and start of the comment, such as "Comment 3 by Ana Ruiz: Make this bigger", and says when the thread is resolved. `aria-expanded` shows if its thread is open.
 - An open thread is a `dialog` named "Comment 3". Opening it moves focus into it. Closing it returns focus to its pin, unless the reader moved focus elsewhere.
-- The composer has a label. Its box is a `combobox`. While the mention menu is open, the box has `aria-expanded="true"`, `aria-controls`, and `aria-activedescendant`. The menu is a `listbox`.
+- The composer has a label. Its box is a `combobox`. While the mention menu is open, the box has `aria-expanded="true"`, `aria-controls`, and `aria-activedescendant`. The menu is a `listbox`. A menu with no one to show is a `status` with one line and no options, so the box keeps `aria-expanded="false"`.
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
@@ -411,7 +413,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 | `anchor` | `{ thread }` | What the thread is about. Replaces the selected-text quote. |
 | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `body`, `attachments` | `{ message }` | Passed on to each `CommentReply`. |
-| `extra`, `mention-item` | | Passed on to the reply box. |
+| `extra`, `mention-item`, `mention-empty` | | Passed on to the reply box. |
 
 ### CommentReply
 
@@ -442,6 +444,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | `body` | `{ message }` | Replaces the Markdown body. |
 | `attachments` | `{ message }` | Replaces the default attachment list. |
 | `mention-item` | `{ person, active }` | Passed on to the edit box. |
+| `mention-empty` | `{ query, failed }` | Passed on to the edit box. |
 
 ### CommentComposer
 
@@ -485,6 +488,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | --- | --- | --- |
 | `extra` | | Above the text field, such as a suggested-change field. |
 | `mention-item` | `{ person, active }` | One person of the mention menu. `active` is true for the person the arrow keys are on. |
+| `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. `query` is the text after `@`. `failed` is true when the lookup failed. |
 
 The component exposes `focus()` and `shake()`.
 
@@ -523,7 +527,7 @@ The thread list, one thread, and a page box in one surface. Renders a `section` 
 
 #### Slots
 
-Every slot of [CommentThread](#commentthread). `extra` and `mention-item` also go to the page box.
+Every slot of [CommentThread](#commentthread). `extra`, `mention-item`, and `mention-empty` also go to the page box.
 
 | Slot | Scope | Description |
 | --- | --- | --- |

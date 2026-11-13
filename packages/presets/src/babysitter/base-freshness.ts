@@ -1,5 +1,6 @@
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 
 /** GitHub REST reads, as GitHub returns them. */
 export interface BaseFreshnessReader {
@@ -22,7 +23,7 @@ const pushMarginMs = 2 * 60_000;
 export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Snapshot, head: string, baseRef: string, conclusions: ReadonlySet<string>, signal: AbortSignal): Promise<string | undefined> {
   const { repository } = snapshot;
   const runIds = [...new Set(Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
     const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
     return id ? [id] : [];
   }))];
@@ -56,10 +57,14 @@ export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Sn
  * Files the PR changes that its base branch also changed after the PR's checks ran. PR checks test
  * the base of that moment, so two PRs that edit the same file can each pass and still break the base
  * together. Empty means nothing overlaps. Any doubt (no Actions run, a truncated comparison) returns
- * every changed file, so the PR is updated and tested against the current base.
+ * every changed file, so the PR is updated and tested against the current base. A head that
+ * contains the base tip never overlaps.
  */
 export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Snapshot, live: { head: { sha: string }; base: { ref: string } }, signal: AbortSignal): Promise<string[]> {
   const { repository, number } = snapshot;
+  // A head that already contains the base tip was tested on it, and GitHub refuses to update it.
+  const fromBase = await reader.page(`repos/${repository}/compare/${encodeURIComponent(live.base.ref)}...${live.head.sha}?per_page=1`, signal);
+  if (isRuntimeRecord(fromBase) && fromBase.behind_by === 0) return [];
   const [files, testedBase] = await Promise.all([
     reader.rest(`repos/${repository}/pulls/${number}/files?per_page=100`, signal),
     checksTestedBase(reader, snapshot, live.head.sha, live.base.ref, new Set(["success"]), signal),
@@ -104,7 +109,7 @@ export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapsho
   for (const value of baseStatuses) {
     if (isRuntimeRecord(value) && hasRuntimeType(value.context, "string") && hasRuntimeType(value.state, "string") && !latestStatuses.has(value.context)) latestStatuses.set(value.context, value.state);
   }
-  return baseChecks.some(check => isRuntimeRecord(check) && hasRuntimeType(check.conclusion, "string") && failedSet.has(check.conclusion.toLowerCase()))
+  return baseChecks.some(check => isRuntimeRecord(check) && !isBabysitterCheckRun(check) && hasRuntimeType(check.conclusion, "string") && failedSet.has(check.conclusion.toLowerCase()))
     || [...latestStatuses.values()].some(value => failedSet.has(value.toLowerCase()))
     ? undefined
     : compare.ahead_by;

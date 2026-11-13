@@ -9,16 +9,21 @@ import type {
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "@vite-hub/agent/channels";
 import type { AgentSandboxDefinition, BuiltInAgentDriverName } from "@vite-hub/agent";
 import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
+import type { AutomatedReviewClass } from "./babysitter/inbox/budgets.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
+import { githubAuthorAssociations } from "./babysitter/pull-request-filter.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
+export type { AutomatedReviewClass } from "./babysitter/inbox/budgets.ts";
+export { BabysitterPlacementCapacityError } from "./babysitter/placement.ts";
 
 export interface BabysitterLifecycleLabels {
   /** At least one of these labels must be present for the PR to be eligible. */
@@ -41,9 +46,29 @@ export interface BabysitterPlacementLease {
 
 /** Chooses a host for each pass before the Babysitter installs dependencies on this one. */
 export interface BabysitterPlacement {
+  /** Throw `BabysitterPlacementCapacityError` when no host can take the pass now; the PR waits and is claimed again. */
   place(pullRequest: { repository: string; number: number }): BabysitterPlacementLease | Promise<BabysitterPlacementLease>;
   /** Passes currently placed on other hosts. They hold a concurrency slot but no local memory. */
   remoteActive?(): number;
+  /**
+   * Slots that hosts admit now, counting passes already running. A reconcile claims at most this
+   * many PRs minus the active owners, so it never claims work that `place` must turn away.
+   */
+  admitted?(): number | Promise<number>;
+}
+
+/** Where the Babysitter reports its state on each PR. Both need a verified GitHub App identity. */
+export interface BabysitterStatusOptions {
+  /** Keep the activity comment on the PR up to date. Defaults to `true`. */
+  comment?: boolean;
+  /**
+   * Mirror the state as a check run named `babysitter` on the PR head: queued, in progress, neutral
+   * while waiting, success when done and failure when a pass failed. Its details link opens the
+   * Console session. Needs the App's `checks: write` permission; a repository that answers 403 is
+   * reported once and skipped. The Babysitter leaves this check out of its own CI and merge decisions,
+   * so do not make it a required check. Defaults to `true`.
+   */
+  checkRun?: boolean;
 }
 
 export interface BabysitterOptions {
@@ -54,7 +79,13 @@ export interface BabysitterOptions {
    * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
    */
   placement?: BabysitterPlacement;
-  /** Select PRs with the same rules as the GitHub Channel. */
+  /**
+   * Select PRs with the same rules as the GitHub Channel, with two differences. A PR passes when it
+   * matches either `author.allow` or `authorAssociation.allow`; a match on either deny list rejects it.
+   * Logins match case-insensitively and in either bot spelling, so `renovate[bot]` also matches `renovate`.
+   * Without `repository.allow`, the Babysitter serves every repository that its GitHub App installations
+   * can access, except archived ones and those in `repository.deny`, so installing the App on a repository enrolls it.
+   */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
   lifecycle: BabysitterLifecycleOptions;
@@ -63,6 +94,8 @@ export interface BabysitterOptions {
   /**
    * Merge policy. Defaults to `false`. `"auto"` lets the worker request GitHub native auto-merge.
    * `"direct"` merges a ready PR into its default branch before any model pass.
+   * `{ strategy: "direct", ready: "approved-if-outside" }` also holds a PR from someone without write
+   * access until a reviewer with write access approves its current head.
    */
   merge: BabysitterMerge;
   /**
@@ -94,6 +127,26 @@ export interface BabysitterOptions {
    */
   reviewPushBudget: number | false;
   /**
+   * Heads in a row whose automated review has no valid finding above P2 before automated review settles
+   * as if `reviewPushBudget` were spent. Each pass reports the highest class (P0 to P3) in the
+   * automated reviews of its head; a P0 or P1 starts the count again. Needs `reviewPushBudget`.
+   * `false` disables it. Defaults to `false`.
+   */
+  minorReviewRounds: number | false;
+  /**
+   * Review-driven pushes after which each pass is asked to fix a recurring class of review finding at
+   * its root instead of patching one more case, or to decline the remaining minor cases. `false`
+   * disables it. Defaults to `false`.
+   */
+  reviewConvergencePushes: number | false;
+  /**
+   * Unresolved review threads with only bot comments stop blocking a direct merge and stop waking a
+   * waiting PR once a pass assessed their comments. A new bot comment still needs a pass, and a thread
+   * with a person's comment still blocks. Defaults to `false`; such threads then stop blocking only
+   * once automated review settles.
+   */
+  ignoreAssessedBotThreads: boolean;
+  /**
    * Model passes on one PR in a rolling 24 hours. After that many, the PR parks until the oldest pass
    * is 24 hours old; its result and the health route show that time. A person's comment or review, the
    * first failing required check on a head and a merge conflict on a PR without failing checks or open
@@ -115,6 +168,13 @@ export interface BabysitterOptions {
   /** Rerun failed GitHub Actions runs once before a model pass repairs them. Defaults to `true`. */
   ciRecovery: boolean;
   /**
+   * Repair a PR whose base is another open PR's branch in parallel with its parent: checks, conflicts
+   * and feedback. It never merges into the parent's branch and waits for the parent once its reviewed
+   * head has nothing left to repair. Requires `merge: "direct"`. Defaults to `false`, which leaves a
+   * stack child unclaimed until its parent merges.
+   */
+  repairStackChildren: boolean;
+  /**
    * Model passes that run at the same time. Set it to what the provider accounts can serve; host
    * work such as merges and stack retargets still uses `concurrency`. Defaults to `concurrency`.
    */
@@ -135,6 +195,8 @@ export interface BabysitterOptions {
    * and 4096 MiB of free temporary space.
    */
   admission: BabysitterAdmissionOptions;
+  /** How the Babysitter reports its state on the PR. Defaults to `{ comment: true, checkRun: true }`. */
+  status: BabysitterStatusOptions;
 }
 
 /**
@@ -165,6 +227,12 @@ export type BabysitterInstall = boolean | {
    * its inputs change. Defaults to `false`.
    */
   required?: boolean;
+  /**
+   * `refreshDependencies` calls per pass. Further calls return a tool error that tells the model to
+   * commit its dependency fixes and let hosted CI validate them. Retryable install failures do not
+   * count. Defaults to no limit.
+   */
+  refreshes?: number;
 };
 
 export type BabysitterPassWake =
@@ -184,6 +252,8 @@ export interface BabysitterPassResult {
   reviewedHead?: string;
   /** Legacy explicit check checkpoint, accepted while existing provider output migrates. */
   waitForChecksHead?: string;
+  /** Highest class of valid finding in the automated reviews of the head the pass started on. Read with `minorReviewRounds`. */
+  automatedReview?: AutomatedReviewClass;
 }
 
 export const babysitterPassResultSchema: ReturnType<typeof createBabysitterPassResultSchema> = createBabysitterPassResultSchema();
@@ -191,7 +261,8 @@ export const babysitterPassResultSchema: ReturnType<typeof createBabysitterPassR
 function validInstall(install: unknown): boolean {
   if (hasRuntimeType(install, "boolean")) return true;
   if (!isRuntimeRecord(install)) return false;
-  const { command, args, cache, concurrency, required } = install;
+  const { command, args, cache, concurrency, required, refreshes } = install;
+  if (refreshes !== undefined && !(Number.isSafeInteger(refreshes) && Number(refreshes) >= 1)) return false;
   if (command !== undefined && !(hasRuntimeType(command, "string") && command.trim())) return false;
   if (concurrency !== undefined && !(Number.isSafeInteger(concurrency) && Number(concurrency) >= 1)) return false;
   if (required !== undefined && !hasRuntimeType(required, "boolean")) return false;
@@ -286,6 +357,12 @@ function lifecycleLabels(labels: unknown): GitHubPullRequestFilterRules {
   return rules;
 }
 
+function validAuthorAssociationRules(rules: unknown): boolean {
+  if (rules === undefined) return true;
+  if (!isRuntimeRecord(rules) || Array.isArray(rules)) return false;
+  return [rules.allow, rules.deny].every(list => list === undefined || (Array.isArray(list) && list.every(value => (githubAuthorAssociations as readonly unknown[]).includes(value))));
+}
+
 /** Combines explicit lifecycle labels with the shared GitHub PR filter. */
 export function resolveBabysitterLifecycleFilter(
   filter: GitHubPullRequestFilter,
@@ -314,6 +391,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     ignoreFeedbackAuthors: [] as string[],
     noProgressBudget: 3 as number | false,
     reviewPushBudget: 3 as number | false,
+    minorReviewRounds: false as number | false,
+    reviewConvergencePushes: false as number | false,
+    ignoreAssessedBotThreads: false,
     dailyPassBudget: 16 as number | false,
     deferWhilePending: true,
     install: true as BabysitterInstall,
@@ -323,10 +403,12 @@ export const babysitter: BabysitterAgent = defineAgent({
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
     ciRecovery: true,
+    repairStackChildren: false,
     modelConcurrency: undefined as number | undefined,
     providerCooldownMs: 5 * 60_000,
+    status: {} as BabysitterStatusOptions,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -345,6 +427,18 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (reviewPushBudget !== false && (!Number.isSafeInteger(reviewPushBudget) || reviewPushBudget < 1)) {
       throw new TypeError("[vitehub] Babysitter reviewPushBudget must be a positive integer or false.");
     }
+    if (minorReviewRounds !== false && (!Number.isSafeInteger(minorReviewRounds) || minorReviewRounds < 1)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "minorReviewRounds", expected: "a positive integer or false" });
+    }
+    if (minorReviewRounds !== false && reviewPushBudget === false) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_MINOR_ROUNDS_NEED_BUDGET();
+    }
+    if (reviewConvergencePushes !== false && (!Number.isSafeInteger(reviewConvergencePushes) || reviewConvergencePushes < 1)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "reviewConvergencePushes", expected: "a positive integer or false" });
+    }
+    if (!hasRuntimeType(ignoreAssessedBotThreads, "boolean")) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "ignoreAssessedBotThreads", expected: "a boolean" });
+    }
     if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) {
       throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
     }
@@ -352,10 +446,16 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
     }
     if (!validInstall(install)) {
-      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required }.");
+      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required, refreshes }.");
     }
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+    }
+    if (!isRuntimeRecord(status) || [status.comment, status.checkRun].some(value => value !== undefined && !hasRuntimeType(value, "boolean"))) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STATUS_INVALID();
+    }
+    if (!hasRuntimeType(repairStackChildren, "boolean")) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "repairStackChildren", expected: "a boolean" });
     }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
@@ -366,12 +466,20 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
       throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
     }
+    if (placement?.admitted !== undefined && typeof placement.admitted !== "function") {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "placement.admitted", expected: "a function that returns the admitted slot count" });
+    }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
     }
+    if (!validAuthorAssociationRules(filter.authorAssociation)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "filter.authorAssociation", expected: `{ allow, deny } lists of ${githubAuthorAssociations.join(", ")}` });
+    }
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
-    resolveBabysitterMerge(merge);
+    if (resolveBabysitterMerge(merge).mode !== "direct" && repairStackChildren) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STACK_REPAIR_NEEDS_DIRECT_MERGE();
+    }
     const definition = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
       // Signed GitHub deliveries feed the PR inbox. They never start the Agent directly.

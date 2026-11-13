@@ -124,11 +124,18 @@ describe("@vite-hub/ui package contract", () => {
   });
 
   it("ships flat console surfaces that fill their containers", () => {
-    for (const block of [".vh-chat", ".vh-session"]) {
+    for (const block of [".vh-chat", ".vh-session", ".vh-agent-session"]) {
       expect(stylesheet, block).toMatch(new RegExp(`\\n\\s*${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
-    expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
+    // Folded text fades to signal more content; the surrounding surfaces stay flat.
+    const surfaces = stylesheet.replace(/\.vh-agent-session__bubble\[data-folded\] \.vh-agent-session__bubble-text\s*\{[^}]*\}/g, "");
+    expect(surfaces).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
     expect(stylesheet).not.toContain("--vh-ui-text-muted");
+  });
+
+  it("keeps AgentSession as a private component module", () => {
+    expect(existsSync(new URL("../dist/parts/components/agent-session.js", import.meta.url))).toBe(true);
+    expect(readFileSync(new URL("../dist/index.js", import.meta.url), "utf8")).toContain("./parts/components/agent-session.js");
   });
 
   it("keeps WebContainer, CodeMirror, and xterm out of the root barrel, and loads the editor and terminal on demand", () => {

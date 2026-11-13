@@ -716,7 +716,7 @@ async function packageModulesDiagnostics(
   if (nodeDeclarationTypes.size !== 1) throw new Error(`${packageName} modules must share one declaration types configuration`)
   const ambientModules: Record<string, readonly string[]> = {
     "@vite-hub/blob": ["#vitehub/blob/config"],
-    "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults"],
+    "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/migrations", "#vitehub/database/definition-defaults"],
     "@vite-hub/env": ["#vitehub/env/public", "#vitehub/env/server"],
     "@vite-hub/kv": ["#vitehub/kv/config"],
   }
@@ -978,8 +978,8 @@ describe("published declaration diagnostics", () => {
     expect(fixtureSpecs).toMatchObject({
       "@aws-sdk/client-s3": peerSpecs["@aws-sdk/client-s3"],
       "@azure/storage-blob": peerSpecs["@azure/storage-blob"],
+      "@google-cloud/storage": peerSpecs["@google-cloud/storage"],
       "@types/node": "1.0.0",
-      uploadthing: peerSpecs.uploadthing,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })

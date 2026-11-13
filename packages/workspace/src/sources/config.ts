@@ -292,7 +292,11 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
   const livePaths = inferredLivePaths(family, input)
 
   async function loadSource() {
-    sourcePromise ||= loadInferredWorkspaceSource(family, input)
+    // A failed load lets the next call try again.
+    sourcePromise ||= loadInferredWorkspaceSource(family, input).catch((error: unknown) => {
+      sourcePromise = undefined
+      throw error
+    })
     return await sourcePromise
   }
 

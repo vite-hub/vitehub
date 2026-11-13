@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { createHash } from "node:crypto"
+import { createHash, createHmac } from "node:crypto"
 
 import { createTarGz } from "../../source/test/sources/fixtures/github.ts"
 
@@ -84,7 +84,7 @@ function failure(status: number, message: string): Response {
  * A fake of the GitHub REST and GraphQL endpoints that the Workspace GitHub Store and history use.
  * Install `fake.fetch` as the global `fetch`.
  */
-export function createFakeGitHub(options: { owner?: string, repo?: string } = {}) {
+export function createFakeGitHub(options: { owner?: string, repo?: string, etags?: boolean } = {}) {
   const owner = options.owner ?? "onmax"
   const repo = options.repo ?? "repo"
   const prefix = `/repos/${owner}/${repo}`
@@ -96,7 +96,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   /** `headRepo` names the fork that a pull request comes from. Without it, the head branch is in this repository. */
   const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, headRepo?: string, labels?: string[], merged: boolean, number: number, state: "closed" | "open", title: string }> = []
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
+  /** Requests that GitHub answered with `304 Not Modified`, as it does for a matching `If-None-Match`. */
+  const notModified: FakeRequest[] = []
   let commitIndex = 0
+  let deliveryIndex = 0
   let treeIndex = 0
 
   const state = {
@@ -130,9 +133,9 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     return [...next.values()]
   }
 
-  function addCommit(input: { message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
+  function addCommit(input: { author?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
     const commit: FakeCommit = {
-      author: { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
+      author: input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
       message: input.message,
       parents: input.parents,
       sha: fakeSha(input.sha ?? `commit-sha-${++commitIndex}`),
@@ -511,13 +514,25 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const response = override(request)
       if (response) return response
     }
-    return route(request, url)
+    const response = route(request, url)
+    if (!options.etags || method !== "GET" || response.status !== 200 || !response.headers.get("content-type")?.includes("json")) return response
+    // GitHub sends an ETag with each JSON answer and answers a request that sends it back with 304.
+    const text = await response.text()
+    const etag = `W/"${createHash("sha1").update(text).digest("hex")}"`
+    if (request.headers.get("if-none-match") === etag) {
+      notModified.push(request)
+      return new Response(null, { status: 304, headers: { etag } })
+    }
+    const headers = new Headers(response.headers)
+    headers.set("etag", etag)
+    return new Response(text, { status: 200, headers })
   }
 
   return {
     blobs,
     commits,
     fetch: fakeFetch,
+    notModified,
     requests,
     state,
     /** The head of `branch`. */
@@ -536,10 +551,11 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const commit = commits.get(branches.get(branch)!)!
       commit.tree = applyChanges(commit.tree, { [path]: { content, mode } })
     },
-    /** Move `branch` to a new commit with `changes`, as another writer would. */
-    commit(branch: string, changes: FakeChanges, input: { message?: string, sha?: string } = {}) {
+    /** Move `branch` to a new commit with `changes`, as another writer would. `author` sets the commit author. */
+    commit(branch: string, changes: FakeChanges, input: { author?: FakeCommit["author"], message?: string, sha?: string } = {}) {
       const parent = branches.get(branch)
       const commit = addCommit({
+        author: input.author,
         message: input.message ?? "remote change",
         parents: parent ? [parent] : [],
         sha: input.sha,
@@ -558,6 +574,25 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     /** Answer the requests that `respond` matches before the fake does. */
     respond(respond: (request: FakeRequest) => Response | undefined) {
       overrides.push(respond)
+    },
+    /**
+     * The webhook request that GitHub sends for the last push to `branch`, signed with `secret` in
+     * `X-Hub-Signature-256`. `event: "ping"` sends the ping of a new webhook instead.
+     */
+    webhook(url: string, secret: string, input: { branch?: string, event?: "ping" | "push" | (string & {}), repo?: string, signature?: string } = {}) {
+      const branch = input.branch ?? "main"
+      const after = branches.get(branch) ?? null
+      const repository = { full_name: input.repo ?? `${owner}/${repo}`, default_branch: state.defaultBranch }
+      const event = input.event ?? "push"
+      const body = JSON.stringify(event === "ping"
+        ? { zen: "Keep it logically awesome.", hook_id: 1, repository }
+        : { ref: `refs/heads/${branch}`, before: commits.get(after ?? "")?.parents[0] ?? "0".repeat(40), after, created: false, deleted: false, repository, commits: [] })
+      const signature = input.signature ?? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+      return new Request(url, {
+        method: "POST",
+        body,
+        headers: { "content-type": "application/json", "x-github-delivery": `delivery-${++deliveryIndex}`, "x-github-event": event, "x-hub-signature-256": signature },
+      })
     },
     /** The pull requests that were opened. */
     pulls,

@@ -26,8 +26,9 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/auth` | Auth Definitions, Better Auth server setup, generated Auth routes | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, the default Blob Store, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
 | `@vite-hub/browser` | Browser Definitions, per-invocation sessions, controllers, providers, live handoff, Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
-| `@vite-hub/bundle` | Bundle reports of production builds: client and server size, startup size, groups, and import chains, for Vite and Nuxt 5 with Nitro 3. The `vitehub bundle` commands. | `@vite-hub/bundle`, `@vite-hub/bundle/cli`, `@vite-hub/bundle/vite` |
+| `@vite-hub/bundle` | [Bundle reports](/docs/bundle) of production builds: client and server size, startup size, groups, and import chains, for Vite and Nuxt 5 with Nitro 3. The `vitehub bundle` commands. | `@vite-hub/bundle`, `@vite-hub/bundle/cli`, `@vite-hub/bundle/vite` |
 | `@vite-hub/decisions` | [Decisions](/docs/decisions): `defineChoices()` turns text into choices from your options, for filters, search facets, and command palettes. Uses a gateway with `ask()`. No Vite or Nitro code. | `@vite-hub/decisions`, `@vite-hub/decisions/vue` |
+| `@vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients, the Forge Server Env, and the `forges` building blocks that ViteHub packages use | `@vite-hub/forge` |
 | `@vite-hub/forms` | Forms that visitors send to the site owner: `defineForm()` with a spam guard, Standard Schema validation, a submissions table, and email. `submitForm()` on the client. | `@vite-hub/forms`, `@vite-hub/forms/client`, `@vite-hub/forms/database`, `@vite-hub/forms/vue` |
 | `@vite-hub/sandbox` | Sandbox Definitions, execution sessions on any provider, Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
 | `@vite-hub/channels` | Channels in both directions (`defineChannel()`, `webhook()`, `stripe()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
@@ -39,11 +40,11 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/docs` | Docs sites from a Markdown folder: frontmatter, navigation, shell, theme, search, raw Markdown, llms.txt, MCP server, assistant | `@vite-hub/docs`, `@vite-hub/docs/nuxt`, `@vite-hub/docs/server`, `@vite-hub/docs/navigation`, `@vite-hub/docs/assistant`, `@vite-hub/docs/primitive-rail` |
 | `@vite-hub/email` | Provider setup, built-in transports, runtime delivery, Dynamic Markdown, test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public, Server, and Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/bridge`, `@vite-hub/env/database`, `@vite-hub/env/seal` |
-| `@vite-hub/gateways` | AI gateways: Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` and its question builders for TypeSafe Jev. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
+| `@vite-hub/gateways` | [AI Gateways](/docs/gateways): Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` and its question builders for TypeSafe Jev. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
 | `@vite-hub/i18n` | [i18n](/docs/i18n): messages in the source language with no keys, PO catalogs, message IDs at build time, and one locale for each request on Nitro 3 | `@vite-hub/i18n`, `@vite-hub/i18n/vue`, `@vite-hub/i18n/vite`, `@vite-hub/i18n/nuxt` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
-| `@vite-hub/mcp` | App MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |
+| `@vite-hub/mcp` | [MCP server](/docs/mcp): app MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |
 | `@vite-hub/queue` | Queue Definitions, dispatch helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
@@ -52,7 +53,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/shell` | Shell execution providers and Workspace shell helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Loaders for file, glob, markdown, GitHub, custom, and MCP resources | `@vite-hub/source`, `@vite-hub/source/*` |
 | `@vite-hub/ui` | AI SDK Vue and Nuxt components, headless message scrolling, shadcn/ui parts, Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/headless`, `@vite-hub/ui/markdown-editor`, `@vite-hub/ui/workspace`, `@vite-hub/ui/playground`, `@vite-hub/ui/theme`, `@vite-hub/ui/vite` |
-| `@vite-hub/web-container` | WebContainer lifecycle, app commands, preview status, snapshots, isolation headers, connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vue`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
+| `@vite-hub/web-container` | [WebContainer](/docs/web-container): WebContainer lifecycle, app commands, preview status, snapshots, isolation headers, connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vue`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, steps, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Stores, history contracts, Source Bindings, runtime facades, extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 
@@ -61,7 +62,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads the Vite config and runs each package's CLI commands. |
-| `@vite-hub/codemods` | Public CLI package | Migrates apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
+| `@vite-hub/codemods` | Public CLI package | [Codemods](/docs/codemods) that migrate apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
 | `@vite-hub/console` | Private app, not published | Console server with sign-in, linked projects, and a forward to each project's Operations endpoint. The Console page is in progress. |
 | `@vite-hub/icons` | Internal package | The ViteHub icon set (`i-vitehub-*`). `@vite-hub/ui` and the Console bundle it. Not published. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
@@ -87,5 +88,3 @@ Capabilities, and other app APIs come from feature subpaths.
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
 
 - `@vite-hub/presets`
-
-- `@vite-hub/forge`

@@ -67,7 +67,7 @@ A define function takes one handler, or one object with `handler` and the option
 
 `defineWorkflow()` is the one exception. Its typed-steps form, `defineWorkflow(name, handler)`, repeats the Workflow name so that the build can type the steps of the Workflow. Do not copy this form to other primitives.
 
-The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. `npx @vite-hub/codemods define-forms` rewrites all four.
+The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. The [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) rewrites all four.
 
 Avoid aggregate named exports for discovered Definitions. The generated Runtime Registry expects one discovered boundary per file convention.
 
