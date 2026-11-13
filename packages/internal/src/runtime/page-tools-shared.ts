@@ -27,12 +27,9 @@ export const viteHubSessionMarkerCookie = "vitehub_session"
 
 const hintMaxAge = 60 * 60 * 24 * 30
 
-/**
- * The `Set-Cookie` value that stores the session route's answer for 30 days, or for `maxAge` seconds, such as the 90
- * days of a page pass.
- */
-export function viteHubPageToolsHintCookie(allowed: boolean, maxAge: number = hintMaxAge): string {
-  return `${viteHubPageToolsCookie}=${allowed ? 1 : 0}; Path=/; Max-Age=${maxAge}; SameSite=Lax`
+/** The `Set-Cookie` value that stores the session route's answer for 30 days. */
+export function viteHubPageToolsHintCookie(allowed: boolean): string {
+  return `${viteHubPageToolsCookie}=${allowed ? 1 : 0}; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
 }
 
 /**

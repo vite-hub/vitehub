@@ -201,36 +201,42 @@ export interface CommentsPolicyGate {
    * Operations endpoint, the CLI, and the Console MCP tools. The overlay API never sets it.
    */
   console?: boolean
-  /**
-   * The person holds a page pass that the Console made: a member of the Console team, or a guest that a member
-   * invited, with the grants they picked, such as `comments.write`. The grants decide on their own; `authorize` does
-   * not run. See `passAllows()`.
-   */
-  pass?: { grants: readonly string[] }
 }
 
-/** Whether the grants of a page pass allow an action: `comments.<action>`, and `read` with any other Comments grant. */
-export function passAllows(grants: readonly string[], action: CommentAction): boolean {
-  if (grants.includes(`comments.${action}`)) return true
-  return action === "read" && grants.some(grant => grant === "comments.write" || grant === "comments.resolve" || grant === "comments.delete")
+/** The roles of a user: the comma-separated `role` of Better Auth's `admin()` plugin, as ViteHub Auth passes it on. */
+function rolesOf(user: CommentsUser | null): string[] {
+  const role: unknown = user?.role
+  return typeof role === "string" ? role.split(",").map(name => name.trim()) : []
 }
 
-/** The grants that Comments declares for page passes. The Console offers them when someone invites a guest. */
-export const commentsPassGrants: readonly { id: string, label: string, description: string }[] = [
-  { id: "comments.read", label: "Read comments", description: "See the comments on every page." },
-  { id: "comments.write", label: "Write comments", description: "Start threads and reply." },
-  { id: "comments.resolve", label: "Resolve threads", description: "Resolve and reopen threads." },
-  { id: "comments.delete", label: "Delete comments", description: "Delete threads and messages." },
+/**
+ * Whether the roles of a user allow an action: the role `comments-<action>`, or for `read`, any `comments-` role.
+ * Site access in the Console gives these roles to the people it signs in. In `authorize`, check them first:
+ * `authorize: ({ user, action }) => commentsRoleAllows(user, action) || user?.role === "admin"`.
+ */
+export function commentsRoleAllows(user: CommentsUser | null, action: CommentAction): boolean {
+  const roles = rolesOf(user)
+  return roles.includes(`comments-${action}`) || (action === "read" && roles.some(role => role.startsWith("comments-")))
+}
+
+/** The roles that Comments offers to Site access in the Console, for the guests that someone invites. */
+export const commentsRoleGrants: readonly { id: string, label: string, description: string }[] = [
+  { id: "comments-read", label: "Read comments", description: "See the comments on every page." },
+  { id: "comments-write", label: "Write comments", description: "Start threads and reply." },
+  { id: "comments-resolve", label: "Resolve threads", description: "Resolve and reopen threads." },
+  { id: "comments-delete", label: "Delete comments", description: "Delete threads and messages." },
 ]
 
 /**
  * The policy without `authorize`, for every action. On the development server, everyone may, anonymous people as
  * guests. In a production build, only people that a sign-in already vetted: a person signed in with GitHub who can
  * push to the repository of the build, or a person that the Console admitted to its Comments section through the
- * comment operations or the Console MCP tools. Users of ViteHub Auth or `identify` get nothing until `authorize` says
+ * comment operations or the Console MCP tools, and a user whose roles allow the action, which Site access in the Console
+ * gives (see `commentsRoleAllows()`). Other users of ViteHub Auth or `identify` get nothing until `authorize` says
  * who may, because any visitor may be able to sign up. On the page, only people signed in with GitHub get in.
  */
-export function defaultPolicy(user: CommentsUser | null, gate: CommentsPolicyGate = {}): boolean {
+export function defaultPolicy(user: CommentsUser | null, gate: CommentsPolicyGate = {}, action?: CommentAction): boolean {
+  if (action && commentsRoleAllows(user, action)) return true
   if (user?.github) return user.github.write
   if (gate.development === true) return true
   return user !== null && gate.console === true
@@ -241,5 +247,5 @@ export function defaultPolicy(user: CommentsUser | null, gate: CommentsPolicyGat
  * in a production build that neither GitHub nor the Console vetted. The diagnostics then name the missing policy.
  */
 export function deniedForMissingPolicy(definition: Pick<CommentsDefinition, "authorize">, user: CommentsUser | null, gate: CommentsPolicyGate = {}): boolean {
-  return !definition.authorize && user !== null && user.guest !== true && !user.github && gate.development !== true && gate.console !== true
+  return !definition.authorize && user !== null && user.guest !== true && !user.github && gate.development !== true && gate.console !== true && !rolesOf(user).some(role => role.startsWith("comments-"))
 }

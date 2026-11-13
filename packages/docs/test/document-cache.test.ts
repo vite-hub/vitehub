@@ -10,6 +10,8 @@ vi.mock("nitro/kv", () => ({ useKV }))
 vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
@@ -65,9 +67,11 @@ it.each([undefined, "docs-1"])("reads packed production pages from %s through Co
   onTestFinished(() => { page.source = original })
   const markdown = "# Packed page\n\nOnly in the production bundle.\n"
   const bytes = Buffer.from(markdown)
+  const rewritten = Buffer.from("# Agent copy\n\nRewritten for agents.\n")
+  const agentSource = `docs_${source ? source.slice("docs-".length) : 0}`
   vi.doMock("#docs/files", () => ({ default: {
-    index: { [source ?? "docs"]: { [page.file]: [0, bytes.length] } },
-    packed: gzipSync(bytes).toString("base64"),
+    index: { [source ?? "docs"]: { [page.file]: [0, bytes.length] }, "docs-agent": { [`${agentSource}/${page.file}`]: [bytes.length, bytes.length + rewritten.length] } },
+    packed: gzipSync(Buffer.concat([bytes, rewritten])).toString("base64"),
   } }))
   onTestFinished(() => { vi.doMock("#docs/files", () => ({ default: null })) })
   getItem.mockResolvedValue(null)
@@ -75,6 +79,11 @@ it.each([undefined, "docs-1"])("reads packed production pages from %s through Co
   const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
   expect(response.status).toBe(200)
   expect(JSON.stringify(await response.json())).toContain("Only in the production bundle.")
+  const { docsContent, readDocsRawCopy } = await import("../src/runtime/content.ts")
+  const copy = await readDocsRawCopy("/raw/docs/kv.md")
+  expect(copy).toContain("Rewritten for agents.")
+  expect(copy).not.toContain("Only in the production bundle.")
+  expect((await docsContent().page("/docs/kv"))?.content).toContain("Rewritten for agents.")
   expect(useKV).not.toHaveBeenCalled()
 })
 

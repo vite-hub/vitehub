@@ -22,6 +22,12 @@ declare module "#docs/example-sources" {
   export default examples
 }
 
+/** The `llms` option of the docs module. */
+declare module "#docs/agent" {
+  const agent: { llms: import("../../nuxt.ts").DocsLlmsOptions }
+  export default agent
+}
+
 /** The docs Markdown files packed into one module in a production build, or null in development. */
 declare module "#docs/files" {
   const files: import("../../files.ts").DocsPackedFiles | null
