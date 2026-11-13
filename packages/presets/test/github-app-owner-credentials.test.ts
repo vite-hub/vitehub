@@ -20,6 +20,11 @@ it.each(["onmax", "OnMax"])("uses owner-scoped installation IDs configured as %s
   expect(discovered).toEqual(["https://api.github.com/repos/nuxt-modules/better-auth/installation"]);
 });
 
+it("rejects a fixed installation without its owner", () => {
+  const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  expect(() => createGitHubAppCredentials({ appId: 1, privateKey, installationId: 101 })).toThrow("`installationId` needs `owner`");
+});
+
 it("isolates concurrent installation lookups from another caller's cancellation", async () => {
   const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   const requests: Array<{ signal?: AbortSignal | null; resolve: (response: Response) => void }> = [];

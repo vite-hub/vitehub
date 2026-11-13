@@ -296,8 +296,8 @@ The host reads the GitHub App from `env.server.github` or `VITEHUB_GITHUB_APP_ID
 `VITEHUB_GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
 commits as the App's bot. `VITEHUB_GITHUB_INSTALLATION_ID` pins the installation for
 `VITEHUB_GITHUB_APP_OWNER`. `VITEHUB_GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
-names to installation IDs. Other owners resolve their own installation. The host
-ignores an environment installation ID without an owner.
+names to installation IDs. Other owners resolve their own installation. An
+installation ID without an owner fails at startup with `FORGE_INVALID_ENV`.
 A delivery without a configured webhook secret is rejected. Only the commit
 author and committer identity pass to the worker; credentials do not. On its
 first start, the host imports `.vitehub/pull-request-inbox.sqlite` from an
