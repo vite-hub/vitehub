@@ -16,9 +16,12 @@ export function prefixApplicationPath(baseURL: string, path: string): string {
   return `${base}${path}`
 }
 
-/** Prefix an application path, such as the Auth Base Path, with the application base path. */
-export function resolveAuthMountPath(path: string): string {
-  return prefixApplicationPath(authApplicationBaseURL(), path)
+/**
+ * Prefix an application path, such as the Auth Base Path, with the application base path: `appBaseURL` when given,
+ * such as Nuxt's runtime `app.baseURL`, else the base path of the build.
+ */
+export function resolveAuthMountPath(path: string, appBaseURL?: string): string {
+  return prefixApplicationPath(appBaseURL ?? authApplicationBaseURL(), path)
 }
 
 function authApplicationBaseURL(): string {

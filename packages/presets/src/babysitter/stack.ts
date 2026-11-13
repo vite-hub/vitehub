@@ -34,6 +34,8 @@ export function stackRetargetBase(pr: GitHubPullRequestRecord, baseBranchPulls: 
   return defaultBranch;
 }
 
+export const stackChildBaseDeletion = "repository cleanup would delete an open child pull request's base branch";
+
 /** GitHub's repository setting may delete a parent branch as part of merging it. */
 export function directMergeBranchSafety(repository: unknown, pr: unknown, openChildren: readonly unknown[]): true | string {
   if (!isRuntimeRecord(repository) || !hasRuntimeType(repository.delete_branch_on_merge, "boolean")) {
@@ -49,7 +51,7 @@ export function directMergeBranchSafety(repository: unknown, pr: unknown, openCh
   const branch = field(pr, "head", "ref");
   if (!hasRuntimeType(branch, "string")) return "pull request source branch unavailable";
   return openChildren.some(child => String(field(child, "state")).toLowerCase() === "open"
-    && field(child, "base", "ref") === branch) ? "repository cleanup would delete an open child pull request's base branch" : true;
+    && field(child, "base", "ref") === branch) ? stackChildBaseDeletion : true;
 }
 
 /** The head and base branch of a PR whose head branch lives in `repository`, which the host can push to. */

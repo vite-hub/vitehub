@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { createApp, defineComponent, effectScope, h, nextTick, ref } from "vue"
 import { renderToString } from "vue/server-renderer"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { Window } from "happy-dom"
 import type { Ref } from "vue"
@@ -35,8 +35,22 @@ async function untilLoaded(watched: number): Promise<void> {
 }
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
-const { Can, Cannot, createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts")
-const { AbilityError } = await import("../src/ability-error.ts")
+// Each test gets new modules, because the app shares one session per client.
+let Can: typeof import("../src/vue.ts").Can
+let Cannot: typeof import("../src/vue.ts").Cannot
+let createAuthClient: typeof import("../src/vue.ts").createAuthClient
+let setNuxtAppResolver: typeof import("../src/vue.ts").setNuxtAppResolver
+let setNuxtErrorFactory: typeof import("../src/vue.ts").setNuxtErrorFactory
+let setSessionSeedResolver: typeof import("../src/vue.ts").setSessionSeedResolver
+let useAbility: typeof import("../src/vue.ts").useAbility
+// The class from the same module instance as `vue.ts`, so `toBeInstanceOf()` matches.
+let AbilityError: typeof import("../src/ability-error.ts").AbilityError
+
+beforeEach(async () => {
+  vi.resetModules()
+  ;({ Can, Cannot, createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts"))
+  ;({ AbilityError } = await import("../src/ability-error.ts"))
+})
 
 const author = { session: { id: "s1" }, user: { id: "u1", name: "Ada", emailVerified: true } }
 const ownPost = { authorId: "u1", published: false }
@@ -78,8 +92,11 @@ describe("<Can> during server rendering", () => {
     betterAuth.session = pendingSession()
     expect(await render(canEdit(ownPost))).toBe("<button>Edit</button>")
     expect(await render(canEdit(otherPost))).toBe("<span>denied: not-author</span>")
+  })
 
+  it("renders #denied when the server read no session", async () => {
     setSessionSeedResolver(() => null)
+    betterAuth.session = pendingSession()
     expect(await render(canEdit(ownPost))).toBe("<span>denied: signed-out</span>")
   })
 })
@@ -266,9 +283,14 @@ describe("useAbility().authorize()", () => {
     const asked = betterAuth.asked
     await expect(mountAbility().authorize("posts.edit", ownPost)).resolves.toBeUndefined()
     expect(betterAuth.asked).toBe(asked)
+  })
 
-    // A prerendered page has no session from the server, so it asks Better Auth.
+  it("asks Better Auth while Nuxt hydrates a prerendered page, which has no session from the server", async () => {
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), isHydrating: true }))
     setSessionSeedResolver(() => undefined)
+    betterAuth.session = pendingSession()
+    betterAuth.current = null
+    const asked = betterAuth.asked
     await expect(mountAbility().authorize("posts.edit", ownPost)).rejects.toMatchObject({ status: 401 })
     expect(betterAuth.asked).toBe(asked + 1)
   })
@@ -305,8 +327,11 @@ describe("<Cannot>", () => {
     expect(await cannot({ do: "posts.move", args: ["a", "a"] })).toBe("<span>cannot: undefined</span>")
     expect(await cannot({ do: "posts.move", args: ["a", "b"] })).toBe("<!---->")
     expect(await cannot({ do: "posts.draft" })).toBe("<!---->")
+  })
 
+  it("renders its slot with the signed-out refusal when the server read no session", async () => {
     setSessionSeedResolver(() => null)
+    betterAuth.session = pendingSession()
     expect(await cannot({ do: "posts.edit", with: ownPost })).toBe("<span>cannot: signed-out</span>")
   })
 
