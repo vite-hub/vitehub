@@ -3985,6 +3985,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/kit':
+        specifier: workspace:*
+        version: link:../kit
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:../kv
@@ -4075,9 +4078,6 @@ importers:
       publint:
         specifier: catalog:tooling
         version: 0.3.25
-      reka-ui:
-        specifier: ^2.11.0
-        version: 2.11.0(vue@3.5.44(typescript@6.0.3))
       shiki:
         specifier: ^4.5.0
         version: 4.5.0

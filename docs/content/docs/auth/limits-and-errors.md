@@ -44,6 +44,8 @@ console.log(error.toJSON())
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
 | `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
 | `AUTH_C0060` | Both `shared/abilities.ts` and another `shared/abilities.*` file exist. Keep one. |
+| `AUTH_C0061` | A callback or `runtime` returns `database: true` or `{ name }`. Return `authDatabase()` or another Better Auth adapter. See [Storage adapters](/docs/auth/configure#storage-adapters). |
+| `AUTH_C0062` | A callback or `runtime` returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
 | [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
