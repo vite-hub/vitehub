@@ -28,17 +28,16 @@ export default defineAuth({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed to `betterAuth()` without the ViteHub fields. |
-| `database` | `authDatabase(name?)` | In-memory store | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. Return another Better Auth adapter from the Definition callback or `runtime`. See [Storage adapters](#storage-adapters). |
-| `secondaryStorage` | None in the static options | Disabled | Return a Better Auth `secondaryStorage` adapter from the Definition callback or `runtime`. |
+| `database` | `authDatabase(name?)` | In-memory store | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. Return another Better Auth adapter from the Definition callback. See [Storage adapters](#storage-adapters). |
+| `secondaryStorage` | None in the static options | Disabled | Return a Better Auth `secondaryStorage` adapter from the Definition callback. |
 | `preset` | `stateless()` | None | Sets a preset's Better Auth options and checks the other options against it. See [Sessions without a database](#sessions-without-a-database). |
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
 | `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
-| `runtime` | Options object or `(context) => options` | None | Runtime-only Better Auth values such as `baseURL`, `secret`, `secrets`, and storage adapters. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback or put them under `runtime`, never as static top-level fields. `access.routes` must be static so the Vite integration can register middleware.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` must be static so the Vite integration can register middleware.
 
 ### Secret
 
@@ -52,7 +51,7 @@ When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no B
 
 ## Runtime options
 
-When values depend on the request, Server Env, provider credentials, or request origin, use a Definition callback or the `runtime` field. Declare the secrets in [Env](/docs/env) first.
+When values depend on the request, Server Env, provider credentials, or request origin, pass a callback to `defineAuth()`. The callback returns all the options, the static ones too. Auth does not merge it with other options, so each nested object, such as `advanced`, has all its fields in one place. Declare the secrets in [Env](/docs/env) first.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -153,7 +152,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `requestOrigin` | The current request's origin. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps need no separate auth URL variable. |
 | `request` | The current request headers and URL, if there is a request. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition and `runtime` callbacks once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition callback once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
 
 ### Behind a proxy that ends TLS
 
@@ -173,7 +172,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 Turn it on only when a proxy you run sets these headers. Without one, a client can send them and choose the origin of callback URLs and emailed links.
 ::
 
-Caller runtime options override the `runtime` result, which overrides the Definition, and `advanced` is replaced as a whole. Callbacks first run with the request URL's origin. If proxy trust is then on and the forwarded origin differs, they run again with that origin. If that run turns trust off, Auth drops the forwarded values and proxy trust. By default, Auth checks each request's `Origin` against the final `baseURL`.
+The callback first runs with the request URL's origin. If proxy trust is then on and the forwarded origin differs, they run again with that origin. If that run turns trust off, Auth drops the forwarded values and proxy trust. By default, Auth checks each request's `Origin` against the final `baseURL`.
 
 ## Sessions without a database
 
@@ -209,7 +208,7 @@ With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session
 - You cannot revoke one session. Sign-out removes the cookies from that browser only. To sign out every user, change `session.cookieCache.version` or rotate the secret.
 - The cookie holds a copy of the user from sign-in and the provider tokens. Large provider tokens can go over browser or proxy header limits.
 
-Because `preset` is a ViteHub option, ViteHub checks the other options against it. These combinations fail when the Definition is created, or when a callback or `runtime` resolves:
+Because `preset` is a ViteHub option, ViteHub checks the other options against it. These combinations fail when the Definition is created, or when a callback resolves:
 
 | Code | Combination |
 | --- | --- |
@@ -291,7 +290,7 @@ pnpm vitehub database migrate
 ```
 
 - `authDatabase()` uses the `default` Database. For a Named Database, pass its name, such as `authDatabase('content')`. Write the call inline in `defineAuth()`, in the object or the object the callback returns, so the Vite integration can read it.
-- Keep one unconditional Database target. A callback must return one object with the inline call. Branches and `runtime.database` cannot pick another target. Other runtime options still work.
+- Keep one unconditional Database target. A callback must return one object with the inline call. Branches cannot pick another target. Other runtime options still work.
 - The tables use text IDs and references. Use Better Auth's default ID generator or a custom function that returns strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` need another adapter and your own schema. `authDatabase()` rejects them with `AUTH_C0053`.
 - The core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema with those columns. `authDatabase()` rejects them with `AUTH_C0055`, and a Database contribution cannot extend these tables.
 - `admin()`, `jwt()`, `oauthProvider()`, `organization()`, and `passkey()` from `@better-auth/passkey` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
@@ -301,7 +300,7 @@ pnpm vitehub database migrate
 - Other plugins that only add tables need those tables in the Database Definition. A missing table fails when Better Auth uses it. `twoFactor()` also adds `user.twoFactorEnabled`, so it needs another adapter and a matching schema.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
 
-Better Auth's own adapters still work. To use another database, return one from the Definition callback or `runtime`.
+Better Auth's own adapters still work. To use another database, return one from the Definition callback.
 
 ## Rate limiting
 
@@ -475,7 +474,7 @@ export default defineSchedule({
 `database` and `secondaryStorage` take Better Auth adapters only.
 
 - In a static Definition, `database` takes only [`authDatabase()`](#keep-users-in-the-app-database). `authDatabase('auth')` uses the Named Database `auth`.
-- Return another Better Auth `database` adapter, or a `secondaryStorage` adapter, from the Definition callback or `runtime`.
+- Return another Better Auth `database` adapter, or a `secondaryStorage` adapter, from the Definition callback.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -487,7 +486,7 @@ export default defineAuth({
 })
 ```
 
-`true`, `{ name }`, and `{ store }` do not create storage. Auth rejects them at build time (`AUTH_C0014`, `AUTH_C0017`), when the Definition loads (`AUTH_C0021`, `AUTH_C0024`), and when a callback or `runtime` returns them (`AUTH_C0061`, `AUTH_C0062`).
+`true`, `{ name }`, and `{ store }` do not create storage. Auth rejects them at build time (`AUTH_C0014`, `AUTH_C0017`), when the Definition loads (`AUTH_C0021`, `AUTH_C0024`), and when a callback returns them (`AUTH_C0061`, `AUTH_C0062`).
 
 ## Vite Integration options
 

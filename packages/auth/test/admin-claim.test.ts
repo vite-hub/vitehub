@@ -9,6 +9,7 @@ import { createAuthConsole } from "../src/console-runtime.ts"
 import { createAuthForRequest, createBetterAuthOptions, resetAuth } from "../src/internal/server.ts"
 import { hubAuth } from "../src/vite.ts"
 import { runViteHubCli } from "../../cli/src/index.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "https://app.example.com"
 
@@ -138,25 +139,23 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     const code = createAdminClaimCode()
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
     const cache = new Map<string, string>()
-    const definition = defineAuth({
+    const definition = defineFixedAuth({
       emailAndPassword: { enabled: true },
       plugins: [admin()],
       verification: { storeInDatabase, storeIdentifier: "hashed" },
-      runtime: {
-        secondaryStorage: {
-          get: async key => cache.get(key) ?? null,
-          set: async (key, value) => { cache.set(key, value) },
-          delete: async (key) => { cache.delete(key) },
-          getAndDelete: async (key) => {
-            const value = cache.get(key) ?? null
-            cache.delete(key)
-            return value
-          },
-          increment: async (key) => {
-            const value = Number(cache.get(key) ?? 0) + 1
-            cache.set(key, String(value))
-            return value
-          },
+      secondaryStorage: {
+        get: async key => cache.get(key) ?? null,
+        set: async (key, value) => { cache.set(key, value) },
+        delete: async (key) => { cache.delete(key) },
+        getAndDelete: async (key) => {
+          const value = cache.get(key) ?? null
+          cache.delete(key)
+          return value
+        },
+        increment: async (key) => {
+          const value = Number(cache.get(key) ?? 0) + 1
+          cache.set(key, String(value))
+          return value
         },
       },
     })
@@ -191,32 +190,30 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     const cache = new Map<string, string>()
     let unavailable = false
     const checkStorage = () => { if (unavailable) throw new Error("secondary storage unavailable") }
-    const definition = defineAuth({
+    const definition = defineFixedAuth({
       emailAndPassword: { enabled: true },
       plugins: [admin()],
       verification: { storeIdentifier: "hashed" },
-      runtime: {
-        secondaryStorage: {
-          get: async (key) => { checkStorage(); return cache.get(key) ?? null },
-          set: async (key, value) => {
-            // A reservation mirror fails after the durable insert, and all storage operations stay unavailable.
-            if (key.startsWith("verification:")) unavailable = true
-            checkStorage()
-            cache.set(key, value)
-          },
-          delete: async (key) => { checkStorage(); cache.delete(key) },
-          getAndDelete: async (key) => {
-            checkStorage()
-            const value = cache.get(key) ?? null
-            cache.delete(key)
-            return value
-          },
-          increment: async (key) => {
-            checkStorage()
-            const value = Number(cache.get(key) ?? 0) + 1
-            cache.set(key, String(value))
-            return value
-          },
+      secondaryStorage: {
+        get: async (key) => { checkStorage(); return cache.get(key) ?? null },
+        set: async (key, value) => {
+          // A reservation mirror fails after the durable insert, and all storage operations stay unavailable.
+          if (key.startsWith("verification:")) unavailable = true
+          checkStorage()
+          cache.set(key, value)
+        },
+        delete: async (key) => { checkStorage(); cache.delete(key) },
+        getAndDelete: async (key) => {
+          checkStorage()
+          const value = cache.get(key) ?? null
+          cache.delete(key)
+          return value
+        },
+        increment: async (key) => {
+          checkStorage()
+          const value = Number(cache.get(key) ?? 0) + 1
+          cache.set(key, String(value))
+          return value
         },
       },
     })
@@ -260,7 +257,7 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
     const sqlite = new DatabaseSync(":memory:")
     // Two Definitions build two Auth instances with their own plugin state, as two Workers would.
-    const instance = () => defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()], runtime: { database: sqlite, secret: "admin-claim-test-secret-1234567890abcdef", baseURL: origin } })
+    const instance = () => defineFixedAuth({ emailAndPassword: { enabled: true }, plugins: [admin()], database: sqlite, secret: "admin-claim-test-secret-1234567890abcdef", baseURL: origin })
     const [one, two] = [instance(), instance()]
     await (await getMigrations(createBetterAuthOptions(one))).runMigrations()
     const [authOne, authTwo] = [createAuthForRequest(one, new Request(origin)), createAuthForRequest(two, new Request(origin))]
@@ -276,7 +273,7 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
     const sqlite = new DatabaseSync(":memory:")
     try {
-      const instance = () => defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()], runtime: { database: sqlite, secret: "admin-claim-test-secret-1234567890abcdef", baseURL: origin } })
+      const instance = () => defineFixedAuth({ emailAndPassword: { enabled: true }, plugins: [admin()], database: sqlite, secret: "admin-claim-test-secret-1234567890abcdef", baseURL: origin })
       const [one, two] = [instance(), instance()]
       await (await getMigrations(createBetterAuthOptions(one))).runMigrations()
       const [authOne, authTwo] = [createAuthForRequest(one, new Request(origin)), createAuthForRequest(two, new Request(origin))]
