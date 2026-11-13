@@ -1,11 +1,12 @@
-import type { ConsoleDatabaseInspection } from "../../internal.ts"
+import type { ConsoleDatabaseEntry, ConsoleDatabaseInspection } from "../../internal.ts"
 import { asc, count, desc, getTableColumns, is, or, sql } from "drizzle-orm"
-import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
+import { getTableConfig as getPgTableConfig, PgTable } from "drizzle-orm/pg-core"
+import { getTableConfig as getSQLiteTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 
 import { consoleHttpError } from "./http-error.ts"
 import { getConsoleDatabase } from "./database.ts"
 
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core"
+import type { Column, SQL } from "drizzle-orm"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const defaultLimit = 50
@@ -67,9 +68,28 @@ export interface ConsoleDatabaseResponse {
 }
 
 interface DatabaseTableEntry {
-  columns: Array<[string, SQLiteColumn]>
+  columns: Array<[string, Column]>
   name: string
-  table: SQLiteTable
+  table: PgTable | SQLiteTable
+}
+
+/** The parts of the table config that the Console reads. SQLite and Postgres tables give the same shape. */
+interface DatabaseTableConfig {
+  columns: readonly Column[]
+  foreignKeys: ReadonlyArray<{ reference(): { columns: readonly Column[], foreignColumns: readonly Column[], foreignTable: PgTable | SQLiteTable } }>
+  indexes: ReadonlyArray<{ config: { columns: readonly object[], unique: boolean, where?: SQL | undefined } }>
+  name: string
+  primaryKeys: ReadonlyArray<{ columns: readonly Column[] }>
+  uniqueConstraints: ReadonlyArray<{ columns: readonly Column[] }>
+}
+
+function tableConfig(table: PgTable | SQLiteTable): DatabaseTableConfig {
+  return is(table, PgTable) ? getPgTableConfig(table) : getSQLiteTableConfig(table)
+}
+
+/** The name of an index column. SQLite indexes hold the column, Postgres indexes an indexed column, and both can hold SQL. */
+function indexColumnName(column: object | undefined): string | undefined {
+  return column && "name" in column && typeof column.name === "string" ? column.name : undefined
 }
 
 function requestError(statusCode: number, statusMessage: string): Error {
@@ -137,12 +157,11 @@ function cell(value: unknown): ConsoleDatabaseCell {
 
 function databaseTables(schema: Record<string, unknown>): DatabaseTableEntry[] {
   return Object.values(schema)
-    .filter((value): value is SQLiteTable => is(value, SQLiteTable))
+    .filter((value): value is PgTable | SQLiteTable => is(value, SQLiteTable) || is(value, PgTable))
     .map((table) => {
-      const config = getTableConfig(table)
-      // SAFETY: Drizzle's table column map contains SQLiteColumn values, while Object.entries only erases that value type.
-      const columns = Object.entries(getTableColumns(table)) as Array<[string, SQLiteColumn]>
-      return { columns, name: config.name, table }
+      // SAFETY: Drizzle's table column map contains Column values, while Object.entries only erases that value type.
+      const columns = Object.entries(getTableColumns(table)) as Array<[string, Column]>
+      return { columns, name: tableConfig(table).name, table }
     })
     .sort((left, right) => left.name.localeCompare(right.name))
 }
@@ -154,7 +173,7 @@ function tableMetadata(entries: readonly DatabaseTableEntry[]): {
   const tableNames = new Map(entries.map(entry => [entry.table, entry.name]))
   const relationships: ConsoleDatabaseRelationship[] = []
   const tables = entries.map((entry) => {
-    const config = getTableConfig(entry.table)
+    const config = tableConfig(entry.table)
     const columnKeys = new Map(entry.columns.map(([key, column]) => [column, key]))
     const primary = new Set([
       ...config.columns.filter(column => column.primary),
@@ -165,9 +184,9 @@ function tableMetadata(entries: readonly DatabaseTableEntry[]): {
       ...config.uniqueConstraints.filter(constraint => constraint.columns.length === 1).flatMap(constraint => constraint.columns),
       ...config.indexes
         .filter(index => index.config.unique && !index.config.where && index.config.columns.length === 1)
-        .flatMap(index => index.config.columns),
+        .flatMap(index => config.columns.filter(column => column.name === indexColumnName(index.config.columns[0]))),
     ])
-    const foreignKeys = new Map<SQLiteColumn, { column: string; table: string }>()
+    const foreignKeys = new Map<Column, { column: string; table: string }>()
     for (const foreignKey of config.foreignKeys) {
       const reference = foreignKey.reference()
       const foreignTable = tableNames.get(reference.foreignTable)
@@ -246,14 +265,22 @@ export async function browseConsoleDatabase(query: ConsoleDatabaseQuery): Promis
   let rows: Array<Record<string, unknown>> = []
   let total = 0
   if (entry) {
+    const postgres = is(entry.table, PgTable)
+    // SQLite has `instr` and Postgres has `strpos`. Both find the text without LIKE wildcards.
     const conditions = search
-      ? or(...entry.columns.map(([, column]) => sql`instr(lower(cast(${column} as text)), lower(${search})) > 0`))
+      ? or(...entry.columns.map(([, column]) => postgres
+          ? sql`strpos(lower(cast(${column} as text)), lower(${search})) > 0`
+          : sql`instr(lower(cast(${column} as text)), lower(${search})) > 0`))
       : undefined
     const orderColumn = entry.columns.find(([key]) => key === sort)?.[1]
       ?? entry.columns.find(([, column]) => column.primary)?.[1]
       ?? entry.columns[0]?.[1]
-    let rowsQuery = database.db.select().from(entry.table).$dynamic()
-    let countQuery = database.db.select({ value: count() }).from(entry.table).$dynamic()
+    // SAFETY: A Definition has one dialect, so a Postgres table comes with a Postgres database. The Postgres and SQLite
+    // query builders take the same select, where, orderBy, limit, and offset calls, so the SQLite types describe both.
+    const db = database.db as Extract<ConsoleDatabaseEntry["db"], { run: unknown }>
+    const table = entry.table as SQLiteTable
+    let rowsQuery = db.select().from(table).$dynamic()
+    let countQuery = db.select({ value: count() }).from(table).$dynamic()
     if (conditions) {
       rowsQuery = rowsQuery.where(conditions)
       countQuery = countQuery.where(conditions)

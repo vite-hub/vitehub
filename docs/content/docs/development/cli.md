@@ -846,7 +846,7 @@ See [Export a database](/docs/database/configure#export-a-database) for each dri
 
 ## Browse Database tables
 
-`database tables` and `database rows` run `databases.tables` and `databases.browse`, the [operations](/docs/development/operations) of the Console Databases section. They read the running app's Database Definitions, so they work on any driver without a Drizzle Kit config. They never write.
+`database tables` and `database rows` run `databases.tables` and `databases.browse`, the [operations](/docs/development/operations) of the Console Databases section. They read the running app's Database Definitions, so they work on SQLite, D1, libSQL, and Postgres without a Drizzle Kit config. They never write.
 
 ```bash [Terminal]
 pnpm vitehub database tables
