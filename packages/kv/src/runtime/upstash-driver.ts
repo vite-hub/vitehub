@@ -44,5 +44,8 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     const [next, keys] = await (await client()).scan(cursor, { count, match: `${escapeRedisGlob(base)}:${match}` })
     return [String(next), keys.map(unprefixed)]
   })
+  // unstorage's Upstash driver has no dispose(), but KV storage and callers dispose every driver.
+  const dispose = driver.dispose
+  driver.dispose = async () => { await dispose?.call(driver) }
   return driver
 }

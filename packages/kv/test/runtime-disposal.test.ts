@@ -41,7 +41,7 @@ vi.mock("unstorage/drivers/upstash", () => ({
       ...driver,
       getInstance: async () => ({
         set: async (key: string, value: string) => {
-          await driver.setItem!(key, value)
+          await driver.setItem!(key, value, {})
           return "OK"
         },
       }),
