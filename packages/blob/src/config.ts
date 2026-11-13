@@ -228,7 +228,7 @@ function resolveCloudflareStore(
 
 /**
  * Vercel Blob sets access on each object, and a public object has a public provider URL. So a store is private unless
- * its config sets `access: "public"` or a `public: true` serve route serves it.
+ * its config sets `access: "public"` or an `access: "public"` serve route serves it.
  */
 function resolveVercelAccess(
   config: Partial<VercelBlobStoreConfig>,
@@ -238,7 +238,7 @@ function resolveVercelAccess(
   if (config.access === "public" && served?.authorize) {
     throw blobErrorDiagnostics.BLOB_C0022({ message: `\`${path}.access\` is "public", but \`blob.serve\` requires \`authorize: true\` for this store. Anyone could read its objects from their public Vercel Blob URLs.` })
   }
-  return config.access ?? (served?.public ? "public" : "private")
+  return config.access ?? served?.access ?? "private"
 }
 
 function resolveVercelStore(
@@ -345,27 +345,34 @@ function normalizeServeOptions(value: false | BlobServeOptions | undefined): Res
   if (value.authorize !== undefined && value.authorize !== true && value.authorize !== false) {
     throw blobErrorDiagnostics.BLOB_C0012({ message: "`blob.serve.authorize` must be a boolean. Export an `authorize` function from `server/blob.ts` for per-request rules." })
   }
-  if (value.public !== undefined && value.public !== true && value.public !== false) {
-    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve.public` must be a boolean." })
+  if ("public" in value) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve.public` is not an option. Set `access: \"public\"` to serve the files to anyone." })
   }
-  if (value.public && value.authorize) {
-    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` sets both `public: true` and `authorize: true`. Choose one." })
+  const authorize: unknown = value.authorize
+  if (authorize === false) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve.authorize: false` does not make the route public. Set `access: \"public\"` to serve the files to anyone, or `authorize: true` to require sign-in." })
   }
-  if (!value.public && !value.authorize) {
-    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` does not say who may read the files. The serve route sends every object of the store, so set `public: true` or `authorize: true`." })
+  if (value.access !== undefined && value.access !== "public") {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: `\`blob.serve.access\` must be "public". Received ${JSON.stringify(value.access)}. Set \`authorize: true\` to require sign-in.` })
+  }
+  if (value.access && value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` sets both `access: \"public\"` and `authorize: true`. Choose one." })
+  }
+  if (!value.access && !value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` does not say who may read the files. The serve route sends every object of the store, so set `access: \"public\"` or `authorize: true`." })
   }
   if (value.anonymous !== undefined && value.anonymous !== true && value.anonymous !== false) {
     throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` must be a boolean." })
   }
   if (value.anonymous && !value.authorize) {
-    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. A `public: true` route already serves signed-out callers." })
+    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. An `access: \"public\"` route already serves signed-out callers." })
   }
   const headers = normalizeServeHeaders(value.headers)
   return {
+    ...(value.access ? { access: "public" } : {}),
     ...(value.anonymous ? { anonymous: true } : {}),
     ...(value.authorize ? { authorize: true } : {}),
     ...(headers ? { headers } : {}),
-    ...(value.public ? { public: true } : {}),
     route: trimmed(value.route) || DEFAULT_BLOB_SERVE_ROUTE,
     store: trimmed(value.store) || "default",
     ...(trimmed(value.publicBaseUrl) ? { publicBaseUrl: trimmed(value.publicBaseUrl) } : {}),

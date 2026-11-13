@@ -531,9 +531,9 @@ interface BlobServeRouteOptions {
   store?: string
 }
 
-/** Serves every object of the store to anyone who has its URL. */
+/** Serves every object of the store to anyone who has its URL, without sign-in. */
 export interface BlobPublicServeOptions extends BlobServeRouteOptions {
-  public: true
+  access: "public"
   anonymous?: never
   authorize?: never
 }
@@ -547,10 +547,10 @@ export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
    * Requires an `authorize` export (type `BlobServeAnonymousAuthorize`).
    */
   anonymous?: boolean
-  public?: never
+  access?: never
 }
 
-/** The serve route. Choose `public: true` or `authorize: true`: ViteHub does not pick public access for you. */
+/** The serve route. Choose `access: "public"` or `authorize: true`: ViteHub does not pick public access for you. */
 export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
@@ -560,9 +560,9 @@ export type BlobServeAuthorize = AccessAuthorize
 export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
 
 export interface BlobServeConfig {
+  access?: "public"
   anonymous?: true
   authorize?: true
-  public?: true
   headers?: Record<string, string>
   publicBaseUrl?: string
   route: string

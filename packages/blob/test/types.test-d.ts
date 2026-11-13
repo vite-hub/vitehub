@@ -43,7 +43,7 @@ describe("types", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
-        public: true,
+        access: "public",
       },
     } satisfies BlobOptions
 
@@ -54,15 +54,19 @@ describe("types", () => {
   })
 
   it("requires the serve route to say who may read the files", () => {
-    // @ts-expect-error `serve: true` made every object public. Choose `public: true` or `authorize: true`.
+    // @ts-expect-error `serve: true` made every object public. Choose `access: "public"` or `authorize: true`.
     const shorthand: BlobOptions = { driver: "fs", serve: true }
-    // @ts-expect-error A serve route without `public` or `authorize` would be public.
+    // @ts-expect-error A serve route without `access` or `authorize` would be public.
     const implicit: BlobOptions = { driver: "fs", serve: { route: "/files" } }
     // @ts-expect-error A route is public or authorized, not both.
-    const both: BlobOptions = { driver: "fs", serve: { authorize: true, public: true } }
+    const both: BlobOptions = { driver: "fs", serve: { authorize: true, access: "public" } }
     // @ts-expect-error `anonymous` applies to an authorized route only.
-    const anonymousPublic: BlobOptions = { driver: "fs", serve: { anonymous: true, public: true } }
-    expectTypeOf([shorthand, implicit, both, anonymousPublic]).toMatchTypeOf<BlobOptions[]>()
+    const anonymousPublic: BlobOptions = { driver: "fs", serve: { anonymous: true, access: "public" } }
+    // @ts-expect-error `authorize: false` reads as "deny". Set `access: "public"` for a public route.
+    const authorizeFalse: BlobOptions = { driver: "fs", serve: { authorize: false } }
+    // @ts-expect-error A serve route is public or authorized. Use `authorize: true` for private files.
+    const privateRoute: BlobOptions = { driver: "fs", serve: { access: "private" } }
+    expectTypeOf([shorthand, implicit, both, anonymousPublic, authorizeFalse, privateRoute]).toMatchTypeOf<BlobOptions[]>()
     // @ts-expect-error One object cannot be private on its own.
     const putOptions: BlobPutOptions = { access: "private" }
     expectTypeOf(putOptions).toMatchTypeOf<BlobPutOptions>()

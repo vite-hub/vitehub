@@ -115,7 +115,7 @@ describe("generated Nitro plugin", () => {
   })
 
   it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
-    await generatePlugin({ driver: "fs", serve: { public: true } })
+    await generatePlugin({ driver: "fs", serve: { access: "public" } })
     const route = await readFile(join(root, ".vitehub/blob/serve-route.ts"), "utf8")
     expect(route).toContain("import { blob, parseImageVariant } from '@vite-hub/blob'")
     expect(route).toContain("const variant = parseImageVariant(url.searchParams)")

@@ -388,7 +388,7 @@ describe("Blob Nitro runtime module", () => {
     Object.assign(process.env, testCredentialEnv)
 
     await writeVercelRuntimeModule(rootDir, resolveVercelBlob({
-      serve: { public: true, route: "/", store: "assets" },
+      serve: { access: "public", route: "/", store: "assets" },
       stores: {
         assets: {
           access: "public",
@@ -445,7 +445,7 @@ describe("Blob Nitro runtime module", () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-read-mode-runtime-")
     Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
-      serve: { public: true, route: "/reports", store: "reports" },
+      serve: { access: "public", route: "/reports", store: "reports" },
       stores: {
         default: { base: join(rootDir, "default"), driver: "fs" },
         reports: { base: join(rootDir, "reports"), driver: "fs" },
@@ -497,7 +497,7 @@ describe("Blob Nitro runtime module", () => {
   it("exposes media records on the generated default and named stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-media-runtime-")
     const resolved = normalizeBlobOptions({
-      serve: { public: true, route: "/media", store: "default" },
+      serve: { access: "public", route: "/media", store: "default" },
       stores: {
         archive: { base: join(rootDir, "archive"), driver: "fs" },
         default: { base: join(rootDir, "default"), driver: "fs" },

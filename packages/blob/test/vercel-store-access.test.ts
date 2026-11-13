@@ -41,13 +41,14 @@ describe("Vercel Blob store access", () => {
 
   it("writes private objects when no route serves the store", async () => {
     expect(await accessSent({ driver: "vercel-blob" })).toBe("private")
-    expect(await accessSent({ stores: { default: { driver: "fs" }, drafts: { driver: "vercel-blob" } }, serve: { public: true } })).toBe("private")
+    expect(await accessSent({ stores: { default: { driver: "fs" }, drafts: { driver: "vercel-blob" } }, serve: { access: "public" } })).toBe("private")
   })
 
   it("writes public objects only when the store or its route says public", async () => {
-    expect(await accessSent({ driver: "vercel-blob", serve: { public: true } })).toBe("public")
+    expect(await accessSent({ driver: "vercel-blob", serve: { access: "public" } })).toBe("public")
     expect(await accessSent({ access: "public", driver: "vercel-blob" })).toBe("public")
-    expect(await accessSent({ access: "private", driver: "vercel-blob", serve: { public: true } })).toBe("private")
+    expect(await accessSent({ access: "public", driver: "vercel-blob", serve: { access: "public" } })).toBe("public")
+    expect(await accessSent({ access: "private", driver: "vercel-blob", serve: { access: "public" } })).toBe("private")
   })
 
   it("rejects a public provider store behind an authorized route", () => {

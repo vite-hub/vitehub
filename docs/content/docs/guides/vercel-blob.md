@@ -56,7 +56,7 @@ export default defineConfig({
 :::
 ::
 
-On the `vercel` host, `blob: true` picks `driver: 'vercel-blob'`. The store writes private objects unless you set `access: 'public'` or serve it with `serve: { public: true }`. A public object has a public Vercel Blob URL that anyone can open. For a public store, set the access mode yourself:
+On the `vercel` host, `blob: true` picks `driver: 'vercel-blob'`. The store writes private objects unless you set `access: 'public'` or serve it with `serve: { access: 'public' }`. A public object has a public Vercel Blob URL that anyone can open. For a public store, set the access mode yourself:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -236,7 +236,7 @@ export default defineConfig({
 `/files/avatars/ada.png` now returns `avatars/ada.png` from the store to a signed-in user, and `401` to a signed-out one. Export `authorize` from `server/blob.ts` to decide which user can read which file.
 
 ::warning
-Use `serve: { public: true }` only when anyone may read every file of the store. `access` on the Vercel Blob store sets the provider access, and a public object can be read from its Vercel Blob URL without the serve route. So `access: 'public'` on a store that `serve: { authorize: true }` serves fails with `BLOB_C0022`.
+Use `serve: { access: 'public' }` only when anyone may read every file of the store. `access` on the Vercel Blob store sets the provider access, and a public object can be read from its Vercel Blob URL without the serve route. So `access: 'public'` on a store that `serve: { authorize: true }` serves fails with `BLOB_C0022`.
 ::
 
 See [Serve blob-backed assets](/docs/blob/configure#serve-blob-backed-assets) and [Protect served objects](/docs/blob/configure#protect-served-objects).

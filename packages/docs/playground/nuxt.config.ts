@@ -27,7 +27,7 @@ export default defineNuxtConfig({
           media: { driver: "cloudflare-r2", binding: "BLOB_MEDIA", bucketName: "vitehub-docs-demo-media" },
         },
         serve: {
-          public: true,
+          access: "public",
           store: "media",
           route: mediaRoute,
           headers: {

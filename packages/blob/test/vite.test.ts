@@ -72,7 +72,7 @@ describe("hubBlob", () => {
     expect(stdout.trim()).toBe("function")
   })
 
-  it.each([undefined, { public: true } as const, { authorize: true } as const])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
+  it.each([undefined, { access: "public" } as const, { authorize: true } as const])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
     const root = await temporaryDirectory("vitehub-blob-auth-watcher-")
     try {
       const plugin = hubBlob({ driver: "fs", serve })
@@ -304,7 +304,7 @@ describe("hubBlob", () => {
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
-      serve: { public: true },
+      serve: { access: "public" },
     })
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -978,7 +978,7 @@ describe("hubBlob", () => {
   })
 
   it("registers an opt-in Nitro serving route", async () => {
-    const plugin = hubBlob({ serve: { public: true } })
+    const plugin = hubBlob({ serve: { access: "public" } })
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
 
     const userConfig = {}
@@ -1075,7 +1075,7 @@ describe("hubBlob", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
-        public: true,
+        access: "public",
         route: "/assets",
         store: "media",
       },
@@ -1147,7 +1147,7 @@ describe("hubBlob", () => {
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers, public: true, route: serveRoute },
+        serve: { headers, access: "public", route: serveRoute },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -1282,7 +1282,7 @@ describe("hubBlob", () => {
 
   it("keeps the Blob sandbox and a middleware CSP on the generated route", async () => {
     const root = await temporaryDirectory("vitehub-blob-route-csp-")
-    const plugin = hubBlob({ driver: "fs", serve: { public: true } }, { importBase: "virtual:blob-test" })
+    const plugin = hubBlob({ driver: "fs", serve: { access: "public" } }, { importBase: "virtual:blob-test" })
     await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
     const artifactFile = join(root, "serve-route.mjs")
     await bundle({
@@ -1590,7 +1590,7 @@ describe("hubBlob", () => {
       try {
         await mkdir(join(root, "server"), { recursive: true })
         await writeFile(join(root, "server", "blob.ts"), "export const authorize = () => true\n")
-        const plugin = hubBlob({ driver: "fs", serve: { public: true, route: "/photos" } })
+        const plugin = hubBlob({ driver: "fs", serve: { access: "public", route: "/photos" } })
         await expect((plugin.configResolved as (config: unknown) => void | Promise<void>)({
           build: { outDir: "dist" },
           plugins: [authPlugin],
@@ -1628,7 +1628,7 @@ describe("hubBlob", () => {
     const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
-      serve: { public: true },
+      serve: { access: "public" },
     }, { importBase: "vite-hub/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
