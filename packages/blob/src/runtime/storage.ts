@@ -192,9 +192,9 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
-    async del(pathnames) {
-      const [error, storage] = await resolveStorageResult("del", name)
-      return error ? [error, undefined] : storage.del(pathnames)
+    async delete(pathnames) {
+      const [error, storage] = await resolveStorageResult("delete", name)
+      return error ? [error, undefined] : storage.delete(pathnames)
     },
     async get(pathname) {
       const [error, storage] = await resolveStorageResult("get", name)

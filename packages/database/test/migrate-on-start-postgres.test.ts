@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 import { ensureDatabaseMigrations, migratePostgres, postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
 
 import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
@@ -96,7 +96,7 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
 /** Runs the Nuxt module for a production Node build and bundles a server whose entry imports Nitro's plugins first, then runs `before`. */
 async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, before: string[] = []) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-  await hubDb(options)(undefined, {
+  await hubDatabase(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
       if (event === "nitro:config") hooks.push(callback)
     },
@@ -114,7 +114,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
     ...before,
-    'import { useDatabase } from "@vite-hub/database/drizzle"',
+    'import { useDatabase } from "@vite-hub/database"',
     'const { db, schema } = useDatabase("default")',
     "console.log(JSON.stringify(await db.select().from(schema.users)))",
     "await db.$client.end()",
@@ -207,7 +207,7 @@ describe.skipIf(!adminUrl)("ensureMigrations on Postgres", () => {
     const { root } = await createProject([init, seed])
     const url = await createDatabase()
     const server = await buildNodeServer(root, { migrateOnStart: false }, [
-      'import { ensureMigrations } from "@vite-hub/database/drizzle"',
+      'import { ensureMigrations } from "@vite-hub/database"',
       'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
       "await ensureMigrations()",
     ])

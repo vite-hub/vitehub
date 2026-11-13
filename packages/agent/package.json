@@ -75,6 +75,11 @@
       "import": "./dist/cloudflare/state.js",
       "default": "./dist/cloudflare/state.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./env-identity": {
       "types": "./dist/env-identity.d.ts",
       "import": "./dist/env-identity.js",
@@ -159,6 +164,11 @@
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
+    },
+    "./sessions": {
+      "types": "./dist/sessions.d.ts",
+      "import": "./dist/sessions.js",
+      "default": "./dist/sessions.js"
     },
     "./state": {
       "types": "./dist/state.d.ts",

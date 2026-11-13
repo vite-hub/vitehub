@@ -150,7 +150,7 @@ describe("Netlify scheduled functions in a Nitro build", () => {
   ] as const)("validates colliding names only for a resolved Netlify build ($command, $preset)", async ({ command, preset }) => {
     vi.stubEnv("NITRO_PRESET", undefined)
     vi.stubEnv("SERVER_PRESET", undefined)
-    vi.stubEnv("VITEHUB_HOSTING", undefined)
+    vi.stubEnv("VITEHUB_HOST", undefined)
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-names-"))
     roots.push(root)
     await mkdir(join(root, "server", "schedules"), { recursive: true })

@@ -1,5 +1,5 @@
 import { H3 } from "h3"
-import { usePublicEnv } from "#vitehub/env/public"
+import { usePublicEnv } from "@vite-hub/env"
 
 declare const __VITEHUB_PLAYGROUND_ENV__: string
 

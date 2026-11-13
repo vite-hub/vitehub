@@ -100,7 +100,7 @@ describe("Blob delete confirmation", () => {
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("archive"))
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("https://app.example/base/"))
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
-    expect(sentBody(fetch)).toEqual({ operation: "del", pathname: "a", store: "archive" })
+    expect(sentBody(fetch)).toEqual({ operation: "delete", pathname: "a", store: "archive" })
   })
 
   it.each(["--yes", "-y"])("deletes with %s without prompting", async flag => {
@@ -424,7 +424,7 @@ describe("hubBlob", () => {
     expect(contributor?.provision).toHaveLength(2)
     expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "blobOperations", module: join(import.meta.dirname, "../dist/operations.js") })])
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
-    expect(operations.map(operation => operation.name)).toEqual(["blob.list", "blob.head", "blob.get", "blob.put", "blob.del", "blob.media", "blob.variants"])
+    expect(operations.map(operation => operation.name)).toEqual(["blob.list", "blob.head", "blob.get", "blob.put", "blob.delete", "blob.media", "blob.variants"])
   })
 
   it("registers no Nitro route for the commands, in serve or in build mode", async () => {

@@ -33,7 +33,7 @@ export async function createLocalQueueRuntimeClient(options: QueueRuntimeProvide
   return createLocalQueueClient(getLocalQueueEngine(options), options.queue)
 }
 
-const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "Cloudflare", local: "local", vercel: "Vercel" }
+const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "Cloudflare", local: "local", postgres: "Postgres", vercel: "Vercel" }
 
 /**
  * Starts delivery of the stored jobs when the server starts, so jobs from before a restart run without a new send.

@@ -87,7 +87,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
 
   function connect() {
     document = new Y.Doc()
-    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params } })
+    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params, clientId: String(document.clientID) } })
     const current = provider
     keepRealtimeSocketAlive(current)
     current.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {

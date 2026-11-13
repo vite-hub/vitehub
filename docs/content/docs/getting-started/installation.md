@@ -46,11 +46,11 @@ Add the module to `nuxt.config.ts` and put its options under `vitehub`. Keep you
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node" },
+  vitehub: { host: "node" },
 })
 ```
 
-`preset` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other presets are `cloudflare`, `vercel`, `netlify`, and `deno`.
+`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
 
 Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more options.
 :::
@@ -70,11 +70,11 @@ import { nitro } from "nitro/vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node" }), nitro()],
+  plugins: [vitehub({ host: "node" }), nitro()],
 })
 ```
 
-`preset` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other presets are `cloudflare`, `vercel`, `netlify`, and `deno`.
+`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
 
 The tutorials use port 3000, so set the `dev` script in `package.json` to `vite --port 3000 --strictPort`. Add `vite-hub/tsconfig` to `extends` in your `tsconfig.json`, then write the types once:
 
@@ -131,11 +131,11 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node" })],
+  plugins: [vitehub({ host: "node" })],
 })
 ```
 
-`preset` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other presets are `cloudflare`, `vercel`, `netlify`, and `deno`.
+`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
 
 Create `tsconfig.json`, or add `vite-hub/tsconfig` to `extends` in yours. This gives your editor the types of the features you turn on.
 
@@ -253,7 +253,7 @@ When an installed package has a version that your `vite-hub` release does not su
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
-Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the preset cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
+Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
 Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) needs `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. A Sandbox Task needs `typescript` and its provider's SDK.
 ::
@@ -291,7 +291,7 @@ Do not commit `.vitehub`, `.output`, `.nuxt`, `node_modules`, or `.env`. Local d
 
 ## Install one package without `vite-hub`
 
-To build a library or wire the server yourself, install one `@vite-hub/*` package. For example, `@vite-hub/kv` gives `hubKv()` from `@vite-hub/kv/vite`. You then own the server entry and host setup. The tutorials do not use this path; read the package README.
+To build a library or wire the server yourself, install one `@vite-hub/*` package. For example, `@vite-hub/kv` gives `hubKV()` from `@vite-hub/kv/vite`. You then own the server entry and host setup. The tutorials do not use this path; read the package README.
 
 This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, using pnpm 12 on Linux:
 
@@ -300,7 +300,7 @@ This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, usin
 | `vite-hub` | 186 | 171 MB |
 | `@vite-hub/blob @vite-hub/queue @vite-hub/env` | 87 | 80 MB |
 
-`vite-hub` adds the CLI, the Console, `vitehub()` with its presets, and its included features.
+`vite-hub` adds the CLI, the Console, `vitehub()` with its hosts, and its included features.
 
 ## Model and coding providers
 

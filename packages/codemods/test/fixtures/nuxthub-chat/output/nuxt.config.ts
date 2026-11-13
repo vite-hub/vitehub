@@ -28,7 +28,7 @@ export default defineNuxtConfig({
   },
 
   vitehub: {
-    preset: 'node',
+    host: 'node',
     database: true,
     blob: true
   },

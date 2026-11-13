@@ -63,14 +63,14 @@ async function run(body: Record<string, unknown>): Promise<{ body: Record<string
 }
 
 describe("kv operations", () => {
-  it.each(["get", "has", "set", "del"] as const)("passes empty keys through the %s runtime operation", async operation => {
+  it.each(["get", "has", "set", "delete"] as const)("passes empty keys through the %s runtime operation", async operation => {
     const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, "empty key"])
     const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, true])
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
-    const del = vi.spyOn(kv, "del").mockResolvedValue([undefined, undefined])
+    const del = vi.spyOn(kv, "delete").mockResolvedValue([undefined, undefined])
     try {
       expect(await run({ key: "", operation, ...(operation === "set" ? { value: "empty key" } : {}) })).toMatchObject({ status: 200, body: { key: "" } })
-      const storageCall = { get, has, set, del }[operation]
+      const storageCall = { get, has, set, delete: del }[operation]
       expect(storageCall.mock.calls[0]?.[0]).toBe("")
       expect((await run({ operation, ...(operation === "set" ? { value: "empty key" } : {}) })).status).toBe(400)
     }
@@ -174,8 +174,8 @@ describe("kv operations", () => {
     expect(cursor).toBeUndefined()
     expect(keys.sort()).toEqual(["users:1", "users:2"])
 
-    expect((await run({ key: "settings", operation: "del" })).body).toEqual({ deleted: true, key: "settings", store: "default" })
-    expect((await run({ key: "settings", operation: "del" })).body).toEqual({ deleted: false, key: "settings", store: "default" })
+    expect((await run({ key: "settings", operation: "delete" })).body).toEqual({ deleted: true, key: "settings", store: "default" })
+    expect((await run({ key: "settings", operation: "delete" })).body).toEqual({ deleted: false, key: "settings", store: "default" })
     expect((await run({ key: "settings", operation: "get" })).body).toEqual({ found: false, key: "settings", store: "default" })
     expect((await run({ key: "settings", operation: "has" })).body).toEqual({ exists: false, key: "settings", store: "default" })
   })
@@ -184,7 +184,7 @@ describe("kv operations", () => {
     expect((await run({ key: "stale-delete", operation: "set", value: "remove me" })).status).toBe(200)
     const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, false])
     try {
-      expect((await run({ key: "stale-delete", operation: "del" })).body).toEqual({ deleted: false, key: "stale-delete", store: "default" })
+      expect((await run({ key: "stale-delete", operation: "delete" })).body).toEqual({ deleted: false, key: "stale-delete", store: "default" })
       expect((await run({ key: "stale-delete", operation: "get" })).body).toMatchObject({ found: false })
     }
     finally { has.mockRestore() }
@@ -221,7 +221,7 @@ describe("kv operations", () => {
     await kv.set("vitehub:state", "x")
     for (const key of ["vitehub:state", "VITEHUB:state", "vitehub/state", ":vitehub::state"]) {
       await expect(run({ key, operation: "set", value: "y" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
-      await expect(run({ key, operation: "del" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
+      await expect(run({ key, operation: "delete" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
     }
     await expect(run({ key: "vitehub:state", operation: "get" })).resolves.toMatchObject({ body: { found: true, value: "x" }, status: 200 })
     await expect(run({ key: "vitehubby", operation: "set", value: "ok" })).resolves.toMatchObject({ status: 200 })
@@ -288,7 +288,7 @@ describe("kv operations", () => {
 
   it("marks the write and the delete, and lists every command once", () => {
     expect(kvOperations.map(operation => [operation.name, operation.kind])).toEqual([
-      ["kv.list", "read"], ["kv.get", "read"], ["kv.has", "read"], ["kv.set", "write"], ["kv.del", "destructive"],
+      ["kv.list", "read"], ["kv.get", "read"], ["kv.has", "read"], ["kv.set", "write"], ["kv.delete", "destructive"],
     ])
   })
 })

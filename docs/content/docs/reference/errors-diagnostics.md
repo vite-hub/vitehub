@@ -78,6 +78,12 @@ Packages that do not follow the error contract yet keep the `ViteHubError` contr
 
 Use an operational code to choose what your app does. Use a Nostics code to find and fix ViteHub config, build, or runtime code.
 
+<a id="durability"></a>
+
+## Durability diagnostics
+
+A Node server throws `RUNTIME_R0017` at boot when `VITEHUB_INSTANCES` or `node.instances` is greater than 1 and a primitive keeps its state in one process or on one host. The message lists each primitive with its fix. Move each one to a shared store, or run one instance. `RUNTIME_R0018` means that the instance count is not a positive integer. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances).
+
 ## Agent diagnostics
 
 Agent config, build, and runtime defects use `AGENT_C####`, `AGENT_B####`, and `AGENT_R####`. Your own tools can use their own Nostics catalog:

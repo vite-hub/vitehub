@@ -120,7 +120,7 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
     const { app, root } = await nuxtFixture()
     try {
       const { nitroConfig, nuxt } = createNuxt(app, true)
-      await viteHubNuxt({ console: true, env: false, preset: "node", publicUrl }, nuxt)
+      await viteHubNuxt({ console: true, env: false, host: "node", publicUrl }, nuxt)
       const config = await nitroConfig()
       expect(config.replace).toMatchObject({ __VITEHUB_PUBLIC_URL__: JSON.stringify({ url: publicUrl }) })
     }
@@ -133,7 +133,7 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
     const { app, root } = await nuxtFixture()
     try {
       const { nitroConfig, nuxt } = createNuxt(app, false)
-      await viteHubNuxt({ console: true, env: false, preset: "node", publicUrl }, nuxt)
+      await viteHubNuxt({ console: true, env: false, host: "node", publicUrl }, nuxt)
       const config = await nitroConfig()
       const { build, createNitro, prepare } = await import("nitro/builder")
       const nitro = await createNitro(config as Parameters<typeof createNitro>[0])

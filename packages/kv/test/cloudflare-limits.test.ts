@@ -28,11 +28,11 @@ describe("Cloudflare KV limits", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
-    delete process.env.VITEHUB_HOSTING
+    delete process.env.VITEHUB_HOST
   })
 
   async function cloudflareKV() {
-    process.env.VITEHUB_HOSTING = "cloudflare"
+    process.env.VITEHUB_HOST = "cloudflare"
     return (await import("../src/runtime/storage.ts")).kv
   }
 
@@ -51,7 +51,7 @@ describe("Cloudflare KV limits", () => {
     const [multibyteError] = await kv.set("é".repeat(257), "value")
     expect(multibyteError?.code).toBe("KV_KEY_TOO_LONG")
 
-    for (const [error] of [await kv.get("k".repeat(513)), await kv.has("k".repeat(513)), await kv.del("k".repeat(513))]) {
+    for (const [error] of [await kv.get("k".repeat(513)), await kv.has("k".repeat(513)), await kv.delete("k".repeat(513))]) {
       expect(error?.code).toBe("KV_KEY_TOO_LONG")
     }
 
@@ -134,7 +134,7 @@ describe("Cloudflare KV limits", () => {
   })
 
   it("keeps local stores without a host unchanged", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
     const [error] = await kv.set("k".repeat(513), "value", { expirationTtl: 1 })

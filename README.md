@@ -52,7 +52,7 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/content"><img src=".github/assets/primitives/content.svg" alt="" height="24"><br><b>Content</b></a><br>Parse and search</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/source"><img src=".github/assets/primitives/source.svg" alt="" height="24"><br><b>Source</b></a><br>Read-only content</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="24"><br><b>Connections</b></a><br>Connected accounts</td>
-    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/agents/ai-gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
   </tr>
   <tr>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/decisions"><img src=".github/assets/primitives/decisions.svg" alt="" height="24"><br><b>Decisions</b></a><br>Text to choices</td>
@@ -97,7 +97,7 @@ This route does not change between hosts. The host selects the provider:
 | Vercel     | Upstash Redis                                | Vercel Blob           | libSQL or D1 HTTP            |
 | Netlify    | Upstash Redis                                | Netlify Blobs         | libSQL                       |
 | Deno       | Deno KV                                      | S3-compatible         | libSQL                       |
-| Node       | Postgres table, `fs-lite`, Redis, or Upstash | `fs` or S3-compatible | SQLite, libSQL, or Postgres  |
+| Node       | Postgres table, `fs-lite`, Redis, or Upstash | `fs` or S3-compatible | SQLite, libSQL, or Postgres |
 
 Support is different for each primitive. Read the [support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before you select a host.
 
@@ -116,7 +116,7 @@ import { vitehub } from "vite-hub";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node", kv: true })],
+  plugins: [vitehub({ host: "node", kv: true })],
 });
 ```
 

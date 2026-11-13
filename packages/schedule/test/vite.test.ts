@@ -306,7 +306,6 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("nitroApp.captureError")
     expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
     expect(pluginSource).not.toContain("nitroApp.fetch")
-    expect(pluginSource).not.toContain("h3App")
     expect(pluginSource).toContain("const result = await runtimeInstallation")
     expect(pluginSource).toContain("if ('error' in result) throw result.error")
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")

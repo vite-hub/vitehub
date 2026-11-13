@@ -1,4 +1,4 @@
-nuxthub: moved kv from hub to vitehub with preset "cloudflare", rewrote 3 imports and 3 KV and Blob calls.
+nuxthub: moved kv from hub to vitehub with host "cloudflare", rewrote 3 imports and 3 KV and Blob calls.
 Dry run: no files were written.
 
 Files to change (5):

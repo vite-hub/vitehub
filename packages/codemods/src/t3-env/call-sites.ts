@@ -14,7 +14,7 @@ import type { Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { T3Field } from "./plan.ts"
 
-const serverImport = "#vitehub/env/server"
+const serverImport = "vite-hub/env"
 const publicImport = "#vitehub/env/public"
 
 /** Where a file runs: `server` code, `app` code in the browser, `shared` code on both, or `outside` the Nuxt runtime. */
