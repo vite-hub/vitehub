@@ -1,3 +1,6 @@
+import { Buffer } from "node:buffer"
+
+import { H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver as createR2Driver, getOptionalBucket } from "../src/drivers/cloudflare-native.ts"
@@ -6,11 +9,12 @@ import { createBlobStorage } from "../src/storage.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobErrorCode } from "../src/types.ts"
+import type { BlobErrorCode, BlobMultipartHandlerOptions } from "../src/types.ts"
 
 const vercel = vi.hoisted(() => ({
   completeMultipartUpload: vi.fn(async (pathname: string) => ({ pathname, url: `https://store.public.blob.vercel-storage.com/${pathname}` })),
   createMultipartUpload: vi.fn(async () => ({ key: "object-key", uploadId: "vercel-upload" })),
+  del: vi.fn(),
   head: vi.fn(async (url: string) => ({
     contentType: "video/mp4",
     etag: "\"final\"",
@@ -22,7 +26,7 @@ const vercel = vi.hoisted(() => ({
   uploadPart: vi.fn(async (_pathname: string, _body: unknown, options: { partNumber: number }) => ({ etag: `"part-${options.partNumber}"`, partNumber: options.partNumber })),
 }))
 
-vi.mock("@vercel/blob", () => ({ ...vercel, del: vi.fn(), get: vi.fn(), list: vi.fn(), put: vi.fn() }))
+vi.mock("@vercel/blob", () => ({ ...vercel, get: vi.fn(), list: vi.fn(), put: vi.fn() }))
 
 function ok<T>(result: Result<T, BlobErrorCode>): T {
   const [error, value] = result
@@ -90,6 +94,34 @@ describe("Cloudflare R2 multipart uploads", () => {
 
 describe("Vercel Blob multipart uploads", () => {
   const options = { access: "public", driver: "vercel-blob", token: "token" } as const
+
+  it.each([false, true])("rejects edited completion types (route override: %s)", async (override) => {
+    const storage = createBlobStorage(createVercelDriver(options), "default")
+    const policy: BlobMultipartHandlerOptions = {
+      create: override ? { contentType: "video/mp4" } : undefined,
+      ensure: { types: ["video"] },
+    }
+    function event(action: string, body: unknown, uploadId?: string) {
+      const url = new URL("http://localhost/multipart")
+      if (uploadId) url.searchParams.set("uploadId", uploadId)
+      const request = new H3Event(new Request(url, { body: JSON.stringify(body), method: "POST" }))
+      request.context.params = { action, pathname: "media/clip.mp4" }
+      return request
+    }
+    const created = ok(await storage.handleMultipartUpload(event("create", { contentType: override ? "text/html" : "video/mp4" }), policy))
+    if (created.action !== "create") throw new Error("Expected create")
+    const state = JSON.parse(Buffer.from(created.uploadId.slice(3), "base64url").toString())
+    state.contentType = "text/html"
+    const edited = `v1.${Buffer.from(JSON.stringify(state)).toString("base64url")}`
+    vercel.head.mockResolvedValueOnce({
+      contentType: "text/html", etag: "final", pathname: "media/clip.mp4", size: 12,
+      uploadedAt: new Date(), url: "https://store.public.blob.vercel-storage.com/media/clip.mp4",
+    })
+    await expect(storage.handleMultipartUpload(event("complete", { parts: [{ etag: "part", partNumber: 1 }] }, edited), policy))
+      .rejects.toMatchObject({ statusCode: 400, message: "File type is invalid, must be: video" })
+    expect(vercel.completeMultipartUpload).toHaveBeenCalledWith("media/clip.mp4", expect.any(Array), expect.objectContaining({ contentType: "text/html" }))
+    expect(vercel.del).toHaveBeenCalledWith(["media/clip.mp4"], expect.objectContaining({ token: "token" }))
+  })
 
   it("carries the key and upload ID in an opaque upload ID", async () => {
     const storage = createBlobStorage(createVercelDriver(options), "default")

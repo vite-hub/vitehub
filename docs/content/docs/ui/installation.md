@@ -184,13 +184,50 @@ app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
 
 A part uses the component given here first, then a global one with the same name from `app.component()`, then Nuxt UI's.
 
-Parts such as `CopyButton` read their icons from Nuxt UI's `appConfig.ui.icons`. The Nuxt module passes them for you. In Vue with Vite, pass the same icons, or each part falls back to Lucide:
+## Icons
+
+The parts read their icons by name. A name that Nuxt UI has, such as `close` or `check`, comes from Nuxt UI's `appConfig.ui.icons`, so the parts follow the same icon set as Nuxt UI's own components. A name that Nuxt UI does not have, such as `edit` or `delete`, comes from `appConfig.viteHubUI.icons`. Each name falls back to Lucide.
+
+```ts [nuxt/icons/app/app.config.ts]
+export default defineAppConfig({
+  ui: {
+    icons: { check: "i-ph-check", close: "i-ph-x" },
+  },
+  viteHubUI: {
+    icons: { delete: "i-ph-trash", edit: "i-ph-pencil-simple", reopen: "i-ph-arrow-counter-clockwise" },
+  },
+});
+```
+
+The Nuxt module reads both for you and follows changes to the app config. A name in `viteHubUI.icons` wins over the same name in `ui.icons`, for the ViteHub parts only. In Vue with Vite, pass one object with all the names. A ref or a getter keeps them reactive:
 
 ```ts [vite/icons/src/main.ts] fragment
 import { vitehubTheme } from "@vite-hub/ui/theme";
 
-app.use(createViteHubUI({ icons: vitehubTheme.icons }));
+app.use(createViteHubUI({ icons: { ...vitehubTheme.icons, delete: "i-ph-trash", edit: "i-ph-pencil-simple" } }));
 ```
+
+| Name | Source | Default | Used by |
+| --- | --- | --- | --- |
+| `arrowLeft` | Nuxt UI | `i-lucide-arrow-left` | Back button of `CommentThread` |
+| `arrowUp` | Nuxt UI | `i-lucide-arrow-up` | Send button of `PromptInput` and `CommentComposer` |
+| `check` | Nuxt UI | `i-lucide-check` | Resolve button of `CommentThread` |
+| `close` | Nuxt UI | `i-lucide-x` | Close button of `CommentThread` and image previews, remove button of attachments |
+| `copy` | Nuxt UI | `i-lucide-copy` | `CopyButton` before a copy |
+| `copyCheck` | Nuxt UI | `i-lucide-check` | `CopyButton` after a copy |
+| `external` | Nuxt UI | `i-lucide-external-link` | Open button of image previews |
+| `file` | Nuxt UI | `i-lucide-file` | Attachments that are not images |
+| `plus` | Nuxt UI | `i-lucide-plus` | Attach button of `PromptInput` and `CommentComposer` |
+| `reload` | Nuxt UI | `i-lucide-refresh-cw` | Retry button of `PromptInput` |
+| `stop` | Nuxt UI | `i-lucide-square` | Stop button of `PromptInput` |
+| `comment` | ViteHub | `i-lucide-message-circle` | Comment mode button of `CommentToolbar` |
+| `commentList` | ViteHub | `i-lucide-list` | List button of `CommentToolbar` |
+| `commentPage` | ViteHub | `i-lucide-square-pen` | Page comment button of `CommentToolbar` |
+| `delete` | ViteHub | `i-lucide-trash-2` | Delete button of a comment |
+| `edit` | ViteHub | `i-lucide-pencil` | Edit button of a comment |
+| `reopen` | ViteHub | `i-lucide-rotate-ccw` | Reopen button of a resolved `CommentThread` |
+
+In Nuxt, Nuxt UI fills `appConfig.ui.icons` with its own defaults, so a Nuxt UI name shows Nuxt UI's icon, such as `i-lucide-arrow-up-right` for `external`. The Lucide default applies when nothing sets the name.
 
 ## Theme
 

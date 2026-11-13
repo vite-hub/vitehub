@@ -176,7 +176,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
     return await filesPromise
   }
 
-  return {
+  const driver: BlobDriverAdapter<TOptions> = {
     name: options.driver,
     options,
     async delete(pathnames) {
@@ -317,6 +317,18 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         hasMore: Boolean(result.cursor),
       }
     },
+    // The provider copies the object on its side, with its content type and metadata.
+    async copy(from, to) {
+      try {
+        await (await files()).copy(from, to)
+      }
+      catch (error) {
+        // Providers report a missing source in different ways. Azure wraps the source 404 in `CannotVerifyCopySource`.
+        if (isNotFound(error) || !await driver.head(from)) return null
+        throw error
+      }
+      return await driver.head(to)
+    },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
       const client = await files(putOptions)
       const uploadOptions = {
@@ -337,4 +349,5 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
+  return driver
 }

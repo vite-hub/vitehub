@@ -64,6 +64,23 @@ export default defineRealtime({
     })
   })
 
+  it("describes a definition without a document", async () => {
+    const root = await project({
+      "server/realtime/presence.ts": `import { defineRealtime } from "vite-hub/realtime"
+export default defineRealtime({ auth: true, authorize: () => true, document: false })
+`,
+    })
+
+    const [summary] = await inspectRealtimeDefinitions({ authority: "memory", projectRoot: root })
+
+    expect(Object.fromEntries(summary!.fields.map(field => [field.label, field.value]))).toEqual({
+      Authority: "memory: one Node process, rooms lost on restart",
+      Authorization: "authorize() per room, read only",
+      Document: "none: presence only, nothing stored",
+      Identity: "ViteHub Auth session, required",
+    })
+  })
+
   it("reports the resolved Durable Object authority through the plugin inspector", async () => {
     const root = await project({
       "server/realtime/docs.ts": `export default { document: { workspace: "docs" }, persistence: false }`,

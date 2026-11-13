@@ -7,7 +7,7 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
 import { createAdminsPlugin, readAdmins } from "./admins.ts"
-import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName } from "./database-options.ts"
 import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
 import { applyAuthPreset } from "./preset-options.ts"
@@ -22,6 +22,7 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
+import { assertNoRuntimeOption } from "./definition.ts"
 
 import type { BetterAuthOptions } from "better-auth"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -31,28 +32,18 @@ import type {
   AuthDefinitionResolver,
   AuthRuntimeContext,
   AuthRuntimeOptions,
-  AuthRuntimeOptionsResolver,
   AuthSessionOptions,
 } from "./types.ts"
 
-function isAuthDatabaseMetadata(value: unknown): boolean {
-  return value === true
-    || (
-      isPlainObject(value)
-      && Object.hasOwn(value, "name")
-      && typeof value.name === "string"
-      && Object.keys(value).every(key => key === "dedicated" || key === "name")
-    )
+/** `true` or `{ name, dedicated }`: the removed placement form, which is not a Better Auth adapter. */
+function isAuthDatabasePlacement(value: unknown): boolean {
+  return typeof value === "boolean"
+    || (isPlainObject(value) && Object.keys(value).length > 0 && Object.keys(value).every(key => key === "dedicated" || key === "name"))
 }
 
-function isAuthSecondaryStorageMetadata(value: unknown): boolean {
-  return value === true
-    || (
-      isPlainObject(value)
-      && Object.hasOwn(value, "store")
-      && typeof value.store === "string"
-      && Object.keys(value).every(key => key === "store")
-    )
+/** `true` or `{ store }`: the removed placement form, which is not a Better Auth adapter. */
+function isAuthSecondaryStoragePlacement(value: unknown): boolean {
+  return typeof value === "boolean" || (isPlainObject(value) && Object.hasOwn(value, "store") && Object.keys(value).every(key => key === "store"))
 }
 
 /**
@@ -142,14 +133,19 @@ function stripViteHubOptions(
     database,
     events,
     route: _route,
-    runtime: _runtime,
     secondaryStorage,
     ...rest
   } = applyAuthPreset(options)
 
+  if (isAuthDatabasePlacement(database)) {
+    throw authErrorDiagnostics.AUTH_C0061({ message: "Auth `database` must be a Better Auth adapter, such as `authDatabase()`. `true` and `{ name }` do not create storage, so users and sessions would stay in memory." })
+  }
+  if (isAuthSecondaryStoragePlacement(secondaryStorage)) {
+    throw authErrorDiagnostics.AUTH_C0062({ message: "Auth `secondaryStorage` must be a Better Auth adapter. `true` and `{ store }` do not create storage." })
+  }
   const storage = {
-    ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
-    ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
+    ...(database ? { database } : {}),
+    ...(secondaryStorage ? { secondaryStorage } : {}),
   }
   if (authDatabaseName(database) !== undefined) {
     assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
@@ -177,7 +173,7 @@ function stripViteHubOptions(
   const rateLimit = withRateLimitDefaults({ rateLimit: rest.rateLimit, secondaryStorage: storage.secondaryStorage }, authDatabaseName(database) !== undefined)
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
-  // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
+  // SAFETY: `rest` and the retained storage fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
     ...rest,
     ...storage,
@@ -226,81 +222,57 @@ export function trustsProxyHeaders(options: unknown): boolean {
   return isPlainObject(options) && isPlainObject(options.advanced) && options.advanced.trustedProxyHeaders === true
 }
 
-/** Resolves one coherent option snapshot before projecting it for Better Auth or host callers. */
+/**
+ * Resolves one coherent option snapshot before projecting it for Better Auth or host callers. The options come from one
+ * place: the static Definition object, or the object that the Definition callback returns.
+ */
 export function resolveAuthOptions(
   definition: AuthDefinition,
   input: {
     env?: (event?: ViteHubContext) => Record<string, unknown>
     event?: ViteHubContext
     request?: Pick<Request, "headers" | "url">
-    runtimeOptions?: AuthRuntimeOptions
   } = {},
 ) {
   const { request } = input
   const callback = typeof definition.options === "function"
-  const staticRequestRuntime = request && typeof definition.options !== "function" ? definition.options.runtime : undefined
-  const usesContext = !request || callback || Boolean(staticRequestRuntime)
+  const usesContext = !request || callback
   const env = usesContext ? input.env?.(input.event) ?? {} : {}
   const requestUrlOrigin = request ? new URL(request.url).origin : undefined
   const proxiedOrigin = request ? forwardedRequestOrigin(request) : undefined
-  const contextFor = (origin: string | undefined): AuthRuntimeContext => ({
-    env,
-    ...(request ? { request } : {}),
-    requestOrigin: usesContext && origin ? origin : "http://localhost",
-  })
   const resolveAt = (origin: string | undefined) => {
-    const context = contextFor(origin)
+    const context: AuthRuntimeContext = {
+      env,
+      ...(request ? { request } : {}),
+      requestOrigin: usesContext && origin ? origin : "http://localhost",
+    }
     // SAFETY: The callback returns AuthRuntimeOptions and the static branch is typed as AuthRuntimeOptions by AuthDefinition.
     const declared = (callback
       // SAFETY: `callback` is true only when definition.options is the AuthDefinitionResolver branch.
       ? (definition.options as AuthDefinitionResolver)(context)
       : definition.options) as AuthRuntimeOptions & Record<string, unknown>
-    const runtime = request && !callback ? staticRequestRuntime : declared.runtime
-    const resolvedRuntime = !runtime
-      ? {}
-      : typeof runtime === "function"
-        // SAFETY: The function branch of AuthRuntimeConfiguration is AuthRuntimeOptionsResolver.
-        ? (runtime as AuthRuntimeOptionsResolver)(context)
-        : runtime
-    // SAFETY: These spreads combine only resolved AuthRuntimeOptions while retaining the definition's enumerable metadata.
-    const requestRuntimeOptions = {
-      ...(callback ? declared : {}),
-      ...resolvedRuntime,
-      ...input.runtimeOptions,
-    } as AuthRuntimeOptions & Record<string, unknown>
-    if (Object.hasOwn(requestRuntimeOptions, "database")) {
-      const declaredDatabase = authDatabaseName(declared.database)
-      const effectiveDatabase = authDatabaseName(requestRuntimeOptions.database)
-      if ((declaredDatabase !== undefined || effectiveDatabase !== undefined) && declaredDatabase !== effectiveDatabase) {
-        throw authDatabasePlacementError()
-      }
-    }
-    const trusted = trustsProxyHeaders(callback || Object.hasOwn(requestRuntimeOptions, "advanced") ? requestRuntimeOptions : declared)
-    return { declared, requestRuntimeOptions, trusted }
+    if (callback) assertNoRuntimeOption(declared)
+    return { declared, trusted: trustsProxyHeaders(declared) }
   }
-  // Determine trust without exposing forwarded headers to a resolver: runtime and caller options can disable
-  // the Definition's opt-in. Only the effective options may select a forwarded origin for callbacks and links.
+  // Determine trust without exposing forwarded headers to a callback. Only options that trust proxy headers may select
+  // a forwarded origin for callbacks and links.
   let resolved = resolveAt(requestUrlOrigin)
-  if (request && resolved.trusted && proxiedOrigin !== requestUrlOrigin) {
+  if (request && callback && resolved.trusted && proxiedOrigin !== requestUrlOrigin) {
     const forwarded = resolveAt(proxiedOrigin)
-    // If a resolver revokes trust with the forwarded context, discard that snapshot and keep URL-derived values.
+    // If the callback revokes trust with the forwarded context, discard that snapshot and keep URL-derived values.
     resolved = forwarded.trusted ? forwarded : {
-      ...resolved,
       trusted: false,
-      requestRuntimeOptions: {
-        ...resolved.requestRuntimeOptions,
-        advanced: { ...(resolved.requestRuntimeOptions.advanced ?? resolved.declared.advanced), trustedProxyHeaders: false },
-      },
+      declared: { ...resolved.declared, advanced: { ...resolved.declared.advanced, trustedProxyHeaders: false } },
     }
   }
   const { declared, trusted } = resolved
-  let { requestRuntimeOptions } = resolved
+  // A callback result is request-scoped as a whole. A static Definition adds only the request defaults below.
+  let requestRuntimeOptions = (callback ? declared : {}) as AuthRuntimeOptions & Record<string, unknown>
   if (request) {
     const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: trusted && proxiedOrigin ? { url: proxiedOrigin } : request })
-    const staticTrustedOrigins = !callback && Object.hasOwn(declared, "trustedOrigins")
     // SAFETY: Origin defaults preserve the runtime options shape and add only supported Better Auth fields.
     requestRuntimeOptions = {
-      ...(!Object.hasOwn(requestRuntimeOptions, "trustedOrigins") && !staticTrustedOrigins ? { trustedOrigins: [baseURL] } : {}),
+      ...(!Object.hasOwn(declared, "trustedOrigins") ? { trustedOrigins: [baseURL] } : {}),
       ...requestRuntimeOptions,
       baseURL,
     } as AuthRuntimeOptions & Record<string, unknown>

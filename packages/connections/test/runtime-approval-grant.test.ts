@@ -17,7 +17,7 @@ describe("approval grant binding", () => {
     await connect(test, { access_token: "reauthorized-token", expires_in: 1 })
     test.provider.valid.add("reauthorized-token")
     const before = test.provider.calls.length
-    await expect(test.runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_APPROVAL" })
+    await expect(test.runtime.approve({ actor: "user:owner", id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_APPROVAL" })
     expect(test.provider.calls).toHaveLength(before)
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     expect(await test.store.approvals.get(id)).toMatchObject({ status: "failed" })
@@ -27,11 +27,11 @@ describe("approval grant binding", () => {
     const test = createTestRuntime(mailConnection({ "agent:writer": { read: true, write: ["mail.messages.modify"] } }))
     await connect(test)
     const id = await pending(test)
-    await test.runtime.revoke({ name: "mail" })
+    await test.runtime.revoke({ actor: "user:owner", name: "mail" })
     await connect(test, { id_token: account, access_token: "reconnected-token" })
     test.provider.valid.add("reconnected-token")
     const before = test.provider.calls.length
-    await expect(test.runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_APPROVAL" })
+    await expect(test.runtime.approve({ actor: "user:owner", id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_APPROVAL" })
     expect(test.provider.calls).toHaveLength(before)
     expect(await test.store.approvals.get(id)).toMatchObject({ status: "failed" })
   })
@@ -43,6 +43,6 @@ describe("approval grant binding", () => {
     test.now.value += 3_600_000
     test.provider.tokenResponses.push({ body: { access_token: "refreshed-token", expires_in: 3600 } })
     test.provider.valid.add("refreshed-token")
-    await expect(test.runtime.approve({ id })).resolves.toMatchObject({ approval: { status: "executed" } })
+    await expect(test.runtime.approve({ actor: "user:owner", id })).resolves.toMatchObject({ approval: { status: "executed" } })
   })
 })

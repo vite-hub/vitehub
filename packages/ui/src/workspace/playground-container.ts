@@ -216,7 +216,9 @@ const PlaygroundSession = defineComponent({
       selected.value = firstFile(next, next.files);
       previewPath.value = next.preview ?? "/";
       emit("change", next);
-      await workspace.setFiles(next.files, { mode: "replace" });
+      // A failed write is in the terminal. The files on disk are not the template's, so the server does not start again.
+      try { await workspace.setFiles(next.files, { mode: "replace" }); }
+      catch { return; }
       // The Vite config can differ, so the dev server starts again.
       await workspace.restart();
     }
@@ -255,7 +257,8 @@ const PlaygroundSession = defineComponent({
 
     const source = computed({
       get: () => workspace.files.value[selected.value] ?? "",
-      set: value => void workspace.setFiles({ [selected.value]: value }),
+      // A failed write is in the terminal, and the next edit writes the file again.
+      set: value => void workspace.setFiles({ [selected.value]: value }).catch(() => {}),
     });
 
     const hasConnect = computed(() => (props.connect?.providers.length ?? 0) > 0);
