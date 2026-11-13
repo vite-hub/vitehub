@@ -105,6 +105,12 @@ has other unstorage methods. Check those calls against ViteHub's
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
+NuxtHub moved KV to Redis on its own when the build had `REDIS_URL`. ViteHub
+does not, because that variable often belongs to another service. If your KV
+used Redis, set `kv: { driver: "redis" }`. The codemod does this when an env
+file or `nuxt.config` names `REDIS_URL`, and the build warns when it finds
+`REDIS_URL` without a KV driver.
+
 ## Move Blob calls
 
 Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `delete`, and

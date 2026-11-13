@@ -68,7 +68,7 @@ export default defineConfig({
 :::
 ::
 
-KV selects its driver at build time: `redis` when the build has `REDIS_URL`, else `database` with a Postgres Default Database, else `fs-lite`. Supply the same `REDIS_URL` to each server process. A `REDIS_URL` that only the server has does not change an inferred store. Rate Limit asks KV at boot and prints its choice:
+KV selects its driver at build time: `database` with a Postgres Default Database, else `fs-lite`. To use Redis, set `kv: { driver: 'redis' }` and supply `REDIS_URL` to each server process. Setting `REDIS_URL` alone does not change an inferred store. Rate Limit asks KV at boot and prints its choice:
 
 ```txt
 [vitehub] Rate Limit counts in the KV store "default" (redis). Every server process that uses this store shares the counts.

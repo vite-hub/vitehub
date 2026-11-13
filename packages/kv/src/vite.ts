@@ -26,6 +26,7 @@ import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { inspectKVResources, inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
+import { kvRedisEnvWarning } from "./config.ts"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
@@ -362,6 +363,8 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   // `vite dev` keeps a store local unless it sets `remote: true`. Builds ignore `remote`.
   const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", env: command === "serve" ? viteEnv : undefined, hosting: input.hosting, postgresDatabase: postgresDatabase() })
   let nitroOwned = false
+  // A build runs `buildStart` once per Vite environment. The warning prints once.
+  let redisEnvWarned = false
   let nitroOptions: NitroCloudflareKVTarget | undefined
   const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
   let resolved: ResolvedConfig | undefined
@@ -493,6 +496,11 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         // Resolve again now that the Database integration has resolved its Definitions.
         runtimeConfig = undefined
         providerOutputGenerations.capture(this, providerOutput)
+        if (command !== "build" || redisEnvWarned) return
+        redisEnvWarned = true
+        // Vite's `.env` files can hold the URL too, so the warning reads them with the process env.
+        const warning = kvRedisEnvWarning(options, { ...resolutionInput(), env: { ...viteEnv, ...process.env }, hosting: getConfig().hosting })
+        if (warning) console.warn(warning)
       },
     },
     buildEnd: {

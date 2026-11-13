@@ -134,8 +134,6 @@ export interface ResolvedFsLiteKVStoreConfig extends FsLiteKVStoreConfig {
 
 export interface ResolvedRedisKVStoreConfig extends RedisKVStoreConfig {
   base: string
-  /** {@link ResolvedDatabaseKVStoreConfig.inferred} The build found `REDIS_URL`, or a TLS `KV_URL`. */
-  inferred?: true
   url: string
 }
 
@@ -144,7 +142,7 @@ export interface ResolvedDatabaseKVStoreConfig extends DatabaseKVStoreConfig {
   /** The value of the `namespace` column for the keys of this store: the store name. */
   namespace: string
   /**
-   * The build inferred this store on Node. The server keeps the driver that the build selected.
+   * The build inferred this store on Node. The server keeps this driver regardless of `REDIS_URL`.
    */
   inferred?: true
 }
