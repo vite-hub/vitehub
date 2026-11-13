@@ -241,6 +241,7 @@
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@types/proper-lockfile": "catalog:",
+    "@ui-sdk/core": "0.1.0-beta.2",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/internal": "workspace:*",

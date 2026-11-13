@@ -824,7 +824,8 @@
     "build:console-account": "vp build --config console.account.vite.config.ts",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
-    "test": "vp run --cache -t vite-hub#build && vp test"
+    "test": "vp run --cache -t vite-hub#build && vp test",
+    "test:browser": "vp run --cache -t vite-hub#build && node --test test/agent-page.browser.mjs"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
@@ -881,6 +882,8 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/vue-3": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
