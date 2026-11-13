@@ -35,6 +35,13 @@ export function findSeedFile(database: ResolvedDrizzleDatabaseConfig, projectRoo
   return file ? { exists: true, file } : { exists: false, file: join(dir, seedFileNames[0]!) }
 }
 
+/** The message of an error, with the message of its cause, such as the SQLite error of a Drizzle query error. */
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const cause = error.cause instanceof Error ? error.cause.message : undefined
+  return cause && !error.message.includes(cause) ? `${error.message.trimEnd()} ${cause}` : error.message
+}
+
 /** A Drizzle database for the seed, and how to close its client. */
 interface SeedConnection {
   close: () => Promise<void> | void
@@ -152,7 +159,7 @@ export async function seedDatabase(database: ResolvedDrizzleDatabaseConfig, file
     await seed({ db: connection.db, schema })
   }
   catch (error) {
-    throw failed(`The seed file ${file} threw: ${error instanceof Error ? error.message : String(error)}`, error)
+    throw failed(`The seed file ${file} threw: ${describeError(error)}`, error)
   }
   finally {
     await connection.close()
