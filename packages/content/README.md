@@ -152,7 +152,7 @@ await content.sources.at("9c1e4f…", "docs") // kind: "commit", a full 40-chara
 - The view reads the commit through the commit cache, so it validates like a head. When a document does not parse, `at()` fails with `CONTENT_R0030`. Refs at the same commit share one view and one download.
 - Each server instance holds 8 views open, and closes the least recently used one. A closed view opens again on its next read, from the commit cache. `head().views` lists the open commits.
 - A view works without a token or KV for a public repository. GitHub then allows 60 lookups per hour.
-- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
+- `at()` does not check access, and serves no route by itself: `previews: true` adds the routes, with `allow()` first. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
 
 ### Who may read a ref
 
@@ -184,6 +184,37 @@ const view = await content.sources.at(access.target) // the commit that allow() 
 - Content holds each decision from GitHub for 10 minutes on each server instance. A removed label or a closed pull request shows after 10 minutes at most, also for a `target` or view that you keep: its pull request is read from GitHub again. A fork pull request counts for a commit SHA while it is one of the 100 most recently updated open pull requests, because GitHub does not list fork pull requests for a commit. A failed GitHub call holds nothing and throws `CONTENT_R0032`.
 - Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
 - Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
+
+### Preview URLs
+
+Set `previews: true` and Content serves each ref that `allow()` lets through at a URL. Nitro, Nuxt (through `vite-hub/nuxt`), and Vite apps get the URLs from this one option. ViteHub generates a Nitro plugin for it, so you write no route.
+
+```ts
+// server/content.ts
+import { defineContent } from "@vite-hub/content"
+import { github } from "@vite-hub/source"
+
+export default defineContent({
+  sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+  previews: true,
+})
+```
+
+| URL | Reads |
+| --- | --- |
+| `/tree/<branch>/-/<path>` | The latest commit of a branch. The branch can contain `/`, such as `/tree/feat/x/-/docs/kv`. The part `-` ends the branch name. `/tree/<branch>` alone is the root page. |
+| `/blob/<sha>/<path>` | One commit, by its full 40-character SHA. |
+| `/pr/<number>/<path>` | The head commit of a pull request. |
+
+- The page runs with its production path, such as `/docs/kv`, through the route rules, middleware, and routes of the app. Every read of the `github()` Source in that request, `content.get()`, `list()`, `navigation()`, `search()`, `manifest()`, `stat()`, `query()`, `from()`, `getSource()`, `media`, `instances`, custom plugin methods, and `/api/content` included, returns the commit of the ref. The request keeps the host fields that Nitro and srvx put on it, such as `runtime`, `context`, `ip`, and `waitUntil`. Collections and other Sources read as usual.
+- `content.get()` and `/api/content` put the internal links of the Comark tree under the prefix: `/docs/next` becomes `/pr/12/docs/next`. Links to other sites, `//host` links, and `#anchors` stay as they are. Links that the app writes itself do not change. Put `content.sources.current()?.prefix` before them.
+- `content.sources.current()` returns `{ source, ref, kind, sha, pull, route, prefix, path, url }` in a preview request and null in other requests. `url` is the production URL of the page, from `seo.site` or the request origin. Use it for a preview bar, such as "Viewing PR #12", with a link to production.
+- A ref that `allow()` denies, an invalid ref, and a ref that GitHub does not have all reach the app with the URL as it came, so the app answers with its own 404, as for any unknown path. A response does not tell a private ref from a missing one. Content logs `CONTENT_R0031` once per ref.
+- A preview response has `X-Robots-Tag: noindex`, a `Link: <production URL>; rel="canonical"` header, and a `Cache-Control` for the ref: `private, no-store` with the preview cookie or a `?vitehub-content-token` link, `public, max-age=31536000, immutable` for a `/blob` commit in the published history, and `public, max-age=60` for the other refs. These are upper bounds: application `max-age` and `s-maxage` values can shorten them, and application revalidation directives stay in place. An application response with its own cache policy does not become immutable only because the Source commit is published. A response that the app marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. A same-site redirect stays under the prefix. A ref that a signed link opened keeps `?vitehub-content-token` on its internal links and redirects, so the reader can follow them without the preview cookie. Nitro's cache is bypassed in a preview request, so a cached route never mixes refs.
+- With more than one `github()` Source, name the one to preview: `previews: { source: "docs" }`. Without a `github()` Source, or with a name that is not one, a preview URL fails with `CONTENT_R0045`.
+- An encoded `/`, a dot part such as `%2e%2e`, and a ref that `at()` does not accept never reach the app as a preview, so the page path cannot leave the prefix. A SHA opens only as `/blob/<sha>`, and a pull request only as `/pr/<number>`, so each commit view has one URL shape.
+- The server renders the page at its production path, and the browser keeps the preview URL. In Nuxt, the client router does not know the prefix yet, so a page that reads its route on the client, such as a `useAsyncData()` key from `useRoute().path`, sees the preview URL after hydration.
+- The prefixes sit at the root of the host. `parseContentPreviewPath(pathname)` reads a URL the same way. In another server, add `defineContentPreviewRoutesPlugin(content)` from `vite-hub/content/preview` first in the Nitro 3 plugin list, before async plugins, or call `content.sources.route(request, next)` yourself.
 
 ## Page history
 

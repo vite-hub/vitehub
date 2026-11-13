@@ -1,3 +1,5 @@
+import { formatDiagnostic } from "nostics"
+
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
@@ -22,12 +24,15 @@ import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
 import { createContentSourceHeads } from "./source-heads.ts"
 import { createContentReadScope } from "./read-scope.ts"
 import type { ContentSourceHeads } from "./source-heads.ts"
+import type { ContentSourceRef } from "./source-refs.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
-import { createContentPreview } from "./preview.ts"
+import { createContentPreview, createRequestScope } from "./preview.ts"
+import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
+import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import { contentLlmsFile } from "./llms.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
@@ -98,6 +103,8 @@ export type { ContentKV } from "./kv.ts"
 export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
 export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
+export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
+export type { ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
@@ -290,6 +297,12 @@ export type DefineContentOptions<
    * sets them.
    */
   seo?: DefineContentSeoOptions
+  /**
+   * Serve each allowed ref of the `github()` Source at a URL: `/tree/<branch>/-/<path>`, `/blob/<sha>/<path>`, and
+   * `/pr/<number>/<path>`. ViteHub generates the routes when this call sets it. With more than one `github()` Source,
+   * name the one to preview: `{ source: "docs" }`.
+   */
+  previews?: boolean | { source: string }
 }
 
 /** Document operations added by `collections`. */
@@ -393,7 +406,7 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
    * The head commit of each `github()` Source. With a GitHub token, Content serves one validated commit per Source, keeps
    * it in ViteHub KV, and moves it with `advance()`. Reads follow a moved head within 5 seconds.
    */
-  sources: ContentSourceHeads
+  sources: ContentSourceHeads & ContentSourcePreviewRoutes
   /**
    * The published history of the page at an app path, such as `/docs/guide`, newest first: `{ entries, cursor }`, with
    * entries of `{ id, at, author, message, url }`. Null when no page has that path. A collection document lists its
@@ -423,7 +436,10 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, previews = false, ...sharedOptions } = options
+  if (previews !== true && previews !== false && (Object(previews) !== previews || typeof previews.source !== "string")) {
+    throw contentErrorDiagnostics.CONTENT_R0045({ message: "[vitehub] defineContent({ previews }) must be true, false, or { source: \"<github() Source name>\" }." })
+  }
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
@@ -480,6 +496,12 @@ export function defineContent<
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
+  /** The preview of the current request: the ref of its URL, and the commit that `allow()` checked. */
+  /**
+   * The ref of a preview request, its commit view, held open for the whole request, and the query that internal links
+   * keep, such as a signed-link token.
+   */
+  const refScope = createRequestScope<{ target: ContentSourceRef, preview: ContentSourcePreview, view: ComarkContent, query?: string }>(previews !== false)
   const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
   const documentsRuntime: ContentCollectionsRuntime | undefined = createCollections
     ? createCollections({
@@ -556,18 +578,42 @@ export function defineContent<
     }
     await Promise.all(refreshes)
   })
-  /** Run a read on the hub of the current request's ref after refreshing stale instances. */
-  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, select: (...args: TArgs) => readonly string[] | undefined): (...args: TArgs) => Promise<TResult> {
+  /** The hubs of preview requests: the hub of the request's ref with the Source instance replaced by its commit view. */
+  const viewHubs = new WeakMap<ComarkContent, WeakMap<ContentHub<ComarkContent[]>, ContentHub<ComarkContent[]>>>()
+  function viewHub(base: ContentHub<ComarkContent[]>, view: ComarkContent): ContentHub<ComarkContent[]> {
+    let byBase = viewHubs.get(view)
+    if (!byBase) viewHubs.set(view, byBase = new WeakMap())
+    let composed = byBase.get(base)
+    if (!composed) {
+      composed = contentHub(base.instances.map(instance => instance.name === view.name ? view : instance), { basePath: "/api/content", logger: options.logger })
+      byBase.set(base, composed)
+    }
+    return composed
+  }
+  /**
+   * Run a read on the hub of the current request's ref after refreshing stale instances. In a preview request, the
+   * `github()` Source reads the commit of the ref, and `rewrite` puts internal links of the result under the prefix.
+   */
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, select: (...args: TArgs) => readonly string[] | undefined, rewrite?: (result: TResult, prefix: string, query: string | undefined) => TResult | Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
       // Comark can serve cached artifacts and shared indexes without calling guarded instance methods.
       await heads.sync(select(...args))
+      let base = hub
       if (documentsRuntime && preview.active()) {
         await sync("draft")
-        return await method(draftHub().hub, ...args)
+        base = draftHub().hub
       }
-      await sync("published")
-      return await method(hub, ...args)
+      else await sync("published")
+      const active = refScope.getStore()
+      if (!active) return await method(base, ...args)
+      const result = await heads.read(active.target, view => method(viewHub(base, view), ...args))
+      return rewrite ? await rewrite(result, active.preview.prefix, active.query) : result
     }
+  }
+  /** The hub of a synchronous read: the commit view of a preview request, else the published hub. */
+  function previewHub(): ContentHub<ComarkContent[]> {
+    const view = refScope.getStore()?.view
+    return view ? viewHub(hub, view) : hub
   }
   function requireDocuments(): ContentCollectionsRuntime {
     if (!documentsRuntime) {
@@ -698,24 +744,85 @@ export function defineContent<
     github: name => heads.github(name),
     published: name => heads.published(name),
   })
+  /** The `github()` Source that preview URLs read: the one that `previews` names, or the only one. */
+  function previewSource(): string {
+    const names = heads.names()
+    if (typeof previews === "object") {
+      if (names.includes(previews.source)) return previews.source
+      throw contentErrorDiagnostics.CONTENT_R0045({ message: `[vitehub] defineContent({ previews: { source: ${JSON.stringify(previews.source)} } }) names no github() Source. github() Sources: ${names.join(", ") || "none"}.` })
+    }
+    if (names.length === 1) return names[0]!
+    throw contentErrorDiagnostics.CONTENT_R0045({ message: names.length
+      ? `[vitehub] defineContent({ previews: true }) found more than one github() Source: ${names.join(", ")}. Name one with previews: { source }.`
+      : "[vitehub] defineContent({ previews: true }) needs a github() Source in sources." })
+  }
+  const reportedDenials = new Set<string>()
+  const previewRoutes: ContentSourcePreviewRoutes = {
+    current: () => refScope.getStore()?.preview ?? null,
+    async route(request, next) {
+      const url = new URL(request.url)
+      const parsed = previews === false ? null : parseContentPreviewPath(url.pathname)
+      if (!parsed) return await next(request)
+      const name = previewSource()
+      const access = await heads.api.allow(parsed.ref, request, name)
+      if (!access.allowed) {
+        // The response must not tell a private ref from a missing one, so the app answers as for any unknown path.
+        const key = `${name}:${parsed.ref}`
+        if (!reportedDenials.has(key) && reportedDenials.size < 100) {
+          reportedDenials.add(key)
+          console.warn(formatDiagnostic(access.error))
+        }
+        return await next(request)
+      }
+      const site = configuredSite ?? url.origin
+      const { target } = access
+      const current: ContentSourcePreview = {
+        source: target.source,
+        ref: target.ref,
+        kind: target.kind,
+        sha: target.sha,
+        pull: target.pull,
+        route: parsed.route,
+        prefix: parsed.prefix,
+        path: parsed.path,
+        url: new URL(parsed.path, site).href,
+      }
+      const page = new URL(url)
+      page.pathname = parsed.path
+      const query = previewLinkQuery(request.url, access.reason)
+      // The commit view stays open for the whole request, so synchronous reads such as `from()` and `query()` use it.
+      const response = await heads.read(target, async view => await refScope.run({ target, preview: current, view, ...(query ? { query } : {}) }, async () => await next(requestWithUrl(request, page.href))))
+      return previewResponse(response, current, access.reason, request.url)
+    },
+  }
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
     ...documentsApi,
-    sources: heads.api,
+    get instances() { return previewHub().instances },
+    sources: Object.assign(heads.api, previewRoutes),
     history,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key) as ContentHub["get"],
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key, rewriteContentLinks) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
-    handler: fresh((target, request: Request) => target.handler(request), readScope.request),
+    handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names }), names => readScope.names(names)),
+    manifest: fresh(target => target.manifest(), () => undefined),
+    // The synchronous reads of a preview request use the commit view of its ref, as `get()` and `list()` do.
+    stat: (key: string) => previewHub().stat(key),
+    // SAFETY: Each wrapper forwards the name unchanged, so the generic builder and instance types of the hub hold.
+    query: ((name: string) => previewHub().query(name)) as ContentRuntime["query"],
+    from: ((name: string) => previewHub().from(name)) as ContentRuntime["from"],
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
       await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
-    getSource: (name = "default") => byName.get(name)?.getSource(name),
+    getSource: (name = "default") => {
+      const view = refScope.getStore()?.view
+      return (view?.name === name ? view : byName.get(name))?.getSource(name)
+    },
     cache: {
       get: <T = ContentFile>(key: string) => cacheForKey(key).get<T>(key),
       set: <T = ContentFile>(key: string, value: T) => cacheForKey(key).set(key, value),
@@ -736,11 +843,18 @@ export function defineContent<
       },
     },
   }
+  if (hub.media) Object.defineProperty(runtime, "media", { enumerable: true, get: () => previewHub().media })
   setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
-      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, { enumerable: true, value })
+      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, {
+        enumerable: true,
+        get: () => {
+          const view = refScope.getStore()?.view
+          return view?.name === instance.name ? Reflect.get(view, key) : value
+        },
+      })
     }
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.
@@ -828,4 +942,13 @@ export function defineContentLlmsHandler(content: SeoRuntime): ContentHandler {
 function isComarkParsePlugin(plugin: unknown): plugin is { name?: unknown } {
   if (typeof plugin !== "object" || plugin === null) return false
   return "pre" in plugin || "post" in plugin || "markdownItPlugins" in plugin
+}
+
+/** The JSON of `/api/content` with internal links under the preview prefix. Other responses stay as they are. */
+async function rewriteJsonLinks(response: Response, prefix: string, query: string | undefined): Promise<Response> {
+  if (!response.headers.get("content-type")?.includes("json")) return response
+  const headers = new Headers(response.headers)
+  headers.delete("content-length")
+  headers.delete("etag")
+  return new Response(JSON.stringify(rewriteContentLinks(await response.json(), prefix, query)), { status: response.status, statusText: response.statusText, headers })
 }

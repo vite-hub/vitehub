@@ -57,6 +57,20 @@ export interface BabysitterPlacement {
   admitted?(): number | Promise<number>;
 }
 
+/** Where the Babysitter reports its state on each PR. Both need a verified GitHub App identity. */
+export interface BabysitterStatusOptions {
+  /** Keep the activity comment on the PR up to date. Defaults to `true`. */
+  comment?: boolean;
+  /**
+   * Mirror the state as a check run named `babysitter` on the PR head: queued, in progress, neutral
+   * while waiting, success when done and failure when a pass failed. Its details link opens the
+   * Console session. Needs the App's `checks: write` permission; a repository that answers 403 is
+   * reported once and skipped. The Babysitter leaves this check out of its own CI and merge decisions,
+   * so do not make it a required check. Defaults to `true`.
+   */
+  checkRun?: boolean;
+}
+
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("@vite-hub/agent/process").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
@@ -69,6 +83,8 @@ export interface BabysitterOptions {
    * Select PRs with the same rules as the GitHub Channel, with two differences. A PR passes when it
    * matches either `author.allow` or `authorAssociation.allow`; a match on either deny list rejects it.
    * Logins match case-insensitively and in either bot spelling, so `renovate[bot]` also matches `renovate`.
+   * Without `repository.allow`, the Babysitter serves every repository that its GitHub App installations
+   * can access, except archived ones and those in `repository.deny`, so installing the App on a repository enrolls it.
    */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
@@ -179,6 +195,8 @@ export interface BabysitterOptions {
    * and 4096 MiB of free temporary space.
    */
   admission: BabysitterAdmissionOptions;
+  /** How the Babysitter reports its state on the PR. Defaults to `{ comment: true, checkRun: true }`. */
+  status: BabysitterStatusOptions;
 }
 
 /**
@@ -388,8 +406,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     repairStackChildren: false,
     modelConcurrency: undefined as number | undefined,
     providerCooldownMs: 5 * 60_000,
+    status: {} as BabysitterStatusOptions,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -431,6 +450,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+    }
+    if (!isRuntimeRecord(status) || [status.comment, status.checkRun].some(value => value !== undefined && !hasRuntimeType(value, "boolean"))) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STATUS_INVALID();
     }
     if (!hasRuntimeType(repairStackChildren, "boolean")) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "repairStackChildren", expected: "a boolean" });
