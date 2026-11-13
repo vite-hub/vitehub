@@ -13,7 +13,7 @@ export default defineConfig({
       },
     },
     kv: true,
-    preset: "node",
+    host: "node",
     queue: true,
     schedule: true,
     workflow: true,

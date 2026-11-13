@@ -104,6 +104,12 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database }: { database: string }) => `The database "${database}" has no Cloudflare D1 binding in this runtime.`,
       fix: "Call `useDatabaseBinding()` where the Database runs on a D1 binding, such as a Cloudflare Worker. On other hosts and over D1 HTTP, query it with `useDatabase(name).db`.",
     },
+    DATABASE_PGLITE_NOT_INSTALLED: {
+      why: ({ database, reason }: { database: string, reason: "driver" | "no-connection" }) => reason === "driver"
+        ? `The database "${database}" sets \`driver: "pglite"\`, but the app cannot load \`@electric-sql/pglite\`.`
+        : `The database "${database}" has no \`connection.url\` or PG* variables, so development runs it on PGlite, but the app cannot load \`@electric-sql/pglite\`.`,
+      fix: "Install PGlite in the app, for example with `pnpm add -D @electric-sql/pglite`. To use a Postgres server instead, set `connection.url` and remove `driver: \"pglite\"`.",
+    },
     DATABASE_NOT_FOUND: {
       why: ({ choices, database }: { choices?: readonly string[], database: string }) => `The database "${database}" is not configured.${choices ? ` Database Definitions: ${choices.length ? quoteList(choices) : "none"}.` : ""}`,
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",
@@ -120,7 +126,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MIGRATION_CHECK_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
-      fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, or `connection.url` or the PG* variables and the `postgres` package for Postgres.",
+      fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, `connection.url` or the PG* variables and the `postgres` package for Postgres, or `@electric-sql/pglite` for a Postgres Database on PGlite.",
     },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
@@ -132,7 +138,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node preset and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
+      fix: "Build with the Node host and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
@@ -151,6 +157,12 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? `The Database Definition "${file}" must set \`dialect\` to the string literal "sqlite" or "postgresql".`
         : "`defineDatabase().dialect` must be `sqlite` or `postgresql`.",
       fix: "Set `dialect: 'sqlite'` or `dialect: 'postgresql'` as a string literal, or remove it to use SQLite.",
+    },
+    DATABASE_INVALID_DRIVER: {
+      why: ({ file }: { file?: string }) => file
+        ? `The Database Definition "${file}" must set \`driver\` to the string literal "pglite".`
+        : "`defineDatabase().driver` must be `pglite`.",
+      fix: "Set `driver: 'pglite'` as a string literal, or remove `driver` to connect with `connection.url`.",
     },
     DATABASE_INVALID_NAME: {
       why: "`defineDatabase().name` must be a normalized path of letters, numbers, dots, underscores, or dashes.",
@@ -229,6 +241,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_OPAQUE_CLOUDFLARE_CONFIG: {
       why: ({ databases }: { databases: readonly string[] }) => `Cloudflare D1 output needs a literal \`cloudflare\` object for ${quoteList(databases)}.`,
       fix: "Write `cloudflare: { ... }` as an object literal in `defineDatabase()`, or use D1 HTTP or a remote libSQL connection.",
+    },
+    DATABASE_PGLITE_IN_BUILD: {
+      why: ({ databases }: { databases: readonly string[] }) => `These Postgres Databases set \`driver: "pglite"\`: ${quoteList(databases)}. PGlite keeps its data in a local folder of one process, so a production build does not include it.`,
+      fix: "Remove `driver: \"pglite\"` and set `connection.url` to your Postgres server, for example `connection: { url: process.env.DATABASE_URL }`. In development, a Postgres Database without a URL still runs on PGlite.",
     },
     DATABASE_PROVISION_FAILED: {
       why: ({ problem }: { problem: "database" | "list" }) => problem === "list"

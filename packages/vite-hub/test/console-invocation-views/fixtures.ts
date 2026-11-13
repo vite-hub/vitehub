@@ -113,9 +113,9 @@ export function notices(wrapper: Wrapper): string[] {
   return wrapper.findAll(".vh-invocation-event__notice").map(notice => notice.text());
 }
 
-/** The "Run summary" of the inspector, as label and value. */
+/** The run summary and usage of the inspector, as label and value. */
 export function runSummary(inspector: Wrapper): Record<string, string> {
-  return Object.fromEntries(inspector.findAll(".vh-invocation-inspector__metrics > div").map(row => [row.get("dt").text(), row.get("dd").text()]));
+  return Object.fromEntries(inspector.findAll(".vh-invocation-inspector__metrics > div, .vh-invocation-inspector__usage .vh-invocation-inspector__list > div").map(row => [row.get("dt").text(), row.get("dd").text()]));
 }
 
 /** The setup group of the inspector with the visible heading, for example `Model`, `Sources` or `Tools`. */

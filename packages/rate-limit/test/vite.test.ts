@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
-import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
 
 import { getCloudflareRateLimitBindingName } from "../src/integrations/cloudflare.ts"
 import { hubRateLimit } from "../src/vite.ts"
@@ -145,7 +145,7 @@ describe("hubRateLimit", () => {
     expect(vercelUserConfig.nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
   })
 
-  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("composes Nitro hosting selected by %s", async (environmentVariable) => {
+  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOST"])("composes Nitro hosting selected by %s", async (environmentVariable) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-nitro-cloudflare-env-"))
     roots.push(root)
     await writeCloudflareDeclaration(root)
@@ -271,8 +271,8 @@ describe("hubRateLimit", () => {
   it("fails automatic hosted fallback where no native driver exists", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-vercel-"))
     roots.push(root)
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "vercel"
+    const previousHosting = process.env.VITEHUB_HOST
+    process.env.VITEHUB_HOST = "vercel"
     try {
       const plugin = hubRateLimit()
       const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
@@ -285,16 +285,16 @@ describe("hubRateLimit", () => {
       } as never)).rejects.toThrow("no native vercel driver")
     }
     finally {
-      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
+      if (previousHosting === undefined) delete process.env.VITEHUB_HOST
+      else process.env.VITEHUB_HOST = previousHosting
     }
   })
 
   it("requires an explicit provider for unknown production hosting", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-unknown-build-"))
     roots.push(root)
-    const previousHosting = process.env.VITEHUB_HOSTING
-    delete process.env.VITEHUB_HOSTING
+    const previousHosting = process.env.VITEHUB_HOST
+    delete process.env.VITEHUB_HOST
     try {
       const plugin = hubRateLimit()
       const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
@@ -307,7 +307,7 @@ describe("hubRateLimit", () => {
       } as never)).rejects.toThrow("cannot be inferred for a production build")
     }
     finally {
-      if (previousHosting !== undefined) process.env.VITEHUB_HOSTING = previousHosting
+      if (previousHosting !== undefined) process.env.VITEHUB_HOST = previousHosting
     }
   })
 
@@ -392,8 +392,8 @@ describe("hubRateLimit", () => {
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016", message: expect.stringContaining("supports only 10s and 1m windows") })
       await expect(serve(hubRateLimit({ provider: "cloudflare" }), { root }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
-      // vitehub({ preset: "cloudflare" }) records its deployment preset and runs memory in dev.
-      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } }, root, [VITEHUB_DEPLOYMENT_PRESET]: "cloudflare" }))
+      // vitehub({ host: "cloudflare" }) records its host and runs memory in dev.
+      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } }, root, [VITEHUB_DEPLOYMENT_HOST]: "cloudflare" }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
     })
 
@@ -402,7 +402,7 @@ describe("hubRateLimit", () => {
 
       await expect(serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0015" })
-      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } }, root, [VITEHUB_DEPLOYMENT_PRESET]: "cloudflare" }))
+      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } }, root, [VITEHUB_DEPLOYMENT_HOST]: "cloudflare" }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0015" })
     })
 
@@ -435,7 +435,7 @@ describe("hubRateLimit", () => {
       const valid = await devRoot("10s")
       await serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root: valid })
       await expect(readFile(join(valid, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
-      await serve(hubRateLimit({ provider: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } }, root: valid, [VITEHUB_DEPLOYMENT_PRESET]: "cloudflare" })
+      await serve(hubRateLimit({ provider: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } }, root: valid, [VITEHUB_DEPLOYMENT_HOST]: "cloudflare" })
       await expect(readFile(join(valid, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
 
       const local = await devRoot("1h")

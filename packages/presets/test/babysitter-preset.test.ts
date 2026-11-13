@@ -43,6 +43,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
 import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
+import { babysitterRepositories, type BabysitterRepositories } from "../src/babysitter/repositories.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
@@ -50,7 +51,7 @@ import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
-import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
+import { feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../src/github/pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 import * as githubInstalls from "../src/github/install.ts";
@@ -68,7 +69,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; repositories?: BabysitterRepositories } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -110,8 +111,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   const extraCheckRuns: Record<string, unknown>[] = [];
   const pr = () => ({
     number: 12,
+    node_id: "PR_12",
     state: "open",
-    draft: false,
+    draft: preset.draft ?? false,
     title: "Fix value",
     body: "Repair the exported value.",
     user: { login: "developer" },
@@ -133,7 +135,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         id: "PR_12",
         number: 12,
         state: "OPEN",
-        isDraft: false,
+        isDraft: preset.draft ?? false,
         headRefOid: head,
         headRefName: "fix",
         baseRefName: "main",
@@ -170,7 +172,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       if (text.includes("BabysitterOpenPullRequests")) {
         const current = pr();
         const node = {
-          number: current.number, title: current.title, isDraft: false, headRefOid: current.head.sha, headRefName: current.head.ref,
+          number: current.number, title: current.title, isDraft: current.draft, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
           authorAssociation: "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
@@ -344,7 +346,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(discovered ? { agentName: preset.agentName ?? "babysitter" } : {}),
     github,
     inboxPath: preset.inboxPath ?? join(root, "inbox.sqlite"),
-    repositories: ["acme/app"],
+    repositories: preset.repositories ?? ["acme/app"],
     concurrency: 1,
     activityAuthors: preset.activityBarrier ? ["repair-bot"] : ["vitehub-agent"],
     admission: preset.admission,
@@ -508,6 +510,17 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
 }
 
 describe("Babysitter preset runtime", () => {
+  it("discovers open pull requests in every installed repository without an allow list", async () => {
+    const read = vi.fn(async () => [{ repository: "acme/app", installationId: 1, archived: false }, { repository: "acme/archive", installationId: 1, archived: true }]);
+    const f = await fixture(false, false, { repositories: babysitterRepositories({}, read) });
+    try {
+      await f.reconcile();
+      expect(read).toHaveBeenCalledOnce();
+      expect(f.runtime.repositories.known()).toEqual(["acme/app"]);
+      expect(await f.runtime.inbox.get("acme/app", 12)).toBeDefined();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("retries a direct-source worker blocker only when its source revision changes", async () => {
     vi.stubGlobal("__VITEHUB_PRESETS_BUILD_REVISION__", undefined);
     const revision = vi.spyOn(buildRevisions, "presetsBuildRevision").mockReturnValue("source-first");
@@ -894,12 +907,126 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("does not retain a merge assessment for an external wait", async () => {
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
+  it("merges a reviewed head whose pass parked on an external reason once the merge gate opens", async () => {
+    // 2026-10-19: a PR reported no P0 or P1 three times, parked on a failing approval check each time, and never merged.
+    let ready = false;
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => ready || "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
+    try {
+      await f.reconcile();
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ version: 2, head: "a".repeat(40) });
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait?.retryAt).toBeTypeOf("number");
+      ready = true;
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([
+    ["no wake", undefined, true],
+    ["checks of a commit that never changes", { kind: "checks", repository: "acme/app", headSha: "e".repeat(40) }, true],
+    ["its own pull request", { kind: "pull-request", repository: "acme/app", number: 12 }, true],
+    ["another pull request", { kind: "pull-request", repository: "acme/app", number: 13 }, false],
+  ] as const)("retries an external wait on %s after two hours unless it waits for another PR", async (_name, wake, retried) => {
+    // 2026-10-19: about 45 PRs sat in external waits for 13 hours or more, one on checks of a main commit 90 commits back.
+    const reason = "Needs a maintainer";
+    const f = await fixture(false, false, { result: { disposition: "park", text: reason, wait: { kind: "external", reason, ...wake ? { wake } : {} } } });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason });
+      if (!retried) {
+        expect(waiting?.wait?.retryAt).toBeUndefined();
+        return;
+      }
+      expect(waiting?.wait?.retryAt).toBeGreaterThanOrEqual(started + 2 * 60 * 60_000);
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a reviewed draft until it is marked ready for review, then merges it", async () => {
+    // 2026-11-01: a reviewed draft retried its refused merge every two minutes up to generation 1929.
+    let draft = true;
+    const f = await fixture(false, false, { merge: "direct", result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const result = await command(args, request);
+      if (!draft || !args.includes("repos/acme/app/pulls/12") || args.includes("-X")) return result;
+      return { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), draft: true }) };
+    });
+    try {
+      await f.reconcile();
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      const now = vi.spyOn(Date, "now").mockReturnValue(reviewed!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait).toMatchObject({ kind: "external", reason: "draft" });
+      expect(parked?.wait?.retryAt).toBeUndefined();
+      draft = false;
+      await f.runtime.inbox.ingest("ready-for-review", "pull_request", { repository: { full_name: "acme/app" }, action: "ready_for_review", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a reviewed PR whose base is not the default branch, and wakes it when that branch's PR merges", async () => {
+    // 2026-10-31: a PR on a branch without a parent PR retried its refused merge every two minutes for two days,
+    // and a parked child stayed on its parent's branch two days after the parent merged.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const parents: unknown[] = [];
+    const f = await fixture(false, false, { base: "pilot/comments", parents, merge: "direct", result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      vi.setSystemTime(reviewed!.wait!.retryAt! + 1);
+      await f.reconcile();
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait).toMatchObject({ kind: "external", reason: "non-default-base" });
+      expect(parked?.wait?.retryAt).toBeUndefined();
+      expect(parked?.lastResult).toMatch(/pilot\/comments is not the default branch/);
+      vi.setSystemTime(started + 6 * 60 * 60_000);
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
+      parents.push({ state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { ref: "pilot/comments", repo: { owner: { login: "acme" } } }, base: { ref: "main" } });
+      vi.setSystemTime(started + 7 * 60 * 60_000);
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=main"]));
+      expect(f.passes).toHaveLength(1);
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
+  it("does not retain a merge assessment for an external wait without direct merges", async () => {
+    const f = await fixture(false, false, { merge: false, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
     try {
       await f.reconcile();
       expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeNull();
       expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.kind).toBe("external");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("doubles the merge gate timer while a reviewed head stays blocked", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      await f.reconcile();
+      const delays: number[] = [];
+      for (let retry = 0; retry < 6; retry++) {
+        const clock = (await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! + 1;
+        const now = vi.spyOn(Date, "now").mockReturnValue(clock);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        delays.push((await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! - clock);
+      }
+      expect(f.passes).toHaveLength(1);
+      expect(delays).toEqual([240_000, 480_000, 960_000, 1_800_000, 1_800_000, 1_800_000]);
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1231,9 +1358,36 @@ describe("Babysitter preset runtime", () => {
       expect(current?.wait?.retryAt).toBeGreaterThan(Date.now());
       expect(current?.lastResult).toMatch(/mergeability/i);
       uncertain = false;
-      vi.setSystemTime(Date.now() + 31_000);
+      vi.setSystemTime(Date.now() + 121_000);
       await f.reconcile();
       expect(createProviderRuntime.mock.calls.length).toBeGreaterThan(0);
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
+  it("runs the pass after GitHub leaves mergeability unknown for 10 minutes", async () => {
+    // 2026-10-21: 15 stack PRs stayed unknown for hours although each merged cleanly, and rechecked every 30 seconds without a pass.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture();
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const result = await command(args, request);
+      if (args.includes("repos/acme/app/pulls/12")) return { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), mergeable: null, mergeable_state: "unknown" }) };
+      return result;
+    });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait?.retryAt).toBe(started + 120_000);
+      for (let minutes = 2; minutes < 10; minutes += 2) {
+        vi.setSystemTime(started + minutes * 60_000 + 1);
+        await f.reconcile();
+        expect(createProviderRuntime).not.toHaveBeenCalled();
+      }
+      vi.setSystemTime(started + 10 * 60_000 + 1);
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.mergeability.unknown_proceeding")).toBe(true);
     } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
 
@@ -1509,6 +1663,42 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
     expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", markDraftsReady: [" "] } } })).toThrow(expect.objectContaining({ code: "PRESETS_MERGE_DRAFT_AUTHORS_INVALID" }));
+  });
+
+  describe("merge.markDraftsReady", () => {
+    const markReady = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.filter(([args]) => args.join(" ").includes("markPullRequestReadyForReview"));
+    async function reviewedDraft(merge: unknown) {
+      const f = await fixture(false, false, { merge, draft: true });
+      await f.runtime.inbox.ingest("draft-opened", "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: f.pr() });
+      const snapshot = (await f.runtime.inbox.get("acme/app", 12))!;
+      await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(snapshot), feedback: [] });
+      return f;
+    }
+
+    it("marks a listed author's reviewed draft ready instead of waiting on it", async () => {
+      const f = await reviewedDraft({ strategy: "direct", markDraftsReady: ["Developer"] });
+      try {
+        await f.reconcile();
+        expect(markReady(f)).toHaveLength(1);
+        expect(markReady(f)[0]![0]).toContain("id=PR_12");
+        expect(f.passes).toHaveLength(0);
+        expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the reviewed draft ready for review so it can merge." });
+        expect(f.events).toHaveBeenCalledWith("babysitter.draft.ready", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("leaves drafts alone by default and for authors it does not list", async () => {
+      for (const merge of ["direct", { strategy: "direct", markDraftsReady: ["maintainer"] }]) {
+        const f = await reviewedDraft(merge);
+        try {
+          await f.reconcile();
+          expect(markReady(f)).toHaveLength(0);
+          expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Reviewed, but the pull request is a draft. It merges once it is marked ready for review." });
+        } finally { await f.runtime.inbox.close(); }
+      }
+    });
   });
 
   it("maps lifecycle labels into the shared PR filter", () => {
@@ -1543,6 +1733,10 @@ describe("Babysitter preset runtime", () => {
 
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
+    for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
+      expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: authorAssociation as never } } })).toThrow(/filter\.authorAssociation must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: { allow: ["OWNER", "MEMBER"], deny: ["NONE"] } } } })).not.toThrow();
     for (const noProgressBudget of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }
@@ -1550,6 +1744,15 @@ describe("Babysitter preset runtime", () => {
       expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget } })).toThrow(/reviewPushBudget must be a positive integer or false/);
     }
     expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget: false } })).not.toThrow();
+    for (const minorReviewRounds of [0, 1.5, true as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds } })).toThrow(/minorReviewRounds must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewPushBudget: false } })).toThrow(/minorReviewRounds needs a reviewPushBudget/);
+    for (const reviewConvergencePushes of [0, 2.5, "2" as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { reviewConvergencePushes } })).toThrow(/reviewConvergencePushes must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { ignoreAssessedBotThreads: "yes" as unknown as boolean } })).toThrow(/ignoreAssessedBotThreads must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewConvergencePushes: 2, ignoreAssessedBotThreads: true } })).not.toThrow();
     for (const dailyPassBudget of [0, 2.5, "16" as unknown as number]) {
       expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget } })).toThrow(/dailyPassBudget must be a positive integer or false/);
     }
@@ -1617,6 +1820,87 @@ describe("Babysitter preset runtime", () => {
         comment: { id: 202, body: "Please rename it after all.", user: { login: "developer", type: "User" } } });
       await f.reconcile();
       expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks each pass for its automated review class and settles review after minorReviewRounds minor heads", async () => {
+    const result: Record<string, unknown> = { disposition: "park", text: "Assessed; only a P2 finding is left.", automatedReview: "P2" };
+    const f = await fixture(false, false, { result, options: { minorReviewRounds: 2, deferWhilePending: false } });
+    const botReview = (id: number) => f.runtime.inbox.ingest(`bot-review-${id}`, "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id, body: `Finding ${id}`, user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]!.prompt).toContain("<automated-review-severity>");
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 0, heads: [], minorHeads: ["a".repeat(40)] });
+      const next = "d".repeat(40);
+      f.advanceHead(next);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 3, heads: [next], minorHeads: ["a".repeat(40), next] });
+      // Automated review is settled, so new bot feedback parks without a pass.
+      await botReview(401);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.wait?.reason).toBe("review-push-budget");
+      expect(parked.lastResult).toMatch(/^Automated review settled: 2 heads in a row had no finding above P2/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks for a class-level fix from reviewConvergencePushes review-driven pushes on", async () => {
+    const f = await fixture(false, false, { options: { reviewConvergencePushes: 1, deferWhilePending: false } });
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(f.passes[0]!.prompt).not.toContain("<review-convergence>");
+      f.choose(undefined);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 501, body: "Another alias case is missing.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.passes[1]!.prompt).toContain("<review-convergence>\nThis PR already has 1 review-driven repair pushes.");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("keeps read tools working after new evidence arrives mid-pass", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 601, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("ends the pass at the first write that new evidence refuses", async () => {
+    const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
+    f.choose("updatePullRequest", { title: "Fix value now" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 602, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("evidence changed");
+      expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
     } finally { await f.runtime.inbox.close(); }
   });
 

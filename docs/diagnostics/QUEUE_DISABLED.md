@@ -37,7 +37,7 @@ Remove `false`. Without a `provider`, ViteHub selects the provider from the host
  })
 ```
 
-Make the `provider` of `hubQueue()` match the Nitro preset, or remove `provider`. If you use `vitehub()`, enable Queue with `vitehub({ preset, queue: true })`. It sets the provider from the preset.
+Make the `provider` of `hubQueue()` match the Nitro preset, or remove `provider`. If you use `vitehub()`, enable Queue with `vitehub({ host, queue: true })`. It sets the provider from the host.
 
 ## Check the fix
 

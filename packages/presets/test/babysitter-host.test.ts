@@ -79,6 +79,19 @@ it("cleans only the owning process host pool before reading credentials", async 
   expect(await readFile(join(sibling, "state.db"), "utf8")).toBe("keep");
 });
 
+it("starts without a repository allow list and reaches the GitHub App setup", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "vitehub-babysitter-installations-"));
+  roots.push(dataDir);
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY_PATH", "");
+  // Without `repository.allow` the host serves the App's installed repositories, so it needs the App, not a list.
+  await expect(createBabysitterProcessHost({
+    agent: { options: { filter: { repository: { deny: ["acme/private"] } }, concurrency: 1 } },
+    dataDir,
+  } as Parameters<typeof createBabysitterProcessHost>[0])).rejects.toThrow("needs a GitHub App");
+});
+
 it("preserves a replacement swapped in before claiming the pool", async () => {
   const dataDir = await mkdtemp(join(tmpdir(), "vitehub-babysitter-race-"));
   roots.push(dataDir);

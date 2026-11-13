@@ -1,13 +1,13 @@
 import { assertAuthOrigin } from "@vite-hub/auth/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
-import { H3Event, HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
+import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
 // Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
 import type {} from "@vite-hub/runtime/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
@@ -69,7 +69,6 @@ import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { realtimeDurableObjectKey } from "./durable-key.ts"
 
 export { isRealtimeAvailable } from "./availability.ts"
 export { blobDocument } from "./blob-document.ts"
@@ -689,32 +688,6 @@ function refuseUpgrade(request: Request, status: number): Response {
 }
 
 const webSocketHooksKey = Symbol.for("crossws.hooks")
-
-/**
- * An H3 2 event over the Web Request of the event's Standard Context. Nuxt 4 runs Nitro 2, whose H3 1 events carry
- * Node's request, so they get a new H3 2 event with the same context and the same Standard Context: the host
- * bindings, the Durable Object state, and the peer address stay on the original event.
- */
-function toWebEvent(event: H3Event): H3Event {
-  const standard = getStandardContext(event)
-  if (standard.req === event.req) return event
-  const webEvent = new H3Event(standard.req, event.context)
-  Object.defineProperty(webEvent, "~standard", { configurable: true, enumerable: false, value: standard })
-  return webEvent
-}
-
-const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)
-// SAFETY: This module owns the process slot shared by the separately bundled handler and Nitro plugin.
-const durableScope = globalThis as typeof globalThis & { [durableObjectKey]?: { env: unknown, state: unknown } }
-
-/**
- * Remembers the Durable Object of this isolate, for the sockets that Nitro 2 upgrades in it: its upgrade hook gets only
- * the request, and the rooms keep their tables in the Durable Object's storage. Realtime's Nitro plugin calls it at
- * `cloudflare:durable:init`.
- */
-export function registerRealtimeDurableObject(state: unknown, env: unknown): void {
-  durableScope[durableObjectKey] = { env, state }
-}
 
 export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
@@ -1653,8 +1626,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
   })
 
-  const handler = defineEventHandler(async (input) => {
-    const event = toWebEvent(input)
+  const handler = defineEventHandler(async (event) => {
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
     // Inside the Durable Object, a refresh from refreshRealtimeDocument(). The Worker strips the header from client requests.
@@ -1670,43 +1642,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       return refuseUpgrade(event.req, error instanceof HTTPError ? error.status : 500)
     }
   })
-  // Nitro 2, which Nuxt 4 runs, upgrades sockets itself and reads their hooks from `handler.__websocket__`. These run
-  // the handler for each upgrade, then pass each socket to the hooks that the handler returned for it. Durable Object
-  // peers keep the upgrade request, Node peers its context: either one leads back to the hooks.
-  const socketHooks = new WeakMap<object, Partial<WebSocketHooks>>()
-  const hooksOf = (peer: WebSocketPeer) => {
-    const context: unknown = Reflect.get(peer.request, "context")
-    return socketHooks.get(peer.context) ?? (context instanceof Object ? socketHooks.get(context) : undefined)
-  }
-  const nitro2Hooks: Partial<WebSocketHooks> = {
-    async upgrade(request) {
-      const durable = durableScope[durableObjectKey]
-      const context = { ...request.context }
-      if (durable) {
-        const platform = context._platform as { cloudflare?: Record<string, unknown> } | undefined
-        context._platform = {
-          ...platform,
-          cloudflare: { ...platform?.cloudflare, context: durable.state, env: durable.env },
-        }
-      }
-      // crossws makes `request.context` read-only, and an event sets it, so the event reads its own copy.
-      const response: unknown = await handler(new H3Event(new Request(request.url, { headers: request.headers, method: request.method }), context))
-      const hooks: unknown = response instanceof Response ? Reflect.get(response, "crossws") : undefined
-      if (!hooks || typeof hooks !== "object") return response instanceof Response ? response : new Response(null, { status: 500 })
-      if (request.context) socketHooks.set(request.context, hooks)
-      // SAFETY: the handler answers an upgrade with crossws hooks, as h3's defineWebSocketHandler and refuseUpgrade() do.
-      return await (hooks as Partial<WebSocketHooks>).upgrade?.(request)
-    },
-    open: peer => hooksOf(peer)?.open?.(peer),
-    message(peer, message) {
-      const hooks = hooksOf(peer)
-      // A Durable Object that woke from hibernation lost its rooms. The client reconnects and joins again.
-      if (!hooks) return peer.close(1012, "The realtime room restarted.")
-      return hooks.message?.(peer, message)
-    },
-    close: (peer, details) => hooksOf(peer)?.close?.(peer, details),
-    error: (peer, error) => hooksOf(peer)?.error?.(peer, error),
-  }
   // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
-  return Object.assign(handler, { __websocket__: nitro2Hooks }) as RealtimeHandler
+  return handler as RealtimeHandler
 }

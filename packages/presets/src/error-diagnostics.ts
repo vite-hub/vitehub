@@ -3,6 +3,14 @@ import { defineErrors } from "@vite-hub/runtime"
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
+    PRESETS_BABYSITTER_REPOSITORIES_INVALID: {
+      why: 'Babysitter filter.repository.allow lists no "owner/name" repository.',
+      fix: 'List repositories as "owner/name", or remove filter.repository.allow so the Babysitter serves every repository that its GitHub App can access.',
+    },
+    PRESETS_MERGE_DRAFT_AUTHORS_INVALID: {
+      why: "Babysitter merge.markDraftsReady must be an array of GitHub logins.",
+      fix: "Set merge.markDraftsReady to non-empty GitHub logins, such as [\"octocat\", \"renovate[bot]\"], or remove it.",
+    },
     PRESETS_BABYSITTER_OPTION_INVALID: {
       why: ({ option, expected }: { option: string; expected: string }) => `Babysitter ${option} must be ${expected}.`,
       fix: ({ option, expected }: { option: string; expected: string }) => `Set ${option} to ${expected} in the Babysitter options, or leave it out to keep the default.`,
@@ -27,6 +35,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "GitHub returned an invalid review comment cursor.",
       fix: "Retry the operation to read the thread again. If the cursor is still missing or repeated, check the GitHub API response before resolving the thread.",
     },
+    PRESETS_BABYSITTER_MINOR_ROUNDS_NEED_BUDGET: {
+      why: "Babysitter minorReviewRounds needs a reviewPushBudget: settled rounds spend that budget.",
+      fix: "Set reviewPushBudget to a positive integer, or set minorReviewRounds to false.",
+    },
     PRESETS_DEPENDENCY_PATCH_MISSING: {
       why: ({ path }: { path: string }) => `Dependency patch ${path} does not exist in this checkout.`,
       fix: "Restore the patch file, or remove its entry from patchedDependencies.",
@@ -42,6 +54,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_REVIEW_COMMENT_MISSING: {
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",
+    },
+    PRESETS_BABYSITTER_STATUS_INVALID: {
+      why: "Babysitter status must be an object whose comment and checkRun fields are booleans.",
+      fix: "Pass status: { comment?: boolean, checkRun?: boolean }, or leave status out to post both the activity comment and the babysitter check run.",
     },
     PRESETS_CHECK_LOG_SELECTION_INVALID: {
       why: ({ reason }: { reason: string }) => `readCheckLogs got an invalid line selection: ${reason}`,
