@@ -21,7 +21,10 @@ through [Capabilities](/docs/agents/capabilities).
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
 | `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
-| `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
+| `hub.db: 'postgresql'` | `dialect: "postgresql"` with `connection: { url: process.env.POSTGRES_URL \|\| process.env.POSTGRESQL_URL \|\| process.env.DATABASE_URL }` | NuxtHub read these variables on its own. A Definition reads only its `connection`. Local PGlite data moves from `.data/db/pglite` to `.vitehub/data/database/pglite`. See [Postgres configuration](/docs/database/configure#define-a-postgres-database). |
+| `hub.db.connection.hyperdriveId` | `cloudflare.hyperdriveId` | NuxtHub named the binding `POSTGRES`. ViteHub names it `HYPERDRIVE`. |
+| `hub.db.driver: 'd1-http'` | `cloudflare: { databaseId, http: true }` | Rename `NUXT_HUB_CLOUDFLARE_ACCOUNT_ID`, `NUXT_HUB_CLOUDFLARE_API_TOKEN`, and `NUXT_HUB_CLOUDFLARE_DATABASE_ID` to `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_D1_DATABASE_ID`. |
+| `hub.db.casing` | `snakeCase.table()` per table | Drizzle 1.0 has no casing for a database. See [Name columns in snake_case](/docs/database/configure#name-columns-in-snake_case). |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |

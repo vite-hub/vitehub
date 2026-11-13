@@ -141,7 +141,7 @@ it("reports every legacy relational query including an aliased database and owne
   })
   const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
   expect(run.result.followUps.filter(followUp => followUp.file === file).map(followUp => [followUp.line, followUp.message])).toEqual([
-    [2, expect.stringMatching(/Replace callback where.*Check ownership filters/)],
+    [2, expect.stringMatching(/passes a function as where.*check ownership filters/)],
     [3, expect.stringMatching(/migrate declared relations.*nested queries/)],
   ])
 })
