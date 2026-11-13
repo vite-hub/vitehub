@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { kv } from "@vite-hub/kv"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { files, github } from "@vite-hub/source"
@@ -61,17 +60,9 @@ async function call(handler: ReturnType<typeof defineContentMcpHandler>, method:
 const tool = async (handler: ReturnType<typeof defineContentMcpHandler>, name: string, args: Record<string, unknown> = {}) =>
   (await call(handler, "tools/call", { name, arguments: args })).body.result!
 
-/**
- * The text that the `@vite-hub/docs` MCP server sends for a tool that returns `value`, from the `normalizeToolResult()`
- * of the `@nuxtjs/mcp-toolkit` that docs installs.
- */
+/** The tool text of a JSON value: two-space JSON, as the MCP server of `@vite-hub/docs` sent it before docs moved onto this server. */
 async function docsText(value: unknown): Promise<string> {
-  const results = fileURLToPath(new URL("../../docs/node_modules/@nuxtjs/mcp-toolkit/dist/runtime/server/mcp/definitions/results.js", import.meta.url))
-  const module: unknown = await import(/* @vite-ignore */ results)
-  const normalize: unknown = Reflect.get(Object(module), "normalizeToolResult")
-  if (!(normalize instanceof Function)) throw new TypeError("Expected normalizeToolResult() in @nuxtjs/mcp-toolkit.")
-  const result: unknown = normalize(value)
-  return z.object({ content: z.tuple([z.object({ type: z.literal("text"), text: z.string() })]) }).parse(result).content[0].text
+  return JSON.stringify(value, null, 2)
 }
 
 describe("seo.mcp for collections", () => {
@@ -129,16 +120,18 @@ describe("seo.mcp for collections", () => {
     }
   })
 
-  it("answers an unknown, draft, or noindex page with the error text of the docs MCP server", async () => {
+  it("answers an unknown or draft page with the error text of the docs MCP server, and reads a noindex page", async () => {
     const content = await site()
-    await content.collection("posts").save("hidden", { data: { title: "Hidden", seo: { noindex: true } }, body: "Secret\n" })
+    await content.collection("posts").save("hidden", { data: { title: "Hidden", seo: { noindex: true } }, body: "Unlisted\n" })
     await content.collection("posts").save("draft", { data: { title: "Draft" }, body: "Not yet\n" })
     await content.publish({ collection: "posts", ids: ["hidden"] })
     const handler = defineContentMcpHandler(content)
-    for (const path of ["/blog/missing", "/blog/draft", "/blog/hidden", "/data/numbers"]) {
+    for (const path of ["/blog/missing", "/blog/draft", "/data/numbers"]) {
       expect(await tool(handler, "get-page", { path })).toEqual({ content: [{ type: "text", text: `[404] No page at ${path}` }], isError: true })
     }
-    expect(await content.page("/blog/hidden")).toBeNull()
+    // A noindex page has a `.md` copy, so get-page reads it by its path. list-pages does not list it.
+    expect(await content.page("/blog/hidden")).toMatchObject({ path: "/blog/hidden", content: "# Hidden\n\nUnlisted\n" })
+    expect((await content.pages()).map(page => page.path)).not.toContain("/blog/hidden")
     expect((await tool(handler, "get-page", {})).isError).toBe(true)
   })
 
@@ -177,7 +170,7 @@ describe("seo.mcp for collections", () => {
 })
 
 describe("seo.mcp for Sources", () => {
-  it("excludes Source noindex and differing canonical pages from both tools", async () => {
+  it("lists no Source noindex or differing canonical page, but reads them by path", async () => {
     fake.commit("main", {
       "content/public.md": "---\ntitle: Public\nseo:\n  canonical: https://example.com/docs/public\n---\nPublic body.\n",
       "content/hidden.md": "---\ntitle: Hidden\nseo:\n  noindex: true\n---\nHidden body.\n",
@@ -194,8 +187,8 @@ describe("seo.mcp for Sources", () => {
     expect((await content.pages()).map(page => page.path)).toEqual(["/docs/public"])
     expect(JSON.parse((await tool(handler, "list-pages")).content![0]!.text).map((page: { path: string }) => page.path)).toEqual(["/docs/public"])
     for (const path of ["/docs/hidden", "/docs/elsewhere"]) {
-      expect(await content.page(path)).toBeNull()
-      expect(await tool(handler, "get-page", { path })).toEqual({ content: [{ type: "text", text: `[404] No page at ${path}` }], isError: true })
+      expect(await content.page(path)).toMatchObject({ path })
+      expect(JSON.parse((await tool(handler, "get-page", { path })).content![0]!.text)).toMatchObject({ path })
     }
   })
 
