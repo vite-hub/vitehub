@@ -1,6 +1,7 @@
 import { docsCollection } from "@vite-hub/docs"
 import cms from "vite-hub/cms"
-import { defineContent, documents, image, optional } from "vite-hub/content"
+import { defineContent, image, optional } from "vite-hub/content"
+import { documents } from "vite-hub/content/collections"
 import { z } from "zod"
 
 // The Console edits four collections. `docs` is the pages in content/, which the site renders from the repository at

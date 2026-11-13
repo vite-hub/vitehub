@@ -1185,6 +1185,15 @@ describe("ViteHub Nuxt integration", () => {
 
     const kvConfig = (nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]
     expect(kvConfig).toBeTypeOf("string")
+    const kvAlias = (nitroConfig.alias as Record<string, string>)["#vitehub/kv/config"]!
+    expect(await readFile(kvAlias, "utf8")).toBe(kvConfig)
+    const bundled = await build({
+      alias: { "#vitehub/kv/config": kvAlias },
+      bundle: true,
+      stdin: { contents: 'export { kv } from "#vitehub/kv/config"', resolveDir: nuxt.options.rootDir },
+      write: false,
+    })
+    expect(bundled.outputFiles[0]?.text).toContain("kv = false")
     // The same exports as the module that @vite-hub/kv/vite generates.
     const kvConfigModule = await import(`data:text/javascript,${encodeURIComponent(kvConfig!)}`) as Record<string, unknown>
     expect({ ...kvConfigModule }).toEqual({ default: { hosting: undefined, kv: false }, hosting: undefined, kv: false })
@@ -1208,6 +1217,7 @@ describe("ViteHub Nuxt integration", () => {
       alias: { "@vite-hub/kv/runtime/upstash-driver": "/app/upstash.mjs" },
       virtual: { "#vitehub/kv/config": "export const kv = { custom: true }" },
     })
+    expect(nitroConfig.alias).not.toHaveProperty("#vitehub/kv/config")
 
     const fresh = createNuxt(true)
     const freshConfig: Record<string, unknown> = {}
@@ -3322,6 +3332,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         "#vitehub/env/description": `${tmp}/vitehub-nuxt/.vitehub/env/description.mjs`,
         "#vitehub/env/public": `${tmp}/vitehub-nuxt/.vitehub/env/public.mjs`,
         "#vitehub/env/server": `${tmp}/vitehub-nuxt/.vitehub/env/server.mjs`,
+        "#vitehub/kv/config": `${tmp}/vitehub-nuxt/.vitehub/nuxt/disabled-kv-config.mjs`,
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/[\\/]internal[\\/]disabled-redis-driver\.(?:ts|js)$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/[\\/]internal[\\/]disabled-upstash-driver\.(?:ts|js)$/),
       },

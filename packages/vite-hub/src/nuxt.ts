@@ -1477,7 +1477,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // off, the config says so. vitehub() stubs only the Upstash driver; there a missing config makes the KV runtime fall
     // back to environment defaults.
     const kv = resolvedKVFromPlugin(retainedKVPlugin, effectiveKV)
-    if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
+    if (!kv) {
+      const virtual = (config.virtual ??= {}) as Record<string, string>
+      if (virtual["#vitehub/kv/config"] === undefined || virtual["#vitehub/kv/config"] === disabledKVConfigModule) {
+        virtual["#vitehub/kv/config"] = disabledKVConfigModule
+        // Nitro's final Vite environment must also resolve imports from linked workspace packages. Its virtual
+        // config alone is not available to Nuxt's bare import resolver in that environment.
+        const disabledConfig = join(projectRoot, ".vitehub/nuxt/disabled-kv-config.mjs")
+        await mkdir(dirname(disabledConfig), { recursive: true })
+        await writeFile(disabledConfig, disabledKVConfigModule, "utf8")
+        alias["#vitehub/kv/config"] ??= disabledConfig
+      }
+    }
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
     if (!hasRedisStore(kv)) alias[redisDriverSpecifier] ??= disabledRedisDriver
     addNitroImports(config, serverAutoImports)

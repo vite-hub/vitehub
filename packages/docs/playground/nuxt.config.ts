@@ -9,9 +9,14 @@ export default defineNuxtConfig({
       name: "vitehub-docs-demo",
       publicUrl,
       auth: true,
+      kv: false,
       // The docs assistant: an Agent on the ChatGPT plan, and the Connection that holds the grant.
-      agent: true,
-      connections: { management: true, database: "users" },
+      // This Worker has no default Database, so its Invocation journal stays in memory, including during prerender.
+      agent: { invocations: "memory" },
+      connections: {
+        management: { actor: fileURLToPath(new URL("./server/connections-auth.ts", import.meta.url)) },
+        database: "users",
+      },
       // Two R2 buckets. `default` holds the CMS history, which only the Worker reads. `media` is the media library of
       // the Console, served at /media for the illustrations and covers on the pages.
       blob: {
@@ -65,7 +70,7 @@ export default defineNuxtConfig({
     cloudflare: { wrangler: { assets: { run_worker_first: ["/", "/about", "/docs", "/docs/*", "/api/_docs/*"] } } },
     // The crawler follows the links of the prerendered pages. These routes read the CMS or the media library, which the
     // build cannot reach.
-    prerender: { ignore: ["/blog", "/changelog", mediaRoute] },
+    prerender: { ignore: ["/blog", "/changelog", mediaRoute, /^\/_vitehub(?:\/|$)/] },
   },
   // The Worker renders the blog, the changelog, their feeds, the media library, and the Console at request time, so the
   // build output has no file for them. Nuxt Link Checker and the docs link check both read this list.

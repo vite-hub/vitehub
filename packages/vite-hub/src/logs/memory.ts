@@ -85,7 +85,7 @@ export function createLogBuffer(
       append({
         id: crypto.randomUUID(),
         timestamp: event.timestamp,
-        level: event.level,
+        level: event.level === "trace" ? "debug" : event.level === "fatal" ? "error" : event.level,
         service: event.service,
         message: typeof message === "string" ? message : "Event",
         data: event,

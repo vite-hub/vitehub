@@ -35,7 +35,7 @@ export interface ObservabilityEvlogOptions {
     replacement?: string | ((matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => string)
     transform?: (event: Record<string, unknown> & {
       timestamp: string
-      level: "debug" | "info" | "warn" | "error"
+      level: "trace" | "debug" | "info" | "warn" | "error" | "fatal"
       service: string
       environment: string
       version?: string
