@@ -563,8 +563,8 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   }))
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
-  // Node selects OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  // Node and Deno select OpenWorkflow when its storage is set and no provider is.
+  if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]

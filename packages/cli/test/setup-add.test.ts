@@ -784,11 +784,13 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    ["workflow.sqlite.path=.data/workflows.db"],
-    ["workflow.postgres.url=postgres://localhost/workflows"],
-    ["workflow.postgres.url.kind=env-variable", "workflow.postgres.url.source.kind=env", "workflow.postgres.url.source.name=DATABASE_URL"],
-  ])("installs OpenWorkflow when Node storage selects it (%s)", async (...options) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
+    ["node", "workflow.sqlite.path=.data/workflows.db"],
+    ["node", "workflow.postgres.url=postgres://localhost/workflows"],
+    ["node", "workflow.postgres.url.kind=env-variable", "workflow.postgres.url.source.kind=env", "workflow.postgres.url.source.name=DATABASE_URL"],
+    ["deno", "workflow.sqlite.path=.data/workflows.db"],
+    ["deno", "workflow.postgres.url=postgres://localhost/workflows"],
+  ])("installs OpenWorkflow when %s storage selects it", async (host, ...options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}" }`) })
 
     const { json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
 
