@@ -66,6 +66,7 @@ Available namespaces:
   types       Generate ViteHub TypeScript declarations.
   i18n        Show translation coverage, and move translations to and from PO files.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
+  migrate     Rewrite the app for this ViteHub release. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
@@ -134,6 +135,7 @@ Available namespaces:
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
+| `vitehub migrate run` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with the codemods of `@vite-hub/codemods`. `vitehub migrate` runs it on the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
@@ -965,7 +967,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/tasks/db/seed.ts]
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineTask } from 'nitro/task'
 
 export default defineTask({

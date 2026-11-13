@@ -61,14 +61,14 @@ describe("hubConnections", () => {
   });
 
   it("asks @vite-hub/database for the default SQLite Database when it has a Database module", () => {
-    expect(hubConnections({ database: "vite-hub/database/drizzle" }).vitehub.databases()).toEqual([
+    expect(hubConnections({ database: "@vite-hub/database/runtime/registry" }).vitehub.databases()).toEqual([
       { database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
     ]);
     expect(hubConnections().vitehub.databases()).toEqual([]);
   });
 
   it.each(["users", "billing/archive", "audit.logs", "1users", "Team_1/archive-2"])("keeps Connection data in the %s Database", async (databaseName) => {
-    const plugin = hubConnections({ database: "vite-hub/database/drizzle", databaseName });
+    const plugin = hubConnections({ database: "@vite-hub/database/runtime/registry", databaseName });
     expect(plugin.vitehub.databases()).toEqual([
       { database: databaseName, dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
     ]);
@@ -77,7 +77,7 @@ describe("hubConnections", () => {
     await (plugin.config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
     const nitro = config.nitro as { alias: Record<string, string> };
     await expect(readFile(nitro.alias[CONNECTIONS_REGISTRY_ID]!, "utf8")).resolves.toContain(
-      `export const database = () => import("vite-hub/database/drizzle").then(module => module.databases[${JSON.stringify(databaseName)}].db)`,
+      `export const database = () => import("@vite-hub/database/runtime/registry").then(module => module.databases[${JSON.stringify(databaseName)}].db)`,
     );
   });
 
@@ -88,7 +88,7 @@ describe("hubConnections", () => {
   it.each(["@vite-hub/connections", "vite-hub/connections"])("writes the registry and mounts the management API through %s in development", async (importBase) => {
     const root = await createTempProject();
     const definition = await writeConnection(root, "server/connections/google.ts");
-    const plugin = hubConnections({ database: "vite-hub/database/drizzle", importBase });
+    const plugin = hubConnections({ database: "@vite-hub/database/runtime/registry", importBase });
     const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (plugin.config as unknown as ConfigHook)(config, {
       command: "serve",
@@ -101,7 +101,7 @@ describe("hubConnections", () => {
     const registry = await readFile(nitro.alias[CONNECTIONS_REGISTRY_ID]!, "utf8");
     expect(registry).toContain(JSON.stringify(definition));
     expect(registry).toContain(
-      'export const database = () => import("vite-hub/database/drizzle").then(module => module.db)',
+      'export const database = () => import("@vite-hub/database/runtime/registry").then(module => module.db)',
     );
     expect(nitro.handlers.map((handler) => handler.route)).toEqual([
       "/_vitehub/connections",

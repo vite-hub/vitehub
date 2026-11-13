@@ -137,7 +137,7 @@ describe("t3-env import safety", () => {
     const cwd = await app({ [file]: 'import { env } from "../../env"\nconst useServerEnv = () => "existing"\nexport const existing = useServerEnv()\nexport const databaseUrl = env.DATABASE_URL\n' })
     await runCodemod("t3-env", { cwd })
     const after = await readFile(join(cwd, file), "utf8")
-    expect(after).toContain('import { useServerEnv as viteHubServerEnv } from "#vitehub/env/server"')
+    expect(after).toContain('import { useServerEnv as viteHubServerEnv } from "vite-hub/env"')
     expect(after).toContain('const useServerEnv = () => "existing"')
     expect(after).toContain("export const databaseUrl = viteHubServerEnv().databaseUrl.unseal()")
   })

@@ -633,7 +633,7 @@ Use the D1 adapter when the app has a D1 database. The binding resolves per oper
 ```ts [server/invocations.ts]
 import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
-import { useDatabaseBinding } from 'vite-hub/database/drizzle'
+import { useDatabaseBinding } from 'vite-hub/database'
 
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({

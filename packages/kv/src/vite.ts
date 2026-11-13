@@ -341,7 +341,7 @@ function configureNitroCloudflareKV(
 }
 
 export interface KVViteInput extends Pick<KVResolutionInput, "hosting"> {
-  /** The module that exports the app's `databases`, for the `database` driver. Default `@vite-hub/database/drizzle`. */
+  /** The module that exports the app's `databases`, for the `database` driver. Default `@vite-hub/database/runtime/registry`. */
   databaseImport?: string
 }
 
@@ -351,7 +351,7 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   let mode = "development"
   let viteEnv: Record<string, string> | undefined
   let databasePlugin: DatabaseVitePlugin | undefined
-  const databaseImport = input.databaseImport ?? "@vite-hub/database/drizzle"
+  const databaseImport = input.databaseImport ?? "@vite-hub/database/runtime/registry"
   // The Database integration resolves its Definitions, server directories, layers, and contributions. Its config is
   // ready after its `configResolved`, which runs after this plugin's, so KV reads it again at `buildStart`.
   const postgresDatabase = () => databasePlugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"

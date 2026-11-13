@@ -2053,7 +2053,7 @@ describe("agent chat capability discovery", () => {
     const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "calories.ts"), "export default {}", "utf8")
-    await installStubPackages(root, ["@vite-hub/database/drizzle"])
+    await installStubPackages(root, ["@vite-hub/database/runtime/registry"])
 
     const { db } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -2074,7 +2074,7 @@ describe("agent chat capability discovery", () => {
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => {
-      if (args[0] === "@vite-hub/database/drizzle") return { agentDb }
+      if (args[0] === "@vite-hub/database/runtime/registry") return { agentDb }
       return { default: agent }
     })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -2107,7 +2107,7 @@ describe("agent chat capability discovery", () => {
       { type: "finish" },
       { type: "done" },
     ])
-    expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/drizzle")
+    expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/runtime/registry")
     expect(runtimeDbs).toEqual([initialAgentDb])
     expect(runtimeSchedule).toBeUndefined()
     expect(server.ssrLoadModule).not.toHaveBeenCalledWith("#vitehub/schedule/registry")

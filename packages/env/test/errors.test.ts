@@ -1,7 +1,8 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
-import { env, resolveServerEnv } from "../src/index.ts"
+import { env } from "../src/index.ts"
+import { resolveServerEnv } from "../src/server.ts"
 import { envSourceFailed } from "../src/core/errors.ts"
 import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"

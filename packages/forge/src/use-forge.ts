@@ -30,6 +30,11 @@ export interface UseForgeOptions<TKind extends ForgeKind = "github"> {
   fetch?: typeof fetch
   /** Default `"vitehub"`. */
   userAgent?: string
+  /**
+   * `false` stops providers from revalidating repeated GETs with `If-None-Match`. Default: on for GitHub.
+   * With a GitHub App, a cached response survives token rotation within the same installation.
+   */
+  conditionalRequests?: boolean
 }
 
 export interface ForgeCallOptions {
@@ -174,7 +179,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     return credentials
   }
 
-  async function installationToken(config: GitHubAppConfig, call: ForgeCallOptions): Promise<Result<ForgeToken, ForgeTokenErrorCode>> {
+  async function installationToken(config: GitHubAppConfig, call: ForgeCallOptions): Promise<Result<ForgeToken & { identity: string }, ForgeTokenErrorCode>> {
     const { repository, signal } = call
     const client = await appCredentials(config)
     let installation = config.installationId
@@ -194,7 +199,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     }
     try {
       const minted = await client.installationToken(installation, { signal, ...(call.refresh ? { refresh: true } : {}) })
-      return [undefined, { token: minted.token, expiresAt: minted.expiresAt }]
+      return [undefined, { token: minted.token, expiresAt: minted.expiresAt, identity: `app:${config.appId}:${installation}` }]
     }
     catch (cause) {
       return [requestFailed(`POST /app/installations/${installation}/access_tokens`, cause, signal), undefined]
@@ -207,17 +212,24 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     baseUrl,
     async token(call = {}) {
       if (call.signal?.aborted) throw abortError(call.signal)
-      if ("app" in credential) return await installationToken(credential.app, call)
-      return [undefined, { token: credential.token, expiresAt: undefined }]
+      if (!("app" in credential)) return [undefined, { token: credential.token, expiresAt: undefined }]
+      const [error, minted] = await installationToken(credential.app, call)
+      return error ? [error, undefined] : [undefined, { token: minted.token, expiresAt: minted.expiresAt }]
     },
     async provider(call = {}) {
-      const [error, minted] = await forge.token(call)
+      if (call.signal?.aborted) throw abortError(call.signal)
+      const [error, minted] = "app" in credential
+        ? await installationToken(credential.app, call)
+        : [undefined, { token: credential.token, identity: undefined }]
       if (call.signal?.aborted) throw abortError(call.signal)
       if (error) return [error, undefined]
       const provider = await forgeProvider({
         forge: kind,
         token: minted.token,
         userAgent,
+        ...(options.conditionalRequests === false
+          ? { conditionalRequests: false }
+          : minted.identity ? { conditionalRequests: { identity: minted.identity } } : {}),
         ...(baseUrl ? { baseUrl } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })

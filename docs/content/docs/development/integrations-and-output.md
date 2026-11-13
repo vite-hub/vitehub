@@ -56,7 +56,7 @@ Options that affect discovery, generated files, provider bindings, or deployment
 
 ## Use Provider Output as build evidence
 
-Inspect the output to check routes, bindings, or host wiring. Import it only when the package documents a path such as `#vitehub/env/server`.
+Inspect generated output to verify routes, bindings, or host wiring. Import it from application code only when the package documents a path such as `#vitehub/emails/<name>`.
 
 | Need | Surface |
 | --- | --- |

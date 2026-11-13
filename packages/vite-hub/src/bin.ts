@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runViteHubCliEntrypoint } from "@vite-hub/cli"
+import { createMigrateCliNamespace } from "./migrate-cli.ts"
 import { createSandboxCliNamespace } from "./sandbox-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
@@ -45,5 +46,5 @@ runViteHubCliEntrypoint({
   // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the
   // server files that they generate make the running dev server rebuild while the command waits for its answer.
   runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? []],
-  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createSandboxCliNamespace(), secretRuntimeNamespace],
+  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
 })

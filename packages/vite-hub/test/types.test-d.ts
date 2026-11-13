@@ -5,7 +5,7 @@ import { vitehub } from "vite-hub"
 import { createMessage, defineAgent } from "vite-hub/agent"
 import type { ConsoleAgentInvocationInput } from "vite-hub/console"
 import { email } from "vite-hub/agent/capabilities"
-import { useDatabase } from "vite-hub/database/drizzle"
+import { useDatabase } from "vite-hub/database"
 import { env } from "vite-hub/env"
 import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkflow } from "vite-hub/workflow"
@@ -27,7 +27,7 @@ const databaseSchema = {
   }),
 }
 
-declare module "vite-hub/database/drizzle" {
+declare module "vite-hub/database" {
   interface DatabaseRegistry {
     typed: { schema: typeof databaseSchema }
   }
