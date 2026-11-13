@@ -124,7 +124,7 @@ export async function listIssues() {
 
 `useServerEnv()` checks every declared value, not only the ones you read. If a required value is missing, every call throws `ENV_REQUIRED_MISSING` with its path. If the app can run without a value, mark it `optional: true`, or give it a default. Defaults go into the generated server code, so never give a secret one. Run `vitehub env check` before a release to list missing values.
 
-On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, `runWithServerEnv()`, and `deriveSecret()` take the same event.
+On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, and `runWithServerEnv()` take the same event. Pass it as `{ event }` to `deriveSecret()`.
 
 ## Read external Env storage
 

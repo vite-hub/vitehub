@@ -53,7 +53,7 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "blob", name: "blob" },
   { exportName: "connections", name: "connections" },
   { exportName: "content", name: "content" },
-  { exportName: "console", name: "console" },
+  { exportName: "agentConsole", name: "console" },
   { exportName: "agentDb", name: "db" },
   { exportName: "email", name: "email" },
   { exportName: "agentI18n", name: "i18n" },
@@ -138,7 +138,8 @@ function renderConsoleNitroPlugin(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
+  // The page tools pill comes with Site access: the browsers and guests that use it without an app sign-in.
+  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)

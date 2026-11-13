@@ -217,7 +217,7 @@ export async function dispatchSync(connectionId: string) {
 }
 ```
 
-To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. It also checks `runAgent()` and `streamAgent()`, including calls with `runtimeContext`. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
+To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.delete(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. It also checks `runAgent()` and `streamAgent()`, including calls with `runtimeContext`. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
 
 ## VHUB0004
 
@@ -976,7 +976,7 @@ export default defineNuxtConfig({
 })
 ```
 
-Plugins that add Database tables, such as `hubDb()`, can stay in `vite.plugins`.
+Plugins that add Database tables, such as `hubDatabase()`, can stay in `vite.plugins`.
 
 ## VHUB0031
 
@@ -1028,8 +1028,7 @@ An app that uses ViteHub still has NuxtHub parts:
 - `@nuxthub/core` in `modules` of `nuxt.config.ts`. Both register `kv`, `blob`, and database helpers.
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
 - `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
-- Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
-- `blob.delete()`. ViteHub Blob names this method `blob.del()`.
+- Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime. The rule does not report `hubKV()` or `hubDatabase()` that you import from a ViteHub package.
 
 ```ts [nuxt.config.ts] fails=TS2353
 // Invalid

@@ -13,6 +13,8 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { JsonSchema } from "comark-content"
+import type { ContentCheckResult } from "./check.ts"
 import type { ContentDocumentStatus, ContentRef } from "./collections-types.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentSchedule, ContentScheduleStatus } from "./schedules.ts"
@@ -47,12 +49,13 @@ export interface ContentCliOptions {
 }
 
 type ContentCliOption =
-  | "at" | "collection" | "cursor" | "dry-run" | "file" | "id" | "if-digest" | "limit" | "message" | "override-lease"
-  | "ref" | "revision" | "search" | "site" | "status" | "xml" | "yes"
+  | "at" | "collection" | "cursor" | "dir" | "dry-run" | "file" | "id" | "if-digest" | "ignore" | "limit" | "message"
+  | "override-lease" | "page-url" | "ref" | "revision" | "schema" | "search" | "sha" | "site" | "status" | "title-template"
+  | "xml" | "yes"
 
 type ContentCliCommandName =
   | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "delete" | "restore"
-  | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap" | "head" | "advance" | "pin" | "unpin"
+  | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap" | "head" | "advance" | "pin" | "unpin" | "check"
 
 interface ContentCliCommand {
   description: string
@@ -66,25 +69,30 @@ interface ParsedContentArgs {
   at?: string
   collection?: string
   cursor?: string
+  dir?: string
   dryRun: boolean
   file?: string
   help: boolean
   id?: string
   ids?: string[]
   ifDigest?: string
+  ignore?: string[]
   json: boolean
   limit?: number
   message?: string
   overrideLease: boolean
+  pageUrl?: string
   ref?: ContentRef
   revision?: string
   schedule?: string
+  schema?: string
   search?: string
   sha?: string
   site?: string
   source?: string
   status?: ContentScheduleStatus
   timeout?: number
+  titleTemplate?: string
   url: string
   xml: boolean
   yes: boolean
@@ -120,27 +128,34 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "Cancel a pending schedule, or dismiss a failed one.", name: "unschedule", options: [], positionals: ["schedule"] },
   { description: "Print the sitemap URLs of published documents of collections, and documents of Sources, with a url.", name: "sitemap", options: ["site", "xml"], positionals: [] },
   { description: "Show the commit that each github() Source serves, the rejected commit, the last webhook delivery, and what holds the head back.", name: "head", options: [], positionals: ["source?"] },
-  { description: "Move the head of a github() Source to the latest commit of its branch when every document parses. Exits 1 when the head is held back.", name: "advance", options: [], positionals: ["source?"] },
-  { description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse.", name: "pin", options: [], positionals: ["sha", "source?"] },
+  { description: "Move the head of a github() Source to the latest commit of its branch when every document parses and `content check` finds no error. Exits 1 when the head is held back.", name: "advance", options: [], positionals: ["source?"] },
+  { description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse and pass the check.", name: "pin", options: [], positionals: ["sha", "source?"] },
   { description: "Remove the pin of a github() Source and move its head to the latest valid commit of its branch.", name: "unpin", options: [], positionals: ["source?"] },
+  { description: "Check documents for frontmatter that does not match the schema, links to missing pages or headings, and title and description rules. With --dir it checks a folder without a running app. Exits 1 on errors.", name: "check", options: ["sha", "dir", "page-url", "schema", "site", "ignore", "title-template"], positionals: ["source?"] },
 ]
 
 const optionUsage: Record<ContentCliOption, string> = {
   "at": "--at <time>",
   "collection": "[--collection <name>]",
   "cursor": "[--cursor <cursor>]",
+  "dir": "[--dir <folder>]",
   "dry-run": "[--dry-run]",
   "file": "[--file <path>|-]",
   "id": "[--id <id>...]",
   "if-digest": "[--if-digest <digest>]",
+  "ignore": "[--ignore <path>...]",
   "limit": "[--limit <n>]",
   "message": "[--message <text>]",
   "override-lease": "[--override-lease]",
+  "page-url": "[--page-url <pattern>]",
   "ref": "[--ref draft|published]",
   "revision": "--revision <id>",
+  "schema": "[--schema <file>]",
   "search": "[--search <text>]",
+  "sha": "[--sha <sha>]",
   "site": "[--site <url>]",
   "status": "[--status pending|overdue|failed]",
+  "title-template": "[--title-template <pattern>]",
   "xml": "[--xml]",
   "yes": "[--yes]",
 }
@@ -149,24 +164,30 @@ const optionHelp: Record<ContentCliOption, string> = {
   "at": "  --at <time>          When to publish: an ISO timestamp with a time zone, such as 2026-10-20T09:00:00+02:00.",
   "collection": "  --collection <name>  Select one collection. Omit it to select every collection.",
   "cursor": "  --cursor <cursor>    Continue after this cursor. The command prints the next cursor.",
+  "dir": "  --dir <folder>       Check this folder of the working tree as one Source, without a running app. For CI.",
   "dry-run": "  --dry-run            List the changes, with each draft digest and field issue count, and change nothing.",
   "file": "  --file <path>        Save this file as the draft instead of opening an editor. `-` reads standard input.",
   "id": "  --id <id>            Select only this document of --collection. Repeatable.",
   "if-digest": "  --if-digest <digest> Save only if the draft still has this digest, as `show --json` prints it.",
+  "ignore": "  --ignore <path>      With --dir: a link target that another route serves, such as /docs/*/diagnostics/**. Repeatable.",
   "limit": "  --limit <n>          Show at most n entries. Defaults to 20 for revisions and 50 for list. Maximum 100.",
   "message": "  --message <text>     Revision message.",
   "override-lease": "  --override-lease     Write even while another session holds the edit lease of the document.",
+  "page-url": "  --page-url <pattern> With --dir: the page URL of each document, such as /blog/:id. Defaults to the document path.",
   "ref": "  --ref <ref>          `draft` (default) or `published`. For revisions, `draft` lists saves and `published` publishes.",
   "revision": "  --revision <id>      The revision to restore from, as `vitehub content revisions` lists it.",
+  "schema": "  --schema <file>      With --dir: a JSON Schema file that the frontmatter must match.",
   "search": "  --search <text>      Only documents whose search fields contain the text.",
+  "sha": "  --sha <sha>          Check this full commit SHA of a github() Source. Defaults to the latest commit of its branch.",
   "site": "  --site <url>         Public origin of the URLs. Defaults to defineContent({ seo: { site } }).",
   "status": "  --status <status>    Only pending, overdue, or failed schedules.",
+  "title-template": "  --title-template <p> With --dir: the <title> pattern of the site, such as \"%s · ViteHub\", for the title length rule.",
   "xml": "  --xml                Print the sitemap XML that /sitemap.xml serves.",
   "yes": "  --yes, -y            Do it without asking for confirmation.",
 }
 
 const booleanOptions = { "dry-run": "dryRun", "override-lease": "overrideLease", "xml": "xml", "yes": "yes" } as const
-const valueOptions = ["at", "collection", "cursor", "file", "id", "if-digest", "limit", "message", "ref", "revision", "search", "site", "status"] as const
+const valueOptions = ["at", "collection", "cursor", "dir", "file", "id", "if-digest", "ignore", "limit", "message", "page-url", "ref", "revision", "schema", "search", "sha", "site", "status", "title-template"] as const
 
 function commandUsage(command: ContentCliCommand): string {
   const positionals = command.positionals.map(name => name.endsWith("?") ? ` [${name.slice(0, -1)}]` : ` <${name}>`).join("")
@@ -182,6 +203,7 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     "The command runs the content.* operation of the running app, so it reads and writes the same Workspace Store",
     "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set",
     "VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls.",
+    ...command.name === "check" ? ["With --dir, check reads a folder instead and needs no running app."] : [],
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
@@ -227,6 +249,15 @@ function setValueOption(parsed: ParsedContentArgs, option: typeof valueOptions[n
       return
     case "if-digest":
       parsed.ifDigest = value
+      return
+    case "ignore":
+      (parsed.ignore ??= []).push(value)
+      return
+    case "page-url":
+      parsed.pageUrl = value
+      return
+    case "title-template":
+      parsed.titleTemplate = value
       return
     default:
       parsed[option] = value
@@ -302,6 +333,12 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
     if (date.getTime() <= Date.now()) throw contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] schedule({ at }) must be in the future; received ${date.toISOString()}. Use publish({ expect }) to publish now.` })
   }
   if (parsed.ifDigest !== undefined && parsed.file === undefined) throw usageError("--if-digest requires --file. An editor session pins the digest it opened.")
+  if (command.name === "check") {
+    if (parsed.dir === undefined && (parsed.pageUrl ?? parsed.schema ?? parsed.site ?? parsed.ignore ?? parsed.titleTemplate) !== undefined) {
+      throw usageError("--page-url, --schema, --site, --ignore, and --title-template need --dir. A running app reads them from defineContent({ check }).")
+    }
+    if (parsed.dir !== undefined && parsed.sha !== undefined) throw usageError("--sha checks a commit of a github() Source in the running app, and --dir checks a folder. Pass one.")
+  }
   return parsed
 }
 
@@ -445,6 +482,56 @@ function writeSitemap(result: ContentDevSitemapResult, parsed: Pick<ParsedConten
     return
   }
   context.stdout.write(`${result.entries.map(entry => entry.lastmod ? `${entry.loc}  ${entry.lastmod}` : entry.loc).join("\n")}\n`)
+}
+
+/** Print the findings of a check, errors first, and exit 1 when one is an error. */
+function writeCheck(result: ContentCheckResult, parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext): number {
+  if (parsed.json) {
+    context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return result.ok ? 0 : 1
+  }
+  const several = result.sources.length > 1
+  for (const finding of result.findings) {
+    const at = `${several ? `${finding.source}/` : ""}${finding.line === null ? finding.path : `${finding.path}:${finding.line}`}`
+    context.stdout.write(`${at}  ${finding.severity}  ${finding.code}  ${finding.message}\n`)
+  }
+  const sources = result.sources.map(({ source, sha, pages }) => `${plural(pages, "page")} in ${source}${sha ? ` at ${sha}` : ""}`).join(", ")
+  const summary = `${sources || "No Sources"}: ${plural(result.errors, "error")}, ${plural(result.warnings, "warning")}.`
+  if (result.findings.length) context.stdout.write("\n")
+  ;(result.ok ? context.stdout : context.stderr).write(`${summary}\n`)
+  return result.ok ? 0 : 1
+}
+
+/** `vitehub content check --dir`: check a folder of the working tree without a running app. */
+async function runLocalCheck(parsed: ParsedContentArgs, context: ContentCliContext): Promise<number> {
+  const { checkContentDirectory } = await import("./check-local.ts")
+  let schema: JsonSchema | undefined
+  if (parsed.schema !== undefined) {
+    try {
+      schema = JSON.parse(await readFile(resolve(context.cwd, parsed.schema), "utf8")) as JsonSchema
+    }
+    catch (error) {
+      return writeFailure(parsed, context, { code: "CONTENT_R0069", message: `Could not read the JSON Schema ${parsed.schema}: ${error instanceof Error ? error.message : String(error)}` })
+    }
+  }
+  try {
+    const result = await checkContentDirectory({
+      dir: resolve(context.cwd, parsed.dir!),
+      ...(parsed.source === undefined ? {} : { source: parsed.source }),
+      ...(parsed.pageUrl === undefined ? {} : { url: parsed.pageUrl }),
+      ...(schema ? { schema } : {}),
+      ...(parsed.site === undefined ? {} : { site: parsed.site }),
+      ...(parsed.ignore ? { ignoreLinks: parsed.ignore } : {}),
+      ...(parsed.titleTemplate === undefined ? {} : { titleTemplate: parsed.titleTemplate }),
+    })
+    return writeCheck(result, parsed, context)
+  }
+  catch (error) {
+    const failure: ContentCliFailure = { message: error instanceof Error ? error.message : String(error) }
+    if (isRecord(error) && String(error.code) === error.code) failure.code = error.code
+    if (isRecord(error) && String(error.fix) === error.fix) failure.fix = error.fix
+    return writeFailure(parsed, context, failure)
+  }
 }
 
 /** The lines of one head: the commit, the pin, the last check, the rejected commit, the last webhook, and the diagnostic. */
@@ -609,6 +696,7 @@ type ContentDevRequestOptions = Record<string, unknown>
 
 interface ContentDevResults {
   advance: ContentSourceHead
+  check: ContentCheckResult
   collections: ContentDevCollectionsResult
   diff: ContentDevDiffResult
   head: ContentDevHeadResult
@@ -874,6 +962,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     writeUsage(command, context.stdout)
     return 0
   }
+  if (command.name === "check" && parsed.dir !== undefined) return await runLocalCheck(parsed, context)
   const roots = parsed.url ? undefined : projectRoots(context.rootDir)
   // The dev server of this project, never a guessed port. Another project may use 5173.
   if (!parsed.url) {
@@ -916,6 +1005,11 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     case "pin":
     case "unpin":
       return await runMove(command, parsed, context, call)
+    case "check": {
+      const { failure, result } = await call("check", { ...(parsed.source === undefined ? {} : { source: parsed.source }), ...(parsed.sha === undefined ? {} : { sha: parsed.sha }) })
+      if (failure) return writeFailure(parsed, context, failure)
+      return writeCheck(result, parsed, context)
+    }
     case "head": {
       const { failure, result } = await call("head", parsed.source === undefined ? {} : { source: parsed.source })
       if (failure) return writeFailure(parsed, context, failure)
@@ -1013,7 +1107,7 @@ export async function runContentCli(args: string[], context: ContentCliContext, 
 export function createContentCliContributor(options: ContentCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Inspect, edit, delete, restore, publish, and schedule Content documents, and show or move the head of github() Sources, in the running dev server or a deployed app.",
+      description: "Inspect, edit, delete, restore, publish, and schedule Content documents, check them, and show or move the head of github() Sources, in the running dev server or a deployed app.",
       features: contentCommands.map(command => ({
         description: command.description,
         name: command.name,

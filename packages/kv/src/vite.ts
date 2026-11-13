@@ -76,7 +76,7 @@ export type KVVitePlugin = Plugin & {
   vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
-export function hubKvOptionalPeerResolver(): Plugin {
+export function hubKVOptionalPeerResolver(): Plugin {
   return {
     name: "@vite-hub/kv/optional-peers",
     enforce: "pre",
@@ -227,7 +227,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "function createKVStorage(name = \"default\") {",
     "  return {",
     "    async clear(base, options) { return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(base, options); }); },",
-    "    async del(key, options) { return kvResult(\"del\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
+    "    async delete(key, options) { return kvResult(\"delete\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
     "    async deleteIfEquals() { return unsupported(\"deleteIfEquals\", name); },",
     "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options), kvKeyLimitCodes); },",
     "    async getAndDelete() { return unsupported(\"getAndDelete\", name); },",
@@ -346,7 +346,7 @@ export interface KVViteInput extends Pick<KVResolutionInput, "hosting"> {
 }
 
 /** `input.hosting` names the host preset for driver inference, as `vitehub()` passes it. Without it, KV reads the host from env. */
-export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugin {
+export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugin {
   let command: "build" | "serve" = "build"
   let mode = "development"
   let viteEnv: Record<string, string> | undefined

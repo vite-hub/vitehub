@@ -99,7 +99,7 @@ instead of throwing, so check the error.
  })
 ```
 
-`get`, `set`, `has`, `del`, `keys`, and `clear` keep their names. NuxtHub also
+`get`, `set`, `has`, `keys`, and `clear` keep their names; `del` becomes `delete`. NuxtHub also
 has other unstorage methods. Check those calls against ViteHub's
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
@@ -107,12 +107,11 @@ driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
 ## Move Blob calls
 
-Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
+Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `delete`, and
 `serve` keep their names, and `put` takes the same `contentType`, `prefix`,
 `addRandomSuffix`, and `customMetadata` options. Each method except `serve`
 returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
-`Response`, with `404` for a missing file. NuxtHub's `blob.delete()` is
-`blob.del()` in ViteHub. The methods take a `string` pathname, so check a
+`Response`, with `404` for a missing file. Use `blob.delete()` for both NuxtHub's `blob.delete()` and `blob.del()`. The methods take a `string` pathname, so check a
 `getRouterParam()` result for `undefined` before you pass it.
 
 For a custom serving route on Nitro 3, see

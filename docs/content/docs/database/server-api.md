@@ -16,7 +16,7 @@ icon: i-lucide-code-2
 | `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
 | `getPostgresConnectionUrl` from `vite-hub/database` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
 | `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
-| `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
+| `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 

@@ -36,6 +36,7 @@ export type {
   SystemdOptions,
   ViteHubNodeOptions,
   ViteHubOptions,
+  ViteHubQueueOptions,
   WorkflowOptions,
   WorkspaceOptions,
 } from "./plugins.ts"

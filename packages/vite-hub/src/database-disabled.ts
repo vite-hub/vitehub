@@ -10,7 +10,7 @@ const databasePluginName = "@vite-hub/database/vite"
 const enableDatabase = "Set `database: true` in vitehub() to enable Database."
 
 interface DisabledDatabaseState {
-  /** Another integration, such as a direct hubDb() or the Database Nuxt module, provides Database. */
+  /** Another integration, such as a direct hubDatabase() or the Database Nuxt module, provides Database. */
   databasePlugin?: DatabasePlugin
   databaseOption?: unknown
   explicitlyDisabled: boolean

@@ -1,6 +1,6 @@
 ---
 title: Content SEO
-description: Give documents public URLs, per-document SEO fields, head tags for any framework, a sitemap and robots.txt, an RSS feed, and Markdown files for agents.
+description: Give documents public URLs, SEO fields, head tags, a sitemap and robots.txt, an RSS feed, Markdown files for agents, and a page MCP server.
 navigation.title: SEO
 navigation.order: 12
 icon: i-lucide-search-check
@@ -16,6 +16,7 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`defineContent({ seo })`](#sitemap-and-robotstxt) | Generated `/sitemap.xml` and `/robots.txt`. |
 | [`seo: { rss }`](#rss-feed) | A generated `/rss.xml` dated from page history. |
 | [`seo: { markdown, llms }`](#markdown-for-agents) | Markdown copies of each page, `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. |
+| [`seo: { mcp }`](#page-mcp-server) | A public read-only MCP server at `/mcp`, so agents can list and read your pages. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
 
 ## Document URLs
@@ -122,6 +123,7 @@ Nuxt has `useHead()` built in. In a Vue app, install `@unhead/vue`. In a plain s
 | `field` | The field that holds `seo()` values. Defaults to the `seo()` field of `collection`, then to `seo`. |
 | `resolveImage` | Turns an image value into a URL. By default, strings stay as they are, and a Blob reference of the `default` store becomes its [`blob.serve`](/docs/blob/configure) URL, with its `route` and `publicBaseUrl`. The default reads the generated Blob config, so it works on the server. In the browser, or for signed or CDN URLs, pass your own. |
 | `type` | `og:type`. Defaults to `article` for a document with a URL, else `website`. |
+| `rss` | `true` adds `<link rel="alternate" type="application/rss+xml">` for [`/rss.xml`](#rss-feed), titled with `site.name`. `{ href, title }` links another feed. |
 | `jsonLd` | `true` adds an `Article` or `WebPage` JSON-LD script. You can pass your own object. `<` is escaped, so document text cannot close the script. |
 
 The result has `description`, `robots: noindex` when set, Open Graph `og:title`, `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`, and `og:locale`, Twitter `summary_large_image` or `summary` card tags, and a `canonical` link. Empty tags are left out.
@@ -164,6 +166,8 @@ export default defineContent({
 | `site` | Public origin for absolute URLs. Defaults to the origin of each request. |
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves a `/robots.txt` that allows every crawler. `{ disallow }` keeps paths out. It names `/sitemap.xml` when the sitemap is on. |
+| `rss` | `true`, or `{ title, description, limit }`, serves [`/rss.xml`](#rss-feed). |
+| `dateLeases` | A shared atomic `LeaseStore` to coordinate Source date refreshes across server instances. See [RSS feed](#rss-feed). |
 
 In a collection with locales, the sitemap lists each published translation at its own URL, with `locale` on each entry. It leaves out pages that show the source locale as a fallback: their canonical link points to the source locale page.
 
@@ -272,6 +276,35 @@ export async function checkAgentFiles() {
 ```
 
 ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
+
+## Page MCP server
+
+`seo: { mcp: true }` serves a public read-only MCP server at `/mcp`. Agents connect to it to find and read your pages. It has the same two tools as the MCP server of a [docs site](/docs/docs-site/configure), so an agent that knows one knows the other.
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), description: z.string().optional() } }),
+  },
+  seo: { site: 'https://vitehub.dev', mcp: { name: 'ViteHub blog' } },
+})
+```
+
+| Tool | Returns |
+| --- | --- |
+| `list-pages` | `[{ title, path, description, url }]` for the Markdown pages that the sitemap lists. At most 1,000 per call; pass `offset` for the next ones. |
+| `get-page` | `{ title, path, description, content, url }` for one page. `content` is its Markdown copy: the title as a heading, unless the body has its own, the description as a quote, then the body with absolute links. |
+
+The tools read only what readers can see: published collection documents, and the files of the [head commit](/docs/content/configure) of a `github()` Source. Drafts, `noindex` pages, and pages whose `canonical` points elsewhere are left out. `get-page` takes a path from `list-pages`, a full URL, or a path that ends in `.md`. For any other path it returns the tool error `[404] No page at <path>`. A page longer than 200,000 characters is cut, and the cut names the page URL.
+
+`name` is the server name that MCP clients show. It defaults to the host name of `site`, or of the request. The server answers `POST` in the stateless JSON form of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, and refuses requests from a browser page on another origin.
+
+`content.pages({ offset, limit })` and `content.page(path)` return the same data from code. ViteHub generates `/mcp` like the sitemap. The [app MCP server](/docs/development/app-mcp) also answers at `/mcp`, so give one of them another path when you turn on both. In another server, mount `defineContentMcpHandler(content)`.
 
 ## Console
 

@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { setResolvedFeatureOptions } from "@vite-hub/internal/build/vite"
-import { hubKv } from "@vite-hub/kv/vite"
+import { hubKV } from "@vite-hub/kv/vite"
 import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
@@ -40,7 +40,7 @@ import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation }
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
-import { console as consoleRuntime } from "../src/console/server.ts"
+import { agentConsole as consoleRuntime } from "../src/console/server.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
 import { listConsoleInvocationCapabilities } from "../src/console/runtime/server/invocation-capabilities.get.ts"
@@ -225,7 +225,7 @@ describe("Agent invocation console", () => {
         expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/runtime\/page$/) }),
       ])
       expect(config.nitro.plugins).toContain(resolve(root, ".vitehub/nitro/console/plugin.mjs"))
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
+      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv","site"])`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([`,
@@ -332,7 +332,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       // The capabilities load with the first Console invocation, not when the server starts.
       expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/runtime\/registry|i18n\/server|kv)/m)
-      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { console: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
+      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { agentConsole: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -549,7 +549,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","site"])`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("installConsoleKV")
       expect(generated).not.toContain("hidden.agent")
@@ -577,7 +577,7 @@ describe("Agent invocation console", () => {
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv(enabled ? { driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
+      const kvPlugin = hubKV(enabled ? { driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
@@ -688,7 +688,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces","site"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not initialize")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -733,7 +733,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
       expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases","site"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -773,7 +773,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues","site"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":{"definitions":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -820,7 +820,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits","site"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -898,7 +898,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules","site"])`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)

@@ -35,13 +35,12 @@ const maximumFrameBytes = 1024 * 1024
 type HmacKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>
 
 /**
- * A request that `content.preview` reads cookies from and writes `Set-Cookie` to: an H3 event (Nitro 3 or Nitro 2)
- * or a Web `Request`. A `Request` has no response, so read the returned `setCookie` instead.
+ * A request that `content.preview` reads cookies from and writes `Set-Cookie` to: an H3 event of Nitro 3 or a Web
+ * `Request`. A `Request` has no response, so read the returned `setCookie` instead.
  */
 export type ContentPreviewEvent = Request | {
   req?: unknown
   res?: unknown
-  node?: unknown
   headers?: unknown
   url?: unknown
 }
@@ -147,17 +146,13 @@ function readHeader(headers: unknown, name: string): string | undefined {
 }
 
 function eventParts(event: ContentPreviewEvent) {
-  if (event instanceof Request) return { request: event, response: undefined, node: undefined, headers: event.headers, url: event.url }
-  const node = isObject(event.node) ? event.node : undefined
-  const nodeRequest = isObject(node?.req) ? node.req : undefined
+  if (event instanceof Request) return { request: event, response: undefined, headers: event.headers, url: event.url }
   const request = isObject(event.req) ? event.req : undefined
   return {
     request,
     response: isObject(event.res) ? event.res : undefined,
-    node: isObject(node?.res) ? node.res : undefined,
-    headers: request?.headers ?? event.headers ?? nodeRequest?.headers,
-    url: event.url ?? request?.url ?? nodeRequest?.url,
-    encrypted: isObject(nodeRequest?.socket) ? nodeRequest.socket.encrypted === true : undefined,
+    headers: request?.headers ?? event.headers,
+    url: event.url ?? request?.url,
   }
 }
 
@@ -173,30 +168,14 @@ function secureRequest(event: ContentPreviewEvent): boolean {
   const url = String(parts.url)
   if (/^https:/i.test(url)) return true
   if (/^http:/i.test(url)) return false
-  if ("encrypted" in parts && parts.encrypted !== undefined) return parts.encrypted
   return true
 }
 
 function appendResponseHeader(event: ContentPreviewEvent, name: string, value: string, mode: "append" | "set"): void {
-  const parts = eventParts(event)
-  const headers = parts.response?.headers
+  const headers = eventParts(event).response?.headers
   if (isObject(headers) && headers.append instanceof Function && headers.set instanceof Function) {
     Reflect.apply(mode === "append" ? headers.append : headers.set, headers, [name, value])
-    return
   }
-  const response = parts.node
-  if (!response || response.headersSent === true || !(response.setHeader instanceof Function)) return
-  if (mode === "set") {
-    Reflect.apply(response.setHeader, response, [name, value])
-    return
-  }
-  if (response.appendHeader instanceof Function) {
-    Reflect.apply(response.appendHeader, response, [name, value])
-    return
-  }
-  const previous: unknown = response.getHeader instanceof Function ? Reflect.apply(response.getHeader, response, [name]) : undefined
-  const values = Array.isArray(previous) ? previous.map(String) : previous === undefined ? [] : [String(previous)]
-  Reflect.apply(response.setHeader, response, [name, [...values, value]])
 }
 
 const privateHeaders: ReadonlyArray<readonly [string, string]> = [
@@ -658,9 +637,9 @@ function crossSite(headers: unknown, url: URL): boolean {
 }
 
 /**
- * The public URL of a frame request. A Node request URL is a path, so the origin comes from the Host header and the
- * protocol from `secureRequest()`: `X-Forwarded-Proto` from a proxy, else the TLS socket. A cross-site form cannot set
- * these headers, so `crossSite()` still refuses it. The `Origin` header is never used to build this URL.
+ * The public URL of a request. A URL that is only a path takes its origin from the Host header and its protocol from
+ * `secureRequest()`. A cross-site form cannot set these headers, so `crossSite()` still refuses it. The `Origin` header
+ * is never used to build this URL.
  */
 function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | undefined {
   if (String(value) !== value) return
@@ -711,7 +690,7 @@ function signedRefRequest(event: ContentPreviewEvent): boolean {
 
 function requestUrl(event: ContentPreviewEvent): URL | undefined {
   const parts = eventParts(event)
-  // An h3 v2 event has a URL object; a Request and a Node request have text.
+  // An H3 event has a URL object; a Request has text.
   return frameUrl(parts.url instanceof URL ? parts.url.href : parts.url, parts.headers, secureRequest(event))
 }
 
@@ -765,83 +744,8 @@ function publishedRedirect<TResult>(result: TResult, event: ContentPreviewEvent)
   }
 }
 
-/**
- * Marks the `Location` of a Node redirect of a published request as `publishedLocation()` does. Node writes the head
- * of every response with `writeHead()`, also when h3 v1 calls `end()`, so this request's response marks it there.
- */
-function markNodeRedirects(event: ContentPreviewEvent): void {
-  const response = eventParts(event).node
-  const writeHead = response?.writeHead
-  if (!response || !(writeHead instanceof Function)) return
-  response.writeHead = function (this: unknown, status: unknown, ...rest: unknown[]) {
-    if (isRedirect(status)) {
-      const headers = rest.find(isPlainRecord)
-      const name = headers && Object.keys(headers).find(name => name.toLowerCase() === "location")
-      if (headers && name && String(headers[name]) === headers[name]) headers[name] = publishedLocation(headers[name], event)
-      // Node also takes the headers as one flat list of names and values, which `getHeader()` cannot read back.
-      const raw = rest.find(Array.isArray)
-      for (let index = 0; raw && index < raw.length - 1; index += 2) {
-        const value: unknown = raw[index + 1]
-        if (String(raw[index]).toLowerCase() === "location" && String(value) === value) raw[index + 1] = publishedLocation(value, event)
-      }
-      const location: unknown = response.getHeader instanceof Function ? Reflect.apply(response.getHeader, response, ["location"]) : undefined
-      if (String(location) === location && response.setHeader instanceof Function) {
-        Reflect.apply(response.setHeader, response, ["location", publishedLocation(location, event)])
-      }
-    }
-    return Reflect.apply(writeHead, this, [status, ...rest])
-  }
-}
-
 function isFrameRequest(method: unknown, url: URL | undefined): url is URL {
   return String(method).toUpperCase() === "POST" && url !== undefined && url.searchParams.has(contentPreviewFrameParameter)
-}
-
-/** A Node request body: the stream of a server, or the text or bytes of an in-process request. */
-interface NodeBody {
-  body?: unknown
-  on?: unknown
-  off?: unknown
-  pause?: unknown
-}
-
-/**
- * Reads a frame form body of at most `maximumFrameBytes`, counting the bytes as they arrive. A declared length is not
- * trusted: reading pauses at the first chunk over the limit, and the caller closes the connection after its answer, so
- * the rest is never read or held. A larger or broken body is undefined.
- */
-function readNodeBody(request: NodeBody): Promise<string | undefined> {
-  const { body } = request
-  if (String(body) === body) return Promise.resolve(new TextEncoder().encode(body).byteLength > maximumFrameBytes ? undefined : body)
-  if (body instanceof Uint8Array) return Promise.resolve(body.byteLength > maximumFrameBytes ? undefined : decodeChunks([body], body.byteLength))
-  const { on, off, pause } = request
-  if (!(on instanceof Function) || !(off instanceof Function)) return Promise.resolve(undefined)
-  const unlisten = off
-  return new Promise((resolve) => {
-    const chunks: Uint8Array[] = []
-    let size = 0
-    const listeners: Record<string, (value?: unknown) => void> = {
-      data(chunk) {
-        const bytes = chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
-        size += bytes.byteLength
-        if (size <= maximumFrameBytes) {
-          chunks.push(bytes)
-          return
-        }
-        if (pause instanceof Function) Reflect.apply(pause, request, [])
-        done(undefined)
-      },
-      end: () => done(decodeChunks(chunks, size)),
-      error: () => done(undefined),
-      aborted: () => done(undefined),
-    }
-    function done(value: string | undefined): void {
-      for (const [name, listener] of Object.entries(listeners)) Reflect.apply(unlisten, request, [name, listener])
-      chunks.length = 0
-      resolve(value)
-    }
-    for (const [name, listener] of Object.entries(listeners)) Reflect.apply(on, request, [name, listener])
-  })
 }
 
 async function readRequestBody(request: Request): Promise<string | undefined> {
@@ -886,83 +790,6 @@ function decodeChunks(chunks: Uint8Array[], size: number): string {
   return new TextDecoder().decode(joined)
 }
 
-/**
- * The Web response of a Nitro 2 `localCall()`: `{ status, statusText, headers, body }` of an in-process request. A
- * handler that returns a Web `Response` or a stream leaves the stream as the body.
- */
-function nodeCallResponse(value: unknown): Response {
-  if (!isObject(value) || typeof value.status !== "number") return frameError(502, "The page did not answer the preview.")
-  const headers = new Headers()
-  for (const [name, entry] of Object.entries(isObject(value.headers) ? value.headers : {})) {
-    for (const item of [entry].flat()) {
-      if (item !== undefined && item !== null) headers.append(name, String(item))
-    }
-  }
-  // h3 v1 writes text and bytes, and leaves a Web or Node stream as the body when the response has no socket.
-  const body = value.body
-  const content = String(body) === body
-    ? body
-    : body instanceof Uint8Array
-      ? new Uint8Array(body)
-      : body instanceof ReadableStream
-        ? body
-        : isObject(body) && Symbol.asyncIterator in body
-          // SAFETY: An object with Symbol.asyncIterator, such as a Node stream, is an async iterable.
-          ? ReadableStream.from(nodeChunks(body as AsyncIterable<unknown>))
-          : null
-  try {
-    return new Response([101, 204, 205, 304].includes(value.status) ? null : content, { status: value.status, statusText: String(value.statusText ?? ""), headers })
-  }
-  catch {
-    return frameError(502, "The page did not answer the preview.")
-  }
-}
-
-async function* nodeChunks(stream: AsyncIterable<unknown>): AsyncGenerator<Uint8Array> {
-  for await (const chunk of stream) yield chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
-}
-
-/** Writes a Web response to a Node server response that has not sent its head yet. */
-async function sendNodeResponse(response: Record<string, unknown>, result: Response, close: boolean, done: () => void): Promise<void> {
-  if (response.headersSent === true || !(response.end instanceof Function) || !(response.setHeader instanceof Function)) return
-  const bytes = result.body ? new Uint8Array(await result.arrayBuffer()) : undefined
-  response.statusCode = result.status
-  const cookies = result.headers.getSetCookie()
-  for (const [name, value] of result.headers) {
-    if (name !== "set-cookie") Reflect.apply(response.setHeader, response, [name, value])
-  }
-  if (cookies.length) Reflect.apply(response.setHeader, response, ["set-cookie", cookies])
-  if (close) Reflect.apply(response.setHeader, response, ["connection", "close"])
-  Reflect.apply(response.end, response, bytes ? [bytes, done] : [done])
-}
-
-/**
- * Keeps the page payload of a Nuxt frame request in its HTML. For a route with a `cache`, `swr`, or `isr` rule, Nuxt
- * moves the payload to `_payload.json`, and the browser fetches it with a GET without the form, so the page would read
- * published and replace the document on screen when it hydrates. The route rules of this request lose those keys;
- * the cache is bypassed in preview anyway. Nitro 2 reads the rules into `event.context._nitro.routeRules` once.
- */
-function inlineFramePayload(event: Record<string, unknown>): void {
-  const context = isObject(event.context) ? event.context : {}
-  event.context = context
-  const nitro = isObject(context._nitro) ? context._nitro : {}
-  context._nitro = nitro
-  const uncached = (value: unknown) => {
-    if (!isPlainRecord(value)) return value
-    const { cache: _cache, isr: _isr, swr: _swr, ...rules } = value
-    return rules
-  }
-  let rules = uncached(nitro.routeRules)
-  Object.defineProperty(nitro, "routeRules", {
-    configurable: true,
-    enumerable: true,
-    get: () => rules,
-    set: (value: unknown) => {
-      rules = uncached(value)
-    },
-  })
-}
-
 /** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
 export interface ContentPreviewHost {
   preview?: ContentPreview
@@ -1004,10 +831,10 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
 }
 
 /**
- * A Nitro plugin that scopes each request carrying the preview cookie to the draft ref, on Nitro 3 and on Nitro 2
- * (Nuxt 4). It wraps Nitro's request entry, so the scope covers route rules, middleware, cached routes, and every
- * handler. During a preview request Nitro's cache is bypassed: cached handlers, `cache`/`swr` route rules, and
- * cached functions neither read nor write an entry. Requests without the cookie pass straight through.
+ * A Nitro plugin that scopes each request carrying the preview cookie to the draft ref. It wraps Nitro's request
+ * entry, so the scope covers route rules, middleware, cached routes, and every handler. During a preview request
+ * Nitro's cache is bypassed: cached handlers, `cache`/`swr` route rules, and cached functions neither read nor write
+ * an entry. Requests without the cookie pass straight through.
  *
  * It also serves preview frames, such as the side browser of the Console. A frame posts a form to the page URL with
  * `?vitehub-content-preview`, and the form field of the same name holds `{ token, document? }` as JSON: a token from
@@ -1018,8 +845,7 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token. A redirect
  * of the page to the same origin becomes a `307` with the frame parameter, so the browser posts the same form there with
  * its own cookies for that URL and sets the cookies of the redirect itself. A redirect to another origin, or past five,
- * gets an error page, so the form never leaves the origin. Nitro 2 runs the page through `localCall()`, and keeps the
- * Nuxt payload of a frame page in its HTML.
+ * gets an error page, so the form never leaves the origin.
  *
  * A request with `?vitehub-content-published` in its URL, or in its same-origin `Referer`, reads `published` even with a
  * preview cookie, such as the Published view of the Console. Its nested runs do too. The page sees its URL with the
@@ -1084,7 +910,6 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       }
       return withPreview(next, (preview) => {
         // A redirect keeps the request published: the browser follows it with the cookie, but without this URL.
-        markNodeRedirects(event)
         return preview.run(event, next).then(result => publishedRedirect(result, event))
       })
     }
@@ -1098,7 +923,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       const ran = form && frame ? await frame.run(form, next) : undefined
       return ran ? privateResponse(ran.result) : forbidden("The preview expired. Open the preview again.")
     }
-    // Nitro 3: the Web fetch entry every preset and internal fetch calls.
+    // The Web fetch entry that every preset and internal fetch calls.
     if (nitroApp.fetch instanceof Function) {
       const fetch = nitroApp.fetch
       nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
@@ -1123,62 +948,6 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       }
       return
     }
-    // Nitro 2: the h3 v1 app handler. h3 v1 middleware cannot wrap the rest of a request, and the app handler can.
-    const h3App = nitroApp.h3App
-    if (isObject(h3App) && h3App.handler instanceof Function) {
-      const handler = h3App.handler
-      h3App.handler = (event: unknown) => {
-        const node = isObject(event) && isObject(event.node) ? event.node : undefined
-        const request = isObject(node?.req) ? node.req : undefined
-        const url = isObject(event) ? frameUrl(request?.url, request?.headers, secureRequest(event)) : undefined
-        if (!event || !request || !isFrameRequest(request.method, url)) {
-          // The page of a frame runs here through localCall, inside the frame scope.
-          if (isObject(event) && source.loaded()?.frame() !== undefined) inlineFramePayload(event)
-          return scoped(event, () => Reflect.apply(handler, h3App, [event]))
-        }
-        return (async () => {
-          const headers = isObject(request.headers) ? request.headers : {}
-          // A form from another site is refused before its body is read.
-          const blocked = crossSite(headers, url)
-          const body = blocked ? undefined : await readNodeBody(request)
-          const page = framePageUrl(url)
-          const pageHeaders: Record<string, unknown> = { ...headers }
-          delete pageHeaders["content-type"]
-          delete pageHeaders["content-length"]
-          delete pageHeaders["transfer-encoding"]
-          // The page runs as an in-process GET of its own URL through Nitro's localCall, with the cookies the browser
-          // sent for it. The server connection answers with its response, so a redirect is checked before it is sent.
-          const result = await runFrame(blocked, body, async () => {
-            const localCall = nitroApp.localCall
-            if (!(localCall instanceof Function)) return frameError(500, "This server cannot render a preview frame: its Nitro app has no localCall.")
-            const called: unknown = await Reflect.apply(localCall, nitroApp, [{
-              url: `${page.pathname}${page.search}`,
-              method: "GET",
-              headers: pageHeaders,
-              protocol: page.protocol === "https:" ? "https" : "http",
-              context: request.__unenv__,
-            }])
-            return frameAnswer(nodeCallResponse(called), page, frameHop(url))
-          })
-          const response = isObject(node?.res) ? node.res : undefined
-          if (!(result instanceof Response) || !response) return result
-          // The body of a refused form is not read. Close the connection after the answer instead of draining an upload
-          // that may be slow or large.
-          const unread = blocked || body === undefined
-          await sendNodeResponse(response, result, unread, () => {
-            if (unread && request.destroy instanceof Function) Reflect.apply(request.destroy, request, [])
-          })
-        })()
-      }
-      // Route rule headers run inside the request, so mark the response private again just before it is sent.
-      const hooks = nitroApp.hooks
-      if (isObject(hooks) && hooks.hook instanceof Function) {
-        Reflect.apply(hooks.hook, hooks, ["beforeResponse", (event: ContentPreviewEvent) => {
-          if (previewing()) markPrivate(event)
-        }])
-      }
-      return
-    }
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] defineContentPreviewPlugin() needs a Nitro 2 or Nitro 3 app." })
+    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] defineContentPreviewPlugin() needs a Nitro 3 app." })
   }
 }

@@ -51,7 +51,7 @@ describe("Cloudflare KV limits", () => {
     const [multibyteError] = await kv.set("é".repeat(257), "value")
     expect(multibyteError?.code).toBe("KV_KEY_TOO_LONG")
 
-    for (const [error] of [await kv.get("k".repeat(513)), await kv.has("k".repeat(513)), await kv.del("k".repeat(513))]) {
+    for (const [error] of [await kv.get("k".repeat(513)), await kv.has("k".repeat(513)), await kv.delete("k".repeat(513))]) {
       expect(error?.code).toBe("KV_KEY_TOO_LONG")
     }
 

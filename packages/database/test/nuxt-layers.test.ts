@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { discoverDatabaseDefinitions, resolveDBViteConfig } from "../src/config.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 
@@ -113,7 +113,7 @@ describe("Database Definitions in Nuxt layers", () => {
   it("serves the merged schema from the Nuxt development runtime", async () => {
     const app = await createLayeredApp()
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
       },
@@ -156,7 +156,7 @@ describe("Database Definitions in Nuxt layers", () => {
       "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://user:password@127.0.0.1:1/app' }, schema: {} })",
     ])
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
       },
@@ -200,7 +200,7 @@ describe("Database Definitions in Nuxt layers", () => {
       "export const comments = db.query.comments",
     ])
     const hooks: Record<string, Array<(value: Record<string, unknown>) => Promise<void> | void>> = {}
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
         (hooks[name] ??= []).push(callback)
       },
@@ -300,7 +300,7 @@ describe("Database Definitions in Nuxt layers", () => {
 
     // The Nuxt development runtime merges the same parts in the same order.
     const hooks: Record<string, Array<(value: Record<string, unknown>) => Promise<void> | void>> = {}
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
         (hooks[name] ??= []).push(callback)
       },
@@ -345,7 +345,7 @@ describe("Database Definitions in Nuxt layers", () => {
   it("preserves an existing database type path", async () => {
     const app = await createLayeredApp()
     const hooks: Array<(value: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "prepare:types") hooks.push(callback)
       },

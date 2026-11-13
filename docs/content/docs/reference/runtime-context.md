@@ -108,7 +108,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The adapter accepts any event with [Standard Context](#standard-context), which includes H3 1 and H3 2 events in a ViteHub app. It reads the request, Cloudflare bindings, and the host's `waitUntil` from `event["~standard"]`, and gives the invocation a new memo cache.
+The adapter accepts any event with [Standard Context](#standard-context), which includes H3 2 events in a ViteHub app. It reads the request, Cloudflare bindings, and the host's `waitUntil` from `event["~standard"]`, and gives the invocation a new memo cache.
 
 - Options can set `runtime`, `runtimeConfig`, `capabilities`, provider context, `request`, `memo`, or `waitUntil`.
 - Request data and provider resources stay in Runtime Context, not in invocation input.
@@ -129,10 +129,9 @@ ViteHub reads request events through [Standard Context](https://github.com/stand
 | `runtime` | `cloudflare.env`, `cloudflare.context`, and `clientAddress` when the host provides them. |
 | `waitUntil` | The host lifetime method, if the host has one. |
 
-H3 does not set `~standard` yet, so a ViteHub Nitro `request` hook sets it on each H3 1 and H3 2 event and adds it to the `H3Event` type. A value that the host sets stays.
+H3 does not set `~standard` yet, so a ViteHub Nitro `request` hook sets it on each H3 2 event and adds it to the `H3Event` type. A value that the host sets stays.
 
 - Each property is computed on first read and kept for the request. A route that never reads `~standard` does no extra work.
-- On H3 1, ViteHub builds the `Request` on the first read of `req`.
 - H3 sends the handler's return value as the body, so setting `res.body` throws `RUNTIME_R0016`.
 
 ```ts [server/api/whoami.get.ts]

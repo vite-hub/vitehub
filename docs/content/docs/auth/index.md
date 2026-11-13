@@ -8,85 +8,87 @@ icon: i-lucide-shield-check
 ---
 
 ::product-hero{tagline="Add sign-in and user sessions to your app with Better Auth, set up from one server file." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree
-  ```ts [server/auth.ts]
-  import { defineAuth } from 'vite-hub/auth'
+  :hero-figure{name="auth"}
+::
 
-  // Sign-up, sign-in, and session routes
-  // appear under /api/auth.
-  export default defineAuth({
-    appName: 'Acme',
-    emailAndPassword: { enabled: true },
-    access: {
-      // Requests to these APIs need a session
-      routes: ['/api/admin/**'],
-    },
-  })
-  ```
+::code-tree
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
 
-  ```ts [server/api/profile.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { withAuth } from 'vite-hub/auth/server'
+// Sign-up, sign-in, and session routes
+// appear under /api/auth.
+export default defineAuth({
+  appName: 'Acme',
+  emailAndPassword: { enabled: true },
+  access: {
+    // Requests to these APIs need a session
+    routes: ['/api/admin/**'],
+  },
+})
+```
 
-  // Runs only when the user is signed in
-  export default defineEventHandler(
-    withAuth((_event, { user }) => ({
-      id: user.id,
-      email: user.email,
-    })),
-  )
-  ```
+```ts [server/api/profile.get.ts]
+import { defineEventHandler } from 'h3'
+import { withAuth } from 'vite-hub/auth/server'
 
-  ```vue [src/components/SignOutButton.vue]
-  <script setup lang="ts">
-  import { useUserSession } from 'vite-hub/auth/vue'
+// Runs only when the user is signed in
+export default defineEventHandler(
+  withAuth((_event, { user }) => ({
+    id: user.id,
+    email: user.email,
+  })),
+)
+```
 
-  // Session state in the browser
-  const { loggedIn, user, signOut } = useUserSession()
-  </script>
+```vue [src/components/SignOutButton.vue]
+<script setup lang="ts">
+import { useUserSession } from 'vite-hub/auth/vue'
 
-  <template>
-    <button v-if="loggedIn" @click="signOut()">
-      Sign out {{ user?.name }}
-    </button>
-  </template>
-  ```
+// Session state in the browser
+const { loggedIn, user, signOut } = useUserSession()
+</script>
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: { host: 'node', auth: true },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
+<template>
+  <button v-if="loggedIn" @click="signOut()">
+    Sign out {{ user?.name }}
+  </button>
+</template>
+```
 
-  export default defineConfig({
-    plugins: [
-      vitehub({ host: 'node', auth: true }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', auth: true },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-  export default defineConfig({
-    plugins: [
-      vitehub({ host: 'node', auth: true }),
-    ],
-  })
-  ```
-  ::::
-  :::
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', auth: true }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', auth: true }),
+  ],
+})
+```
+:::
 ::
 
 ::product-features

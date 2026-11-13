@@ -6,6 +6,7 @@ import { nuxthub } from "./nuxthub/index.ts"
 import { rootAccessors } from "./root-accessors/index.ts"
 import { oneEntryImports } from "./one-entry-imports/index.ts"
 import { queueWorkflowVerbs } from "./queue-workflow-verbs/index.ts"
+import { renamedApis } from "./renamed-apis/index.ts"
 import { resend } from "./resend/index.ts"
 import { t3Env } from "./t3-env/index.ts"
 import { vitehubOptions } from "./vitehub-options/index.ts"
@@ -28,9 +29,11 @@ export const codemods: readonly Codemod[] = [
   oneEntryImports,
   vitehubOptions,
   agentSurface,
+  renamedApis,
 ]
 
 /** Codemods that move an app between ViteHub releases. `vitehub migrate` runs them in order. */
 export const upgradeCodemods: readonly Codemod[] = [
   rootAccessors,
+  renamedApis,
 ]

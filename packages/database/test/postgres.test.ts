@@ -13,7 +13,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "../src/internal/cloudflare.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 import { writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 import { createAgentDatabase } from "../src/runtime/agent.ts"
 
 const driver = vi.hoisted(() => ({
@@ -267,12 +267,12 @@ describe("Postgres build configuration", () => {
   it("keeps the libSQL runtime out of the Vite databases module of a Postgres-only app", async () => {
     const rootDir = await createLoadableProject()
     await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
-    const plugin = hubDb()
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const plugin = hubDatabase()
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: rootDir })
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
 
     const code = await load((await resolveId("#vitehub/database/databases"))!)

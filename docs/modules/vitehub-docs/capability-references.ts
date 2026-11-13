@@ -32,7 +32,7 @@ async function resolveReference(
 
 export async function createCapabilityReferences(): Promise<CapabilityReferences> {
   const dbPrimitive = { exec() {}, query() {}, schema: {} };
-  const kvPrimitive = { del() {}, get() {}, keys() {}, set() {} };
+  const kvPrimitive = { delete() {}, get() {}, keys() {}, set() {} };
   const emailPrimitive = { send() {} };
   const sandboxPrimitive = { exec() {} };
   const connectionsPrimitive = {

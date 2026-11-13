@@ -952,7 +952,7 @@ describe("agent Vite plugin", () => {
       )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(registry).toContain('import { console as vitehubConsole } from "vite-hub/console/server"')
+      expect(registry).toContain('import { agentConsole as vitehubConsole } from "vite-hub/console/server"')
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/runtime/registry"')
       expect(registry).toContain(
         `import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,

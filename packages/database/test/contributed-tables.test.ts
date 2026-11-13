@@ -10,7 +10,7 @@ import { resolveDBViteConfig } from "../src/config.ts"
 import { collectDatabaseContributions, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "../src/contributions.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 import type { CollectedDatabaseContribution, DatabaseContribution } from "../src/contributions.ts"
 
@@ -495,7 +495,7 @@ describe("contributed tables at runtime", () => {
       "",
     ].join("\n"))
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
-    const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDb(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
+    const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDatabase(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
     try {
       // SAFETY: This fixture writes the queried module before Vite loads it.
       const module = await server.ssrLoadModule(queryFile) as { query: () => Promise<{ keys: string[], refs: unknown[] }> }

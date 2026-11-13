@@ -509,7 +509,10 @@ export interface ViteHubOptions {
    * telemetry and papercut reports through `useObservability()`.
    */
   observability?: boolean | ObservabilityOptions
-  /** Queue Definitions in `server/queues/`. `true` uses the host's provider. An object sets Queue options, such as `cache`. */
+  /**
+   * Queue Definitions in `server/queues/`. On Node, `true` uses Postgres with a Postgres Default Database, else local
+   * files. An object sets Queue options, such as `cache`, or selects the Node provider with `provider`.
+   */
   queue?: boolean | QueueOptions
   /**
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
@@ -539,6 +542,17 @@ export interface ViteHubOptions {
   schedule?: boolean | ScheduleOptions
   workflow?: boolean | WorkflowOptions
   workspace?: boolean | WorkspaceOptions
+}
+
+/** Queue options accepted by the framework distribution. */
+export type ViteHubQueueOptions = QueueOptions
+
+/** The local and Postgres providers run only on the Node host. */
+function assertNodeQueueProvider(queue: ViteHubOptions["queue"], host: ViteHubHost): void {
+  const provider = queue && queue !== true ? queue.provider : undefined
+  if ((provider === "local" || provider === "postgres") && host !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: `[vitehub] queue.provider "${provider}" works with the "node" host only. The "${host}" host uses its own Queue. Remove queue.provider, or use the "node" host.` })
+  }
 }
 
 type DeploymentIdentitySource = "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
@@ -881,7 +895,8 @@ function deploymentPlugins(
           const name = identity.name
           if (requestedServices.includes("queue") && plan.services.queue.supported) {
             const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
-            const provider = configuredQueue?.provider ?? plan.services.queue.adapter
+            // Queue infers the Node provider from the resolved Default Database.
+            const provider = configuredQueue?.provider ?? (plan.host === "node" ? undefined : plan.services.queue.adapter)
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
             setResolvedFeatureOptions(config, "queue", {
               ...configuredQueue,
@@ -1229,6 +1244,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
+  assertNodeQueueProvider(options.queue, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
   const { logs: logsOption, ...observabilityOptions } = observability ?? {}
   const observabilityLogs = logsOption === true ? {} : logsOption || undefined
@@ -1315,7 +1331,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
-  // hubKv() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
+  // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
   const kvHosting = options.kv ? plan.nitroPreset : undefined
   configureProviderOptionalImportAliases(providerImportAliases, options, configuredKV, kvHosting)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(
@@ -1470,7 +1486,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(connectionsVite, "connections").hubConnections(connectionsOptions))
   }
   else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())
-  if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
+  if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDatabase(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: "vite-hub/blob", presetDriver: blob => Boolean(blob && hostBlobConfigs.has(blob)) })))
   }
@@ -1488,14 +1504,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
   // A KV cache also needs the owner plugin when no KV options were set.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, { ...(kvHosting ? { hosting: kvHosting } : {}), databaseImport: "@vite-hub/database/runtime/registry" }))
+    // hubKV() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKV(configuredKV, { ...(kvHosting ? { hosting: kvHosting } : {}), databaseImport: "@vite-hub/database/runtime/registry" }))
   }
-  else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
+  else if (kvVite) plugins.push(kvVite.hubKVOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    const provider = configuredQueue?.provider ?? plan.services.queue.adapter
+    const provider = configuredQueue?.provider ?? (plan.host === "node" ? undefined : plan.services.queue.adapter)
     // SAFETY: The provider is the host's Queue adapter or the app's own `queue.provider`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, provider } as QueueOptions, { importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(provider ? { provider } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
