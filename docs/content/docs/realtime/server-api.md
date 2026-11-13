@@ -363,6 +363,19 @@ carets out.
 
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
+When the rooms of a definition only share presence, set `document: false`. Nothing loads or saves, and `authorize()` is asked only for `read`:
+
+```ts [server/realtime/presence.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({
+  auth: true,
+  document: false,
+})
+```
+
+A client that sends a document update to such a room is disconnected. `save()`, `refresh()`, and `history.checkpoint()` requests get HTTP 404, and `refreshRealtimeDocument()` returns `false`. `editor`, `history`, and `persistence` are type errors with `document: false`.
+
 ```ts fragment
 import { connectRealtimeRoom } from 'vite-hub/realtime/client'
 import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
@@ -405,9 +418,8 @@ const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.exam
 export default defineRealtime({
   origins: ({ origin }) => allowedSites.has(origin),
   identify: ({ request }) => readTicket(new URL(request.url).searchParams.get('ticket')),
-  authorize: ({ user, mode }) => Boolean(user) && mode === 'read',
-  document: { kind: 'presence', load: async () => ({ body: '', digest: null }), save: async () => ({ digest: 'presence' }) },
-  persistence: false,
+  authorize: ({ user }) => Boolean(user),
+  document: false,
 })
 ```
 
