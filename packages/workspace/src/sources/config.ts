@@ -498,12 +498,13 @@ function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceIn
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
   copyDefinedWorkspaceBindingOption(next, input, "probeKeys")
+  copyDefinedWorkspaceBindingOption(next, input, "skills")
   copyDefinedWorkspaceBindingOption(next, input, "sync")
   copyDefinedWorkspaceBindingOption(next, input, "validate")
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "probeKeys" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "probeKeys" | "skills" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,

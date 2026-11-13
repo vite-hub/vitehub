@@ -56,9 +56,24 @@ The account tools act on the team that the person opened last in the Console, el
 | Variable | Use |
 | --- | --- |
 | `BETTER_AUTH_SECRET` | The key that signs sessions, at least 32 characters. |
+| `VITEHUB_CONSOLE_PUBLIC_URL` | Build-time public URL of this Console, such as `https://console.example.com`. Required on Node (including Docker) to accept signed calls through a Console link. Rebuild and redeploy when it changes. `BETTER_AUTH_URL` alone does not configure this origin. |
 | `VITEHUB_CONSOLE_SECRET` | The key that encrypts the private keys of the project links, at least 32 characters. Create it with `openssl rand -hex 32`. If it changes, the Console cannot open the keys, and teams must link their projects again. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional. GitHub sign-in. |
 | `VITEHUB_CONSOLE_ALLOW_PRIVATE` | `true` lets the Console link private addresses, such as `localhost`, `10.0.0.8`, or `*.internal`. Off by default, so a person who links a project cannot make the Console fetch an address in its own network. The check reads the host name: a public name that resolves to a private address passes it. |
+| `VITEHUB_CONSOLE_COMMENTERS` | Optional. The emails, comma-separated, of the people who may comment on the Console's own pages. Anyone can sign up, so a signed-in account is not enough. Without it, nobody may. |
+| `VITEHUB_CONSOLE_KEY_<NAME>` | Optional. The public key of a link to this Console from a Console, such as itself. See [Link the Console to itself](#link-the-console-to-itself). |
+
+## Link the Console to itself
+
+The Console is a ViteHub app with Comments and `console: true`, so you can comment on its pages and triage the comments in a Console, as with any app:
+
+On Node (including Docker), first build and deploy with `VITEHUB_CONSOLE_PUBLIC_URL` set to the Console's own public URL, as in the VPS steps below. This configures the trusted origin for signed calls; setting it only when starting the server is too late.
+
+1. Set `VITEHUB_CONSOLE_COMMENTERS` to your email, such as `wrangler secret put VITEHUB_CONSOLE_COMMENTERS --config .output/server/wrangler.json`. On the next page you open, the tools pill shows **Comments**.
+2. In the Console, **Link an app** with the Console's own URL, such as `https://console.vitehub.dev`. The next page shows a line `VITEHUB_CONSOLE_KEY_CONSOLE_<ID>=<public key>`.
+3. Set that line on the Console, such as `wrangler secret put VITEHUB_CONSOLE_KEY_CONSOLE_<ID> --config .output/server/wrangler.json`, then click **Check connection**.
+
+A call through the link comes from the Console's server to its own public URL, signed like a call to any other app. Comments in the Console follow the same list: the person that the Console signs needs an email in `VITEHUB_CONSOLE_COMMENTERS`.
 
 ## Routes
 
@@ -93,7 +108,7 @@ Other paths answer with the Console page, built by `pnpm --filter vite-hub build
 Build on Linux with glibc and Node.js 24, matching the CPU architecture (x64 or arm64) of the `node:24-slim` image on the server. The output contains the build machine's native libSQL module. Output built on macOS, Windows, or Linux with musl (such as Alpine) is incompatible with this image.
 
 ```sh
-VITEHUB_DATA_DIR=/data vp build
+VITEHUB_CONSOLE_PUBLIC_URL=https://console.example.com VITEHUB_DATA_DIR=/data vp build
 export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32)
 docker compose up -d --build
 ```

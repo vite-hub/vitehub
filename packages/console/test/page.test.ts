@@ -1,6 +1,7 @@
+import { scriptNonce } from "@vite-hub/internal/runtime/page-tools"
 import { describe, expect, it } from "vitest"
 
-import { consolePageBoot, renderConsolePage } from "../src/page.ts"
+import { consolePageBoot, consolePagePolicy, renderConsolePage } from "../src/page.ts"
 
 const session = "__Secure-better-auth.session_token=abc"
 const visit = (path: string, cookie?: string) => new Request(`https://console.example.com${path}`, cookie ? { headers: { cookie } } : {})
@@ -31,5 +32,15 @@ describe("renderConsolePage", () => {
     expect(renderConsolePage(html, visit("/team", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team"')
     expect(renderConsolePage(html, visit("/", session))).toContain('data-vitehub-boot="shell" data-vitehub-page=""')
     expect(renderConsolePage(html, visit("/"))).toContain('data-vitehub-boot="sign-in" data-vitehub-page=""')
+  })
+})
+
+describe("consolePagePolicy", () => {
+  it("gives each page a new script nonce that the page tools read, so their check is not blocked", () => {
+    const first = consolePagePolicy()
+    const nonce = scriptNonce(new Headers({ "content-security-policy": first }))
+    expect(nonce).toMatch(/^[\w+/]{22}==$/)
+    expect(first).toContain(`script-src 'self' 'nonce-${nonce}' 'wasm-unsafe-eval'`)
+    expect(scriptNonce(new Headers({ "content-security-policy": consolePagePolicy() }))).not.toBe(nonce)
   })
 })
