@@ -102,15 +102,23 @@ function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string,
   const editor = values.get("editor")
   const auth = literal(values.get("auth")) === true
   const perDocument = editor?.type === "ArrowFunctionExpression" || editor?.type === "FunctionExpression"
+  const identity = {
+    label: "Identity",
+    value: values.has("identify")
+      ? `identify()${auth ? ", required" : ""}`
+      : auth ? "ViteHub Auth session, required" : "anonymous; presence names are client-asserted",
+  }
+  if (literal(values.get("document")) === false) {
+    return [
+      { label: "Document", value: "none: presence only, nothing stored" },
+      identity,
+      { label: "Authorization", value: values.has("authorize") ? "authorize() per room, read only" : "every connection may join" },
+    ]
+  }
   return [
     { label: "Document", value: describeDocument(values.get("document")) },
     { label: "Editor", value: editor ? perDocument ? "custom codec per document" : `custom codec${editor.type === "Identifier" ? ` (${editor.name})` : ""}` : "built-in Markdown kit" },
-    {
-      label: "Identity",
-      value: values.has("identify")
-        ? `identify()${auth ? ", required" : ""}`
-        : auth ? "ViteHub Auth session, required" : "anonymous; presence names are client-asserted",
-    },
+    identity,
     { label: "Authorization", value: values.has("authorize") ? "authorize() per document and mode" : "every connection may read and write" },
     { label: "Persistence", value: describePersistence(values.get("persistence")) },
     { label: "History", value: values.has("history") ? "history.checkpoint() enabled" : "none" },

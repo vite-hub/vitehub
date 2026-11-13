@@ -1,14 +1,28 @@
+import { createHash } from "node:crypto"
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { check } from "proper-lockfile"
+
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+import createFsLiteKVDriver from "../src/runtime/fs-lite.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
+
+const reads = vi.hoisted(() => ({ pause: undefined as undefined | (() => Promise<void>) }))
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original<typeof import("node:fs/promises")>()
+  return { ...fs, readFile: async (...args: Parameters<typeof fs.readFile>) => {
+    if (String(args[0]).includes("/expires/")) await reads.pause?.()
+    return fs.readFile(...args)
+  } }
+})
 
 let base: string
 beforeEach(async () => { base = await mkdtemp(join(tmpdir(), "vitehub-kv-ttl-")) })
 afterEach(async () => {
+  reads.pause = undefined
   vi.useRealTimers()
   await rm(base, { force: true, recursive: true })
 })
@@ -87,5 +101,42 @@ it("removes the expiry files with the key and with clear()", async () => {
   await storage.setItem("b", 2)
   at(Date.now() + 3_600_000)
   expect(await storage.getItem("b")).toBe(2)
+  await storage.dispose()
+})
+
+it.each(["getItem", "getItemRaw"] as const)("keeps %s and expiry in one locked snapshot", async (method) => {
+  const storage = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  at(1_000_000)
+  await storage.setItem!("session", "expired-old", { ttl: 1 })
+  vi.setSystemTime(1_002_000)
+  let paused!: () => void
+  let resume!: () => void
+  const entered = new Promise<void>(resolve => { paused = resolve })
+  const released = new Promise<void>(resolve => { resume = resolve })
+  reads.pause = async () => { paused(); await released }
+  const reading = storage[method]!("session", {})
+  await entered
+  const layout = (await readdir(base)).find(name => name.startsWith(".unstorage-tmp-vitehub-migration-"))!
+  const lockPath = join(base, layout, "locks", createHash("sha256").update("session").digest("hex"))
+  const locked = await check(lockPath, { realpath: false })
+  const replacement = storage.setItem!("session", "replacement", {})
+  reads.pause = undefined
+  resume()
+  const value = await reading
+  await replacement
+  expect(locked).toBe(true)
+  expect(value).toBeNull()
+  expect(await storage.getItem("session", {})).toBe("replacement")
+  await storage.dispose?.()
+})
+
+it("preserves expiry outside a cleared prefix", async () => {
+  const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  at(1_000_000)
+  await storage.setItem("removed:a", 1, { ttl: 1 })
+  await storage.setItem("kept:a", 2, { ttl: 1 })
+  await storage.clear("removed:")
+  vi.setSystemTime(1_002_000)
+  expect(await storage.getItem("kept:a")).toBeNull()
   await storage.dispose()
 })

@@ -44,6 +44,11 @@ export interface UpstashKVStoreConfig {
   remote?: true
   token?: string
   url?: string
+  /**
+   * Prefix of every key in Upstash. Default `vitehub:kv:<store>`, as for a Redis store, so `kv.clear()` and `kv.keys()`
+   * stay inside the store. An empty value uses the default.
+   */
+  base?: string
 }
 
 export interface RedisKVStoreConfig {
@@ -118,6 +123,7 @@ export interface ResolvedCloudflareKVStoreConfig extends CloudflareKVStoreConfig
 }
 
 export interface ResolvedUpstashKVStoreConfig extends UpstashKVStoreConfig {
+  base: string
   token: string
   url: string
 }

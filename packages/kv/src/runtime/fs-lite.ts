@@ -171,7 +171,7 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     await mkdir(expiries, { recursive: true })
     await writeFile(expiryPath(key), String(Date.now() + ttl * 1000))
   }
-  // Writes to one key hold its lock, so a value and its expiry change together, also across processes on one disk.
+  // Reads and writes to one key hold its lock, so a value and its expiry change together, also across processes on one disk.
   async function withKeyLock<T>(key: string, run: () => Promise<T>): Promise<T> {
     await mkdir(locks, { recursive: true })
     // proper-lockfile tracks its locks by this path, so each key needs its own.
@@ -184,18 +184,18 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     }
   }
 
-  driver.getItem = async (key, operationOptions) => {
+  driver.getItem = (key, operationOptions) => withKeyLock(key, async () => {
     const value = await getItem(fileName(key), operationOptions)
     // unstorage returns filesystem read errors as values rather than rejecting.
     if (value instanceof Error) throw value
     return value !== null && await isExpired(key) ? null : value
-  }
-  driver.getItemRaw = async (key, operationOptions) => {
+  })
+  driver.getItemRaw = (key, operationOptions) => withKeyLock(key, async () => {
     const value = await getItemRaw?.(fileName(key), operationOptions)
     if (value instanceof Error) throw value
     return value !== null && value !== undefined && await isExpired(key) ? null : value
-  }
-  driver.getMeta = async (key, operationOptions) => await isExpired(key) ? null : (getMeta?.(fileName(key), operationOptions) ?? null)
+  })
+  driver.getMeta = (key, operationOptions) => withKeyLock(key, async () => await isExpired(key) ? null : (getMeta?.(fileName(key), operationOptions) ?? null))
   driver.setItem = (key, value, operationOptions) => withKeyLock(key, async () => {
     await setItem?.(fileName(key), value, operationOptions)
     await writeExpiry(key, ttlOption(operationOptions))
@@ -208,16 +208,16 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     await removeItem?.(fileName(key), operationOptions)
     await writeExpiry(key, undefined)
   })
-  driver.clear = async () => {
+  driver.clear = async (base = "") => {
     // Delete only encoded key files, keeping the layout record and its workspace for later initialization.
     const entries = await readdir(root).catch((error: unknown) => {
       if (hasCode(error, "ENOENT")) return []
       throw error
     })
     for (const entry of entries) {
-      if (keyOf(entry) !== undefined) await rm(join(root, entry), { force: true, recursive: true })
+      const key = keyOf(entry)
+      if (key !== undefined && key.startsWith(base)) await driver.removeItem?.(key, {})
     }
-    await rm(expiries, { force: true, recursive: true })
   }
   driver.hasItem = async (key, operationOptions) => {
     // Keep the underlying driver's key validation before resolving its file path.
