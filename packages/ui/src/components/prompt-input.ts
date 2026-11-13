@@ -166,7 +166,7 @@ export const PromptInput = defineComponent({
             props.attachments && h("input", {
               accept: props.accept,
               "aria-label": "Add attachment",
-              class: "vh-visually-hidden",
+              "data-slot": "visually-hidden",
               disabled: props.filesDisabled,
               multiple: props.multiple,
               onChange: async (event: Event) => {
