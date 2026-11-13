@@ -1,21 +1,36 @@
-// The page bridge from end to end: a Vue page runs ui-sdk's `createAgent()`, `connectPage()` joins it to Realtime,
-// `useChat(agent, { page })` names it, and a ViteHub Agent with a scripted model changes three settings and saves
-// them through `page_snapshot` and `page_act`, over Realtime. It builds the same app with Vite and with Nuxt 5, for Node and for Cloudflare (workerd
-// through Miniflare), opens it in headless Chromium, and checks the page, the server, the tool calls and the change
-// sources. The settings page is the N1 "change a setting" task (vite-hub/nuxt-evals tasks/vitehub-ui/operate).
+// The page bridge from end to end, under the server's rules: a Vue page runs ui-sdk's `createAgent()` through
+// `connectPage()`, `useChat(agent, { page })` names it, and a ViteHub Agent with a scripted model works the page over
+// Realtime. The Agent's `page()` Capability denies one field and makes two others need the person's approval. The check
+// builds the same app with Vite and with Nuxt 5, for Node and for Cloudflare (workerd through Miniflare), signs two
+// people in with ViteHub Auth, opens the app in headless Chromium, and checks:
+// - the N1 settings task (vite-hub/nuxt-evals tasks/vitehub-ui/operate), with the save approved by the person;
+// - a denied step, by the component's ref id, returns AGENT_R1047 and changes nothing;
+// - two steps that need approval in one call: the person approves one and refuses the other (AGENT_R1049);
+// - `vitehub agent invocations show` lists every change with Agent, page, person, step, before, after and time;
+// - undo from the page, and undo by an operator with `vitehub invocations undo`;
+// - a second person who joins the first person's page id gets no calls, and their run cannot reach that page.
 // Run: pnpm --filter vite-hub test:browser   (AGENT_PAGE_CASES=vite-node,nuxt-cloudflare picks cases)
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
+import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { chromium } from "playwright-core"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const fixtures = join(packageRoot, ".cache/agent-page")
-const prompt = "Set the default region to Frankfurt, make the project visible to the whole team, and turn off the email I get when a deploy fails. Leave everything else as it is, and save."
+const cli = join(packageRoot, "dist/bin.js")
+const run = promisify(execFile)
+const prompts = {
+  settings: "Set the default region to Frankfurt, make the project visible to the whole team, and turn off the email I get when a deploy fails. Leave everything else as it is, and save.",
+  rename: "Rename the project to Hacked.",
+  digest: "Turn on the weekly digest and save.",
+  read: "Read the page.",
+}
 const initialSettings = {
   name: "Atlas",
   description: "The marketing site and its preview deployments.",
@@ -28,15 +43,19 @@ const initialSettings = {
   slackAlerts: true,
 }
 const expectedSettings = { ...initialSettings, region: "fra", visibility: "team", emailOnFailure: false }
+const secret = "agent-page-browser-check-secret-0123456789abcdef"
 
-// The scripted model: the calls a model makes for the N1 task. It reads the page once, makes the three changes in one
-// step list, and saves in a separate call, as `act`'s description asks.
+// The scripted model. It picks its script by the last prompt, and its step by the tool results after that prompt, so
+// one model serves every run of every person. The rename script reads the ref id of "Project name" from its snapshot,
+// as a model does, so a rule on the label must hold for a step that names the ref.
 const agentFile = `import { simulateReadableStream } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
 import { defineAgent } from "vite-hub/agent"
 import { page } from "vite-hub/agent/capabilities"
 import { webChat } from "vite-hub/agent/channels"
+import { authenticated } from "vite-hub/auth/agent"
 
+const prompts = ${JSON.stringify(prompts)}
 const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } }
 function reply(chunks) {
   return { stream: simulateReadableStream({ chunks: [{ type: "stream-start", warnings: [] }, ...chunks] }) }
@@ -47,29 +66,78 @@ function toolCall(id, toolName, input) {
     { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
   ])
 }
-// Workers bind a stream to the request that makes it, so each reply is made when the model is called.
-const script = [
-  () => toolCall("call-1", "page_snapshot", {}),
-  () => toolCall("call-2", "page_act", { steps: [
-    { ref: "Default region", action: "setValue", args: ["Frankfurt (eu-central-1)"] },
-    { ref: "Visibility", action: "setValue", args: ["Team"] },
-    { ref: "Email me when a deploy fails", action: "setChecked", args: [false] },
-  ] }),
-  () => toolCall("call-3", "page_act", { steps: [{ ref: "Save changes", action: "press" }] }),
-  () => reply([
+function text(value) {
+  return reply([
     { type: "text-start", id: "text-1" },
-    { type: "text-delta", id: "text-1", delta: "Saved: Frankfurt, Team, and no email on failed deploys." },
+    { type: "text-delta", id: "text-1", delta: value },
     { type: "text-end", id: "text-1" },
     { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
-  ]),
-]
-let calls = 0
-const model = new MockLanguageModelV3({ doStream: async () => script[Math.min(calls++, script.length - 1)]() })
+  ])
+}
+function lastToolOutput(results) {
+  const output = results.at(-1)?.output
+  return output?.type === "json" ? output.value : output?.value
+}
+const scripts = {
+  [prompts.settings]: [
+    () => toolCall("settings-1", "page_snapshot", {}),
+    () => toolCall("settings-2", "page_act", { steps: [
+      { ref: "Default region", action: "setValue", args: ["Frankfurt (eu-central-1)"] },
+      { ref: "Visibility", action: "setValue", args: ["Team"] },
+      { ref: "Email me when a deploy fails", action: "setChecked", args: [false] },
+    ] }),
+    () => toolCall("settings-3", "page_act", { steps: [{ ref: "Save changes", action: "press" }] }),
+    () => text("Saved: Frankfurt, Team, and no email on failed deploys."),
+  ],
+  [prompts.rename]: [
+    () => toolCall("rename-1", "page_snapshot", {}),
+    (results) => {
+      const snapshot = lastToolOutput(results)
+      const field = Array.isArray(snapshot) ? snapshot.find(component => component.label === "Project name") : undefined
+      return toolCall("rename-2", "page_act", { steps: [{ ref: field?.ref ?? "Project name", action: "setValue", args: ["Hacked"] }] })
+    },
+    () => text("I could not rename it."),
+  ],
+  [prompts.digest]: [
+    () => toolCall("digest-1", "page_act", { steps: [
+      { ref: "Weekly digest", action: "setChecked", args: [true] },
+      { ref: "Save changes", action: "press" },
+    ] }),
+    () => text("The digest is on. You did not let me save."),
+  ],
+  [prompts.read]: [
+    () => toolCall("read-1", "page_snapshot", {}),
+    () => text("Done."),
+  ],
+}
+
+const model = new MockLanguageModelV3({
+  doStream: async ({ prompt }) => {
+    const last = prompt.findLastIndex(message => message.role === "user")
+    const said = (prompt[last]?.content ?? []).filter(part => part.type === "text").map(part => part.text).join("")
+    const script = Object.entries(scripts).find(([key]) => said.includes(key))?.[1]
+    if (!script) return text("I have no script for that.")
+    const results = prompt.slice(last + 1).filter(message => message.role === "tool").flatMap(message => message.content).filter(part => part.type === "tool-result")
+    return script[Math.min(results.length, script.length - 1)](results)
+  },
+})
 
 export default defineAgent({
-  capabilities: [page()],
+  invoker: authenticated(),
+  capabilities: [page({
+    deny: [{ label: "Project name" }],
+    requireApproval: [{ label: "Save changes" }, { label: "Weekly digest" }],
+  })],
   channels: { web: webChat() },
   driver: { model },
+})
+`
+
+const authFile = `import { defineAuth } from "vite-hub/auth"
+
+export default defineAuth({
+  appName: "Acme",
+  emailAndPassword: { enabled: true },
 })
 `
 
@@ -228,8 +296,9 @@ async function save() {
 </template>
 `
 
-// What an app author writes: one ui-sdk bridge, handed to the chat. The test reads the bridge's changes and the chat
-// through `window.pageTest`.
+// What an app author writes: `connectPage` makes the ui-sdk bridge, and its `allow` is ui-sdk's own confirm path, which
+// the server's `requireApproval` rules reach too. The test plays the person through `window.pageTest`: it reads the
+// approvals the page asks for and answers them.
 const appComponent = `<script setup lang="ts">
 import { createAgent } from "@ui-sdk/vue/agent"
 import { connectPage } from "vite-hub/agent/page"
@@ -238,20 +307,48 @@ import { connectRealtimeRoom } from "vite-hub/realtime/client"
 import { onMounted } from "vue"
 import ProjectSettings from "./ProjectSettings.vue"
 
-const bridge = createAgent()
-const chat = useChat(useAgent("settings"), { page: connectPage(bridge, { join: connectRealtimeRoom }) })
+const asks = []
+const page = connectPage(createAgent, {
+  join: connectRealtimeRoom,
+  allow: step => step.confirm ? new Promise(resolve => asks.push({ step: { ...step }, answer: resolve })) : true,
+})
+const chat = useChat(useAgent("settings"), { page })
 
 onMounted(() => {
   const changes = []
-  bridge.subscribe(change => changes.push({ label: change.label, source: change.source, value: change.value }))
+  page.agent.subscribe(change => changes.push({ label: change.label, source: change.source, value: change.value }))
+  const heard = []
   Object.assign(window, {
     pageTest: {
+      id: page.id,
       changes,
+      asks: () => asks.map(ask => ask.step),
+      answer: (index, approved) => asks[index].answer(approved),
       messages: () => JSON.parse(JSON.stringify(chat.messages.value)),
       send: text => chat.sendMessage({ text }),
-      snapshot: () => bridge.snapshot(),
+      snapshot: () => page.agent.snapshot(),
+      pageChanges: () => JSON.parse(JSON.stringify(page.changes())),
+      undo: id => page.undo(id),
       status: () => chat.status.value,
+      invocationId: () => chat.invocationId.value,
       error: () => chat.error.value?.message,
+      // A second person joins someone else's page id, and counts the calls that reach them.
+      intrude: id => {
+        const room = connectRealtimeRoom("agent-pages", id)
+        room.onRequest(body => {
+          heard.push(body)
+          return []
+        })
+        return new Promise(resolve => {
+          const stop = room.onUpdate(() => {
+            if (room.status() === "connected") {
+              stop()
+              resolve(true)
+            }
+          })
+        })
+      },
+      heard: () => heard.length,
     },
   })
 })
@@ -273,7 +370,7 @@ const cases = [
 
 /** The vite-hub options of every case. A Node build keeps its rooms in memory, in one process. */
 function hubOptions(host) {
-  return { host, agent: true, realtime: host === "node" ? { authority: "memory" } : true }
+  return { host, agent: true, auth: true, console: true, realtime: host === "node" ? { authority: "memory" } : true }
 }
 
 async function writeFixture(item) {
@@ -282,6 +379,7 @@ async function writeFixture(item) {
   const files = {
     "package.json": JSON.stringify({ name: `agent-page-${item.name}`, private: true, type: "module" }),
     "server/agents/settings.ts": agentFile,
+    "server/auth.ts": authFile,
     "server/state.ts": stateFile,
     "server/api/settings.get.ts": settingsGet,
     "server/api/settings.put.ts": settingsPut,
@@ -329,13 +427,13 @@ async function build(item, root) {
 }
 
 /** Starts the built app on its port. Resolves a function that stops it. */
-async function start(item, root) {
+async function start(item, root, vars) {
   const origin = `http://127.0.0.1:${item.port}`
   if (item.host === "node") {
     const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
       // The Agent journal goes to `.vitehub/data` under the working directory.
       cwd: root,
-      env: { ...process.env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(item.port), PORT: String(item.port) },
+      env: { ...process.env, ...vars, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(item.port), PORT: String(item.port) },
       stdio: ["ignore", "pipe", "pipe"],
     })
     const output = []
@@ -359,6 +457,7 @@ async function start(item, root) {
     modules: ["index.mjs", ...files.filter(file => file !== "index.mjs")].map(file => ({ path: join(server, file), type: "ESModule" })),
     modulesRoot: server,
     port: item.port,
+    bindings: vars,
   })
   await worker.ready
   await waitForServer(origin, () => "")
@@ -379,61 +478,175 @@ async function waitForServer(origin, logs) {
 }
 
 const browser = cases.length ? await chromium.launch() : undefined
+const consoleKey = await createConsoleKeyPair()
+
+/** A signed-in person: a browser context with a session cookie, and the app open in it. */
+async function signIn(app, name, email) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  const response = await context.request.post(`${app.origin}/api/auth/sign-up/email`, {
+    data: { name, email, password: "correct-horse-battery-staple" },
+    headers: { origin: app.origin },
+  })
+  assert.equal(response.status(), 200, await response.text())
+  const user = (await response.json()).user
+  const page = await context.newPage()
+  const errors = []
+  page.on("pageerror", error => errors.push(error.message))
+  await page.goto(app.origin, { waitUntil: "load" })
+  await page.waitForFunction(() => Boolean(window.pageTest && document.querySelector("form button")), undefined, { timeout: 30_000 })
+  return { context, errors, page, user }
+}
+
+/** Sends a prompt, answers the approvals the page asks for in order, and waits for the reply. */
+async function ask(person, prompt, answers = []) {
+  const before = await person.page.evaluate(() => ({ asks: window.pageTest.asks().length, replies: window.pageTest.messages().filter(message => message.role === "assistant").length }))
+  await person.page.evaluate(text => void window.pageTest.send(text), prompt)
+  const asked = []
+  for (const approved of answers) {
+    const index = before.asks + asked.length
+    await person.page.waitForFunction(at => window.pageTest.asks().length > at || window.pageTest.status() === "error", index, { timeout: 120_000 })
+    const step = await person.page.evaluate(at => window.pageTest.asks()[at], index)
+    assert.ok(step, `no approval asked: ${await person.page.evaluate(() => window.pageTest.error())}`)
+    asked.push({ step, server: await serverState(person.app) })
+    await person.page.evaluate(([at, value]) => window.pageTest.answer(at, value), [index, approved])
+  }
+  await person.page.waitForFunction((count) => {
+    const status = window.pageTest.status()
+    return (status === "ready" || status === "error") && window.pageTest.messages().filter(message => message.role === "assistant").length > count
+  }, before.replies, { timeout: 120_000 })
+  const result = await person.page.evaluate(() => ({
+    error: window.pageTest.error(),
+    invocationId: window.pageTest.invocationId(),
+    messages: window.pageTest.messages(),
+    snapshot: window.pageTest.snapshot(),
+    status: window.pageTest.status(),
+  }))
+  const last = result.messages.filter(message => message.role === "assistant").at(-1)
+  const toolParts = (last?.parts ?? []).filter(part => part.type.startsWith("tool-"))
+  const byLabel = Object.fromEntries(result.snapshot.filter(component => component.label).map(component => [component.label, component]))
+  return { ...result, asked, byLabel, toolParts, context: JSON.stringify({ error: result.error, logs: person.app.logs().slice(-4000), parts: toolParts }, null, 2) }
+}
+
+async function serverState(app) {
+  return {
+    settings: await (await fetch(`${app.origin}/api/settings`)).json(),
+    saves: await (await fetch(`${app.origin}/api/saves`)).json(),
+  }
+}
+
+/** Runs the vitehub CLI against the app's Console, signed with the test key, and parses its JSON. */
+async function vitehub(app, args) {
+  const { stdout } = await run(process.execPath, [cli, ...args, "--url", `${app.origin}/_vitehub`, "--json"], {
+    cwd: app.root,
+    env: { ...process.env, VITEHUB_CONSOLE_PRIVATE_KEY_CI: consoleKey.privateKey },
+    timeout: 60_000,
+  })
+  return JSON.parse(stdout)
+}
 
 for (const item of cases) {
-  test(`${item.name}: an Agent changes three settings and saves through the page bridge`, { timeout: 600_000 }, async (t) => {
+  test(`${item.name}: an Agent works the page under the server's rules, and every change is listed and undone`, { timeout: 900_000 }, async (t) => {
     const root = await writeFixture(item)
     await build(item, root)
-    const app = await start(item, root)
+    const app = { root, ...await start(item, root, { BETTER_AUTH_SECRET: secret, VITEHUB_SECRET: secret, VITEHUB_CONSOLE_KEY_CI: consoleKey.publicKey }) }
     t.after(() => app.stop())
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
-    t.after(() => page.close())
-    const pageErrors = []
-    page.on("pageerror", error => pageErrors.push(error.message))
+    const ada = { app, ...await signIn(app, "Ada Lovelace", "ada@acme.dev") }
+    const grace = { app, ...await signIn(app, "Grace Hopper", "grace@acme.dev") }
+    t.after(() => Promise.all([ada.context.close(), grace.context.close()]))
+    const pageId = await ada.page.evaluate(() => window.pageTest.id)
 
-    await page.goto(app.origin, { waitUntil: "load" })
-    await page.waitForFunction(() => Boolean(window.pageTest && document.querySelector("form button")), undefined, { timeout: 30_000 })
-    await page.evaluate(text => window.pageTest.send(text), prompt)
-    await page.waitForFunction(() => {
-      const status = window.pageTest.status()
-      return (status === "ready" || status === "error") && window.pageTest.messages().some(message => message.role === "assistant")
-    }, undefined, { timeout: 120_000 })
+    // Grace joins Ada's page id. Every call below must still reach only Ada's tab.
+    await grace.page.evaluate(id => window.pageTest.intrude(id), pageId)
 
-    const result = await page.evaluate(() => ({
-      changes: window.pageTest.changes,
-      error: window.pageTest.error(),
-      messages: window.pageTest.messages(),
-      snapshot: window.pageTest.snapshot(),
-      status: window.pageTest.status(),
-    }))
-    const context = JSON.stringify({ error: result.error, pageErrors, logs: app.logs().slice(-4000), messages: result.messages }, null, 2)
-    assert.equal(result.status, "ready", context)
-
-    // The model's tool calls, as the chat received them: three, every one answered by the page.
-    const toolParts = result.messages.filter(message => message.role === "assistant").flatMap(message => message.parts).filter(part => part.type.startsWith("tool-"))
-    assert.deepEqual(toolParts.map(part => part.type), ["tool-page_snapshot", "tool-page_act", "tool-page_act"], context)
-    assert.ok(toolParts.length <= 5, context)
-    for (const part of toolParts) {
+    // 1. The settings task. The save needs Ada's approval: nothing is saved while she decides.
+    const settings = await ask(ada, prompts.settings, [true])
+    assert.equal(settings.status, "ready", settings.context)
+    assert.deepEqual(settings.toolParts.map(part => part.type), ["tool-page_snapshot", "tool-page_act", "tool-page_act"], settings.context)
+    for (const part of settings.toolParts) {
       assert.equal(part.state, "output-available", JSON.stringify(part, null, 2))
       assert.notEqual(part.output?.ok, false, JSON.stringify(part.output, null, 2))
     }
+    assert.equal(settings.asked.length, 1, settings.context)
+    assert.equal(settings.asked[0].step.label, "Save changes", JSON.stringify(settings.asked[0].step))
+    assert.deepEqual(settings.asked[0].server.saves, [], "the save waited for the approval")
+    assert.equal(settings.byLabel["Default region"]?.value, "fra")
+    assert.equal(settings.byLabel.Visibility?.value, "team")
+    assert.equal(settings.byLabel["Email me when a deploy fails"]?.checked, false)
+    const changes = await ada.page.evaluate(() => window.pageTest.changes)
+    assert.deepEqual([...new Set(changes.map(change => change.source))], ["agent"], JSON.stringify(changes))
+    let server = await serverState(app)
+    assert.deepEqual(server.settings, expectedSettings)
+    assert.equal(server.saves.length, 1)
 
-    // The page shows the new values.
-    const byLabel = Object.fromEntries(result.snapshot.filter(component => component.label).map(component => [component.label, component]))
-    assert.equal(byLabel["Default region"]?.value, "fra", JSON.stringify(result.snapshot, null, 2))
-    assert.equal(byLabel.Visibility?.value, "team", JSON.stringify(result.snapshot, null, 2))
-    assert.equal(byLabel["Email me when a deploy fails"]?.checked, false, JSON.stringify(result.snapshot, null, 2))
+    // 2. A denied step, named by the field's ref id: a named diagnostic, and the page and the server keep "Atlas".
+    const rename = await ask(ada, prompts.rename)
+    assert.equal(rename.status, "ready", rename.context)
+    const renamed = rename.toolParts.find(part => part.type === "tool-page_act")
+    assert.equal(renamed?.output?.ok, false, rename.context)
+    assert.equal(renamed?.output?.code, "AGENT_R1047", rename.context)
+    assert.equal(rename.byLabel["Project name"]?.value, "Atlas")
+    assert.equal((await serverState(app)).settings.name, "Atlas")
 
-    // Every change the bridge made reached the page as the agent's.
-    assert.ok(result.changes.length >= 3, JSON.stringify(result.changes))
-    assert.deepEqual([...new Set(result.changes.map(change => change.source))], ["agent"], JSON.stringify(result.changes))
+    // 3. Two steps that need approval in one call: Ada approves the digest and refuses the save.
+    const digest = await ask(ada, prompts.digest, [true, false])
+    assert.equal(digest.status, "ready", digest.context)
+    assert.deepEqual(digest.asked.map(entry => entry.step.label), ["Weekly digest", "Save changes"])
+    const digestAct = digest.toolParts.find(part => part.type === "tool-page_act")
+    assert.equal(digestAct?.output?.code, "AGENT_R1049", digest.context)
+    assert.equal(digest.byLabel["Weekly digest"]?.checked, true)
+    assert.equal((await serverState(app)).saves.length, 1)
 
-    // The server saved once, with the right values.
-    const settings = await (await fetch(`${app.origin}/api/settings`)).json()
-    const saves = await (await fetch(`${app.origin}/api/saves`)).json()
-    assert.deepEqual(settings, expectedSettings)
-    assert.equal(saves.length, 1)
-    assert.deepEqual(pageErrors, [])
+    // 4. The CLI lists every change of the settings run: Agent, page, person, step, before, after and time.
+    const shown = await vitehub(app, ["agent", "invocations", "show", settings.invocationId])
+    assert.equal(shown.agentName ?? shown.record?.agentName, "settings", JSON.stringify(shown).slice(0, 2000))
+    const listed = shown.pageChanges
+    assert.ok(Array.isArray(listed), JSON.stringify(shown).slice(0, 2000))
+    const listedValues = listed.map(change => [change.label, change.key, change.before, change.after])
+    assert.deepEqual(listedValues, [
+      ["Default region", "value", "iad", "fra"],
+      ["Visibility", "value", "private", "team"],
+      ["Email me when a deploy fails", "checked", true, false],
+    ], JSON.stringify(listed, null, 2))
+    for (const change of listed) {
+      assert.equal(change.page, pageId)
+      assert.equal(change.user, ada.user.id)
+      assert.equal(typeof change.step, "number")
+      assert.ok(!Number.isNaN(Date.parse(change.at)), change.at)
+      assert.equal(typeof change.id, "string")
+    }
+    const approvals = shown.approvals ?? []
+    assert.ok(approvals.some(approval => approval.approved === true), JSON.stringify(approvals))
+
+    // 5. Undo from the page puts the region back, and an operator's undo puts the visibility back.
+    const region = listed.find(change => change.label === "Default region")
+    const visibility = listed.find(change => change.label === "Visibility")
+    const pageChanges = await ada.page.evaluate(() => window.pageTest.pageChanges())
+    assert.ok(pageChanges.some(change => change.id === region.id), JSON.stringify(pageChanges))
+    const notRestored = await ada.page.evaluate(id => window.pageTest.undo(id), region.id)
+    assert.deepEqual(notRestored, [])
+    const undone = await vitehub(app, ["invocations", "undo", settings.invocationId, "--change", visibility.id])
+    assert.deepEqual(undone.notRestored ?? [], [], JSON.stringify(undone))
+    const afterUndo = Object.fromEntries((await ada.page.evaluate(() => window.pageTest.snapshot())).filter(component => component.label).map(component => [component.label, component]))
+    assert.equal(afterUndo["Default region"]?.value, "iad")
+    assert.equal(afterUndo.Visibility?.value, "private")
+    assert.equal(afterUndo["Email me when a deploy fails"]?.checked, false)
+
+    // 6. Grace heard none of Ada's calls, and her own run cannot reach Ada's page by its id.
+    assert.equal(await grace.page.evaluate(() => window.pageTest.heard()), 0)
+    const intruded = await grace.page.evaluate(async ({ id, text }) => {
+      const response = await fetch("/api/_vitehub/agents/settings/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-vitehub-page": id },
+        body: JSON.stringify({ messages: [{ id: "grace-1", role: "user", parts: [{ type: "text", text }] }] }),
+      })
+      return { status: response.status, body: await response.text() }
+    }, { id: pageId, text: prompts.read })
+    assert.equal(intruded.status, 200, intruded.body.slice(0, 2000))
+    const snapshotOutput = intruded.body.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6))).find(event => event.type === "tool-output-available")
+    assert.equal(snapshotOutput?.output?.code, "REALTIME_ROOM_EMPTY", intruded.body.slice(0, 2000))
+    assert.equal(await grace.page.evaluate(() => window.pageTest.heard()), 0)
+
+    assert.deepEqual([...ada.errors, ...grace.errors], [])
   })
 }
 
