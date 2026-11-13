@@ -343,6 +343,9 @@ catalogs:
     '@comark/html':
       specifier: 0.9.0
       version: 0.9.0
+    '@mdream/js':
+      specifier: 2.1.0
+      version: 2.1.0
     '@types/mdast':
       specifier: ^4.0.4
       version: 4.0.4
@@ -1914,6 +1917,9 @@ importers:
       '@comark/html':
         specifier: catalog:markdown-ui
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
+      '@mdream/js':
+        specifier: catalog:markdown
+        version: 2.1.0
       '@sqlite.org/sqlite-wasm':
         specifier: catalog:database
         version: 3.53.0-build1
@@ -7092,6 +7098,10 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
+  '@mdream/js@2.1.0':
+    resolution: {integrity: sha512-fctd6z1bvutUEEj5nyxgVq60et2Fu4m61okxHqHAXoGVjJv3KqxVLbqtJAgzs43ytZryFXb8FIWYO916dEVqjA==}
+    hasBin: true
+
   '@messageformat/date-skeleton@1.1.0':
     resolution: {integrity: sha512-rmGAfB1tIPER+gh3p/RgA+PVeRE/gxuQ2w4snFWPF5xtb5mbWR7Cbw7wCOftcUypbD6HVoxrVdyyghPm3WzP5A==}
 
@@ -12222,6 +12232,10 @@ packages:
 
   cac@7.0.0:
     resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
+    engines: {node: '>=20.19.0'}
+
+  cac@7.1.0:
+    resolution: {integrity: sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA==}
     engines: {node: '>=20.19.0'}
 
   cacheable-lookup@7.0.0:
@@ -22206,6 +22220,11 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
+  '@mdream/js@2.1.0':
+    dependencies:
+      cac: 7.1.0
+      pathe: 2.0.3
+
   '@messageformat/date-skeleton@1.1.0': {}
 
   '@messageformat/parser@5.2.0':
@@ -30552,6 +30571,8 @@ snapshots:
       magicast: 0.5.5
 
   cac@7.0.0: {}
+
+  cac@7.1.0: {}
 
   cacheable-lookup@7.0.0: {}
 

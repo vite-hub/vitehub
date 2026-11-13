@@ -119,7 +119,52 @@ export interface ContentMarkdownRuntime {
   hasMarkdown?(path: string): Promise<boolean>
 }
 
+/** `defineContentMarkdownHandler(content, options)`. */
+export interface ContentMarkdownHandlerOptions {
+  /**
+   * Render a page as HTML inside the server, such as `serverFetch` from `nitro`. With `seo: { markdown: { pages: true } }`,
+   * a Markdown request for a page that is not a Content document gets the page converted from this HTML.
+   */
+  render?: (request: Request) => Response | Promise<Response>
+}
+
 const notFound = Symbol.for("h3.notFound")
+
+/** Whether `seo.markdown` converts app pages that are not Content documents. */
+function convertsPages(seo: DefineContentSeoOptions | undefined): boolean {
+  const markdown = seo?.markdown
+  return markdown !== null && typeof markdown === "object" && markdown.pages === true
+}
+
+/** The page that a copy URL names: `/blog/hello` for `/blog/hello.md` and `/raw/blog/hello.md`, `/` for `/index.md`. */
+function copyPage(path: string, seo: DefineContentSeoOptions | undefined): string {
+  const markdown = seo?.markdown
+  const prefix = markdown !== null && typeof markdown === "object" ? markdown.prefix ?? "" : ""
+  const page = prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path
+  return page === "/index.md" ? "/" : page.slice(0, -3)
+}
+
+function isHtml(headers: Headers | undefined): boolean {
+  return /^\s*(?:text\/html|application\/xhtml\+xml)\b/i.test(headers?.get("content-type") ?? "")
+}
+
+/** Whether `X-Robots-Tag` keeps a page out of indexes. A copy of such a page would undo it. */
+function noindex(headers: Headers | undefined): boolean {
+  return /\b(?:noindex|none)\b/i.test(headers?.get("x-robots-tag") ?? "")
+}
+
+function joinRobots(...values: (string | null | undefined)[]): string | undefined {
+  const joined = values.map(value => value?.trim()).filter(Boolean).join(", ")
+  return joined || undefined
+}
+
+/** Whether a `Cache-Control` value keeps a response private to one reader. */
+function privateCache(value: string | null): boolean {
+  return value !== null && /(?:^|,)\s*(?:private|no-store)\b/i.test(value)
+}
+
+/** Request headers that ask for part of a response or a cached one. The page render asks for the whole page. */
+const conditionalHeaders = ["if-match", "if-none-match", "if-modified-since", "if-unmodified-since", "if-range", "range"]
 
 /**
  * Fetch Responses (including srvx's Response class) and H3's branded HTTPResponse. Keep plain JSON status fields
@@ -143,9 +188,10 @@ function errorStatus(error: unknown): unknown {
   return Reflect.get(error, "status") ?? Reflect.get(error, "statusCode")
 }
 
-function mergeVary(...values: (string | null | undefined)[]): string {
+/** Join `Vary` values without repeats. `*` wins over every field. */
+function joinVary(values: readonly (string | null | undefined)[]): string {
   const fields = new Map<string, string>()
-  for (const value of [...values, contentMarkdownVary]) {
+  for (const value of values) {
     for (const field of value?.split(",") ?? []) {
       const name = field.trim()
       if (name === "*") return "*"
@@ -153,6 +199,10 @@ function mergeVary(...values: (string | null | undefined)[]): string {
     }
   }
   return [...fields.values()].join(", ")
+}
+
+function mergeVary(...values: (string | null | undefined)[]): string {
+  return joinVary([...values, contentMarkdownVary])
 }
 
 /** The `Link` header value that names the Markdown copy of a page. */
@@ -195,7 +245,8 @@ function etagMatches(header: string | null, etag: string): boolean {
  * the Content runtime, or a function that loads it: the middleware then loads Content only for requests that ask for
  * Markdown and for HTML pages. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
  */
-export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>)): ContentMiddleware {
+export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>), options: ContentMarkdownHandlerOptions = {}): ContentMiddleware {
+  const render = options.render
   return async (event, next) => {
     if (typeof content !== "function" && !content.seo?.markdown) return
     const request = event.req
@@ -221,11 +272,14 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
         vary(result)
         return result
       }
-      const type = resultHeaders(result)?.get("content-type") ?? event.res.headers.get("content-type") ?? ""
-      if (status !== 200 || !/^\s*(?:text\/html|application\/xhtml\+xml)\b/i.test(type)) return result
+      const headers = resultHeaders(result)?.has("content-type") ? resultHeaders(result) : event.res.headers
+      if (status !== 200 || !isHtml(headers)) return result
       const runtime = await load()
       if (!runtime.seo?.markdown) return result
-      const exists = runtime.hasMarkdown ? await runtime.hasMarkdown(twin) : await runtime.markdown(twin) !== null
+      // With `pages`, every HTML page that indexes may list has a converted copy.
+      const exists = render && convertsPages(runtime.seo)
+        ? !noindex(resultHeaders(result)) && !noindex(event.res.headers)
+        : runtime.hasMarkdown ? await runtime.hasMarkdown(twin) : await runtime.markdown(twin) !== null
       if (!exists) return result
       vary(result)
       const links = [event.res.headers.get("link"), resultHeaders(result)?.get("link"), markdownAlternateLink(twin)].filter(Boolean)
@@ -246,12 +300,26 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     const seo = runtime.seo
     if (!seo?.markdown) return
     const site = seo.site ?? url.origin
-    const respond = async (body: string, status = 200) => {
+    const target = copy ? copyPage(url.pathname, seo) : url.pathname
+    const respond = async (body: string, status = 200, page?: Headers, robots?: string) => {
       const headers = new Headers({
         "content-type": "text/markdown; charset=utf-8",
         "cache-control": status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
       })
-      if (negotiated) headers.set("vary", contentMarkdownVary)
+      if (page) {
+        // A page rendered with the reader's credentials is theirs: a shared cache must not give it to another reader.
+        const cookies = page.getSetCookie()
+        for (const cookie of cookies) headers.append("set-cookie", cookie)
+        if (privateCache(page.get("cache-control"))) headers.set("cache-control", page.get("cache-control")!)
+        else if (cookies.length || request.headers.has("cookie") || request.headers.has("authorization")) headers.set("cache-control", "private, no-store")
+        // The copy keeps the indexing rules of its page, and names the page as the canonical URL.
+        if (robots) headers.set("x-robots-tag", robots)
+        headers.set("link", `<${url.origin}${target}>; rel="canonical"`)
+      }
+      // A converted copy varies on what its page varies on, such as Cookie, except Accept: the render asks for HTML.
+      const pageVary = page?.get("vary")?.split(",").filter(field => field.trim().toLowerCase() !== "accept").join(",")
+      const varyValue = negotiated ? mergeVary(pageVary) : joinVary([pageVary])
+      if (varyValue) headers.set("vary", varyValue)
       let response: Response
       if (status !== 200) response = new Response(request.method === "HEAD" ? null : body, { status, headers })
       else {
@@ -263,21 +331,48 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
         response = new Response(fresh || request.method === "HEAD" ? null : body, { status: fresh ? 304 : status, headers })
       }
       if (negotiated) vary(response)
+      // H3 sets the prepared headers on a returned Response, so a prepared `Link`, such as from route rules, keeps the
+      // canonical link next to it.
+      const link = response.headers.get("link")
+      const prepared = event.res?.headers.get("link")
+      if (link && prepared && prepared !== link) event.res!.headers.set("link", `${prepared}, ${link}`)
       return response
     }
     const markdown = await runtime.markdown(copy ? url.pathname : twin, { site })
     if (markdown !== null) return await respond(markdown)
-    if (!next) return
     const missing = async () => await respond(renderContentMarkdownNotFound({ path: url.pathname, site, links: contentMarkdownErrorLinks(seo) }), 404)
+    // Exact copies win. Without one, `pages` converts the HTML page that the app renders for the same reader.
+    const converts = render !== undefined && convertsPages(seo) && !target.endsWith(".md")
+    /** The converted copy, or the answer of the page. Null when the page has neither: a `.md` URL then gets the 404. */
+    const convert = async (): Promise<Response | null> => {
+      const headers = new Headers(request.headers)
+      headers.set("accept", "text/html")
+      for (const name of conditionalHeaders) headers.delete(name)
+      const page = await render!(new Request(new URL(`${target}${url.search}`, url), { headers, signal: request.signal }))
+      if (page.status === 200 && isHtml(page.headers) && !noindex(page.headers)) {
+        const html = await page.text()
+        const { renderPageMarkdown, robotsMeta } = await import("./markdown-pages.ts")
+        const robots = joinRobots(page.headers.get("x-robots-tag"), robotsMeta(html))
+        return await respond(renderPageMarkdown(html, { origin: site }), 200, page.headers, robots)
+      }
+      // A redirect, such as to a sign-in page, or an error is the answer for the copy too. A page that is not HTML, or
+      // that `X-Robots-Tag` keeps out of indexes, has no copy, and its own URL keeps its answer.
+      if (page.status !== 404 && (negotiated || page.status !== 200)) return page
+      await page.body?.cancel()
+      return page.status === 404 ? await missing() : null
+    }
+    // A page URL renders the page once. A `.md` URL goes on to the app first, so a route such as `/sitemap.md` answers.
+    if (converts && negotiated) return await convert()
+    if (!next) return
     let result: unknown
     try {
       result = await next()
     }
     catch (error) {
-      if (errorStatus(error) === 404) return await missing()
+      if (errorStatus(error) === 404) return (converts ? await convert() : null) ?? await missing()
       throw error
     }
-    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return await missing()
+    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return (converts ? await convert() : null) ?? await missing()
     return result
   }
 }

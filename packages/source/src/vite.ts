@@ -734,12 +734,14 @@ async function writeContentArtifact(
   }
   // `seo: { markdown }` serves copies at every page URL plus `.md`, which no Nitro route pattern matches, so they are
   // middleware. It loads when the server starts, because it reads the response of later handlers for the Markdown 404.
-  // It imports only the Markdown negotiation entry and loads server/content.ts on the first request that asks for Markdown.
+  // It imports only the Markdown negotiation entry and loads server/content.ts on the first request that asks for Markdown
+  // or gets an HTML page. `seo: { markdown: { pages: true } }` renders other pages through Nitro, without a network hop.
   if (features.markdown) {
     await writeFileIfChanged(markdown, [
       `import { defineContentMarkdownHandler } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/markdown`)}`,
+      `import { serverFetch } from "nitro"`,
       "",
-      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default))`,
+      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default), { render: request => serverFetch(request) })`,
       "",
     ].join("\n"))
     handlers.push({ handler: markdown, middleware: true, lazy: false, route: "/**" })

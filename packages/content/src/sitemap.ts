@@ -27,7 +27,8 @@ export interface DefineContentSeoOptions {
   /**
    * Serve each published Markdown document with a URL as Markdown at that URL plus `.md`, such as `/blog/hello.md`
    * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat. `prefix`
-   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there.
+   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there. `pages: true`
+   * also converts each other app page from its HTML.
    */
   markdown?: boolean | ContentMarkdownOptions
   /**
@@ -68,6 +69,11 @@ export interface ContentRssOptions {
 export interface ContentMarkdownOptions {
   /** A folder that also serves each copy, such as `/raw` for `/raw/blog/hello.md`. The llms files link there. */
   prefix?: string
+  /**
+   * Also serve a copy of each app page that is not a Content document: the HTML that the app renders for the same
+   * request, converted to Markdown. Content documents keep their exact copy. Default `false`.
+   */
+  pages?: boolean
 }
 
 /** `defineContent({ seo: { llms } })`. */
@@ -127,10 +133,12 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) {
-    const shape = "markdown must be true, false, or { prefix: '/raw' }."
+    const shape = "markdown must be true, false, or { prefix: '/raw', pages: true }."
     if (markdown === null || Object(markdown) !== markdown || Array.isArray(markdown)) throw invalid(shape)
     const prefix: unknown = Reflect.get(markdown, "prefix")
     if (prefix !== undefined && (String(prefix) !== prefix || !/^\/[^/?#\s]+(?:\/[^/?#\s]+)*$/.test(prefix))) throw invalid(`${shape} The prefix starts with / and does not end with one.`)
+    const pages: unknown = Reflect.get(markdown, "pages")
+    if (pages !== undefined && pages !== true && pages !== false) throw invalid(`${shape} pages must be true or false.`)
   }
   if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
     throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")

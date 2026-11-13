@@ -443,6 +443,114 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(head.headers.get("etag")).toBe((await app(content).request("https://example.com/blog/hello.md")).headers.get("etag"))
   })
 
+  describe("app pages with pages: true", () => {
+    const layout = (title: string, main: string) => `<!doctype html><html><head><title>${title} &amp; more</title><script>var x = "<main>no</main>"</script></head><body><header><nav><a href="/">Home</a> <a href="/blog">Blog</a></nav></header><main>${main}<div hidden>Hidden text</div><button>Copy</button></main><footer>Footer text</footer></body></html>`
+    const html = (body: string, init: ResponseInit = {}) => new Response(body, { ...init, headers: { "content-type": "text/html; charset=utf-8", ...init.headers } })
+    let renders = 0
+    function pages(content: Parameters<typeof defineContentMarkdownHandler>[0]) {
+      const server: H3 = new H3()
+      server.use(defineContentMarkdownHandler(content, {
+        render: (request) => {
+          renders++
+          return server.fetch(request)
+        },
+      }))
+      server.get("/about-app", event => html(layout("About the app", `<h1>About the app</h1><p>Read <a href="/blog/hello">the blog</a>.</p><p>Cookie: ${event.req.headers.get("cookie") ?? "none"}</p>`), { headers: { "set-cookie": "seen=1; Path=/", vary: "Cookie, Accept" } }))
+      server.get("/untitled", () => html(layout("Untitled page", "<p>No heading here.</p>")))
+      server.get("/secret", () => html(layout("Secret", "<h1>Secret</h1>"), { headers: { "x-robots-tag": "noindex" } }))
+      server.get("/meta-secret", () => html(`<html><head><meta name="robots" content="noindex, nofollow"></head><body><main><h1>Meta</h1></main></body></html>`))
+      server.get("/private", () => new Response(null, { status: 302, headers: { location: "/login" } }))
+      server.get("/api/data", () => Response.json({ ok: true }))
+      server.get("/blog/hello", () => html(layout("Hello", "<h1>Hello from HTML</h1>")))
+      server.get("/sitemap.md", () => new Response("# Real route\n", { headers: { "content-type": "text/markdown" } }))
+      server.all("/**", () => html(layout("Not found", "<h1>Not found</h1>"), { status: 404 }))
+      return server
+    }
+
+    it("converts the HTML of an app page that is not a Content document", async () => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app = pages(content)
+      const expected = "# About the app\n\nRead [the blog](https://example.com/blog/hello).\n\nCookie: none\n"
+      const twin = await app.request("https://example.com/about-app.md")
+      expect(twin.status).toBe(200)
+      expect(twin.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(await twin.text()).toBe(expected)
+      expect(twin.headers.get("content-location")).toBe("/about-app.md")
+      expect(twin.headers.get("link")).toBe("<https://example.com/about-app>; rel=\"canonical\"")
+      expect(twin.headers.get("vary")).toBe("Cookie")
+      // The page set a cookie, so no shared cache keeps the copy.
+      expect(twin.headers.get("cache-control")).toBe("private, no-store")
+      expect(twin.headers.getSetCookie()).toEqual(["seen=1; Path=/"])
+      expect(twin.headers.get("etag")).toMatch(/^"\w+"$/)
+      expect((await app.request("https://example.com/about-app.md", { headers: { "if-none-match": twin.headers.get("etag")! } })).status).toBe(304)
+      const negotiated = await app.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })
+      expect(await negotiated.text()).toBe(expected)
+      expect(negotiated.headers.get("vary")).toBe("Cookie, Accept")
+      expect(negotiated.headers.get("content-location")).toBe("/about-app.md")
+      // The page renders for the same reader, with the reader's cookies.
+      const signedIn = await app.request("https://example.com/about-app.md", { headers: { cookie: "session=abc" } })
+      expect(await signedIn.text()).toContain("Cookie: session=abc")
+      expect(signedIn.headers.get("cache-control")).toBe("private, no-store")
+      // A Link that an earlier handler prepared, such as from route rules, stays next to the canonical link.
+      const linked = new H3().use((event) => { event.res.headers.set("link", "</llms.txt>; rel=\"describedby\"") }).use(app)
+      expect((await linked.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })).headers.get("link"))
+        .toBe("</llms.txt>; rel=\"describedby\", <https://example.com/about-app>; rel=\"canonical\"")
+      // A route of the app that ends in .md keeps its answer, and renders no page.
+      renders = 0
+      expect(await (await app.request("https://example.com/sitemap.md")).text()).toBe("# Real route\n")
+      expect(renders).toBe(0)
+      // A page without a heading gets its title. Exact copies of Content documents win.
+      expect(await (await app.request("https://example.com/untitled.md")).text()).toBe("# Untitled page & more\n\nNo heading here.\n")
+      const exact = await app.request("https://example.com/blog/hello.md")
+      expect(await exact.text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
+      expect(exact.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate")
+      // The HTML page links its copy.
+      const page = await app.request("https://example.com/about-app", { headers: { accept: "text/html" } })
+      expect(page.headers.get("link")).toBe("</about-app.md>; rel=\"alternate\"; type=\"text/markdown\"")
+      expect(page.headers.get("vary")).toBe("Cookie, Accept")
+    })
+
+    it("does not convert noindex pages, errors, redirects, or other content", async () => {
+      const content = await site({ site: "https://example.com", markdown: { prefix: "/raw", pages: true } })
+      const app = pages(content)
+      expect(await (await app.request("https://example.com/raw/about-app.md")).text()).toMatch(/^# About the app\n/)
+      // A robots meta tag reads only from the HTML, so the copy exists and keeps the rule.
+      const meta = await app.request("https://example.com/meta-secret.md")
+      expect(meta.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+      expect(await meta.text()).toBe("# Meta\n")
+      for (const path of ["/secret", "/api/data", "/nope"]) {
+        const twin = await app.request(`https://example.com${path}.md`)
+        expect(twin.status).toBe(404)
+        expect(await twin.text()).toContain("# 404 Page Not Found")
+      }
+      // The page URL keeps its own answer for an agent.
+      const secret = await app.request("https://example.com/secret", { headers: { accept: "text/markdown" } })
+      expect(secret.headers.get("content-type")).toContain("text/html")
+      expect(secret.headers.get("x-robots-tag")).toBe("noindex")
+      expect((await app.request("https://example.com/secret")).headers.get("link")).toBeNull()
+      expect(await (await app.request("https://example.com/api/data", { headers: { accept: "text/markdown" } })).json()).toEqual({ ok: true })
+      for (const path of ["/private.md", "/private"]) {
+        const redirect = await app.request(`https://example.com${path}`, { headers: { accept: "text/markdown" }, redirect: "manual" })
+        expect(redirect.status).toBe(302)
+        expect(redirect.headers.get("location")).toBe("/login")
+      }
+      const missing = await app.request("https://example.com/nope", { headers: { accept: "text/markdown" } })
+      expect(missing.status).toBe(404)
+      expect(missing.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+    })
+
+    it("converts nothing without pages: true", async () => {
+      const content = await site({ site: "https://example.com", markdown: true })
+      const app = pages(content)
+      renders = 0
+      expect((await app.request("https://example.com/about-app.md")).status).toBe(404)
+      expect(await (await app.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })).text()).toContain("<h1>About the app</h1>")
+      expect((await app.request("https://example.com/about-app")).headers.get("link")).toBeNull()
+      expect(renders).toBe(0)
+      expect(() => defineContent({ seo: { markdown: { pages: "yes" as unknown as boolean } }, logger: false })).toThrow(/pages must be true or false/)
+    })
+  })
+
   it("reads Accept quality values", () => {
     expect(acceptsMarkdown("text/markdown")).toBe(true)
     expect(acceptsMarkdown("text/markdown;q=0.5, text/html")).toBe(false)

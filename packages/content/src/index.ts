@@ -163,7 +163,7 @@ export type { ContentRssChannel, ContentRssItem } from "./rss.ts"
 export { renderContentLlms, renderContentSitemapMarkdown } from "./llms.ts"
 export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsSection, ContentSitemapMarkdownPage } from "./llms.ts"
 export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNotFound } from "./markdown-negotiation.ts"
-export type { ContentMarkdownErrorLink, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
+export type { ContentMarkdownErrorLink, ContentMarkdownHandlerOptions, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
 export type {
   ContentCollectionDefinition,
   ContentDocumentUrl,
