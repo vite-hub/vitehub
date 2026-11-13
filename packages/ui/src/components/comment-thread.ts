@@ -20,6 +20,7 @@ import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, t
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
 
 type Done = Promise<unknown> | void;
 
@@ -83,7 +84,7 @@ function attachmentHref(value: string | undefined): string | undefined {
 
 // Shows the attachments of a message: images as thumbnails that open full size, and other files as chips. An attachment
 // is an image when its media type says so, or, without one, when its name has an image extension or none.
-function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component) {
+function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component, fileIcon: string) {
   if (message.attachments.length === 0) return null;
   const items = message.attachments.map((key) => {
     const found = url?.(key);
@@ -104,7 +105,7 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
           files.map((item) =>
             h(Attachment, { key: item.key, size: "xs" }, () => [
-              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-lucide-file" })),
+              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: fileIcon })),
               h(AttachmentContent, () =>
                 h(AttachmentTitle, () => (item.href ? h("a", { href: item.href, rel: "noreferrer", target: "_blank" }, item.name) : item.name)),
               ),
@@ -150,6 +151,7 @@ export const CommentReply = defineComponent({
   setup(props, { slots }) {
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
+    const icons = useViteHubUIIcons();
     const comments = injectComments();
     const editing = ref(false);
     const confirming = ref(false);
@@ -267,7 +269,7 @@ export const CommentReply = defineComponent({
                   plugins: bodyPlugins.value,
                   value: message.body,
                 })),
-            editing.value || props.compact ? null : (slots.attachments?.({ message }) ?? attachmentList(message, props.attachmentUrl, UIcon)),
+            editing.value || props.compact ? null : (slots.attachments?.({ message }) ?? attachmentList(message, props.attachmentUrl, UIcon, icons.value.file)),
             confirming.value
               ? h("div", { "aria-label": "Confirm delete", "data-slot": "comment-reply-confirm", role: "group" }, [
                   h("p", "Delete this comment and every reply to it?"),
@@ -279,11 +281,11 @@ export const CommentReply = defineComponent({
           ]),
           (canEdit() || canDelete()) && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-lucide-pencil", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: icons.value.edit, onClick: startEdit, size: "xs", variant: "ghost" }) : null,
                 canDelete() ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
-                  icon: "i-lucide-trash-2",
+                  icon: icons.value.delete,
                   onClick: () => (props.confirmDelete ? (confirming.value = true) : void remove()),
                   size: "xs",
                   variant: "ghost",
@@ -357,6 +359,7 @@ export const CommentThread = defineComponent({
   slots: Object as SlotsType<CommentThreadSlots>,
   setup(props, { emit, expose, slots }) {
     const UButton = useUIComponent("UButton");
+    const icons = useViteHubUIIcons();
     const comments = injectComments();
     const root = ref<HTMLElement | null>(null);
     const reply = ref("");
@@ -474,19 +477,19 @@ export const CommentThread = defineComponent({
         },
         [
           h("header", { "data-slot": "comment-thread-header" }, [
-            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-lucide-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
+            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: icons.value.arrowLeft, onClick: close, size: "xs", variant: "ghost" }) : null,
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {
               "aria-label": resolvable ? "Resolve" : "Reopen",
               color: "neutral",
-              icon: resolvable ? "i-lucide-check" : "i-lucide-rotate-ccw",
+              icon: resolvable ? icons.value.check : icons.value.reopen,
               onClick: () => void act(resolvable ? props.onResolve : props.onReopen),
               size: "xs",
               variant: "ghost",
             }),
-            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-lucide-x", onClick: close, size: "xs", variant: "ghost" }),
+            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: icons.value.close, onClick: close, size: "xs", variant: "ghost" }),
           ]),
           h("div", { "data-slot": "comment-thread-messages" }, [
             anchor,

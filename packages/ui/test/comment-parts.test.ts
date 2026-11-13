@@ -17,6 +17,8 @@ import {
   CommentPanel,
   CommentReply,
   CommentThread,
+  CommentToolbar,
+  createViteHubUI,
   provideComments,
   useComments,
   type CommentRowSlotScope,
@@ -816,6 +818,47 @@ describe("sizes", () => {
   it("marks a composer with its size", () => {
     const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, layout: "row", size: "sm" } }));
     expect(wrapper.get("[data-slot=comment-composer]").attributes()).toMatchObject({ "data-layout": "row", "data-size": "sm" });
+  });
+});
+
+describe("icons", () => {
+  const UIcon = defineComponent({ setup: (_props, { attrs }) => () => h("span", { "data-icon": attrs.name }) });
+  const icons = (wrapper: VueWrapper) => [
+    ...wrapper.findAll("button[aria-label]").map(button => `${button.attributes("aria-label")}: ${button.attributes("icon")}`),
+    ...wrapper.findAll("[data-icon]").map(icon => `icon: ${icon.attributes("data-icon")}`),
+  ];
+
+  it("takes each icon from the app's icon config and follows its changes", async () => {
+    const names = ref<Record<string, string>>({ arrowUp: "i-ph-arrow-up", check: "i-ph-check", close: "i-ph-x", delete: "i-ph-trash", edit: "i-ph-pencil", file: "i-ph-file", plus: "i-ph-plus" });
+    const wrapper = keep(mount(CommentThread, {
+      global: { ...global, components: { ...global.components, UIcon }, plugins: [createViteHubUI({ icons: names })] },
+      props: { attachmentUrl: () => "/spec.pdf", onDelete: () => {}, onEdit: () => {}, thread: thread(1, { messages: [message("m1", { attachments: ["spec.pdf"] })] }), user: ana },
+    }));
+    expect(icons(wrapper)).toEqual(expect.arrayContaining([
+      "Resolve: i-ph-check",
+      "Close: i-ph-x",
+      "Edit: i-ph-pencil",
+      "Delete: i-ph-trash",
+      "Add attachment: i-ph-plus",
+      "Reply: i-ph-arrow-up",
+      "icon: i-ph-file",
+    ]));
+    names.value = { ...names.value, edit: "i-ph-pencil-simple" };
+    await flushPromises();
+    expect(icons(wrapper)).toContain("Edit: i-ph-pencil-simple");
+  });
+
+  it("names the toolbar icons in the same config", () => {
+    const Toolbar = defineComponent({
+      setup: () => {
+        const comments = useComments({ client: client(), subject: pricing });
+        return () => h(CommentToolbar, { comments });
+      },
+    });
+    const wrapper = keep(mount(Toolbar, {
+      global: { ...global, plugins: [createViteHubUI({ icons: { comment: "i-ph-chat", commentList: "i-ph-list", commentPage: "i-ph-note-pencil" } })] },
+    }));
+    expect(icons(wrapper)).toEqual(["Comment mode: i-ph-chat", "Comment list, 0 on this page: i-ph-list", "Comment on page: i-ph-note-pencil"]);
   });
 });
 
