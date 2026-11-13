@@ -52,6 +52,7 @@ console.log(error.toJSON())
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
 | `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
+| `AUTH_R0022` | `vitehub({ publicUrl })` gives several origins and the request host is none of them. Auth does not take its base URL from the request Host. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, and invalid Auth Definitions, `authenticated()` config, or custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
