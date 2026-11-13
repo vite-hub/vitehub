@@ -83,7 +83,7 @@
     "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run --cache -t @vite-hub/runtime#build && vp run --cache -t @vite-hub/ui#build && vp test",
     "test:browser": "vp run --cache -t @vite-hub/ui#build && node --test test/browser/workspace.browser.mjs",
-    "test:parity": "node --test test/browser/parity.browser.mjs"
+    "test:parity": "vp run --cache -t @vite-hub/kit#build && node --test test/browser/parity.browser.mjs"
   },
   "dependencies": {
     "@comark/vue": "0.9.0",
@@ -125,6 +125,7 @@
     "@pierre/trees": "1.0.0-beta.6",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vite-hub/icons": "workspace:*",
+    "@vite-hub/kit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vue/server-renderer": "3.5.44",
     "@vue/test-utils": "2.5.1",
