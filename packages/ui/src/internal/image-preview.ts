@@ -1,4 +1,5 @@
 import { computed, defineComponent, h, ref, watch } from "vue";
+import { useViteHubUIIcons } from "../config.ts";
 import { useUIComponent } from "./nuxt-ui.ts";
 
 function isImageUrl(value: string): boolean {
@@ -26,6 +27,7 @@ export const ImagePreview = defineComponent({
     const label = computed(() => props.alt || props.title || "Image");
     const UModal = useUIComponent("UModal");
     const UButton = useUIComponent("UButton");
+    const icons = useViteHubUIIcons();
     watch(() => props.src, () => { failed.value = false; });
 
     return () => {
@@ -58,7 +60,7 @@ export const ImagePreview = defineComponent({
               "aria-label": "Open original image",
               class: "vh-image-dialog__action",
               color: "neutral",
-              icon: "i-lucide-external-link",
+              icon: icons.value.external,
               external: true,
               to: props.src,
               target: "_blank",
@@ -69,7 +71,7 @@ export const ImagePreview = defineComponent({
               "aria-label": "Close image preview",
               class: "vh-image-dialog__action",
               color: "neutral",
-              icon: "i-lucide-x",
+              icon: icons.value.close,
               onClick: close,
               variant: "ghost",
             }),
