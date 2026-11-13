@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest"
-import { createApp, defineComponent, h, nextTick } from "vue"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { createApp, createSSRApp, defineComponent, h, nextTick } from "vue"
+import { renderToString } from "vue/server-renderer"
 
 import { clearSync } from "../src/client.ts"
 import { useSync } from "../src/vue.ts"
@@ -67,5 +68,34 @@ describe("useSync", () => {
     window.dispatchEvent(new Event("online"))
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(server.requests.length).toBe(requests)
+  })
+
+  it("hydrates server HTML without a mismatch", async () => {
+    const server = createFakeSyncServer()
+    server.write({ id: "a", ownerId: "ada", title: "Milk" })
+    const Todos = defineComponent({
+      setup() {
+        const todos = useSync("todos", { fetch: server.fetch, interval: false })
+        return () => h("div", [
+          h("p", `${todos.status} ${todos.persisted}`),
+          h("ul", todos.rows.map(todo => h("li", { key: String(todo.id) }, String(todo.title)))),
+        ])
+      },
+    })
+    vi.stubGlobal("window", undefined)
+    const html = await renderToString(createSSRApp(Todos))
+    vi.unstubAllGlobals()
+    expect(server.requests).toEqual([])
+    const root = document.createElement("div")
+    root.innerHTML = html
+    document.body.append(root)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const app = createSSRApp(Todos)
+    app.mount(root)
+    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/[Hh]ydration/)
+    warn.mockRestore()
+    await until(() => root.querySelectorAll("li").length === 1)
+    expect(root.querySelector("p")!.textContent).toBe("ready false")
+    app.unmount()
   })
 })

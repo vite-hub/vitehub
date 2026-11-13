@@ -98,7 +98,9 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
   // Writes that wait for the storage. They show in the rows, and the next pass sends them once they are stored.
   let local: SyncNewWrite[] = []
   let view: ReadonlyMap<SyncKey, SyncRow> = confirmed
-  let status: SyncStatus = "loading"
+  // `idle` until the stored copy is read, as on the server, so a server-rendered page hydrates without a mismatch.
+  let status: SyncStatus = "idle"
+  let loaded = false
   let error: SyncError | null = null
   let state: SyncState<SyncRow>
 
@@ -134,7 +136,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
       error,
       queued,
       failures: Object.freeze(failures),
-      persisted: storage.persisted,
+      persisted: loaded && storage.persisted,
     })
     settlePending()
     for (const listener of listeners) listener()
@@ -244,6 +246,8 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
       confirmed = new Map(stored.rows)
       writes = stored.writes
       local = local.filter(write => !writes.some(item => item.id === write.id))
+      loaded = true
+      if (status === "idle") status = "loading"
       version++
       publish()
       return

@@ -1,8 +1,8 @@
 import type { SyncErrorCode, SyncKey, SyncMutation, SyncWireError } from "../protocol.ts"
 
 /**
- * Where the store is. `idle` on the server, `loading` until the first pull, `ready` after it, `offline` when the network
- * failed, and `error` when the server refused the caller or failed.
+ * Where the store is. `idle` on the server and until the stored rows are read, `loading` until the first pull, `ready`
+ * after it, `offline` when the network failed, and `error` when the server refused the caller or failed.
  * @experimental
  */
 type SyncStatus = "idle" | "loading" | "ready" | "offline" | "error"

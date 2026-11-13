@@ -29,8 +29,13 @@ describe("start and pull", () => {
     const h = setup()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }, { id: "b", ownerId: "bob", title: "Not mine" }])
     const { store } = h.open()
-    expect(store.getState().status).toBe("loading")
+    const statuses = [store.getState().status]
+    store.subscribe(() => {
+      if (statuses.at(-1) !== store.getState().status) statuses.push(store.getState().status)
+    })
     await store.refresh()
+    // `idle` until the stored rows are read, as on the server, then `loading` until the first pull.
+    expect(statuses).toEqual(["idle", "loading", "ready"])
     expect(store.getState()).toMatchObject({ status: "ready", error: null, queued: 0, rows: [{ id: "a", title: "Milk" }] })
     expect(pulls(h)[0]!.url.searchParams.has("cursor")).toBe(false)
   })
