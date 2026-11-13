@@ -20,6 +20,11 @@
     border-color: var(--vh-primary);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 14%, transparent);
   }
+
+  /* A small box shows its edge alone, without the 3px halo, so it does not crowd a small card. */
+  &[data-size="sm"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+    box-shadow: none;
+  }
 }
 
 /* The draft bubble owns its focus ring; its nested row field stays ring-free. */

@@ -110,6 +110,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or returns `null`. |
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
+| `blob.copy(from, to, options?)` | Copies a file in the same store, with its content type and custom metadata. Read [Copy a file](#copy-a-file). |
 | `blob.delete(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
 | `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
@@ -120,6 +121,26 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+
+### Copy a file
+
+`blob.copy(from, to)` copies a file in the same store and returns the new `BlobObject`. The copy keeps the content type and the custom metadata of the source. `to` follows the pathname rules of `put()`.
+
+```ts [server/api/reports/[id]/archive.post.ts] fragment
+const [error, archived] = await blob.copy(`reports/${id}.pdf`, `archive/${id}.pdf`)
+if (error?.code === 'BLOB_NOT_FOUND') throw createError({ statusCode: 404 })
+if (error) throw error
+```
+
+A missing source returns [`BLOB_NOT_FOUND`](/docs/blob/limits-and-errors#blob_not_found). A file at `to` returns [`BLOB_CONFLICT`](/docs/blob/limits-and-errors#blob_conflict), as in `media.move()`. Pass `{ overwrite: true }` to replace it. ViteHub checks `to` before it copies, so two calls at the same time can both write. To move a file, call `blob.delete(from)` after the copy. Use [`media.move()`](/docs/blob/media) for a file that has a media record.
+
+| Driver | How it copies |
+| --- | --- |
+| `fs` | Copies the file and writes the metadata of the source for it. |
+| `cloudflare-r2` | Reads the object from the binding and streams it into the new key. Without a binding, R2 copies on the server through the S3 API. |
+| `s3`, `minio`, `gcs`, `azure` | The provider copies the object on the server. |
+| `vercel-blob` | Vercel copies the object on the server. ViteHub reads the source first to keep its content type. |
+| `netlify-blobs` | Reads the object and writes it again. |
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 

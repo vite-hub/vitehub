@@ -152,6 +152,16 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     async resumeMultipartUpload(pathname, uploadId) {
       return toDriverMultipartUpload(getBucket(options).resumeMultipartUpload(pathname, uploadId))
     },
+    // An R2 binding has no copy. The object body streams into the new object, with its HTTP and custom metadata.
+    async copy(from, to) {
+      const bucket = getBucket(options)
+      const source = await bucket.get(from)
+      if (!source) return null
+      return mapObject(await bucket.put(to, source.body ?? await readArrayBuffer(source), {
+        customMetadata: source.customMetadata,
+        httpMetadata: source.httpMetadata,
+      }))
+    },
     async delete(pathnames) {
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => getBucket(options).delete(pathname)))
     },
