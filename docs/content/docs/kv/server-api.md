@@ -14,6 +14,7 @@ icon: i-lucide-code-2
 | `disposeKVStores` from `vite-hub/kv` | Close all cached stores in a shutdown hook. |
 | `getKVStoreDriver` from `vite-hub/kv` | Name the configured driver that a store uses in this server process. Driver selection occurs at build time; Rate Limit reads it at boot without opening a store connection. App tests return `fs-lite`. |
 | `hubKV` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
+| `kvStorageDriver` from `@vite-hub/kv/vite` | The unstorage driver over a KV store, for a module that takes a driver name. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve the KV config by hand. |
 
 `vite-hub/kv` also exports all driver, store, module, and storage types.
@@ -168,6 +169,40 @@ const [error, code] = await kv.get('invite:alice', { type: 'text' })
 | `'stream'` | A `ReadableStream<Uint8Array>`. |
 
 The return type follows `type`: `kv.get(key, { type: 'text' })` is `string | null`. A missing key is `null` for every `type`. `kv.getAndDelete()` accepts `{ type: 'text' }`. The Upstash client parses JSON first, so on Upstash `'text'` returns the JSON text of the value.
+
+## Use KV from useStorage and Nuxt modules
+
+ViteHub mounts each KV store in Nitro storage. The default store is the mount `kv`, and a named store is `kv-<name>`, for example `kv-sessions`. The mount and `kv` read and write the same keys, and `ttl` works as in `kv.set()`.
+
+```ts [server/api/visits.get.ts] fragment
+import { useStorage } from 'nitro/storage'
+
+export default async () => {
+  const storage = useStorage('kv')
+  const visits = (await storage.getItem<number>('visits')) ?? 0
+  await storage.setItem('visits', visits + 1, { ttl: 3600 })
+  return { visits }
+}
+```
+
+`clear()` on a mount clears only its store. A mount with the same name in `nitro.kv` (or `nitro.storage` in Nuxt) wins.
+
+Nuxt modules that store data in a Nitro mount can use KV this way. For example, set nuxt-og-image's `runtimeCacheStorage` to `'kv'`. For a module that takes an unstorage driver name, such as nuxt-security's `rateLimiter.driver`, pass `kvStorageDriver`:
+
+```ts [nuxt.config.ts] fragment
+import { kvStorageDriver } from '@vite-hub/kv/vite'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt', 'nuxt-og-image', 'nuxt-security'],
+  vitehub: { kv: true },
+  ogImage: { runtimeCacheStorage: 'kv' },
+  security: {
+    rateLimiter: { driver: { name: kvStorageDriver, options: { base: 'rate-limit' } } },
+  },
+})
+```
+
+The driver options are `store`, a store name (default: the default store), and `base`, a key prefix.
 
 ## Application teardown
 

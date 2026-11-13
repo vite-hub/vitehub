@@ -82,9 +82,13 @@ Development reads Upstash credentials from Vite's `.env` files for the current m
 
 An explicit `driver` is honored as before; an `upstash` store prints the same notice. Builds ignore `remote`. A `remote` value that is not a boolean fails with `KV_INVALID_REMOTE`. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with `KV_REMOTE_CONFLICT`.
 
-## Nitro cache
+## Nitro storage
 
-`kvNitroCacheDriver` from `@vite-hub/kv/vite` is the file path of an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+When KV is enabled in a Nitro app, the default store is the Nitro storage mount `kv`, and a named store is the mount `kv-<name>`. `useStorage("kv").getItem("a")` reads the same value as `kv.get("a")`, and `clear()` on a mount clears only that store. A mount with the same name in `nitro.kv` (or the deprecated `nitro.storage`) wins. Nuxt modules that take a mount name, such as nuxt-og-image's `runtimeCacheStorage: "kv"`, store their data in KV this way.
+
+`kvStorageDriver` from `@vite-hub/kv/vite` is the file path of the unstorage driver behind these mounts. Its options are `store` (default: the default store) and `base`, a key prefix. Pass it to a module that takes a driver name, or mount it yourself. The driver opens the store on each call, so on Cloudflare it uses the binding of the current request. Nitro's `ttl` goes to `kv.set()`.
+
+With `vitehub()`, `cache: { driver: "kv" }` mounts the same driver at Nitro's `cache` mount, with the `nitro-cache:` prefix or the `base` option.
 
 ## Listing keys
 

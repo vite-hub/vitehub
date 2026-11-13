@@ -200,6 +200,43 @@ describe("hubKV", () => {
     expect(existsSync(middleware)).toBe(true)
   })
 
+  it("mounts the default store at `kv` and named stores at `kv-<name>` in Nitro storage", async () => {
+    const { hubKV, kvStorageDriver } = await import("../src/vite.ts")
+    const plugin = hubKV({ stores: { default: { driver: "fs-lite" }, sessions: { driver: "fs-lite" } } })
+    const config: { nitro: Record<string, unknown> } = { nitro: {} }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+
+    expect(config.nitro.kv).toEqual({
+      "kv": { driver: kvStorageDriver },
+      "kv-sessions": { driver: kvStorageDriver, store: "sessions" },
+    })
+    expect(existsSync(kvStorageDriver)).toBe(true)
+  })
+
+  it("keeps a `kv` mount that the app set, in `kv` or the deprecated `storage` option", async () => {
+    const { hubKV, kvStorageDriver } = await import("../src/vite.ts")
+    const appMount = { driver: "redis", url: "redis://localhost" }
+    const own = { nitro: { kv: { kv: appMount } } }
+    const legacy = { nitro: { storage: { kv: appMount } } as Record<string, unknown> }
+    for (const config of [own, legacy]) {
+      const configure = testHook(hubKV({ driver: "fs-lite" }).config, (_value: typeof config): void | Promise<void> => undefined)
+      await configure(config)
+    }
+
+    expect(own.nitro.kv).toEqual({ kv: appMount })
+    expect(legacy.nitro.kv).toBeUndefined()
+    expect(Object.values(own.nitro.kv)).not.toContainEqual({ driver: kvStorageDriver })
+  })
+
+  it("adds no storage mount when KV is disabled", async () => {
+    const { hubKV } = await import("../src/vite.ts")
+    const config: { nitro: Record<string, unknown> } = { nitro: {} }
+    await testHook(hubKV(false).config, (_value: typeof config): void | Promise<void> => undefined)(config)
+    expect(config.nitro.kv).toBeUndefined()
+  })
+
   it("does not register the Cloudflare request env middleware for a local store", async () => {
     const { hubKV } = await import("../src/vite.ts")
     const plugin = hubKV({ driver: "fs-lite" })

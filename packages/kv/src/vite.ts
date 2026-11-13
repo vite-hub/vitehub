@@ -50,8 +50,11 @@ const DATABASE_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = ownModule(import.meta.url, "runtime/cloudflare-kv")
 // Nitro registers middleware by file path.
 const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = ownModule(import.meta.url, "runtime/cloudflare-request-env")
-/** The unstorage driver that Nitro's `cache` mount uses to store its entries in the app's default KV store. */
-export const kvNitroCacheDriver: string = ownModule(import.meta.url, "runtime/nitro-cache")
+/**
+ * File path of the unstorage driver over a KV store. Options: `store` (default: the default store) and `base` (a key prefix).
+ * ViteHub mounts it at `kv`, `kv-<store>`, and, with `cache: { driver: "kv" }`, at `cache`.
+ */
+export const kvStorageDriver: string = ownModule(import.meta.url, "runtime/unstorage-driver")
 const KV_NITRO_PLUGIN = ownModule(import.meta.url, "runtime/nitro-plugin")
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
@@ -155,6 +158,28 @@ function configureNitroPlugin(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeC
   if (plugins.length || nitro.plugins) nitro.plugins = plugins
 }
 
+/** The Nitro storage mount of a store: `kv` for the default store, `kv-<name>` for a named store. */
+function kvStorageMountName(store: string): string {
+  return store === "default" ? "kv" : `kv-${store}`
+}
+
+/**
+ * Mounts each KV store in Nitro storage, so `useStorage("kv")` and modules that take a mount name use the store.
+ * A mount that the app set in `kv` or the deprecated `storage` option wins.
+ */
+function configureNitroStorage(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
+  if (!kv) return
+  const names = Object.keys({ default: kv.store, ...kv.stores })
+  const mounts = isPlainObject(nitro.kv) ? nitro.kv : {}
+  const legacy = isPlainObject(nitro.storage) ? nitro.storage : {}
+  for (const store of names) {
+    const mount = kvStorageMountName(store)
+    if (Object.hasOwn(mounts, mount) || Object.hasOwn(legacy, mount)) continue
+    mounts[mount] = store === "default" ? { driver: kvStorageDriver } : { driver: kvStorageDriver, store }
+  }
+  if (Object.keys(mounts).length || nitro.kv) nitro.kv = mounts
+}
+
 /** Registers the middleware that installs the request's Cloudflare env, or removes it when no store uses a binding. */
 function configureNitroCloudflareRequestEnv(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
   const handlers: unknown[] = Array.isArray(nitro.handlers)
@@ -252,6 +277,8 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
 
 interface NitroCloudflareKVTarget {
   handlers?: unknown[]
+  kv?: Record<string, unknown>
+  storage?: Record<string, unknown>
   plugins?: string[]
   cloudflare?: {
     wrangler?: {
@@ -303,6 +330,7 @@ function reconcileNitroCloudflareKV(
 ): void {
   configureNitroCloudflareRequestEnv(target, kv)
   configureNitroPlugin(target, kv)
+  configureNitroStorage(target, kv)
   const namespaces = target.cloudflare?.wrangler?.kv_namespaces
   if (namespaces?.length && ownedNamespaces.size) {
     for (const owned of ownedNamespaces) {
@@ -334,6 +362,7 @@ function configureNitroCloudflareKV(
   const kv = resolveKVViteConfig(options, input).kv
   configureNitroCloudflareRequestEnv(target, kv)
   configureNitroPlugin(target, kv)
+  configureNitroStorage(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv, provisionState)
