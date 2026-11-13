@@ -50,16 +50,12 @@ export interface EmailOutboxMessage {
   /** Outbox id, for example `outbox-3`. The id is not a provider message id. */
   id: string
   metadata?: Record<string, string>
-  preheader?: string
   /** Provider driver that sends the message, or that would send it in capture-only mode. */
   provider: string
   replyTo?: string[]
   scheduledAt?: string
-  stream?: string
   subject: string
   tags?: Array<{ name: string, value: string }>
-  /** Provider template id or alias, when the message uses one. */
-  template?: string
   text?: string
   to: string[]
 }
@@ -189,11 +185,6 @@ export function summarizeEmailOutboxMessage(
   message: EmailMessage,
   options: { capturedAt: Date, delivery: EmailOutboxDelivery, id: string, provider: string },
 ): EmailOutboxMessage {
-  if (message.personalizations?.length === 1) {
-    const personalization = message.personalizations[0]!
-    message = { ...message, bcc: personalization.bcc ?? message.bcc, cc: personalization.cc ?? message.cc, subject: personalization.subject ?? message.subject, to: personalization.to }
-  }
-  const template = message.template?.id ?? message.template?.alias
   return {
     attachments: (message.attachments ?? []).map(attachment => ({
       ...optional("cid", attachment.cid),
@@ -211,14 +202,11 @@ export function summarizeEmailOutboxMessage(
     ...optional("html", message.html),
     id: options.id,
     ...optional("metadata", message.metadata ? redactMetadata(message.metadata) : undefined),
-    ...optional("preheader", message.preheader),
     provider: options.provider,
     ...optional("replyTo", addressList(message.replyTo)),
     ...optional("scheduledAt", message.scheduledAt === undefined ? undefined : isoDate(message.scheduledAt)),
-    ...optional("stream", message.stream),
     subject: message.subject,
     ...optional("tags", message.tags?.map(tag => ({ name: tag.name, value: tag.value }))),
-    ...optional("template", template),
     ...optional("text", message.text),
     to: addressList(message.to) ?? [],
   }
@@ -289,9 +277,9 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
   if (!options.deliver) {
     return {
       name: "outbox",
-      send(message, context) {
+      send(message) {
         const { id } = record(message, { status: "captured" })
-        return { data: { at: new Date(), driver: "outbox", id, stream: context.stream }, error: null }
+        return { data: { at: new Date(), driver: "outbox", id }, error: null }
       },
     }
   }

@@ -166,7 +166,7 @@ describe("Vite plugin", () => {
     const declarations = {
       public: {
         mode: env.enum(["draft", "send"], { default: "draft", mode: "build" }),
-        label: env({ default: "label", mode: "build", optional: true, type: "string | undefined" }),
+        label: env({ default: "label", mode: "build", type: "string | undefined" }),
         settings: env({
           default: { enabled: true },
           mode: "build",

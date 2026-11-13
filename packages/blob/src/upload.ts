@@ -1,9 +1,9 @@
-import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { createError } from "h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { ensureBlob } from "./ensure.ts"
+import { eventRequest } from "./internal/event-request.ts"
 import { getBlobRequestBodyLimit } from "./internal/host-limits.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -41,9 +41,15 @@ function isMultipartAction(value: string | undefined): value is MultipartAction 
 }
 
 // Browsers send the bare file name; drop any directory part so the client cannot pick a folder.
-// put() decodes pathnames once, so encode the name to store it as written.
+// Rename unsupported `%XX` names with a UUID to avoid overwriting their replacement name.
+// put() decodes pathnames once, so encode the name.
 function uploadedFileName(file: File): string {
-  return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
+  const name = file.name.split(/[\\/]/).pop() || "file"
+  const safeName = name.replace(/%(?=[\da-f]{2})/gi, "_")
+  if (safeName === name) return encodeURIComponent(name)
+  const extension = safeName.lastIndexOf(".")
+  const split = extension > 0 ? extension : safeName.length
+  return encodeURIComponent(`${safeName.slice(0, split)}-${globalThis.crypto.randomUUID()}${safeName.slice(split)}`)
 }
 
 function payloadTooLarge(bytes: number, limit: number): Error {
@@ -126,7 +132,7 @@ export async function handleBlobUpload(
   options: BlobUploadOptions = {},
 ): Promise<Result<BlobObject[], BlobErrorCode>> {
   const formKey = options.formKey ?? "files"
-  const form = await readForm(getStandardContext(event).req)
+  const form = await readForm(eventRequest(event))
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
   if (!files.length) throw badRequest(`No files in form field "${formKey}".`)
   if (options.multiple === false && files.length > 1) throw badRequest(`Form field "${formKey}" accepts one file.`)
@@ -157,7 +163,7 @@ export async function handleBlobMultipartUpload(
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
   }
   if (!pathname) throw badRequest("Missing `pathname` route param.")
-  const request = getStandardContext(event).req
+  const request = eventRequest(event)
   if (request.method !== multipartMethods[action]) {
     throw createError({ statusCode: 405, message: `The ${action} action requires ${multipartMethods[action]}.` })
   }

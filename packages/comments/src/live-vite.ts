@@ -1,14 +1,13 @@
-import { execFile } from "node:child_process"
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { promisify } from "node:util"
 
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
+import { readBuildRevision, readGit } from "@vite-hub/internal/build/revision"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
@@ -208,25 +207,6 @@ export function commentsOverlayDirectory(): string {
   return builtDirectory("overlay")
 }
 
-/** CI and host variables that name the commit and branch of a build, in the order they are read. */
-const buildVariables: ReadonlyArray<readonly [commit: string, branch: string]> = [
-  ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"],
-  ["WORKERS_CI_COMMIT_SHA", "WORKERS_CI_BRANCH"],
-  ["CF_PAGES_COMMIT_SHA", "CF_PAGES_BRANCH"],
-  ["COMMIT_REF", "BRANCH"],
-  ["GITHUB_SHA", "GITHUB_HEAD_REF"],
-]
-
-async function git(root: string, args: string[]): Promise<string | undefined> {
-  try {
-    const { stdout } = await promisify(execFile)("git", args, { cwd: root, encoding: "utf8", timeout: 3000 })
-    return stdout.trim() || undefined
-  }
-  catch {
-    return undefined
-  }
-}
-
 /** `owner/name` of a GitHub or Enterprise remote. The forge's API URL selects the server at runtime. */
 export function githubRepository(remote: string | undefined): string | undefined {
   return remote ? /^(?:(?:https?|ssh|git):\/\/[^/]+\/|(?:[^@/:]+@)?[\w.-]+:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
@@ -249,17 +229,9 @@ export async function readCommentsBuild(root: string, env: Record<string, string
   const repository = env.GITHUB_REPOSITORY
     || (env.VERCEL_GIT_PROVIDER === "github" && env.VERCEL_GIT_REPO_OWNER && env.VERCEL_GIT_REPO_SLUG ? `${env.VERCEL_GIT_REPO_OWNER}/${env.VERCEL_GIT_REPO_SLUG}` : undefined)
     || githubRepository(env.REPOSITORY_URL)
-    || githubRepository(await git(root, ["remote", "get-url", "origin"]))
+    || githubRepository(await readGit(root, ["remote", "get-url", "origin"]))
   const pullRequest = pullRequestOf(env)
-  const extra = { ...(repository ? { repository } : {}), ...(pullRequest ? { pullRequest } : {}) }
-  for (const [commitName, branchName] of buildVariables) {
-    const commit = env[commitName]
-    if (!commit) continue
-    const branch = env[branchName] || (commitName === "GITHUB_SHA" ? env.GITHUB_REF_NAME : undefined)
-    return { commit, ...(branch ? { branch } : {}), ...extra }
-  }
-  const [commit, branch] = await Promise.all([git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "--abbrev-ref", "HEAD"])])
-  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}), ...extra }
+  return { ...await readBuildRevision(root, env), ...(repository ? { repository } : {}), ...(pullRequest ? { pullRequest } : {}) }
 }
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])

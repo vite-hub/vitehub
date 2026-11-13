@@ -33,5 +33,5 @@ export function authDatabaseSchemaError(detail: string): Error {
 }
 
 export function authDatabasePlacementError(): Error {
-  return authErrorDiagnostics.AUTH_C0054({ message: "`authDatabase()` needs one statically invariant Database: call it inline as `defineAuth()`'s `database`, in an object or a callback's single unconditional returned object. Do not select it in branches or override the Database through `runtime` or runtime options." })
+  return authErrorDiagnostics.AUTH_C0054({ message: "`authDatabase()` needs one statically invariant Database: call it inline as `defineAuth()`'s `database`, in an object or a callback's single unconditional returned object. Do not select it in branches." })
 }

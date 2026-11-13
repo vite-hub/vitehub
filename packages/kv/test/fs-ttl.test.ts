@@ -5,7 +5,20 @@ import { join } from "node:path"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import createCloudflareKVLocalDriver from "../src/runtime/cloudflare-kv-local.ts"
+import createFsLiteKVDriver from "../src/runtime/fs-lite.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
+
+const interruption = vi.hoisted(() => ({ remove: undefined as (() => Promise<void>) | undefined }))
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      if (String(args[0]).endsWith("/key-lock")) await interruption.remove?.()
+      return actual.rm(...args)
+    },
+  }
+})
 
 let base: string
 beforeEach(async () => {
@@ -14,6 +27,7 @@ beforeEach(async () => {
   base = await mkdtemp(join(tmpdir(), "vitehub-kv-fs-ttl-"))
 })
 afterEach(async () => {
+  interruption.remove = undefined
   vi.useRealTimers()
   await rm(base, { force: true, recursive: true })
 })
@@ -124,4 +138,47 @@ it("expires keys in the Cloudflare KV fallback of vite dev", async () => {
   finally {
     await driver.dispose?.()
   }
+})
+
+it("serializes expired cleanup with another driver's claim", async () => {
+  const first = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  const second = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  let resume!: () => void
+  let paused!: () => void
+  const gate = new Promise<void>((resolve) => { resume = resolve })
+  const reached = new Promise<void>((resolve) => { paused = resolve })
+  try {
+    await first.setIfAbsentItem!("lock", "old", 1)
+    vi.advanceTimersByTime(1_001)
+    interruption.remove = async () => {
+      interruption.remove = undefined
+      paused()
+      await gate
+    }
+    const claimA = first.setIfAbsentItem!("lock", "owner-a")
+    await reached
+    const claimB = second.setIfAbsentItem!("lock", "owner-b")
+    // Give B a chance to publish while A is paused immediately before deleting the old value.
+    await Promise.race([claimB, new Promise(resolve => setTimeout(resolve, 100))])
+    resume()
+    expect(await Promise.all([claimA, claimB])).toEqual([true, false])
+    await expect(first.getItem("lock", {})).resolves.toBe("owner-a")
+  }
+  finally {
+    resume?.()
+    await first.dispose?.()
+    await second.dispose?.()
+  }
+})
+
+it("preserves unrelated expiry when clearing a prefix", async () => {
+  const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  try {
+    await driver.setItem!("remove:a", "a", { ttl: 1 })
+    await driver.setItem!("keep:b", "b", { ttl: 1 })
+    await driver.clear!("remove:", {})
+    vi.advanceTimersByTime(1_001)
+    await expect(driver.hasItem("keep:b", {})).resolves.toBe(false)
+  }
+  finally { await driver.dispose?.() }
 })

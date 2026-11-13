@@ -51,6 +51,8 @@ export default defineConfig({
 
 Use `hubKV()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
+An `fs-lite` store without `base` keeps the default store in `.vitehub/data/kv` and each named store in `.vitehub/data/kv-stores/<store>`, so named stores never share keys.
+
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted), Redis over TCP (`redis`), and a table in the app's Database (`database`). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
 ## Shared stores on Node
@@ -61,6 +63,8 @@ Several Node processes share keys only through a shared store. Without a `driver
 2. `fs-lite` in `.vitehub/data/kv` otherwise.
 
 `{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart. The generated store segment escapes `%`, `:`, `/`, `\`, and `?`; an empty store name uses `%`. This keeps store names separate after key normalization. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. A Redis listing cursor holds its whole state, so another server process can read the next page.
+
+`{ driver: "upstash", url?, token?, base? }` uses the same `base` rule as `redis`: every key gets the prefix `vitehub:kv:<store>` unless `base` sets another one, so `kv.clear()` and `kv.keys()` stay inside the store. Upstash takes whole seconds, so `set()` rounds a TTL up. Its listing cursor also holds its whole state, so the next page works in another serverless invocation.
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
 

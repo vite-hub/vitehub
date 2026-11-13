@@ -109,6 +109,32 @@ console.log(checkpoint.document.body)
 console.log(checkpoint.snapshot.id)
 ```
 
+## Share presence without a document
+
+Set `document: false` when a room only shows who is there and what each person shares, such as a cursor. Nothing loads or saves, `authorize()` is asked only for `read`, and the rooms work on every room authority.
+
+```ts
+// server/realtime/presence.ts
+import { defineRealtime } from "@vite-hub/realtime"
+
+export default defineRealtime({
+  auth: true,
+  document: false,
+})
+```
+
+Join a room with `connectRealtimeRoom()` from `@vite-hub/realtime/client`:
+
+```ts fragment
+import { connectRealtimeRoom } from "@vite-hub/realtime/client"
+
+const room = connectRealtimeRoom("presence", "boards/42")
+room.setLocal("cursor", { x: 120, y: 80 })
+room.onUpdate(() => console.log(room.people(), room.states()))
+```
+
+A client that sends a document update is disconnected. `save()`, `refresh()`, and `history.checkpoint()` requests get HTTP 404, and `refreshRealtimeDocument()` returns `false`.
+
 ## Deployment and security boundaries
 
 - The Vue adapter connects to the generated same-origin `/api/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions.
@@ -130,6 +156,7 @@ console.log(checkpoint.snapshot.id)
 | `@vite-hub/realtime` | `defineRealtime()` and portable Realtime types. |
 | `@vite-hub/realtime/vite` | `hubRealtime()` definition discovery and generated server wiring. |
 | `@vite-hub/realtime/vue` | `useRealtimeTiptap()` for Vue, TipTap, presence, status, and checkpoints. |
+| `@vite-hub/realtime/client` | `connectRealtimeRoom()` to share presence without an editor, in any framework. |
 | `@vite-hub/realtime/server` | `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
 | `@vite-hub/realtime/bus` | `useRealtimeBus()` and `closeRealtimeBuses()`, the Postgres and Redis buses that the generated Node handler passes to `createRealtimeHandler({ bus })`. |
 
