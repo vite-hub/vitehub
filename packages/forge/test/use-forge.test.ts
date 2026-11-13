@@ -146,6 +146,15 @@ describe("useForge() with a GitHub App", () => {
     expect(github.count("GET", "/repos/other/api/installation")).toBe(0)
   })
 
+  it("looks up owners whose names are Object properties", async () => {
+    github.installations.set("constructor/app", 12)
+    github.installations.set("__proto__/app", 13)
+    const forge = useForge({ baseUrl: github.url, env: appEnv({ VITEHUB_GITHUB_APP_INSTALLATIONS: "{\"__proto__\":14}" }) })
+
+    await expect(forge.token({ repository: "constructor/app" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_12_/) }])
+    await expect(forge.token({ repository: "__proto__/app" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_14_/) }])
+  })
+
   it("reads an escaped key, a key file, and the FORGES_ names", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vitehub-forge-"))
     try {

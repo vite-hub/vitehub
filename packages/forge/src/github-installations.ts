@@ -43,7 +43,7 @@ export function githubInstallationRouting(env: GitHubInstallationEnv): GitHubIns
   if (fixed !== undefined && owner === undefined) {
     throw forgeErrors.FORGE_INVALID_ENV({ name: names.installationId, problem: `needs ${names.appOwner}, the repository owner of that installation. For more owners, set ${names.appInstallations}` })
   }
-  const installations: Record<string, number> = {}
+  let installations: Record<string, number> = {}
   const mappings = env.appInstallations?.trim()
   if (mappings) {
     let parsed: unknown
@@ -56,7 +56,8 @@ export function githubInstallationRouting(env: GitHubInstallationEnv): GitHubIns
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw forgeErrors.FORGE_INVALID_ENV({ name: names.appInstallations, problem: "must be a JSON object that maps repository owners to installation IDs, such as {\"acme\":123}" })
     }
-    for (const [name, id] of Object.entries(parsed)) installations[name.toLowerCase()] = installationNumber(id, `${names.appInstallations} entry "${name}"`)
+    // Own properties only, so an owner such as `__proto__` or `constructor` is a plain key.
+    installations = Object.fromEntries(Object.entries(parsed).map(([name, id]) => [name.toLowerCase(), installationNumber(id, `${names.appInstallations} entry "${name}"`)]))
   }
   return {
     ...(fixed === undefined ? {} : { installationId: installationNumber(fixed, names.installationId) }),
@@ -73,5 +74,6 @@ export function githubInstallationRouting(env: GitHubInstallationEnv): GitHubIns
 export function githubInstallationFor(routing: GitHubInstallationRouting, repository: string | undefined): number | undefined {
   if (repository === undefined) return routing.installationId
   const owner = repository.split("/", 1)[0]!.toLowerCase()
-  return routing.installations[owner] ?? (owner === routing.owner ? routing.installationId : undefined)
+  const configured = Object.hasOwn(routing.installations, owner) ? routing.installations[owner] : undefined
+  return configured ?? (owner === routing.owner ? routing.installationId : undefined)
 }
