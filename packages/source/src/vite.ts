@@ -629,11 +629,15 @@ async function writeContentArtifact(
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
   const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  // With Auth, `authorize` gets the session user of each request for `action: "read"`.
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
+    ...(options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []),
     `import content from ${contentModule}`,
     "",
-    "export default defineContentHandler(content)",
+    options.auth
+      ? "export default defineContentHandler(content, { user: async request => (await useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null })"
+      : "export default defineContentHandler(content)",
     "",
   ].join("\n"))
   else await rm(output, { force: true })

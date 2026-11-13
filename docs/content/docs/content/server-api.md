@@ -22,7 +22,7 @@ icon: i-lucide-code-2
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
 | `contentSource` from `vite-hub/content` | Adapt one Source with Comark options such as `prefix` and `schema`, and a sitemap [`url`](/docs/content/seo#source-urls). |
 | `renderContentHtml` from `vite-hub/content` | [Render a document to HTML](/docs/content/configure#render-html-on-the-server) in a server route without a framework. |
-| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime as a Fetchable route, `{ fetch(request) }`, in another server. Nitro and H3 accept it as a route handler. |
+| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime as a Fetchable route, `{ fetch(request) }`, in another server. Nitro and H3 accept it as a route handler. It asks `authorize` for `read`; pass `{ user: request => ... }` so the policy gets the signed-in user. |
 | `generateContentTypes`, `defineContentTypesPlugin` from `vite-hub/content` | Generate the [Content types](#types), or write them from a Nitro plugin in development. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
@@ -159,7 +159,7 @@ export default defineEventHandler(async (event) => {
 | `content.schedule({ at, expect })`, `content.schedules()`, `content.unschedule(id)`, `content.publishDue()` | Publish reviewed drafts later, list and cancel schedules, and run due ones. See [Scheduling](/docs/content/scheduling). |
 | `content.revisions(collection, id?, options?)` | Revisions that saved, removed, restored, or published one document, newest first. Omit `id` for a singleton. |
 | `content.revisions(options?)` | Revisions that changed any collection's documents on one ref, newest first. |
-| `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
+| `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. `action: 'read'` takes no `collection`. Returns `false` when no policy is defined. |
 | `content.hasPolicy` | Whether `defineContent({ authorize })` has a policy. |
 | `content.sessions.report()`, `.acquire()`, `.release()`, `.list()` | Presence and edit leases of documents. See [Editing together](/docs/content/editing-together). |
 | `posts.editing` | `{ lease }` from the definition's `editing` option. |

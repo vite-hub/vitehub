@@ -48,7 +48,7 @@ afterEach(async () => {
 })
 
 function server(options: Parameters<typeof defineContent>[0] = {}, schema?: ContentSourceOptions["schema"]) {
-  const content = defineContent({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id", ...(schema ? { schema } : {}) }) }, logger: false, ...options })
+  const content = defineContent({ route: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id", ...(schema ? { schema } : {}) }) }, logger: false, ...options })
   cleanup.push(() => content.dispose())
   return content
 }

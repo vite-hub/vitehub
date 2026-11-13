@@ -47,7 +47,7 @@ afterEach(async () => {
 })
 
 function server() {
-  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "content" }) }, logger: false })
+  const content = defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs", ref: "main", root: "content" }) }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -107,10 +107,10 @@ describe("content.history() for github() Sources", () => {
   it("keeps the cache of another Source root apart", async () => {
     fake.commit("main", { "en/guide.md": page("Guide"), "es/guide.md": page("Guía") }, { message: "Add both" })
     fake.commit("main", { "es/guide.md": page("Guía v2") }, { message: "Edit the Spanish guide" })
-    const english = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "en" }) }, logger: false })
+    const english = defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs", ref: "main", root: "en" }) }, logger: false })
     cleanup.push(() => english.dispose())
     expect((await english.history("/guide"))!.entries.map(entry => entry.message)).toEqual(["Add both"])
-    const spanish = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "es" }) }, logger: false })
+    const spanish = defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs", ref: "main", root: "es" }) }, logger: false })
     cleanup.push(() => spanish.dispose())
     expect((await spanish.history("/guide"))!.entries.map(entry => entry.message)).toEqual(["Edit the Spanish guide", "Add both"])
   })

@@ -65,7 +65,7 @@ function stream() {
 
 /** The app: Content with one `github()` Source, behind a fake dev server that answers the operation RPC. */
 function app(sources: Record<string, ReturnType<typeof github>> = { docs: github({ repo: "acme/docs", ref: "main" }) }, access: OperationAccess = { mode: "local", sections: "all" }) {
-  const content = defineContent({ sources, logger: false })
+  const content = defineContent({ sources, route: "public", logger: false })
   cleanup.push(() => content.dispose())
   const registry = createOperationRegistry([{ operations: contentOperations }])
   Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })

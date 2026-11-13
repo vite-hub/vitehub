@@ -20,21 +20,21 @@ import { z } from 'zod'
 
 export default defineContent({
   extends: cms,
-  authorize: ({ user, action }) => action === 'read' && Boolean(user),
+  authorize: ({ user, action }) => action === 'read' || (action === 'read-draft' && Boolean(user)),
   collections: {
     posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string() } }),
   },
 })
 ```
 
-This policy lets signed-in users read drafts. Replace it with your app's preview access rules.
+This policy lets everyone read `/api/content/**` and signed-in users read drafts. Replace it with your app's preview access rules.
 
 ```ts [server/api/preview.post.ts] fragment
 import content from '../content'
 
 export default defineEventHandler(async (event) => {
   const user = await getUser(event) // your Auth session
-  if (!await content.can({ user, collection: 'posts', action: 'read' }))
+  if (!await content.can({ user, collection: 'posts', action: 'read-draft' }))
     throw createError({ statusCode: 403 })
   return await content.preview.enable(event) // { setCookie, expiresAt }
 })
@@ -47,7 +47,7 @@ import content from '../content'
 export default defineEventHandler(event => content.preview.disable(event))
 ```
 
-`enable()` is trusted server API, like `save()` and `publish()`, and skips `authorize`. Check `content.can()` with `read` first. The token previews every collection, so check each one the user may open, or the ones the page renders.
+`enable()` is trusted server API, like `save()` and `publish()`, and skips `authorize`. Check `content.can()` with `read-draft` first. The token previews every collection, so check each one the user may open, or the ones the page renders.
 
 | Call | Behavior |
 | --- | --- |
@@ -55,7 +55,7 @@ export default defineEventHandler(event => content.preview.disable(event))
 | `content.preview.disable(event)` | Adds a cookie that expires now. Returns `{ setCookie, expiresAt: null }`. |
 | `content.preview.run(event, callback)` | Runs `callback` in preview if the event has a valid cookie, else unchanged. |
 | `content.preview.active()` | `true` in a request with a valid preview cookie, where every read uses `draft`. `false` in a preview frame and with [`?vitehub-content-published`](#published-reads). |
-| `content.preview.sign({ collection, id, maxAge? })` | Returns `{ token, expiresAt }` for a [preview frame](#preview-frames) of one document, without a cookie. Check `content.can({ user, collection, id, action: 'read' })` first. |
+| `content.preview.sign({ collection, id, maxAge? })` | Returns `{ token, expiresAt }` for a [preview frame](#preview-frames) of one document, without a cookie. Check `content.can({ user, collection, id, action: 'read-draft' })` first. |
 | `content.preview.frame()` | In a preview frame request, `{ collection, id, document? }`: the signed document and the on-screen version the frame posted. Else `undefined`. |
 
 `event` is an H3 event or a Web `Request`. With a `Request`, set the returned `setCookie` header yourself.
@@ -95,7 +95,7 @@ const post = await content.collection('posts').get(id) // the document on screen
 return html`<h1 ${contentField('posts', post.id, 'title')}>${post.data.title}</h1>`
 ```
 
-A Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of that name holds `{ token, document? }` as JSON: a `content.preview.sign({ collection, id })` token and the on-screen version. Sign it only after `content.can()` allows `read` of that document. The Nitro plugin checks the token and runs the page as a `GET` of its URL, without the parameter.
+A Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of that name holds `{ token, document? }` as JSON: a `content.preview.sign({ collection, id })` token and the on-screen version. Sign it only after `content.can()` allows `read-draft` of that document. The Nitro plugin checks the token and runs the page as a `GET` of its URL, without the parameter.
 
 A frame token reads the draft of its one document only:
 

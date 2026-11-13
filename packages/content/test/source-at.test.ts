@@ -50,7 +50,7 @@ afterEach(async () => {
 })
 
 function server() {
-  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+  const content = defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -204,7 +204,7 @@ describe("content.sources.at()", () => {
 
   it("drops the SQL tables and search rows of a view that leaves the pool", async () => {
     const database = sqlite()
-    const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false, plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database })] })
+    const content = defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false, plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database })] })
     cleanup.push(() => content.dispose())
     const tables = async () => (await database.all<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '__search_r%'`)).length
     const sources = async () => (await database.all<{ source: string }>(`SELECT DISTINCT source FROM __fts_search`)).length
@@ -245,6 +245,7 @@ describe("content.sources.at()", () => {
     const opened = vi.fn()
     const disposed = vi.fn()
     const content = defineContent({
+      route: "public",
       sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
       logger: false,
       plugins: [sqlQuery({ database }), sqliteFullTextSearch({ database }), {
@@ -321,6 +322,7 @@ describe("content.sources.at()", () => {
     const sha = fake.commit("feat/dispose", { "guide.md": page("Preview") })
     const resources = new Set<object>()
     const content = defineContent({
+      route: "public",
       sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
       logger: false,
       plugins: [{
@@ -351,6 +353,7 @@ describe("content.sources.at()", () => {
     const released = new Promise<void>((resolve) => { release = resolve })
     const disposed = vi.fn()
     const content = defineContent({
+      route: "public",
       sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
       logger: false,
       plugins: [{

@@ -58,7 +58,7 @@ afterEach(async () => {
 
 /** One Content runtime, as one server instance would create it. */
 function server(options: Parameters<typeof defineContent>[0] = {}) {
-  const content = defineContent({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }) }, logger: false, ...options })
+  const content = defineContent({ route: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }) }, logger: false, ...options })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -563,10 +563,10 @@ describe("commit cache", () => {
   it("keeps the Source prefix and schema in the cached commit", async () => {
     fake.commit("main", { "guide.md": page("Guide") })
     const docs = () => contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs" })
-    const content = defineContent({ sources: { docs: docs() }, logger: false })
+    const content = defineContent({ route: "public", sources: { docs: docs() }, logger: false })
     cleanup.push(() => content.dispose())
     expect((await content.get("/docs/guide"))?.data.title).toBe("Guide")
-    const cold = defineContent({ sources: { docs: docs() }, logger: false })
+    const cold = defineContent({ route: "public", sources: { docs: docs() }, logger: false })
     cleanup.push(() => cold.dispose())
     expect((await cold.get("/docs/guide"))?.data.title).toBe("Guide")
     expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })

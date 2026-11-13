@@ -6,12 +6,13 @@ import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search
 import comarkUi from "comark-ui/html"
 import { setTimeout as delay } from "node:timers/promises"
 import { runInNewContext } from "node:vm"
-import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
-import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
+import { clearSources, createSource, defineSource, github, registerSources, useSource } from "@vite-hub/source"
 import type { SourceName } from "@vite-hub/source"
 
 import { contentSource, defineContent, defineContentHandler, renderContentHtml } from "../src/index.ts"
+import type { ContentAuthorize } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -1024,5 +1025,48 @@ describe("defineContentHandler", () => {
     const response = await defineContentHandler(content).fetch(new Request("https://example.test/api/content/guide"))
     expect(response.status).toBe(404)
     expect(await content.get("/guide")).toMatchObject({ path: "/guide" })
+  })
+
+  const guide = { async items() { return [{ key: "guide", path: "guide.md", content: "# Guide" }] } }
+  const request = () => new Request("https://example.test/api/content/get/guide")
+
+  it("asks authorize for read before it serves a request", async () => {
+    const policy = vi.fn<ContentAuthorize>(({ user, action }) => action === "read" && user?.id === "ana")
+    const content = defineContent({ source: guide, authorize: policy })
+    expect((await defineContentHandler(content).fetch(request())).status).toBe(401)
+    expect((await defineContentHandler(content, { user: () => ({ id: "ben" }) }).fetch(request())).status).toBe(403)
+    const allowed = await defineContentHandler(content, { user: () => ({ id: "ana" }) }).fetch(request())
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toMatchObject({ path: "/guide" })
+    expect(policy).toHaveBeenLastCalledWith({ user: { id: "ana" }, action: "read" })
+  })
+
+  it("serves everyone without authorize when route is public", async () => {
+    const policy = vi.fn<ContentAuthorize>(() => false)
+    const content = defineContent({ source: guide, authorize: policy, route: "public" })
+    expect((await defineContentHandler(content).fetch(request())).status).toBe(200)
+    expect(policy).not.toHaveBeenCalled()
+  })
+
+  it("requires a decision before it serves a github() Source", () => {
+    const handbook = github({ repo: "acme/private" })
+    expect(() => defineContent({ sources: { handbook } })).toThrow(/route: "public"/)
+    expect(() => defineContent({ sources: { handbook }, route: true })).toThrow(/authorize/)
+    expect(defineContent({ sources: { handbook }, route: "public" }).route).toBe("public")
+    expect(defineContent({ sources: { handbook }, route: false }).route).toBe(false)
+    expect(defineContent({ sources: { handbook }, authorize: ({ user }) => user !== null }).route).toBe(true)
+  })
+
+  it("rejects an unknown route value", () => {
+    expect(() => defineContent({ source: guide, route: "open" as never })).toThrow(/must be true, false, or "public"/)
+  })
+
+  it("asks read for the whole route, and read-draft for one collection", async () => {
+    const policy = vi.fn<ContentAuthorize>(() => true)
+    const content = defineContent({ source: guide, authorize: policy })
+    expect(await content.can({ action: "read" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: null, action: "read" })
+    await expect(content.can({ action: "read", collection: "posts" } as never)).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    expect(await defineContent({ source: guide }).can({ action: "read" })).toBe(false)
   })
 })

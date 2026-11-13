@@ -13,7 +13,7 @@ import type { Plugin } from "vite"
 const githubContent = [
   "import { defineContent } from 'vite-hub/content'",
   "import { github } from 'vite-hub/source'",
-  "export default defineContent({ sources: { docs: github({ repo: 'acme/docs', ref: 'main' }) } })",
+  "export default defineContent({ sources: { docs: github({ repo: 'acme/docs', ref: 'main' }) }, route: 'public' })",
   "",
 ].join("\n")
 

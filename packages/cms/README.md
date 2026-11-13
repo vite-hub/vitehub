@@ -51,13 +51,13 @@ export default defineAuth({ plugins: [admin(cmsAccess)] })
 | Role | Content | Comments |
 | --- | --- | --- |
 | `user` (default) | None | None |
-| `viewer` | `read` | None |
-| `commenter` | `read` | `read`, `create`, `resolve` |
-| `editor` | `read`, `write` | `read`, `create`, `resolve` |
-| `publisher` | `read`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
+| `viewer` | `read`, `read-draft` | None |
+| `commenter` | `read`, `read-draft` | `read`, `create`, `resolve` |
+| `editor` | `read`, `read-draft`, `write` | `read`, `create`, `resolve` |
+| `publisher` | `read`, `read-draft`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
 | `admin` | Everything, with the Better Auth admin permissions | Everything |
 
-`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table.
+`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table. The role policy also decides `read`, the `/api/content/**` route, so visitors without a role get `401`. Set `defineContent({ route: "public" })` when visitors read that route.
 
 ## Inspect
 

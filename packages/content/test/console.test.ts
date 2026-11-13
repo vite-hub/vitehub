@@ -52,7 +52,7 @@ async function historyWorkspace(options: { sessions?: boolean } = {}): Promise<s
 const roles: ContentAuthorize = ({ user, action }) => {
   if (user?.role === "editor") return true
   if (user?.role === "writer") return action !== "publish"
-  return user?.role === "reader" && action === "read"
+  return user?.role === "reader" && action === "read-draft"
 }
 
 async function setup(workspace?: string, title: z.ZodType = z.string().min(1)) {
@@ -309,7 +309,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
         posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
         notes: documents({ path: "notes/*.md", fields: { body: z.string().optional() } }),
       },
-      authorize: ({ collection, action }) => collection === "posts" && action === "read",
+      authorize: ({ collection, action }) => collection === "posts" && action === "read-draft",
       logger: false,
     })
     cleanup.push(() => postsOnly.dispose())
@@ -417,7 +417,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       collections: {
         posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
       },
-      authorize: ({ action, id }) => action === "read" && !(id !== undefined && hidden.has(id)),
+      authorize: ({ action, id }) => action === "read-draft" && !(id !== undefined && hidden.has(id)),
       logger: false,
     })
     cleanup.push(() => scoped.dispose())
@@ -529,7 +529,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const content = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/*.md", fields }) },
-      authorize: ({ user, action, id }) => user?.role === "editor" || (user?.role === "reader" && action === "read" && !(id !== undefined && hidden.has(id))),
+      authorize: ({ user, action, id }) => user?.role === "editor" || (user?.role === "reader" && action === "read-draft" && !(id !== undefined && hidden.has(id))),
       logger: false,
     })
     cleanup.push(() => content.dispose())
@@ -638,7 +638,7 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
     const scoped = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1) } }) },
-      authorize: ({ action, id }) => action === "read" && id !== "secret",
+      authorize: ({ action, id }) => action === "read-draft" && id !== "secret",
       logger: false,
     })
     cleanup.push(() => scoped.dispose())

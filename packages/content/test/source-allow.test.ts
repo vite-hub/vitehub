@@ -54,7 +54,7 @@ afterEach(async () => {
 /** A Content runtime whose preset keeps the CMS draft branch private, as `cms` with a GitHub store does. */
 function server() {
   const drafts = defineContentPreset({ name: "drafts", options: {}, configure: () => ({ privateBranches: [draftBranch] }) })
-  const content = defineContent({ extends: drafts, sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+  const content = defineContent({ route: "public", extends: drafts, sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }

@@ -17,7 +17,8 @@ icon: i-lucide-sliders-horizontal
 | `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons in Markdown, JSON, or YAML. Each is an instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
 | `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` with no setup. See [CMS options](/docs/cms/configure#options). Not with `workspace`. |
 | `workspace` | `string` | Your own Workspace for `collections`. Required with `collections` unless `extends` sets it. It needs retained history. |
-| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that surfaces check with `content.can()`. See [Access](#access). |
+| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that `/api/content/**` and surfaces check with `content.can()`. See [Access](#access). |
+| `route` | `true \| 'public' \| false` | The `/api/content/**` route. `true` (default) asks `authorize` for `read`. `'public'` serves everyone. `false` serves no route. See [Access](#access). |
 | `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
@@ -360,22 +361,22 @@ A runtime can combine read-only `sources` with `collections`. They share one nam
 
 ## Access
 
-`authorize` decides what a user may do with a collection. The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()`. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
+`authorize` decides what a user may do. The `/api/content/**` route asks it for `read` on each request. The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()` for one collection. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts] fragment
 export default defineContent({
   extends: cms,
   collections: { posts },
-  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
+  authorize: ({ user, action }) => action === 'read' || user?.role === 'editor' || (action === 'read-draft' && Boolean(user)),
 })
 ```
 
 | Field | Value |
 | --- | --- |
-| `user` | The signed-in Auth user, or `null`. The Console passes the Console user. An Agent passes its Actor's Auth user, or `null`. |
+| `user` | The signed-in Auth user, or `null`. The route passes the ViteHub Auth session user. The Console passes the Console user. An Agent passes its Actor's Auth user, or `null`. |
 | `actor` | The Agent Invocation's Actor when an Agent calls, such as the Agent Capability. Else `undefined`. |
-| `collection` | The collection name. |
-| `action` | `read` for drafts, `write` for save, remove, and restore, or `publish`. |
+| `action` | `read` for a request to `/api/content/**`, `read-draft` to open a collection and its drafts, `write` for save, remove, and restore, or `publish`. |
+| `collection` | The collection name. `undefined` for `read`, because one request can read every Source and collection. |
 | `id` | The document, if the action targets one. |
 
 One policy covers people and Agents. Check `actor` to give Agents less than their user:
@@ -387,11 +388,24 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`. `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read` on each published document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, `/api/content/**` serves only the requests that `authorize` allows for `read`. Without one, it serves everyone, as [Public route](#public-route) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
 
 ::warning
 Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.
 ::
+
+### Public route
+
+`/api/content/**` serves published documents and every Source. Without `authorize`, it serves everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_R0006` until you choose who reads it:
+
+```diff [server/content.ts]
+ export default defineContent({
+   sources: { handbook: github({ repo: 'acme/handbook' }) },
++  authorize: ({ user, action }) => action === 'read' && Boolean(user),
+ })
+```
+
+Set `route: 'public'` when the repository is public, or `route: false` when the app reads Content only on the server. `route: 'public'` also skips `authorize` for an app that has a policy, such as a CMS site whose visitors read `/api/content/**`. A denied request gets `401` without a user and `403` with one.
 
 ### Sources parsed at build
 

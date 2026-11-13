@@ -229,8 +229,12 @@ type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) e
 type ContentMethods<TPlugins extends ReadonlyArray<ContentPlugin<any, any>>> =
   TPlugins["length"] extends 0 ? unknown : UnionToIntersection<PluginMethods<TPlugins[number]>>
 
-/** What a Content surface asks permission for: reading drafts, saving or removing documents, or publishing. */
-export type ContentAction = "read" | "write" | "publish"
+/**
+ * What a Content surface asks permission for. `read` is a request to the `/api/content/**` route, which serves
+ * published documents and Sources. `read-draft` opens collections and their drafts, such as in the Console. `write`
+ * saves or removes documents, and `publish` publishes them.
+ */
+export type ContentAction = "read" | "read-draft" | "write" | "publish"
 
 /** The signed-in Auth user a surface passes to `authorize`, such as the Auth session user. */
 export type ContentUser = Record<string, unknown>
@@ -243,24 +247,36 @@ export interface ContentActor {
   meta?: Record<string, unknown>
 }
 
-export interface ContentAuthorizeContext<TCollection extends string = string> {
+/**
+ * The target of a Content action. `read` targets the whole `/api/content/**` route, which reads every Source and
+ * collection in one request, so it has no `collection`. The other actions target one collection.
+ */
+export type ContentActionTarget<TCollection extends string = string> =
+  | { action: "read", collection?: undefined, id?: undefined }
+  | {
+    action: Exclude<ContentAction, "read">
+    collection: TCollection
+    /** The document, when the action targets one. */
+    id?: string
+  }
+
+export type ContentAuthorizeContext<TCollection extends string = string> = ContentActionTarget<TCollection> & {
   /** The signed-in Auth user, or null. An Agent passes the Auth user its Actor stands for, when there is one. */
   user: ContentUser | null
   /** The invoking Actor when an Agent makes the call, otherwise undefined. */
   actor?: ContentActor
-  collection: TCollection
-  action: ContentAction
-  /** The document, when the action targets one. */
-  id?: string
 }
 
 /** What `content.can()` takes. `user` defaults to null, so an Agent without an Auth user passes only `actor`. */
-export type ContentCanContext<TCollection extends string = string> =
-  Omit<ContentAuthorizeContext<TCollection>, "user"> & { user?: ContentUser | null | undefined }
+export type ContentCanContext<TCollection extends string = string> = ContentActionTarget<TCollection> & {
+  user?: ContentUser | null | undefined
+  actor?: ContentActor
+}
 
 /**
- * Decide whether a user or an Agent Actor may take a Content action. Surfaces such as the Console editor and the
- * Content Agent Capability call it through `content.can()`. The runtime methods themselves are trusted server API and do not.
+ * Decide whether a user or an Agent Actor may take a Content action. The `/api/content/**` route asks it for `read`.
+ * Surfaces such as the Console editor and the Content Agent Capability call it through `content.can()`. The runtime
+ * methods themselves are trusted server API and do not.
  */
 export type ContentAuthorize<TCollection extends string = string> =
   (context: ContentAuthorizeContext<TCollection>) => boolean | Promise<boolean>
@@ -284,8 +300,13 @@ export type DefineContentOptions<
    * replaces it. `preset: false` parses with `plugins` alone, for an app that brings its own Comark UI configuration.
    */
   markdown?: NonNullable<ContentOptions["markdown"]> & { preset?: false }
-  /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
-  route?: boolean
+  /**
+   * The `/api/content/**` route. `true` (default) asks `authorize` with `action: "read"` for each request, and serves
+   * everyone when there is no policy. A `github()` Source can read a private repository with a token, so with one,
+   * set `authorize` or say `route: "public"`. `"public"` serves everyone without `authorize`. `false` serves no route,
+   * and keeps server methods and Console editing available.
+   */
+  route?: boolean | "public"
   /** One read-only Source, served as the `default` instance. */
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
@@ -390,8 +411,11 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
-  /** Whether the public Content HTTP route is enabled. Server methods and Console editing remain available. */
-  readonly route: boolean
+  /**
+   * `defineContent({ route })`: `true` when `/api/content/**` asks `authorize` for `read`, `"public"` when it serves
+   * everyone, `false` when there is no route. Server methods and Console editing remain available.
+   */
+  readonly route: boolean | "public"
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
   readonly live: "auto" | false
   /**
@@ -484,7 +508,7 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
   }
 }
 
-const contentActions: ReadonlySet<string> = new Set<ContentAction>(["read", "write", "publish"])
+const contentActions: ReadonlySet<string> = new Set<ContentAction>(["read", "read-draft", "write", "publish"])
 
 /** Define the Comark Content runtime served by ViteHub from `server/content.ts`. */
 export function defineContent<
@@ -540,6 +564,14 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
+  if (route !== true && route !== false && route !== "public") {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ route }) must be true, false, or "public", received ${JSON.stringify(route)}.` })
+  }
+  // A `github()` Source reads with a token, so its private files must not become public without a decision.
+  const tokenSources = Object.entries(inputs).flatMap(([name, input]) => input !== undefined && contentSourceKind(input) === "github" ? [name] : [])
+  if (route === true && !policy && tokenSources.length) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] /api/content/** would serve the github() Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source can read a private repository with a token. Set authorize to decide who may read, route: "public" when the repository is public, or route: false.` })
+  }
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
   // Source for the commit cache. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
@@ -903,15 +935,23 @@ export function defineContent<
     },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, action: 'read' } or { user?, actor?, collection, action: 'read-draft' | 'write' | 'publish', id? }." })
       }
-      const { user = null, actor, collection, action, id } = context
+      const { user = null, actor } = context
       if (user !== null && Object(user) !== user) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() user must be the Auth user object or null." })
       }
       if (actor !== undefined && (actor === null || Object(actor) !== actor || String(actor.id) !== actor.id)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() actor must be an Agent Actor with an id, or undefined." })
       }
+      if (context.action === "read") {
+        if (context.collection !== undefined || context.id !== undefined) {
+          throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can({ action: 'read' }) takes no collection or id: it asks for the whole /api/content/** route. Use 'read-draft' for one collection." })
+        }
+        if (!policy) return false
+        return await policy({ user, action: "read", ...(actor === undefined ? {} : { actor }) }) === true
+      }
+      const { collection, action, id } = context
       requireDocuments().collection(collection)
       if (!policy) return false
       const decision: ContentAuthorizeContext<CollectionName<TCollections>> = { user, collection, action }
@@ -1199,16 +1239,35 @@ function pagePath(path: string): string {
   return (bare.startsWith("/") ? bare : `/${bare}`).toLowerCase()
 }
 
+/** Options of `defineContentHandler()`. */
+export interface ContentHandlerOptions {
+  /**
+   * The signed-in user of a request, which `authorize` gets as `user`. The generated route reads the ViteHub Auth
+   * session when the app has Auth. Without this option, `user` is null.
+   */
+  user?: (request: Request) => ContentUser | null | undefined | Promise<ContentUser | null | undefined>
+}
+
 /**
- * Serve the Comark Content Web handler as a Fetchable route. With a Content runtime, a request with a valid preview
- * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
+ * Serve the Comark Content Web handler as a Fetchable route. With a Content runtime, each request first asks
+ * `authorize` with `action: "read"`, unless `defineContent({ route: "public" })` or there is no policy. A denied
+ * request gets 401 without a user and 403 with one. A request with a valid preview cookie reads the `draft` ref and
+ * gets `Cache-Control: private, no-store`.
  */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview, route?: boolean },
+  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview, route?: boolean | "public", hasPolicy?: boolean, can?: ContentDocumentsRuntime["can"] },
+  options: ContentHandlerOptions = {},
 ): ContentHandler {
   return {
     async fetch(request) {
       if (content.route === false) return new Response("Not Found", { status: 404 })
+      if (content.route !== "public" && content.hasPolicy) {
+        const user = await options.user?.(request) ?? null
+        // A runtime that claims a policy but cannot check it denies.
+        if (!(content.can ? await content.can({ user, action: "read" }) : false)) {
+          return new Response(user ? "Forbidden" : "Unauthorized", { status: user ? 403 : 401, headers: { "cache-control": "private, no-store" } })
+        }
+      }
       const dispatch = () => content.handler(request)
       return await (content.preview
         ? content.preview.run(request, dispatch)
