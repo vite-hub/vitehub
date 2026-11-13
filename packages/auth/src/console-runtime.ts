@@ -425,6 +425,24 @@ export function createAuthConsole(
     const rows: unknown = await ctx.internalAdapter.listSessions(userId);
     return Array.isArray(rows) ? rows.map(record) : [];
   }
+  async function hostSessionById(id: string): Promise<Row | null> {
+    const ctx = await context();
+    if (!ctx.options.secondaryStorage)
+      return await find("session", equality("id", id));
+    // Secondary storage is indexed by token and user, not public session ID. Resolve the
+    // ID through Better Auth without returning a token to the Console browser.
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const users = await ctx.adapter.findMany<Row>({
+        model: "user", offset, limit, sortBy: { field: "id", direction: "asc" },
+      });
+      for (const user of users) {
+        const session = (await storedSessions(string(user.id))).find((row) => string(row.id) === id);
+        if (session) return session;
+      }
+      if (users.length < limit) return null;
+    }
+  }
   /**
    * The acting request for a check that only reads, such as whether the actor may impersonate a user. Without an app
    * account or a live session of the actor, the check runs without a request and refuses, as describe() does.
@@ -1346,7 +1364,7 @@ export function createAuthConsole(
     revokeHostSession: (id) =>
       result(async () => {
         const ctx = await hostContext();
-        const session = await find("session", equality("id", id));
+        const session = await hostSessionById(id);
         if (!session) throw new AuthConsoleError(404, "No session has this id. It ended, or someone revoked it.");
         await ctx.internalAdapter.deleteSession(string(session.token));
         const owner = await find("user", equality("id", string(session.userId)));
