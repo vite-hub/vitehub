@@ -108,7 +108,7 @@ KV operations return `[error, value]`. `error.code` is one of the codes of the m
 
 `kv.lock(key, { ttl, wait })` gives a lock that one runner holds at a time across the processes that share a store. `run(fn)` takes the lock, calls `fn`, and releases the lock, also when `fn` throws:
 
-```ts
+```ts fragment
 const [error, result] = await kv.lock("cron:daily", { ttl: 60 }).run(() => sendDailyReport())
 if (error) throw error
 if (!result.acquired) return // Another runner holds the lock.

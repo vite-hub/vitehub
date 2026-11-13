@@ -31,16 +31,24 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
       const free = storage.deleteIfEqualsItem
       if (!claim || !free) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "lock", store })
       const owner = globalThis.crypto.randomUUID()
-      const deadline = Date.now() + wait * 1000
+      const deadline = performance.now() + wait * 1000
       let delay = firstRetryMs
-      while (!await claim(key, owner, ttl)) {
-        const left = deadline - Date.now()
+      while (true) {
+        const started = performance.now()
+        if (await claim(key, owner, ttl)) {
+          // Count the entire provider round trip against the lease, including response latency.
+          if (performance.now() - started < ttl * 1000) {
+            return { acquired: true, release: () => kvResult("lock", store, () => free(key, owner)) }
+          }
+          await free(key, owner)
+          return { acquired: false }
+        }
+        const left = deadline - performance.now()
         if (left <= 0) return { acquired: false }
         // Jitter keeps waiting runners from polling the store at the same moment.
         await sleep(Math.min(left, delay / 2 + Math.random() * delay / 2))
         delay = Math.min(delay * 2, maxRetryMs)
       }
-      return { acquired: true, release: () => kvResult("lock", store, () => free(key, owner)) }
     }, ["KV_UNSUPPORTED_OPERATION"])
   }
 

@@ -155,6 +155,33 @@ describe("kv.lock()", () => {
 })
 
 describe.each(targets)("lock on $name", (target) => {
+  it("rejects a successful claim delivered after its lease expires", async () => {
+    const [first, second] = target.stores(2)
+    let deliver!: () => void
+    let committed!: () => void
+    const delivery = new Promise<void>(resolve => { deliver = resolve })
+    const commit = new Promise<void>(resolve => { committed = resolve })
+    const claim = first.setIfAbsentItem!
+    first.setIfAbsentItem = async (...args) => {
+      const result = await claim(...args)
+      committed()
+      await delivery
+      return result
+    }
+    const callback = vi.fn()
+    const pending = createKVLock("default", async () => first, "delayed", { ttl: 0.05 }).run(callback)
+    await commit
+    // Deliver only after the successor has acquired the expired lease.
+    const [, successor] = await createKVLock("default", async () => second, "delayed", { ttl: 30, wait: 1 }).acquire()
+    expect(successor?.acquired).toBe(true)
+    deliver()
+    expect(await pending).toEqual([undefined, { acquired: false }])
+    expect(callback).not.toHaveBeenCalled()
+    // Cleanup of the old claim must preserve the successor's owner token.
+    expect(await createKVLock("default", async () => first, "delayed", { ttl: 30 }).acquire()).toEqual([undefined, { acquired: false }])
+    if (successor?.acquired) expect(await successor.release()).toEqual([undefined, true])
+  })
+
   it("lets one of many concurrent runners run", async () => {
     let ran = 0
     let returned = 0
