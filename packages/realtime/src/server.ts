@@ -49,6 +49,7 @@ import {
   writeRealtimeFields,
   writeRealtimeStatus,
 } from "./document.ts"
+import { assertRealtimeCheckpoint } from "./definition.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
 import {
   decodeWorkspaceChangePayload,
@@ -352,6 +353,7 @@ function duration(value: unknown, fallback: number, name: "debounce" | "maxWait"
 export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition): ResolvedRealtimeDefinition {
   const cached = resolvedDefinitions.get(definition)
   if (cached) return cached
+  assertRealtimeCheckpoint(definition)
   const document = definition.document
   const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
   const persistence = definition.persistence === false
@@ -1935,7 +1937,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     if (request.workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events have no document to save." })
     const resolved = request.resolved
     if (!resolved) throw new HTTPError({ status: 404, message: "This Realtime Definition has no document." })
-    if (action === "checkpoint" && (!resolved.definition.history?.checkpoint || !resolved.adapter.checkpoint)) {
+    // `resolveRealtimeDefinition()` rejects `history.checkpoint` on an adapter without `checkpoint()`.
+    if (action === "checkpoint" && !resolved.definition.history?.checkpoint) {
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
