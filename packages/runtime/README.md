@@ -132,7 +132,7 @@ if (error) throw createError({ statusCode: 503, statusMessage: error.why })
 await email.send(message)
 ```
 
-`detectHost()` returns the host that `vitehub()` builds for when `preset` is
+`detectHost()` returns the host that `vitehub()` builds for when `host` is
 omitted, or `"cloudflare"` inside a Worker. It returns `undefined` when nothing
 names a host.
 

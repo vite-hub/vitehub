@@ -12,7 +12,7 @@ export interface DocsLink {
  * in its sidebar while pages keep the icons that their authors chose.
  */
 export interface DocsIcons {
-  /** Rail icon per section id: a `@vite-hub/ui/primitive-rail` icon name or an Iconify name. */
+  /** Rail icon per section id: a `@vite-hub/docs/primitive-rail` icon name or an Iconify name. */
   rail: Record<string, string>
   /** Sidebar icon per section id. It replaces the section's own icon. */
   sections: Record<string, string>

@@ -204,7 +204,7 @@ Commit the English pages, the translations, and `vitehub.lock` to your repositor
 
 - The Queue delivers a job at least once. A retried job runs the model again. Make the Agent safe to repeat: it reads the current Spanish digest before each save, and it stops when the Spanish page already records the source digest of the job.
 - A save records the English version that the job gave the Agent, not the one on the draft when it saves. If someone changes the English page while the Agent works, that change enqueues a second job. The first job stops when it sees the change, or its save shows as stale until the second job saves the new translation. When the two saves race, the second gets `WORKSPACE_CONFLICT`, reads both pages again, and stops if the English page moved.
-- In `vite dev` and with `preset: 'node'`, the job runs in the server process, so that process needs `AI_GATEWAY_API_KEY`. See [Queue hosts](/docs/queue/hosts) for the other providers.
+- In `vite dev` and with `host: 'node'`, the job runs in the server process, so that process needs `AI_GATEWAY_API_KEY`. See [Queue hosts](/docs/queue/hosts) for the other providers.
 - The Agent output is a draft. Review translations before you publish them.
 
 ## Related pages

@@ -873,7 +873,7 @@ describe("hubWorkspace", () => {
     })
   })
 
-  it("gives a Nitro build outside Vite the bundled Workspace files, as Nuxt 4 builds", async () => {
+  it("gives a Nitro build outside Vite the bundled Workspace files, as Nuxt builds without the Nitro Vite environment", async () => {
     const root = await createViteRoot()
     await mkdir(join(root, "server", "workspaces", "pages"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "pages", "config.ts"), `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({})\n`)
@@ -1085,7 +1085,7 @@ describe("hubWorkspace", () => {
   })
 
   it.each([
-    ["VITEHUB_HOSTING", undefined],
+    ["VITEHUB_HOST", undefined],
     ["NITRO_PRESET", undefined],
     ["SERVER_PRESET", undefined],
     ["nitro.preset", { preset: "cloudflare-module" }],
@@ -1368,7 +1368,6 @@ describe("hubWorkspace", () => {
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("export default function vitehubWorkspacePlugin() {")
     expect(pluginSource).not.toContain("from 'nitro'")
-    expect(pluginSource).not.toContain("nitropack/runtime")
   })
 
   it("activates standalone Nitro Cloudflare bindings from the provided environment", async () => {

@@ -8,7 +8,7 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-12-11',
 
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: true,
     kv: { driver: 'cloudflare-kv-binding', binding: 'KV', namespaceId: 'ba6f3913de344cb1a833f3cf20ba5aa8' },
     blob: { driver: 'cloudflare-r2', binding: 'BLOB', bucketName: 'hub-starter-p2s5' },

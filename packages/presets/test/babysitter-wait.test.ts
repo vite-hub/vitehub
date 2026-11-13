@@ -284,17 +284,32 @@ describe("Babysitter review push budget", () => {
 describe("Babysitter daily pass budget", () => {
   it("exempts a person's feedback, the first required failure on a head, and a conflict on an otherwise ready PR", async () => {
     const clean = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => { s.checks = {}; update(s) });
-    expect(dailyPassExemption(await clean(), "passed", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(), "pending", undefined)).toBeUndefined();
     expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 2, exemptions: [] })).toBe("human-feedback");
-    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "pending", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
     expect(dailyPassExemption(await clean(), "failed", undefined)).toBe(`required-failure:${head}`);
     expect(dailyPassExemption(await clean(), "failed", { passes: [], exemptions: [`required-failure:${head}`] })).toBeUndefined();
     const conflict = await clean(s => { s.pr!.mergeable_state = "dirty"; s.pr!.base!.sha = "c".repeat(40) });
     expect(dailyPassExemption(conflict, "passed", undefined)).toBe(`conflict:${head}:${"c".repeat(40)}`);
     expect(dailyPassExemption(conflict, "passed", { passes: [], exemptions: [`conflict:${head}:${"c".repeat(40)}`] })).toBeUndefined();
-    // A conflict beside a failing check or an open thread is not an otherwise ready PR.
-    expect(dailyPassExemption(await parked(s => { s.pr!.mergeable_state = "dirty" }), "pending", undefined)).toBeUndefined();
-    expect(dailyPassExemption(await clean(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] }), "passed", undefined)).toBeUndefined();
+  });
+
+  it("exempts any conflict and one assessment of a green head once per head", async () => {
+    // A conflict beside a failing optional check or an open thread cannot clear without a pass either.
+    const conflicted = await parked(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] });
+    expect(dailyPassExemption(conflicted, "pending", undefined)).toBe(`conflict:${head}`);
+    expect(dailyPassExemption(conflicted, "pending", { passes: [], exemptions: [`conflict:${head}`] })).toBeUndefined();
+    // A green head with only an optional check failing needs one pass to assess it before it merges.
+    const green = await parked();
+    expect(dailyPassExemption(green, "passed", undefined)).toBe(`assessment:${head}`);
+    expect(dailyPassExemption(green, "passed", { passes: [], exemptions: [`assessment:${head}`] })).toBeUndefined();
+  });
+
+  it("exempts one pass per open push window on a failing head", async () => {
+    const failedOnce = { passes: [], exemptions: [`required-failure:${head}`] };
+    expect(dailyPassExemption(await parked(), "failed", failedOnce)).toBeUndefined();
+    expect(dailyPassExemption(await parked(), "failed", failedOnce, 123)).toBe(`ci-repair:${head}:123`);
+    expect(dailyPassExemption(await parked(), "failed", { ...failedOnce, exemptions: [...failedOnce.exemptions, `ci-repair:${head}:123`] }, 123)).toBeUndefined();
   });
 });
 

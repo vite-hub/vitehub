@@ -5,6 +5,9 @@ import { viteHubPlugins } from "./plugins.ts"
 import type { PluginOption } from "vite"
 import type { ViteHubOptions } from "./plugins.ts"
 
+export { detectHost } from "./deployment.ts"
+export type { ViteHubHost } from "./deployment.ts"
+
 export type {
   AgentInvocationsDefault,
   AgentInvocationsDefaultJournal,
@@ -18,7 +21,6 @@ export type {
   ConnectionsOptions,
   ConsoleOptions,
   DatabaseOptions,
-  DeploymentPreset,
   EmailOptions,
   EnvOptions,
   I18nOptions,

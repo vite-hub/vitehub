@@ -16,9 +16,11 @@ import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from
 import type { ContentDocumentStatus, ContentRef } from "./collections-types.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentSchedule, ContentScheduleStatus } from "./schedules.ts"
+import type { ContentSourceHead } from "./source-heads.ts"
 import type {
   ContentDevCollectionsResult,
   ContentDevDiffResult,
+  ContentDevHeadResult,
   ContentDevListResult,
   ContentDevPublishResult,
   ContentDevRemoveResult,
@@ -50,7 +52,7 @@ type ContentCliOption =
 
 type ContentCliCommandName =
   | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "delete" | "restore"
-  | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap"
+  | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap" | "head" | "advance" | "pin" | "unpin"
 
 interface ContentCliCommand {
   description: string
@@ -78,7 +80,9 @@ interface ParsedContentArgs {
   revision?: string
   schedule?: string
   search?: string
+  sha?: string
   site?: string
+  source?: string
   status?: ContentScheduleStatus
   timeout?: number
   url: string
@@ -115,6 +119,10 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "List pending, overdue, and failed schedules, earliest first.", name: "scheduled", options: ["status"], positionals: ["collection?", "id?"] },
   { description: "Cancel a pending schedule, or dismiss a failed one.", name: "unschedule", options: [], positionals: ["schedule"] },
   { description: "Print the sitemap URLs of published documents of collections, and documents of Sources, with a url.", name: "sitemap", options: ["site", "xml"], positionals: [] },
+  { description: "Show the commit that each github() Source serves, the rejected commit, the last webhook delivery, and what holds the head back.", name: "head", options: [], positionals: ["source?"] },
+  { description: "Move the head of a github() Source to the latest commit of its branch when every document parses. Exits 1 when the head is held back.", name: "advance", options: [], positionals: ["source?"] },
+  { description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse.", name: "pin", options: [], positionals: ["sha", "source?"] },
+  { description: "Remove the pin of a github() Source and move its head to the latest valid commit of its branch.", name: "unpin", options: [], positionals: ["source?"] },
 ]
 
 const optionUsage: Record<ContentCliOption, string> = {
@@ -280,6 +288,8 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
     }
     if (name.startsWith("collection")) parsed.collection = value
     else if (name === "schedule") parsed.schedule = value
+    else if (name.startsWith("source")) parsed.source = value
+    else if (name === "sha") parsed.sha = value
     else parsed.id = value
   })
   if (parsed.ids && parsed.collection === undefined) throw usageError("--id requires --collection.")
@@ -437,6 +447,61 @@ function writeSitemap(result: ContentDevSitemapResult, parsed: Pick<ParsedConten
   context.stdout.write(`${result.entries.map(entry => entry.lastmod ? `${entry.loc}  ${entry.lastmod}` : entry.loc).join("\n")}\n`)
 }
 
+/** The lines of one head: the commit, the pin, the last check, the rejected commit, the last webhook, and the diagnostic. */
+function headLines(head: ContentSourceHead): string[] {
+  const lines = [head.source]
+  if (!head.live) lines.push(`  Not live: each load reads the latest commit${head.ref ? ` of ${head.ref}` : ""} without validation.`)
+  else if (!head.sha) lines.push("  Head:      none yet. No commit passed validation.")
+  else lines.push(`  Head:      ${head.sha}${head.ref ? ` on ${head.ref}` : ""}${head.movedAt ? `, moved ${head.movedAt}` : ""}`)
+  if (head.pinned) lines.push(`  Pinned:    yes. \`vitehub content unpin ${head.source}\` follows the branch again.`)
+  if (head.checkedAt) lines.push(`  Checked:   ${head.checkedAt}`)
+  // CONTENT_R0019 below gives the reason.
+  if (head.rejected) lines.push(`  Rejected:  ${head.rejected.sha} at ${head.rejected.at}${head.diagnostic?.code === "CONTENT_R0019" ? "" : `: ${head.rejected.reason}`}`)
+  if (head.webhook) {
+    const { at, error, id, result, sha } = head.webhook
+    lines.push(`  Webhook:   ${result}${sha ? ` ${sha}` : ""} at ${at}${id ? ` (delivery ${id})` : ""}${error ? `: ${error}` : ""}`)
+  }
+  if (head.diagnostic) {
+    const message = head.diagnostic.message.replace(/^\[vitehub\]\s*/, "").replaceAll("\n", "\n    ")
+    lines.push(`  ${head.diagnostic.code}: ${message}`, `  Fix: ${head.diagnostic.fix}`)
+  }
+  return lines
+}
+
+function writeHeads(result: ContentDevHeadResult, context: ContentCliContext): void {
+  if (!result.heads.length) {
+    context.stderr.write("No github() Sources. Only a github() Source in defineContent({ sources }) has a head.\n")
+    return
+  }
+  context.stdout.write(`${result.heads.map(head => headLines(head).join("\n")).join("\n\n")}\n`)
+}
+
+/** Move a head, print where it went, and exit 1 when it is held back: no token, no KV, a rejected commit, or a rate limit. */
+async function runMove(command: ContentCliCommand, parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall): Promise<number> {
+  const source = parsed.source === undefined ? {} : { source: parsed.source }
+  const before = command.name === "pin" ? undefined : await call("head", source)
+  if (before?.failure) return writeFailure(parsed, context, before.failure)
+  const moved = command.name === "pin"
+    ? await call("pin", { sha: parsed.sha, ...source })
+    : await call(command.name === "unpin" ? "unpin" : "advance", source)
+  if (moved.failure) return writeFailure(parsed, context, moved.failure)
+  const head = moved.result
+  // A pin is on purpose. Otherwise a diagnostic means the head does not serve the latest commit of the branch.
+  const held = !head.live || (command.name !== "pin" && !head.pinned && head.diagnostic !== null)
+  if (parsed.json) {
+    context.stdout.write(`${JSON.stringify(head, null, 2)}\n`)
+    return held ? 1 : 0
+  }
+  const previous = before?.result.heads.find(entry => entry.source === head.source)?.sha ?? null
+  if (!head.live) context.stdout.write(`${head.source} has no head, so nothing moved.\n`)
+  else if (command.name === "pin") context.stdout.write(`Pinned ${head.source} to ${head.sha}. It stays there until \`vitehub content unpin ${head.source}\`.\n`)
+  else if (head.pinned) context.stdout.write(`${head.source} is pinned to ${head.sha}, so it did not move. \`vitehub content unpin ${head.source}\` follows the branch again.\n`)
+  else if (head.sha !== previous) context.stdout.write(`Moved ${head.source} ${previous ? `from ${previous} ` : ""}to ${head.sha}.\n`)
+  else context.stdout.write(`${head.source} stays on ${head.sha ?? "no commit"}.\n`)
+  context.stdout.write(`${headLines(head).join("\n")}\n`)
+  return held ? 1 : 0
+}
+
 const shortDigestLength = 12
 
 function shortDigest(digest: string | null | undefined): string {
@@ -543,9 +608,12 @@ type ContentDevOperation = keyof ContentDevResults
 type ContentDevRequestOptions = Record<string, unknown>
 
 interface ContentDevResults {
+  advance: ContentSourceHead
   collections: ContentDevCollectionsResult
   diff: ContentDevDiffResult
+  head: ContentDevHeadResult
   list: ContentDevListResult
+  pin: ContentSourceHead
   publish: ContentDevPublishResult
   remove: ContentDevRemoveResult
   restore: ContentDevSaveResult
@@ -556,6 +624,7 @@ interface ContentDevResults {
   show: ContentDevShowResult
   sitemap: ContentDevSitemapResult
   status: ContentDevStatusResult
+  unpin: ContentSourceHead
   unschedule: ContentDevUnscheduleResult
 }
 
@@ -843,6 +912,17 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       return await runRemove(parsed, context, call, options)
     case "restore":
       return await runRestore(parsed, context, call)
+    case "advance":
+    case "pin":
+    case "unpin":
+      return await runMove(command, parsed, context, call)
+    case "head": {
+      const { failure, result } = await call("head", parsed.source === undefined ? {} : { source: parsed.source })
+      if (failure) return writeFailure(parsed, context, failure)
+      if (parsed.json) print(result)
+      else writeHeads(result, context)
+      return 0
+    }
     case "diff": {
       const { failure, result } = await call("diff", requestBody(parsed))
       if (failure) return writeFailure(parsed, context, failure)
@@ -933,7 +1013,7 @@ export async function runContentCli(args: string[], context: ContentCliContext, 
 export function createContentCliContributor(options: ContentCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.",
+      description: "Inspect, edit, delete, restore, publish, and schedule Content documents, and show or move the head of github() Sources, in the running dev server or a deployed app.",
       features: contentCommands.map(command => ({
         description: command.description,
         name: command.name,

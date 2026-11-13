@@ -32,7 +32,7 @@ Add `auth: true` to the ViteHub options of your app. Keep the other options of y
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', auth: true },
+  vitehub: { host: 'node', auth: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', auth: true }), nitro()],
+  plugins: [vitehub({ host: 'node', auth: true }), nitro()],
 })
 ```
 ::::
@@ -55,7 +55,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', auth: true })],
+  plugins: [vitehub({ host: 'node', auth: true })],
 })
 ```
 ::::

@@ -6,7 +6,7 @@ import {
 } from "@nuxt/kit";
 import { icons as viteHubIcons } from "@vite-hub/icons";
 import type { ViteHubUIOptions } from "./config.ts";
-import { componentNames } from "./component-entries.ts";
+import { componentNames } from "./component-names.ts";
 import { viteHubUIIcons } from "./icons.ts";
 
 // Components are not serializable, so the module takes the defaults only. Pass components to `createViteHubUI()` in a plugin.

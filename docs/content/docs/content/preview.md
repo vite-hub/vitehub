@@ -172,4 +172,32 @@ Nitro's cache skips preview requests. Cached handlers, `cache` or `swr` route ru
 A CDN or reverse proxy caches by URL and does not know the cookie. If it caches HTML, make it skip its cache for requests with the `vitehub-content-preview` cookie. Otherwise the previewer gets the cached published page. `private, no-store` stops a correct CDN from storing the draft response.
 ::
 
+## Branch, commit, and pull request previews
+
+A `github()` Source can show any allowed ref at a URL. Set `previews: true`:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { github } from 'vite-hub/source'
+
+export default defineContent({
+  sources: { docs: github({ repo: 'acme/docs', ref: 'main' }) },
+  previews: true,
+})
+```
+
+| URL | Reads |
+| --- | --- |
+| `/tree/feat/x/-/docs/kv` | The latest commit of the branch `feat/x`. The part `-` ends the branch name. |
+| `/blob/<sha>/docs/kv` | One commit, by its full 40-character SHA. |
+| `/pr/12/docs/kv` | The head commit of pull request 12. |
+
+The page runs at `/docs/kv` through your real routes, and every read of the Source returns the commit of the ref. Internal links in the Comark tree get the prefix, so `/docs/next` becomes `/pr/12/docs/next`. `content.sources.current()` tells a page that it is a preview: `{ ref, kind, sha, pull, prefix, path, url }`, where `url` is the production URL.
+
+Content asks `content.sources.allow()` first. A ref that it denies gets your app's own 404, the same answer as for any unknown path. The draft branch of the CMS, its publish branches, and fork pull requests without the `preview:enabled` label need the preview cookie or a link from `content.sources.sign()`.
+
+A preview response has `X-Robots-Tag: noindex` and a canonical `Link` header to the production URL. Its `Cache-Control` is `private, no-store` for the cookie or a signed link, `immutable` for a `/blob` commit in the published history, and one minute for other refs. These are upper bounds: shorter application `max-age` and `s-maxage` values and revalidation directives stay in place. A response with its own cache policy does not become immutable only because the Source commit is published. A response that your route marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. Nitro's cache skips preview requests. A ref that a signed link opened keeps the link token on its internal links and redirects.
+
+In Nuxt, the client router does not know the prefix yet. A page that reads its route on the client sees the preview URL after hydration.
+
 See [Limits and errors](/docs/content/limits-and-errors) for every Content error code.

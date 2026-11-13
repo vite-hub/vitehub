@@ -98,7 +98,7 @@ describe("KV in vite dev", () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it("keeps the Vercel preset local", () => {
+  it("keeps the Vercel host local", () => {
     expect(normalizeKVOptions(undefined, { dev: true, env: {}, hosting: "vercel" })).toEqual({ store: { base: ".vitehub/data/kv", driver: "fs-lite" } })
   })
 
@@ -129,7 +129,7 @@ describe("KV in vite dev", () => {
     expect(normalizeKVOptions({ driver: "upstash" }, { dev: true, env: upstashEnv })?.store).toMatchObject({ driver: "upstash", remote: true })
   })
 
-  it("uses a local store with the Workers KV limits on the Cloudflare preset without a binding", async () => {
+  it("uses a local store with the Workers KV limits on the Cloudflare host without a binding", async () => {
     const { kv: config, runtime } = await resolvePlugin("serve", undefined, "cloudflare-module")
     expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare-kv-binding", localBase: ".vitehub/data/kv-cloudflare/KV" } })
     // The package runtime, not the generated Cloudflare runtime, so the store can fall back.

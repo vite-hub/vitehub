@@ -4,6 +4,7 @@ import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
@@ -23,12 +24,12 @@ export type BabysitterMergeReady = (input: BabysitterMergeReadinessInput) => tru
 /**
  * - `false`: never merge.
  * - `"auto"`: the worker may request GitHub native auto-merge.
- * - `"direct"`: the host merges a ready PR before any model pass.
- * - `{ strategy: "direct", ready }`: a direct merge with an extra gate. `ready` is a
- *   {@link BabysitterMergeReady} callback or `"approved-if-outside"`: a PR whose author is not an
- *   owner, member or collaborator of the repository merges only after a reviewer with write access
- *   approves its current head, and while no such reviewer's latest review requests changes.
- *   A push after the approval needs a new one.
+ * - `"direct"`: the host merges a ready PR before any model pass, with the `"approved-if-outside"` gate.
+ * - `{ strategy: "direct", ready }`: a direct merge with another gate. `ready` is a
+ *   {@link BabysitterMergeReady} callback or `"approved-if-outside"`, the default: a PR whose author
+ *   is not an owner, member or collaborator of the repository merges only after a reviewer with write
+ *   access approves its current head, and while no such reviewer's latest review requests changes.
+ *   A push after the approval needs a new one. `ready: () => true` merges every ready PR.
  */
 export type BabysitterMerge =
   | false
@@ -138,7 +139,7 @@ function mergeTarget(snapshot: Snapshot, legacy = false) {
 export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string {
   const head = snapshot.pr?.head?.sha;
   const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)]
-    .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head
+    .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head && !isBabysitterCheckRun(value)
       && failing.has(String(value.conclusion ?? value.state).toLowerCase()))
     .map(value => ({ id: value.id ?? value.context, name: value.name ?? value.context,
       state: value.conclusion ?? value.state, app: value.app, description: value.description, output: value.output }))
@@ -205,7 +206,7 @@ export function approvedIfOutside({ head, snapshot }: BabysitterMergeReadinessIn
 export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {
   if (merge === false) return { mode: "off" };
   if (merge === "auto") return { mode: "auto" };
-  if (merge === "direct") return { mode: "direct", method: "squash" };
+  if (merge === "direct") return { mode: "direct", method: "squash", ready: approvedIfOutside };
   if (isRuntimeRecord(merge) && merge.strategy === "direct") {
     const method = merge.method ?? "squash";
     if (method !== "squash" && method !== "merge" && method !== "rebase") {
@@ -219,8 +220,8 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
       throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
     }
     // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
-    const ready = merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
-    return { mode: "direct", method, ...ready ? { ready } : {},
+    const ready = merge.ready === undefined || merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady;
+    return { mode: "direct", method, ready,
       ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {} };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
@@ -230,7 +231,7 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
 export function snapshotCheckEvidence(snapshot: Snapshot): GitHubCheckEvidence {
   const head = snapshot.pr?.head?.sha ?? "";
   const checkRuns = Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || !hasRuntimeType(check.id, "number") || !hasRuntimeType(check.name, "string")) return [];
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !hasRuntimeType(check.id, "number") || !hasRuntimeType(check.name, "string")) return [];
     return [{ id: check.id, head_sha: head, name: check.name, app: hasRuntimeType(check.app?.id, "number") ? { id: check.app.id } : null,
       status: String(check.status ?? ""), conclusion: check.conclusion === undefined || check.conclusion === null ? null : String(check.conclusion) }];
   });

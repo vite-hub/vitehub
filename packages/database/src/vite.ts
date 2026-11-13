@@ -8,7 +8,7 @@ import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
@@ -223,12 +223,11 @@ function renderDatabaseDurabilityModule(config: ResolvedDBViteConfig, dev: boole
 
 function renderNitroRequestScopeMiddleware() {
   return [
-    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
     "",
     "export default (event, next) => {",
     "  const env = getRequestCloudflareEnv(event) ?? globalThis.__env__",
-    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
-    "  setActiveCloudflareEnv(env)",
+    "  return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "}",
     "",
   ].join("\n")
@@ -238,15 +237,15 @@ function renderNitroRequestStatsMiddleware() {
   return [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/request-stats"))}`,
     "",
-    "export default (event, next) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
+    "export default (event, next) => runWithDatabaseRequestStats(event, next)",
     "",
   ].join("\n")
 }
 
-// Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
+// Under `vitehub()`, the dev server config names the host, and Nitro has none.
 function devServerTargetsCloudflare(config: ResolvedConfig | undefined): boolean {
   if (config?.command !== "serve") return false
-  return resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }) === "cloudflare"
+  return resolveHost({ hosting: getDeploymentHost(config), nitro: Reflect.get(config, "nitro") }) === "cloudflare"
 }
 
 function resolveHostedProvider(config: ResolvedConfig): DBProvider | undefined {

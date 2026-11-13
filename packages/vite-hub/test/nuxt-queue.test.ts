@@ -37,7 +37,7 @@ it.each([
       srcDir: join(rootDir, "app"),
       // Nuxt sets the Vite root to its srcDir. A Vite root at the project root must give the same result.
       vite: { define: {}, root: join(rootDir, viteRoot) },
-      vitehub: { preset: "cloudflare" as const, queue },
+      vitehub: { host: "cloudflare" as const, queue },
     },
   }
 
