@@ -28,6 +28,7 @@ import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitOptions, RateLimitRuntimeConfig } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
+import { normalizeRateLimitPolicy } from "./policy.ts"
 
 // Generated code imports these modules by path, so they need no package export.
 const operationsModule = ownModule(import.meta.url, "operations")
@@ -44,6 +45,8 @@ const mergeNoExternal = createNoExternalAddition(packageName)
 interface InternalRateLimitOptions extends RateLimitOptions {
   /** The module that exports `kv` and `getKVStoreDriver` for the `kv` provider. */
   kvImport?: string
+  /** ViteHub selected `kv` itself, so a store that cannot share counts falls back to memory with a warning. */
+  memoryFallback?: boolean
 }
 
 type ResolvedRateLimitProvider = RateLimitRuntimeConfig["provider"]
@@ -177,6 +180,23 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     await writeRateLimitManifest(projectRoot, declarations, effectiveProvider(provider, resolved))
   }
 
+  // A production build fails when it cannot give what the config asks for, instead of counting in each process.
+  const assertBuildProvider = (): void => {
+    if (!resolved || resolved.command !== "build") return
+    const effective = effectiveProvider(provider, resolved)
+    if (effective !== "memory") return
+    if (provider === "kv" && !(rateLimit as InternalRateLimitOptions).memoryFallback) {
+      const kvPlugin = resolved.plugins.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
+      const kv = kvPlugin?.api?.getConfig?.().kv
+      const store = kv ? `the default KV store uses ${kv.store.driver}, which has no shared atomic increment` : "the app has no KV store"
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_B0005({ message: `[vitehub] rateLimit.provider is "kv", but ${store}. Each server process would count in its own memory.` })
+    }
+    const strict = declarations.find(declaration => normalizeRateLimitPolicy(declaration.policy).enforcement === "strict")
+    if (strict) {
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_B0006({ message: `[vitehub] Rate Limit "${strict.name}" requires strict enforcement, but this build counts in the memory of each server process, so several instances each allow the full limit.` })
+    }
+  }
+
   const warnAboutMemory = (): void => {
     if (!resolved || warnedAboutMemory || resolved.command !== "build" || declarations.length === 0 || effectiveProvider(provider, resolved) !== "memory") return
     resolved.logger.warn(memoryBuildWarning)
@@ -256,14 +276,20 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       )
       await writeRateLimitManifest(projectRoot, declarations, effectiveProvider(provider, config))
       const pluginFile = resolve(projectRoot, generatedNitroPlugin)
-      const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
+      // `vite dev` runs one process, so memory counts are exact there.
+      const memoryFallback = provider === "kv" && ((rateLimit as InternalRateLimitOptions).memoryFallback === true || config.command === "serve")
+      const runtimeConfig: RateLimitRuntimeConfig = memoryFallback ? { memoryFallback, provider } : { provider }
       await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, kvImport))
       // KV rereads Database's resolved definitions at buildStart; avoid warning before that choice is final.
-      if (provider !== "kv") warnAboutMemory()
+      if (provider !== "kv") {
+        assertBuildProvider()
+        warnAboutMemory()
+      }
     },
     async buildStart() {
       if (provider !== "kv") return
       await refreshDeclarations()
+      assertBuildProvider()
       warnAboutMemory()
     },
     configureServer(server) {

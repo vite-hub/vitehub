@@ -74,13 +74,13 @@ KV selects its driver at build time: `database` with a Postgres Default Database
 [vitehub] Rate Limit counts in the KV store "default" (redis). Every server process that uses this store shares the counts.
 ```
 
-`fs-lite` has no shared atomic increment, so Rate Limit then counts in memory and prints a warning:
+`fs-lite` has no shared atomic increment. When ViteHub selected `kv` because KV is on, Rate Limit then counts in memory and prints a warning:
 
 ```txt
 [vitehub] Rate Limit counts in the memory of this process, because the KV store "default" uses fs-lite, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.
 ```
 
-A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. `provider: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
+A build that counts in memory also prints a warning, and fails with `RATE_LIMIT_B0006` when a Rate Limit sets `enforcement: 'strict'`. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. An explicit `rateLimit: { provider: 'kv' }` asks for shared counts, so the build fails with `RATE_LIMIT_B0005` when the KV store cannot share them, for example on `fs-lite`. `vite dev` still counts in memory. `provider: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
 
 ## Deploy to Cloudflare
 

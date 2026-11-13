@@ -27,6 +27,8 @@ The dev server counts in memory, but checks the same policies when the build tar
 
 ## Memory limits
 
+A production build that counts in memory fails with `RATE_LIMIT_B0006` when a Rate Limit sets `enforcement: 'strict'`, because each server process allows the full limit. `vite dev` and app tests run one process, so they accept strict Rate Limits in memory.
+
 The memory driver keeps at most 100,000 counters in one process. It removes counters whose window has ended before it adds a new one. When every counter is still active, the next new key fails with `RATE_LIMIT_R0008`. Pass `maxEntries` to `memoryRateLimitDriver()` to change the cap. Counters are lost when the process restarts, and two processes count separately.
 
 ## Errors
@@ -73,4 +75,5 @@ The `kv` provider counts fixed windows with one atomic `increment` for each requ
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.
 - When KV fails or takes more than one second, the request follows the `failure` policy: `deny` returns `503`, `allow` lets it continue. `peek` and `reset` also return `unavailable` after one second. The deadline does not cancel the KV operation, so a timed-out request can still increment the counter. A KV configuration error, such as a missing `REDIS_URL` for an explicit `redis` store, throws.
 - `peekRateLimit()` and `resetRateLimit()` read the window from the policies that this process used. In a process that has not used the Rate Limit yet, `peek` returns `unused` and `reset` returns `unsupported`.
+- An explicit `provider: 'kv'` on a KV store without a shared atomic increment, such as `fs-lite`, fails the build with `RATE_LIMIT_B0005`. A runtime that `setRateLimitRuntimeConfig({ provider: 'kv' })` configures fails with `RATE_LIMIT_R0048` on such a store, unless it also sets `memoryFallback: true`.
 - Without a KV store, the `kv` provider fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `delete` fails with `RATE_LIMIT_R0046`.

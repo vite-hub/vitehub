@@ -48,11 +48,14 @@ function requireKVRuntime(): RateLimitKVRuntime {
   throw rateLimitErrorDiagnostics.RATE_LIMIT_R0047({ message: "[vitehub] The kv Rate Limit provider needs KV. Enable KV in the app, or pass a KV store to setRateLimitRuntimeConfig()." })
 }
 
-async function resolveKVProvider(kv: RateLimitKVRuntime): Promise<RateLimitRuntimeConfig["provider"]> {
+async function resolveKVProvider(kv: RateLimitKVRuntime, memoryFallback: boolean): Promise<RateLimitRuntimeConfig["provider"]> {
   const driver = await kv.driver()
   if (resolveKVRateLimitProvider(driver) === "kv") {
     console.info(`[vitehub] Rate Limit counts in the KV store "${kv.store}" (${driver}). Every server process that uses this store shares the counts.`)
     return "kv"
+  }
+  if (!memoryFallback) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0048({ message: `[vitehub] The kv Rate Limit provider needs a KV store that every server process shares, but the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment.` })
   }
   console.warn(`[vitehub] Rate Limit counts in the memory of this process, because the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.`)
   return "memory"
@@ -60,13 +63,14 @@ async function resolveKVProvider(kv: RateLimitKVRuntime): Promise<RateLimitRunti
 
 /**
  * The provider that counts in this process. For `kv`, the first call asks KV for its configured driver
- * and prints the choice: `kv` with a shared driver, else `memory`. The generated Nitro plugin calls it at boot.
+ * and prints the choice: `kv` with a shared driver. Another driver fails, or counts in `memory` with `memoryFallback`.
+ * The generated Nitro plugin calls it at boot.
  */
 export async function resolveRateLimitProvider(): Promise<RateLimitRuntimeConfig["provider"]> {
-  const { provider } = getRateLimitRuntimeConfig()
+  const { memoryFallback = false, provider } = getRateLimitRuntimeConfig()
   if (provider !== "kv") return provider
   if (activeProvider) return await activeProvider
-  const pending = resolveKVProvider(requireKVRuntime())
+  const pending = resolveKVProvider(requireKVRuntime(), memoryFallback)
   activeProvider = pending
   // A failed choice, for example an unknown KV store, fails this call and lets the next call try again.
   void pending.catch(() => {

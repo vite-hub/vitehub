@@ -73,13 +73,13 @@ describe("hubRateLimit", () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it.each(["fs-lite", "redis", "database", "upstash"])("reports the effective guarantees for KV driver %s", async (driver) => {
+  it.each(["fs-lite", "redis", "database", "upstash"])("reports the effective guarantees for KV driver %s when ViteHub selected kv", async (driver) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-kv-manifest-"))
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const warn = vi.fn()
     const kvPlugin = { api: { getConfig: () => ({ kv: { store: { driver } } }) }, name: "@vite-hub/kv/vite" }
-    const plugin = hubRateLimit({ provider: "kv" })
+    const plugin = hubRateLimit({ memoryFallback: true, provider: "kv" } as Parameters<typeof hubRateLimit>[0])
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn }, plugins: [kvPlugin], root } as never)
     const manifest = JSON.parse(await readFile(join(root, ".vitehub/rate-limit/manifest.json"), "utf8"))
     const shared = driver !== "fs-lite"
@@ -113,6 +113,42 @@ describe("hubRateLimit", () => {
       provider: "kv",
     }])
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("fails a build with an explicit kv provider on a KV store that cannot share counts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-kv-explicit-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const kvPlugin = { api: { getConfig: () => ({ kv: { store: { driver: "fs-lite" } } }) }, name: "@vite-hub/kv/vite" }
+    const plugin = hubRateLimit({ provider: "kv" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn: vi.fn() }, plugins: [kvPlugin], root } as never)
+
+    await expect(runBuildStart(plugin)).rejects.toMatchObject({
+      code: "RATE_LIMIT_B0005",
+      message: expect.stringContaining("the default KV store uses fs-lite, which has no shared atomic increment"),
+    })
+  })
+
+  it("lets an explicit kv provider count in memory in `vite dev`", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-kv-dev-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const kvPlugin = { api: { getConfig: () => ({ kv: { store: { driver: "fs-lite" } } }) }, name: "@vite-hub/kv/vite" }
+    const plugin = hubRateLimit({ provider: "kv" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "serve", logger: { warn: vi.fn() }, plugins: [kvPlugin], root } as never)
+
+    await expect(runBuildStart(plugin)).resolves.toBeUndefined()
+    expect(await readFile(join(root, ".vitehub/nitro/rate-limit/plugin.ts"), "utf8")).toContain('const config = {"memoryFallback":true,"provider":"kv"}')
+  })
+
+  it("fails a build that counts a strict Rate Limit in memory, and accepts it in `vite dev`", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-memory-strict-"))
+    roots.push(root)
+    await writeFile(join(root, "login.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "login", { enforcement: "strict", limit: 5, window: "1m" })\n')
+    const resolve = (command: "build" | "serve") => (hubRateLimit({ provider: "memory" }).configResolved as (config: unknown) => Promise<void>)({ command, logger: { warn: vi.fn() }, plugins: [], root } as never)
+
+    await expect(resolve("build")).rejects.toMatchObject({ code: "RATE_LIMIT_B0006", message: expect.stringContaining('Rate Limit "login" requires strict enforcement') })
+    await expect(resolve("serve")).resolves.toBeUndefined()
   })
 
   it("warns when a build counts declared Rate Limits in memory", async () => {
@@ -496,7 +532,10 @@ describe("hubRateLimit", () => {
       await serve(hubRateLimit({ provider: "cloudflare" }), config)
       await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
       const warn = vi.fn()
-      await serve(hubRateLimit({ provider: "cloudflare" }), { ...config, command: "build", logger: { warn } })
+      const build = serve(hubRateLimit({ provider: "cloudflare" }), { ...config, command: "build", logger: { warn } })
+      // A build that counts in memory cannot keep a strict limit across server processes.
+      if (enforcement === "strict") return await expect(build).rejects.toMatchObject({ code: "RATE_LIMIT_B0006" })
+      await build
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts requests in the memory of each server process"))
     })
 
