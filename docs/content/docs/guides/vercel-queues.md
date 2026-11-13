@@ -7,13 +7,13 @@ navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
-Install `@vercel/queue`, set `preset: 'vercel'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job and replies at once. The build writes one private Vercel Function per queue with a `queue/v2beta` trigger, and Vercel calls it for each job.
+Install `@vercel/queue`, set `host: 'vercel'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job and replies at once. The build writes one private Vercel Function per queue with a `queue/v2beta` trigger, and Vercel calls it for each job.
 
 ## What Vercel Queues is
 
 [Vercel Queues](https://vercel.com/docs/queues) is Vercel's message queue, in beta on all plans. A producer sends a message to a topic. A consumer function gets it, and Vercel retries until the consumer acknowledges it or it expires. Delivery is at least once.
 
-You write the handler and the send call. ViteHub writes the topic name, consumer function, and trigger, and the same files run on [Cloudflare Queues](/docs/guides/cloudflare-queues) with another preset.
+You write the handler and the send call. ViteHub writes the topic name, consumer function, and trigger, and the same files run on [Cloudflare Queues](/docs/guides/cloudflare-queues) with another host.
 
 ## Set up Vercel Queues
 
@@ -26,14 +26,14 @@ pnpm add -D @types/node @types/ws
 
 The generated Queue code imports `@vercel/queue`. To typecheck it, set `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
 
-### Enable Queue with the Vercel preset
+### Enable Queue with the Vercel host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', queue: true },
+  vitehub: { host: 'vercel', queue: true },
 })
 ```
 :::
@@ -45,7 +45,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel', queue: true }), nitro()],
 })
 ```
 :::
@@ -56,13 +56,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', queue: true })],
+  plugins: [vitehub({ host: 'vercel', queue: true })],
 })
 ```
 :::
 ::
 
-The `vercel` preset picks the Vercel Queue Provider. `vitehub()` includes the Nitro Vite plugin, so `vite build` writes Vercel Build Output to `.vercel/output`. See [Queue configuration](/docs/queue/configure) for all options.
+The `vercel` host picks the Vercel Queue Provider. `vitehub()` includes the Nitro Vite plugin, so `vite build` writes Vercel Build Output to `.vercel/output`. See [Queue configuration](/docs/queue/configure) for all options.
 
 ### Define a queue
 
@@ -248,7 +248,7 @@ See [Queue limits and errors](/docs/queue/limits-and-errors) for error codes.
 
 The queue file and route stay the same. To move to Cloudflare Queues:
 
-1. Change `preset: 'vercel'` to `preset: 'cloudflare'`.
+1. Change `host: 'vercel'` to `host: 'cloudflare'`.
 2. Remove `idempotencyKey`, `region`, and `retentionSeconds` from `sendQueue()` calls.
 3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
 4. Create the queues with `vitehub provision run --provider cloudflare`.

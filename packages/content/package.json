@@ -56,6 +56,11 @@
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js",
+      "default": "./dist/markdown.js"
+    },
     "./preview": {
       "types": "./dist/preview.d.ts",
       "import": "./dist/preview.js",
@@ -111,7 +116,6 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/realtime": "workspace:*",

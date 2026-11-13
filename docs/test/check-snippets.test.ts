@@ -539,6 +539,22 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
+  it.each(["server/auth.ts", "server.auth.ts"])("types the default Auth client with the user fields of %s", async (label) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/auth-client-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "auth-client-page.md", pageRoot })
+    const user = "import { useUserSession } from 'vite-hub/auth/vue'\nconst { user } = useUserSession()\n"
+    const snippets = [
+      snippet(label, "import { admin } from 'better-auth/plugins'\nimport { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ plugins: [admin()], user: { additionalFields: { plan: { type: 'string', required: true } } } })"),
+      snippet("plan.ts", `${user}export const plan: string | undefined = user.value?.plan`),
+      snippet("role.ts", `${user}export const role: string | null | undefined = user.value?.role`),
+      snippet("typo.ts", `${user}export const plan = user.value?.plans`),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["typo.ts", [2551]],
+    ])
+  }, 60_000)
+
   it("types related rows from the Database Definition of a page", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/database-relations-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-relations-page.md", pageRoot })
@@ -575,8 +591,8 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
   })
 
   it.each([
-    ["vite.config.ts", "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nexport default defineConfig({ plugins: [vitehub({ preset: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } })] })"],
-    ["nuxt.config.ts", "import { env } from 'vite-hub/env'\nexport default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: { preset: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } } })"],
+    ["vite.config.ts", "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nexport default defineConfig({ plugins: [vitehub({ host: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } })] })"],
+    ["nuxt.config.ts", "import { env } from 'vite-hub/env'\nexport default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: { host: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } } })"],
   ])("types the Env values that the page's %s declares", async (label, config) => {
     const pageRoot = join(repoRoot, "docs/.snippets/env-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "env-page.md", pageRoot })
@@ -597,7 +613,7 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     const pageRoot = join(repoRoot, "docs/.snippets/nuxt-env-provider")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "nuxt-env-provider.md", pageRoot })
     const options = `{
-    preset: "node",
+    host: "node",
     env: {
       providers: { credentials: "./server/env/credentials.ts" },
       runtimeImports: { secret: "@vite-hub/env", server: "@vite-hub/env/internal/server" },

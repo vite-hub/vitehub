@@ -166,7 +166,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
@@ -187,7 +187,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
@@ -207,7 +207,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
@@ -282,11 +282,14 @@ Do not put credentials in arguments, because anyone who can inspect requirement 
 For each Invocation, the Driver adds to the Sandbox:
 
 - `driver.instructions` at `.codex/AGENTS.md` (Codex) or `.claude/vitehub-system-prompt.md` (Claude Code) in the Home, leaving the checked-out tree unchanged.
-- Colocated Skills in `.agents/skills`, `.codex/skills`, and `.claude/skills` in the Sandbox Home.
+- Colocated Skills, and the Workspace Skills that the provider cannot read in its working directory, in one Home skill root: `.agents/skills` for Codex or `.claude/skills` for Claude Code. The checked-out tree does not change.
 - The provider command as a requirement, `codex` or `claude` by default. `driver.providerSettings.binaryPath` sets another name or absolute path inside the Sandbox.
 - `driver.env` values for the provider process, which replace Sandbox `env` values with the same name.
 
 ViteHub rejects the Invocation when a declared Home file uses a path that the Driver writes.
+
+> [!WARNING]
+> Breaking change: the Driver no longer writes Skills to all three of `.agents/skills`, `.codex/skills`, and `.claude/skills`. A Codex Sandbox has them only in `$HOME/.agents/skills`, and a Claude Code Sandbox only in `$HOME/.claude/skills`. Outside a Sandbox, the Driver keeps Skills in a private folder outside the checkout. See [Give the provider its Skills](/docs/agents/agent-drivers#give-the-provider-its-skills).
 
 A session lasts one Invocation, so the provider does not resume its session next time. Send the context it needs in the prompt, Home files, or the checkout.
 

@@ -47,7 +47,7 @@ solves one deployment or provider task.
 
 ## Call GitHub, GitLab, or Forgejo
 
-- [Call GitHub as your GitHub App with useForge()](/docs/guides/forge).
+- [Call GitHub as your GitHub App with useForge()](/docs/forge/get-started).
 
 ## Add sign-in
 

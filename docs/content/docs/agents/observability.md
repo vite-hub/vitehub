@@ -16,7 +16,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     console: { auth: false },
     publicUrl: 'https://agents.example.com',
@@ -44,7 +44,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       console: { auth: false },
       publicUrl: 'https://agents.example.com',
@@ -73,7 +73,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       console: { auth: false },
       publicUrl: 'https://agents.example.com',
@@ -143,7 +143,7 @@ Reports need a stored invocation identity, so use a persistent Invocation store 
 
 Delivery is at least once. A crash after the destination accepts but before the confirmation is stored can cause a retry, so the destination must deduplicate by the stable UUID. PostHog delivery needs a positive ingestion response and reuses the UUID and timestamp on retries. One reporter merges concurrent sends. Separate processes rely on destination deduplication.
 
-`eventPrefix` and `uuidNamespace` let existing consumers keep their event names and report identities across deployments, so do not change them. On shutdown the reporter waits up to ten seconds for active work, and does not mark a timed-out report as delivered. `status().papercuts` counts in-flight, delivered, and failed reports since start. Undelivered reports stay in the journal for replay.
+`eventPrefix` and `uuidNamespace` let existing consumers keep their event names and report identities across deployments, so do not change them. On shutdown the reporter waits up to ten seconds for active work, and does not mark a timed-out report as delivered. `status().papercuts` counts in-flight, delivered, and failed reports since start, and `known` and `repeats` for [repeated reports](/docs/agents/capabilities/papercuts#repeated-reports) in the last 7 days. Undelivered reports stay in the journal for replay.
 
 Links in events and reports use `vitehub({ publicUrl })`. Without it, events have no `session_url`. Quota checks, app routing, and deployment revision labels stay in your app configuration.
 

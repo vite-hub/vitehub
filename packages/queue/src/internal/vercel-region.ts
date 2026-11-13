@@ -19,8 +19,8 @@ export function resolveVercelQueueRegion(explicitRegion: string | undefined) {
   if (region) return { region, requestScoped: false }
 
   // SAFETY: Queue host integrations supply Fetch or Nitro events; every header container is optional.
-  const event = getQueueRuntimeEvent() as { node?: { req?: { headers?: HeaderSource } }, req?: { headers?: HeaderSource }, request?: { headers?: HeaderSource } } | undefined
-  const headers = event?.request?.headers ?? event?.req?.headers ?? event?.node?.req?.headers
+  const event = getQueueRuntimeEvent() as { req?: { headers?: HeaderSource }, request?: { headers?: HeaderSource } } | undefined
+  const headers = event?.request?.headers ?? event?.req?.headers
   return {
     region: readHeader(headers, "ce-vqsregion") || parseRegionFromVercelId(readHeader(headers, "x-vercel-id")),
     requestScoped: event !== undefined,

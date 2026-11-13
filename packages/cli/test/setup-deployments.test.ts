@@ -89,7 +89,7 @@ function projectFiles(host: Host, linked = true): Record<string, string> {
   return {
     ".gitignore": ".vitehub\n",
     "package.json": JSON.stringify({ name: "my-app", type: "module" }),
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ preset: "${host}" })] })\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ host: "${host}" })] })\n`,
     ...(linked ? { ".vitehub/link.json": JSON.stringify(links[host]) } : {}),
   }
 }
