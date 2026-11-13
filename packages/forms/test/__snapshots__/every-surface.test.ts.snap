@@ -1,0 +1,250 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the payload of each surface > mcp 1`] = `
+{
+  "message": "Tell us how it went.",
+  "mode": "form",
+  "requestedSchema": {
+    "properties": {
+      "email": {
+        "format": "email",
+        "title": "Email",
+        "type": "string",
+      },
+      "followUp": {
+        "title": "Follow up",
+        "type": "boolean",
+      },
+      "message": {
+        "minLength": 5,
+        "title": "Your message",
+        "type": "string",
+      },
+      "rating": {
+        "maximum": 5,
+        "minimum": 1,
+        "title": "Rating",
+        "type": "integer",
+      },
+      "topic": {
+        "enum": [
+          "bug",
+          "idea",
+        ],
+        "title": "Topic",
+        "type": "string",
+      },
+    },
+    "required": [
+      "email",
+      "topic",
+      "rating",
+      "message",
+    ],
+    "type": "object",
+  },
+}
+`;
+
+exports[`the payload of each surface > slack 1`] = `
+{
+  "blocks": [
+    {
+      "block_id": "email",
+      "element": {
+        "action_id": "email",
+        "multiline": false,
+        "type": "plain_text_input",
+      },
+      "label": {
+        "text": "Email",
+        "type": "plain_text",
+      },
+      "optional": false,
+      "type": "input",
+    },
+    {
+      "block_id": "topic",
+      "element": {
+        "action_id": "topic",
+        "options": [
+          {
+            "text": {
+              "text": "bug",
+              "type": "plain_text",
+            },
+            "value": "bug",
+          },
+          {
+            "text": {
+              "text": "idea",
+              "type": "plain_text",
+            },
+            "value": "idea",
+          },
+        ],
+        "type": "static_select",
+      },
+      "label": {
+        "text": "Topic",
+        "type": "plain_text",
+      },
+      "optional": false,
+      "type": "input",
+    },
+    {
+      "block_id": "rating",
+      "element": {
+        "action_id": "rating",
+        "is_decimal_allowed": false,
+        "max_value": "5",
+        "min_value": "1",
+        "type": "number_input",
+      },
+      "label": {
+        "text": "Rating",
+        "type": "plain_text",
+      },
+      "optional": false,
+      "type": "input",
+    },
+    {
+      "block_id": "message",
+      "element": {
+        "action_id": "message",
+        "multiline": true,
+        "type": "plain_text_input",
+      },
+      "label": {
+        "text": "Your message",
+        "type": "plain_text",
+      },
+      "optional": false,
+      "type": "input",
+    },
+    {
+      "block_id": "followUp",
+      "element": {
+        "action_id": "followUp",
+        "options": [
+          {
+            "text": {
+              "text": "Yes",
+              "type": "mrkdwn",
+            },
+            "value": "true",
+          },
+          {
+            "text": {
+              "text": "No",
+              "type": "mrkdwn",
+            },
+            "value": "false",
+          },
+        ],
+        "type": "radio_buttons",
+      },
+      "label": {
+        "text": "Follow up",
+        "type": "plain_text",
+      },
+      "optional": true,
+      "type": "input",
+    },
+  ],
+  "callback_id": "feedback",
+  "close": {
+    "text": "Cancel",
+    "type": "plain_text",
+  },
+  "notify_on_close": undefined,
+  "private_metadata": undefined,
+  "submit": {
+    "text": "Submit",
+    "type": "plain_text",
+  },
+  "title": {
+    "text": "Feedback",
+    "type": "plain_text",
+  },
+  "type": "modal",
+}
+`;
+
+exports[`the payload of each surface > teams 1`] = `
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "actions": [
+    {
+      "data": {
+        "__callbackId": "feedback",
+      },
+      "style": "positive",
+      "title": "Submit",
+      "type": "Action.Submit",
+    },
+  ],
+  "body": [
+    {
+      "id": "email",
+      "isMultiline": false,
+      "isRequired": true,
+      "label": "Email",
+      "type": "Input.Text",
+    },
+    {
+      "choices": [
+        {
+          "title": "bug",
+          "value": "bug",
+        },
+        {
+          "title": "idea",
+          "value": "idea",
+        },
+      ],
+      "id": "topic",
+      "isRequired": true,
+      "label": "Topic",
+      "style": "compact",
+      "type": "Input.ChoiceSet",
+    },
+    {
+      "id": "rating",
+      "isRequired": true,
+      "label": "Rating",
+      "max": 5,
+      "min": 1,
+      "type": "Input.Number",
+    },
+    {
+      "id": "message",
+      "isMultiline": true,
+      "isRequired": true,
+      "label": "Your message",
+      "type": "Input.Text",
+    },
+    {
+      "choices": [
+        {
+          "title": "Yes",
+          "value": "true",
+        },
+        {
+          "title": "No",
+          "value": "false",
+        },
+      ],
+      "id": "followUp",
+      "isRequired": false,
+      "label": "Follow up",
+      "style": "expanded",
+      "type": "Input.ChoiceSet",
+    },
+  ],
+  "type": "AdaptiveCard",
+  "version": "1.5",
+}
+`;
+
+exports[`the payload of each surface > web 1`] = `"email=ada%40example.com&topic=bug&rating=4&message=Works+well&followUp=on&_page=%2F"`;
