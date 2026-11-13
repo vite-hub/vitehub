@@ -135,7 +135,7 @@ function formatReset(result: RateLimitResetInspection): string {
 
 const windowSchema = v.custom<RateLimitWindow>(value => v.is(v.pipe(v.string(), v.regex(/^\d+(?:\.\d+)?(?:ms|s|m|h|d)$/)), value))
 const finiteNumber = v.pipe(v.number(), v.finite())
-const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "cloudflare"]) }
+const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "kv", "cloudflare"]) }
 const scopeSchema = v.picklist(["global", "location", "process"])
 const counterSchema = v.object({
   limit: finiteNumber, remaining: finiteNumber, resetAt: v.optional(v.pipe(finiteNumber, v.minValue(-8.64e15), v.maxValue(8.64e15))),

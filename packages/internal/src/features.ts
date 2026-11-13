@@ -410,7 +410,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
       deno: unsupported("ViteHub has no native Deno Rate Limit driver."),
       dev: native("memory", "memory", "Process-local memory driver for development and tests.", "process-local"),
       netlify: unsupported("ViteHub has no native Netlify Rate Limit driver."),
-      node: native("memory", "memory", "The memory driver is safe only for a single process.", "process-local"),
+      node: native("memory", "memory, or KV", "Without KV, each process counts alone. With KV on, ViteHub selects the kv provider, which shares the counts when KV uses Redis or a Postgres Database.", "process-local"),
       vercel: unsupported("ViteHub has no native Vercel Rate Limit driver."),
     },
     id: "rateLimit",

@@ -31,6 +31,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "This server has no durability report. ViteHub records it when a Node server starts.",
       fix: "Run the app with the Node host, then run vitehub durability list against that server.",
     },
+    VITE_HUB_R0144: {
+      ...dynamicError,
+      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,
