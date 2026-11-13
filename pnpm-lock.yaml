@@ -3591,6 +3591,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      playwright-core:
+        specifier: catalog:browser
+        version: 1.63.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25
