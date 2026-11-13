@@ -79,7 +79,7 @@ cat .vitehub/rate-limit/manifest.json
 Read env values through the stable import paths, not the files behind them.
 
 ```ts [server/config.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 const env = useServerEnv()
 ```

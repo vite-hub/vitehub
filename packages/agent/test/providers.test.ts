@@ -673,7 +673,7 @@ describe("agent Vite plugin", () => {
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
-      await installStubPackages(root, ["@vite-hub/blob", "@vite-hub/connections/server", "@vite-hub/database/drizzle", "@vite-hub/email/server", "@vite-hub/kv", "vite-hub/email/server", "vite-hub/kv"])
+      await installStubPackages(root, ["@vite-hub/blob", "@vite-hub/connections/server", "@vite-hub/database/runtime/registry", "@vite-hub/email", "@vite-hub/kv", "vite-hub/email", "vite-hub/kv"])
       await configResolved({
         command: "serve",
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/connections/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
@@ -684,8 +684,8 @@ describe("agent Vite plugin", () => {
 
       expect(route).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
       expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(route).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
-      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      expect(route).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/runtime/registry"')
+      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email"')
       expect(route).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
       expect(route).toContain(
         "const vitehubAgentRouteCapabilities = { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv }",
@@ -696,7 +696,7 @@ describe("agent Vite plugin", () => {
       const filteredPlugin = hubAgent({
         runtimeCapabilityImports: {
           blob: false,
-          email: "vite-hub/email/server",
+          email: "vite-hub/email",
           kv: "vite-hub/kv",
         },
         workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
@@ -716,7 +716,7 @@ describe("agent Vite plugin", () => {
       })
       const filteredRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(filteredRoute).not.toContain("vite-hub/blob")
-      expect(filteredRoute).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
+      expect(filteredRoute).toContain('import { email as vitehubEmail } from "vite-hub/email"')
       expect(filteredRoute).toContain('import { kv as vitehubKv } from "vite-hub/kv"')
       expect(filteredRoute).toContain("const vitehubAgentRouteCapabilities = { blob: false, email: vitehubEmail, kv: vitehubKv }")
       expect(filteredRoute).toContain(
@@ -757,7 +757,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
-      await installStubPackages(root, ["@vite-hub/kv", "@vite-hub/local-email/server"])
+      await installStubPackages(root, ["@vite-hub/kv", "@vite-hub/local-email"])
       const plugin = hubAgent()
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
@@ -776,7 +776,7 @@ describe("agent Vite plugin", () => {
       const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(route).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
       // A Vite alias makes the import resolvable. The route keeps the specifier that Vite aliases.
-      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email"')
       // The app cannot import @vite-hub/blob, so the route omits it.
       expect(route).not.toContain("vitehubBlob")
     }
@@ -796,9 +796,9 @@ describe("agent Vite plugin", () => {
       const customResolver = vi.fn(() => "\0virtual:email")
       let expectedId: string
       if (resolution === "import-only exports" || resolution === "custom export condition") {
-        await installStubPackages(root, ["@vite-hub/email/server"])
+        await installStubPackages(root, ["@vite-hub/email"])
         await writeFile(join(root, "node_modules", "@vite-hub/email", "package.json"), JSON.stringify({
-          exports: { "./server": conditions ? { "capability-test": { import: "./index.js" } } : { import: "./index.js" } },
+          exports: { ".": conditions ? { "capability-test": { import: "./index.js" } } : { import: "./index.js" } },
           type: "module",
         }), "utf8")
         expectedId = join(root, "node_modules", "@vite-hub/email", "index.js")
@@ -806,11 +806,11 @@ describe("agent Vite plugin", () => {
       else if (resolution === "extensionless TypeScript alias") {
         expectedId = join(root, "email.ts")
         await writeFile(expectedId, "export const email = {}", "utf8")
-        alias.push({ find: "@vite-hub/email/server", replacement: join(root, "email") })
+        alias.push({ find: "@vite-hub/email", replacement: join(root, "email") })
       }
       else {
         expectedId = "\0virtual:email"
-        alias.push({ customResolver, find: "@vite-hub/email/server", replacement: "virtual:email" })
+        alias.push({ customResolver, find: "@vite-hub/email", replacement: "virtual:email" })
       }
       const plugin = hubAgent()
       const configResolvedHook: unknown = plugin.configResolved
@@ -820,14 +820,14 @@ describe("agent Vite plugin", () => {
       await configResolved({ command: "serve", createResolver, plugins: [{ name: "@vite-hub/email/vite" }], resolve: { alias, conditions }, root })
 
       const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
-      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email"')
       expect(route).toContain("email: vitehubEmail")
       expect(createResolver).not.toHaveBeenCalled()
       expect(customResolver).not.toHaveBeenCalled()
 
       // These imports really resolve in Vite; custom alias hooks run only when Vite loads the route.
       const config = await resolveConfig({ configFile: false, envFile: false, logLevel: "silent", resolve: { alias, conditions }, root }, "serve")
-      expect(await config.createResolver()("@vite-hub/email/server", join(root, ".vitehub/agent/chat-webhook-route.ts"))).toBe(expectedId.replace(/\\/g, "/"))
+      expect(await config.createResolver()("@vite-hub/email", join(root, ".vitehub/agent/chat-webhook-route.ts"))).toBe(expectedId.replace(/\\/g, "/"))
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -916,7 +916,7 @@ describe("agent Vite plugin", () => {
       }) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
-      await installStubPackages(root, ["@vite-hub/blob", "vite-hub/console/server", "@vite-hub/database/drizzle", "@vite-hub/email/server"])
+      await installStubPackages(root, ["@vite-hub/blob", "vite-hub/console/server", "@vite-hub/database/runtime/registry", "@vite-hub/email"])
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await configResolved({
         command: "build",
@@ -952,8 +952,8 @@ describe("agent Vite plugin", () => {
       )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(registry).toContain('import { console as vitehubConsole } from "vite-hub/console/server"')
-      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(registry).toContain('import { agentConsole as vitehubConsole } from "vite-hub/console/server"')
+      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/runtime/registry"')
       expect(registry).toContain(
         `import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       )
@@ -2114,7 +2114,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      await installStubPackages(root, ["@vite-hub/connections/server", "@vite-hub/database/drizzle"])
+      await installStubPackages(root, ["@vite-hub/connections/server", "@vite-hub/database/runtime/registry"])
       const plugin = hubAgent({ routes: { discordGateway: true } })
       const schedulePlugin = { name: "@vite-hub/schedule/vite" }
       if (typeof plugin.configResolved === "function") {
@@ -2161,7 +2161,7 @@ describe("agent Vite plugin", () => {
       expect(denoServer).not.toContain("schedule-registry.js")
       expect(denoServer).not.toContain("@vite-hub/schedule/runtime")
       expect(denoServer).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(denoServer).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(denoServer).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/runtime/registry"')
       expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
@@ -2204,7 +2204,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      await installStubPackages(root, ["@vite-hub/database/drizzle", "@vite-hub/email/server"])
+      await installStubPackages(root, ["@vite-hub/database/runtime/registry", "@vite-hub/email"])
       const emailPlugin = hubEmail({ driver: "resend" })
       if (typeof emailPlugin.configResolved === "function") {
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -2234,7 +2234,7 @@ describe("agent Vite plugin", () => {
       expect([emailRuntime, emailDefinition].join("\n")).not.toContain(root)
       expect([emailRuntime, emailDefinition].join("\n")).not.toMatch(/node_modules[/\\\\]/)
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(denoServer).toContain("@vite-hub/database/drizzle")
+      expect(denoServer).toContain("@vite-hub/database/runtime/registry")
       const emailBundle = join(root, "email-runtime-bundle.mjs")
       await bundleEsmEntry(join(root, ".vitehub/agent/email-runtime.js"), emailBundle, {
         alias: { "@vite-hub/email": resolve(import.meta.dirname, "../../email/dist/index.js") },
@@ -2258,10 +2258,10 @@ describe("agent Vite plugin", () => {
             resolve: {
               alias: agentProviderOutputAliases([
                 // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
-                { find: "@vite-hub/email/server", replacement: resolve(import.meta.dirname, "../../email/src/server.ts") },
+                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
                 { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
                 // Since #2493 the Netlify function also imports the host database capability.
-                { find: "@vite-hub/database/drizzle", replacement: resolve(import.meta.dirname, "../../database/src/drizzle.ts") },
+                { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/src/runtime/registry.ts") },
               ]),
             },
             root,
@@ -2275,7 +2275,7 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(netlifyFunction).toContain("@vite-hub/database/drizzle")
+      expect(netlifyFunction).toContain("@vite-hub/database/runtime/registry")
     } finally {
       await rm(root, { force: true, recursive: true })
     }

@@ -54,7 +54,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (!calls.sends && !usesModule) throw new CodemodError("No server code calls emails.send() on a Resend client, so there is nothing to migrate.")
 
   if (!calls.sends && calls.useResendRemaining.length) {
-    throw new CodemodError(`useResend() is used in ways the codemod does not rewrite (${calls.useResendRemaining.join(", ")}), so nothing was migrated. Replace those emails.send() calls with email.send() from vite-hub/email/server, then run the codemod again.`)
+    throw new CodemodError(`useResend() is used in ways the codemod does not rewrite (${calls.useResendRemaining.join(", ")}), so nothing was migrated. Replace those emails.send() calls with email.send() from vite-hub/email, then run the codemod again.`)
   }
   // nuxt-resend provides useResend(), so it stays while any call is left.
   const keepModule = calls.useResendRemaining.length > 0

@@ -4,7 +4,6 @@ import type { Plugin } from "vite"
 import {
   defineEnvProvider,
   env,
-  loadServerEnv,
   SecretEnv,
   type EnvDeclarations,
   type EnvOptions,
@@ -12,6 +11,7 @@ import {
   type EnvVariableDeclaration,
   type ServerEnvInspection,
 } from "../src/index.ts"
+import { loadServerEnv } from "../src/server.ts"
 import { hubEnv } from "../src/vite.ts"
 
 describe("types", () => {

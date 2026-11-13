@@ -1,8 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { useDatabaseBinding as usePublishedDatabaseBinding } from "@vite-hub/database/drizzle"
-import type { useDatabaseBinding } from "../src/drizzle.ts"
-import type { DatabaseD1Binding } from "../src/runtime/agent.ts"
+import type { DatabaseD1Binding, useDatabaseBinding as usePublishedDatabaseBinding } from "@vite-hub/database"
+import type { useDatabaseBinding } from "../src/index.ts"
 
 describe("D1 binding and session types", () => {
   it("exposes only operations available on request sessions", () => {

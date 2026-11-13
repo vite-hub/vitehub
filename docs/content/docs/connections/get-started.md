@@ -128,7 +128,7 @@ In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` and `
 Create `server/connections/google.ts`. The file name is the name of the Connection: `google`. This Connection can only read Gmail.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 

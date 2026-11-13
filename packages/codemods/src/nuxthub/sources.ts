@@ -20,8 +20,8 @@ type Feature = "kv" | "blob"
 
 /** NuxtHub import paths and the ViteHub path that replaces each one. */
 const replacedSources: Record<string, string> = {
-  "hub:db": "vite-hub/database/drizzle",
-  "@nuxthub/db": "vite-hub/database/drizzle",
+  "hub:db": "vite-hub/database",
+  "@nuxthub/db": "vite-hub/database",
   "hub:kv": "vite-hub/kv",
   "@nuxthub/kv": "vite-hub/kv",
   "hub:blob": "vite-hub/blob",
@@ -31,7 +31,7 @@ const schemaSources = new Set(["hub:db:schema", "@nuxthub/db/schema"])
 
 /** Names that each ViteHub path exports for a NuxtHub import. */
 const knownExports: Record<string, ReadonlySet<string>> = {
-  "vite-hub/database/drizzle": new Set(["db", "schema"]),
+  "vite-hub/database": new Set(["db", "schema"]),
   "vite-hub/kv": new Set(["kv"]),
   "vite-hub/blob": new Set(["blob", "ensureBlob", "BlobObject", "BlobListResult", "BlobPutOptions"]),
 }
@@ -45,7 +45,7 @@ const tupleMethods: Record<Feature, ReadonlySet<string>> = {
 const legacyHelpers: Record<string, (features: HubFeatures) => string> = {
   hubBlob: features => `hubBlob() was removed in NuxtHub 0.10. Import blob from "vite-hub/blob" and call its methods; serve() returns a Response, and the other methods return [error, value] tuples.${features.blob ? "" : " Set blob: true under vitehub too."}`,
   hubKV: features => `hubKV() was removed in NuxtHub 0.10. Import kv from "vite-hub/kv" and call its methods; each returns an [error, value] tuple.${features.kv ? "" : " Set kv: true under vitehub too."}`,
-  hubDatabase: features => `hubDatabase() was removed in NuxtHub 0.10. Query the Database Definition with db from "vite-hub/database/drizzle".${features.database ? "" : " Set database: true under vitehub and write server/databases/default/index.ts too."}`,
+  hubDatabase: features => `hubDatabase() was removed in NuxtHub 0.10. Query the Database Definition with db from "vite-hub/database".${features.database ? "" : " Set database: true under vitehub and write server/databases/default/index.ts too."}`,
   hubAI: () => "hubAI() was removed in NuxtHub 0.10, and ViteHub has no AI feature. Call the AI provider SDK directly.",
   hubAutoRAG: () => "hubAutoRAG() was removed in NuxtHub 0.10, and ViteHub has no AutoRAG feature.",
   hubVectorize: () => "hubVectorize() was removed in NuxtHub 0.10, and ViteHub has no Vectorize feature.",
@@ -310,7 +310,7 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
           const imported = keyName(specifier.imported)
           if (exported && imported && !exported.has(imported)) followUps.push({ file, line: at(specifier), message: `Check that ${replacement} exports ${imported}. The codemod changed the path only.` })
           if ((imported === "kv" || imported === "blob") && replacement === `vite-hub/${imported}`) receivers.set(specifier.local.name, imported)
-          if (imported === "db" && replacement === "vite-hub/database/drizzle") databases.add(specifier.local.name)
+          if (imported === "db" && replacement === "vite-hub/database") databases.add(specifier.local.name)
         }
       })
       const script = !file.endsWith(".vue")

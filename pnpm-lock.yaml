@@ -278,8 +278,8 @@ catalogs:
       specifier: ^1.3.6
       version: 1.3.6
     '@t3tools/provider-runtime':
-      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8
-      version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8
+      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
+      version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
     '@types/proper-lockfile':
       specifier: 4.1.4
       version: 4.1.4
@@ -1107,7 +1107,7 @@ importers:
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -2874,7 +2874,7 @@ importers:
         version: 1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -3764,6 +3764,9 @@ importers:
       '@vite-hub/cms':
         specifier: workspace:*
         version: link:../cms
+      '@vite-hub/codemods':
+        specifier: workspace:*
+        version: link:../codemods
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
@@ -9857,16 +9860,21 @@ packages:
   '@swc/types@0.1.28':
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@7e2dc399a7e93c4a8da14c12545ad33d024df0d8':
-    resolution: {integrity: sha512-wY8kg8KAS2sBCGzeS4/Jsfq9GiBFGoi344WqUdJ0s+B1cgC3DnKKrp/nFdAT6wRNQU1Amt0vVCthMpUnJARKXg==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@7e2dc399a7e93c4a8da14c12545ad33d024df0d8}
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@2a519db9ccb4227091f0d8a839d7121af9d6aed5':
+    resolution: {integrity: sha512-poatJgDh3PAnwOzPMQmc8gunJTLv3z6pAHqtctGwznJURGMg/1lffyaH6sFez3edybPdZweDYJDWalniUCHZ/g==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@2a519db9ccb4227091f0d8a839d7121af9d6aed5}
     version: 0.0.45
     peerDependencies:
       effect: 4.1.2
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8':
-    resolution: {integrity: sha512-bRAI5eJOAL5WIfl1nWuD6+ST4HQzGD99m19lzxXR+J3gjlCKxdm57Ggklit5l6lXtb5BjGPdvxju5+zWJrz7nQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8}
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5':
+    resolution: {integrity: sha512-6rcp6UJ538+tFqnsro6TsvPXa5sjOSPyB6Fo/2F1qZWyH1qwXZULcSLkRzafoDuPiNo+a2HJP6r1Fmqn/JBuHA==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
+    peerDependencies:
+      '@anthropic-ai/claude-agent-sdk': ^0.3.321
+    peerDependenciesMeta:
+      '@anthropic-ai/claude-agent-sdk':
+        optional: true
 
   '@tailwindcss/node@4.3.3':
     resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
@@ -27477,13 +27485,13 @@ snapshots:
     dependencies:
       '@swc/counter': 0.1.3
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@7e2dc399a7e93c4a8da14c12545ad33d024df0d8(effect@4.1.2)':
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@2a519db9ccb4227091f0d8a839d7121af9d6aed5(effect@4.1.2)':
     dependencies:
       effect: 4.1.2
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@7e2dc399a7e93c4a8da14c12545ad33d024df0d8':
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5':
     dependencies:
-      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@7e2dc399a7e93c4a8da14c12545ad33d024df0d8(effect@4.1.2)
+      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@2a519db9ccb4227091f0d8a839d7121af9d6aed5(effect@4.1.2)
       effect: 4.1.2
 
   '@tailwindcss/node@4.3.3':

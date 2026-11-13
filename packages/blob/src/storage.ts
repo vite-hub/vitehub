@@ -268,7 +268,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     normalizePathname: pathname => normalizePathname(pathname, { prefix: true }),
     // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
     storage: {
-      del: pathnames => storage.del(pathnames),
+      delete: pathnames => storage.delete(pathnames),
       list: listOptions => storage.list(listOptions),
       put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
     },
@@ -298,9 +298,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         store,
       ))
     },
-    async del(pathnames: string | string[]) {
+    async delete(pathnames: string | string[]) {
       const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
-      return blobResult("del", store, async () => {
+      return blobResult("delete", store, async () => {
         await driver.delete(normalizedPathnames)
         await Promise.all(normalizedPathnames.map(clearDerived))
       })

@@ -66,7 +66,7 @@ export default defineConfig({
       {
         path: "server/config.ts",
         language: "typescript",
-        content: `import { useServerEnv } from '#vitehub/env/server'
+        content: `import { useServerEnv } from 'vite-hub/env'
 
 export function isDryRun() {
   const { dryRun } = useServerEnv()

@@ -225,9 +225,9 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
     expect(secret).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it("reads NUXT_APP_SECRET and Cloudflare bindings of the event", async () => {
+  it("ignores NUXT_APP_SECRET and reads Cloudflare bindings of the event", async () => {
     vi.stubEnv("NUXT_APP_SECRET", root)
-    expect(resolveAuthOptions(definition).providerOptions.secret).toBe(await deriveViteHubSecret(root, "vitehub:auth"))
+    expect(resolveAuthOptions(definition).providerOptions.secret).not.toBe(await deriveViteHubSecret(root, "vitehub:auth"))
     vi.stubEnv("NUXT_APP_SECRET", undefined)
 
     const other = `${root}-cloudflare`

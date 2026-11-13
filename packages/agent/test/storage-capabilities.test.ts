@@ -24,7 +24,7 @@ describe("storage capabilities", () => {
   it("exposes curated KV read and edit tools", async () => {
     const { kv } = await import("../src/capabilities.ts")
     const store = {
-      del: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
       get: vi.fn(async () => "value"),
       keys: vi.fn(async () => ["app:1"]),
       set: vi.fn(async () => undefined),
@@ -46,7 +46,7 @@ describe("storage capabilities", () => {
     await tools.kv_edit!.execute?.({ key: "app:2", operation: "put", value: { ok: true } })
     await tools.kv_edit!.execute?.({ key: "app:2", operation: "delete" })
     expect(store.set).toHaveBeenCalledWith("app:2", { ok: true })
-    expect(store.del).toHaveBeenCalledWith("app:2")
+    expect(store.delete).toHaveBeenCalledWith("app:2")
   })
 
   it("selects configured KV and Blob stores from capability options", async () => {
@@ -70,7 +70,7 @@ describe("storage capabilities", () => {
     const { blob, kv } = await import("../src/capabilities.ts")
     const failure = new Error("storage failed")
     const kvStore = {
-      del: vi.fn(async () => [undefined, undefined] as const),
+      delete: vi.fn(async () => [undefined, undefined] as const),
       get: vi.fn(async () => [undefined, ["tuple", "value"]] as const),
       keys: vi.fn(async () => [failure, undefined] as const),
       set: vi.fn(async () => [undefined, undefined] as const),
@@ -100,7 +100,7 @@ describe("storage capabilities", () => {
       },
     } as unknown as ReadonlyWorkspaceFacade
     const store = {
-      del: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
       get: vi.fn(async () => new Blob(["body"])),
       head: vi.fn(async () => ({ pathname: "images/a.png" })),
       list: vi.fn(async () => ({ blobs: [], hasMore: false })),
@@ -128,7 +128,7 @@ describe("storage capabilities", () => {
     expect(store.put).toHaveBeenCalledWith("images/a.png", body, { contentType: "image/png" })
     expect(workspace.fs.readFile).toHaveBeenCalledWith("screenshots/result.png", { encoding: "binary" })
     expect(store.put).toHaveBeenCalledWith("images/from-workspace.png", workspaceBytes, undefined)
-    expect(store.del).toHaveBeenCalledWith("images/a.png")
+    expect(store.delete).toHaveBeenCalledWith("images/a.png")
   })
 
   it("uploads a current input attachment by id", async () => {
@@ -139,7 +139,7 @@ describe("storage capabilities", () => {
     const fetchData = vi.fn(async () => bytes)
     const attachment = { id: "attachment-1", mediaType: "image/jpeg", type: "image" as const, fetchData }
     const store = {
-      del: vi.fn(),
+      delete: vi.fn(),
       get: vi.fn(),
       head: vi.fn(),
       list: vi.fn(),
@@ -184,7 +184,7 @@ describe("storage capabilities", () => {
     const { blob } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const store = {
-      del: vi.fn(),
+      delete: vi.fn(),
       get: vi.fn(),
       head: vi.fn(),
       list: vi.fn(),

@@ -8,6 +8,43 @@ navigation.kind: Guides
 
 The Babysitter preset (an Agent Definition that your Agent extends) fixes review feedback and failing checks on your pull requests, waits for new results without another model run, and can merge ready ones. One model run on a pull request is a *pass*.
 
+## Minimal setup
+
+Without options, the Babysitter repairs pull requests from people with write access to the repository, skips a pull request labelled `babysitter:skip`, and merges a ready one into the default branch. It serves the repositories its GitHub App can access. To limit them, name the repositories:
+
+```ts [server/agents/babysitter/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { babysitter } from 'vite-hub/presets/babysitter'
+
+export default defineAgent({
+  extends: babysitter,
+  options: { filter: { repository: { allow: ['acme/app'] } } },
+})
+```
+
+Then:
+
+1. Turn on the Agent integration with the Node preset ([Enable the Agent integration](#enable-the-agent-integration)).
+2. Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events, and set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`. Install it on the repositories.
+3. Set these variables on the host:
+
+| Variable | Value |
+| --- | --- |
+| `VITEHUB_GITHUB_APP_ID` | The App ID. |
+| `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | The App private key, or the path of its PEM file. |
+| `VITEHUB_GITHUB_WEBHOOK_SECRET` | The App's webhook secret. |
+| `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. |
+
+4. Sign in the provider CLI on the host, such as `codex login` for the default `codex` driver ([Agent Drivers](/docs/agents/agent-drivers)).
+
+When a GitHub variable is missing, the host does not start and logs `PRESETS_BABYSITTER_ENV_MISSING` with every missing name. It retries with backoff, so a fixed variable needs no restart. At startup, the host creates the labels that the filter names, such as `babysitter:skip`, in each repository that lacks them.
+
+| Default | Change it with |
+| --- | --- |
+| Only authors whose `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR` | Any `filter.author` or `filter.authorAssociation` rule replaces it. `filter.authorAssociation: {}` selects every author. |
+| A pull request labelled `babysitter:skip` gets no work | `lifecycle.labels` or `filter.labels` replace it. `lifecycle: { labels: {} }` turns it off. |
+| Ready pull requests merge directly, and a pull request from someone without write access waits for a maintainer's approval ([Gate outside contributors](#gate-outside-contributors)) | `merge: false` never merges. `merge: { strategy: 'direct', ready: () => true }` drops the approval gate. |
+
 ## Enable the Agent integration
 
 Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host:
@@ -79,10 +116,10 @@ The preset prompt already carries the generic repair rules: it classes findings 
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
-| `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
+| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without an `author` or `authorAssociation` rule, only authors with write access are selected. Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
+| `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. Without them or `filter.labels`, `babysitter:skip` pauses a pull request. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
+| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady, bypassInheritedChecks }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). `bypassInheritedChecks` is off by default ([Failures from the base branch](#failures-from-the-base-branch)). |
 | `merge.markDraftsReady` | `[]` | Logins whose drafts the host marks ready for review once a pass has reviewed the head and no required check failed. Only drafts from a branch in the repository itself qualify, so a fork's draft stays a draft. |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
@@ -90,6 +127,9 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A GitHub Actions check counts as stuck after 24 hours in the queue or 8 hours running. Other checks count as stuck after 30 minutes. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
+| `dailyPushBudget` | `false` | Repair pushes per PR in a rolling 24 hours ([Limit pushes per pull request](#limit-pushes-per-pull-request)). `false` turns it off. |
+| `priorityLabels` | `[]` | Labels that put a PR first in the queue, after main repairs, and exempt it from `dailyPassBudget` and `dailyPushBudget`. Matched case-insensitively. |
+| `mainRepairBranchPrefix` | None | Head branch prefix of PRs that repair the base branch, such as `'repair-main-'`. These PRs go first in the queue, and `noProgressBudget` never stops them. |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
 | `minorReviewRounds` | `false` | Heads in a row whose automated review has no valid finding above P2. Then automated review settles as if `reviewPushBudget` were spent ([Stop review ping-pong](#stop-review-ping-pong)). Needs `reviewPushBudget`. |
 | `reviewConvergencePushes` | `false` | Review-driven pushes after which each pass is asked to fix a recurring class of finding at its root instead of one more case. |
@@ -101,6 +141,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `mentionAllowlist` | `[]` | Exact GitHub logins that the worker can notify with `mentionOnPullRequest`, only for verified blockers that need one person to act. |
 | `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, also uses this limit. |
 | `modelConcurrency` | `concurrency` | Model passes at the same time. Match what your provider accounts can serve. |
+| `providerRetries` | `3` | Retries of a provider rate limit before the cooldown starts. Use `0` when the provider already retries, as Codex does. |
 | `providerCooldownMs` | `300000` | First cooldown after a pass uses all its provider rate-limit retries ([Provider rate limits](#provider-rate-limits)). |
 | `admission` | `{}` | Token budgets, a free-space check, and custom checks that stop model passes ([Limit model passes](#limit-model-passes)). |
 | `status` | `{ comment: true, checkRun: true }` | Where the PR shows the Babysitter's state: the activity comment and a `babysitter` check run on the head ([Status on the pull request](#status-on-the-pull-request)). |
@@ -128,7 +169,7 @@ filter: {
 
 ## Gate outside contributors
 
-With `ready: 'approved-if-outside'`, the host merges a pull request from someone without write access only after a maintainer approves it:
+A direct merge uses `ready: 'approved-if-outside'` unless you pass another `ready`. The host then merges a pull request from someone without write access only after a maintainer approves it:
 
 ```ts fragment
 merge: { strategy: 'direct', ready: 'approved-if-outside' },
@@ -142,11 +183,11 @@ merge: { strategy: 'direct', ready: 'approved-if-outside' },
 
 The Babysitter still repairs the pull request while it waits.
 
-For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits.
+For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits. `ready: () => true` merges every ready pull request, including bot pull requests, whose author has no write access.
 
 ## Control work with labels
 
-Create the configured labels in your repositories. With the example above, add `agent:repair` to start work, add `agent:paused` to pause, and remove it to resume.
+At startup, the host creates the configured labels in repositories that lack them. With the example above, add `agent:repair` to start work, add `agent:paused` to pause, and remove it to resume.
 
 | Pull request labels | Eligible for work |
 | --- | --- |
@@ -213,14 +254,15 @@ Health shows the decision in `admission`, and token use, limits, and the `check`
 
 ## Provider rate limits
 
-On a provider rate limit (HTTP 429), a pass retries three times, 10 seconds apart. Then the host starts a cooldown:
+On a provider rate limit (HTTP 429), a pass retries `providerRetries` times (default `3`), 10 seconds apart. Then the host starts a cooldown:
 
 - Model passes stop until it ends. Host work continues: ready pull requests still merge directly and stacks still retarget. Pull requests that need a pass stay queued, unchanged.
 - The pass that ran out of retries waits for the cooldown. It is not reported as failed and does not count against `noProgressBudget`, and neither does a pass cancelled after a rate limit.
 - The first cooldown lasts `providerCooldownMs`. Each next one doubles, up to one hour, and halves the passes that can start, never below two. Passes that fail together count as one.
 - A successful pass removes one step only when it ends at least 30 minutes after the last cooldown, so capacity comes back slowly.
+- A pass that the provider fails with a rate limit or a dropped stream within 10 minutes of its start does not count against `dailyPassBudget`, and gives back the exemption it used.
 
-A GitHub rate limit uses a separate breaker that stops every GitHub request of the host, including merges, for one hour.
+A GitHub rate limit uses a separate breaker that stops every GitHub request of the host, including merges. The error does not say when the limit resets, and a secondary limit lifts within minutes. So the first stop lasts five minutes, and each stop that starts within two hours of the previous one doubles, up to one hour.
 
 ## Bound local verification
 
@@ -375,6 +417,8 @@ It starts with the server. A development server starts it only with `VITEHUB_AGE
 
 To replace the process, send SIGUSR2, wait for the drain route to report `drained`, then restart. Running passes finish first.
 
+SIGTERM, such as `systemctl restart`, does not wait for running passes. It stops new claims and gives the passes the shared [`agent.shutdown.drainMs`](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) budget (default `0`) plus 15 seconds, then the process exits and the passes stop. Commits that a pass already pushed stay. The next process releases the stopped claims, removes their workspaces, and claims those pull requests again from their current head.
+
 ## How it works
 
 1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute. With more than 40 repositories, the listing runs every 1.5 seconds per repository instead, to stay within the GraphQL rate limit.
@@ -385,7 +429,7 @@ To replace the process, send SIGUSR2, wait for the drain route to report `draine
 
 A draft never merges. With `merge.markDraftsReady`, the host marks a listed author's reviewed draft ready for review; the `ready_for_review` event wakes it and starts workflows that skip drafts. Other drafts wait for a person.
 
-Assessed feedback stays assessed on later heads, so a pull request whose push fixed every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment causes no pass. When the base branch has no required checks, the newest run of every check on the current head must finish before a merge; earlier runs of a rerun check are ignored.
+Assessed feedback stays assessed on later heads, so a pull request whose push fixed every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment causes no pass. When the base branch has no required checks, the newest run of every check on the current head must finish before a merge, and a failing GitHub Actions check outside `reviewChecks` blocks it; earlier runs of a rerun check are ignored, and so is a cancelled run beside a finished run of the same check. When a pass assessed the current head and every feedback item, failing `reviewChecks` alone no longer block the merge.
 
 A wait is bound to the head that the pass saw: a new head clears it, and closing the pull request stops work. Wake conditions come from structured evidence about checks, reviews, the base, and mergeability, never the model's text. A wait does not allow a merge. The inbox is private; read it through the health route.
 
@@ -397,7 +441,27 @@ The install in each pass workspace gets only the `PATH`, `HOME`, locale, package
 
 Two pull requests that change the same file can both pass checks and still break the base together. Before a direct merge, the host compares the changed files with files changed on the base since the checks ran. On overlap, or when the tested base is unknown, it updates the branch through GitHub and waits for checks on the new head instead. A head that already contains the base tip needs no update. A base that requires up-to-date branches gets the same update when the pull request is only behind it. When GitHub refuses the update, as it does for some stacked pull requests, the host merges the base into a head branch in the same repository through the merges API, after checking that the head did not move. Failed checks from an older base get one update and retest every six hours, when the current base tip has no failing check. Neither step starts a model pass.
 
-The queue claims, in order: a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
+The queue claims, in order: pull requests whose head branch starts with `mainRepairBranchPrefix`, pull requests with one of `priorityLabels`, a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
+
+### Failures from the base branch
+
+With `merge: 'direct'`, the host reads the logs of failing GitHub Actions jobs before a model pass. A job fails *the same way on the base* when the same job fails on the base branch tip in the same step, and the pull request's output names no failure that the base's lacks. A missing log proves nothing. When every failing required check fails the same way on the base, or stopped on a runner or network error, the pull request waits without a pass: it looks again every 15 minutes and is retested once the base passes. A runner or network error gets one branch update for a fresh run, once per head and base and at most hourly. A conflict, a person's feedback, a person's open review thread, or a head branch matching `mainRepairBranchPrefix` still starts a pass. A failing optional check still gets the pass that assesses it.
+
+A required check that never reported on a head whose checks finished 10 minutes ago gets a fresh run once per head every six hours: the host updates a branch that is behind its base, or reruns the head's Actions runs.
+
+`bypassInheritedChecks` lets the host merge past such failures. It maps a repository to the required checks it may skip:
+
+```ts [server/agents/babysitter/agent.ts] fragment
+export default defineAgent({
+  extends: babysitter,
+  options: {
+    filter: { repository: { allow: ['acme/app'] } },
+    merge: { strategy: 'direct', bypassInheritedChecks: { 'acme/app': ['ci'] } },
+  },
+})
+```
+
+Before the merge, the host rereads the head's checks, the base branch tip, the branch protection and rulesets, the review decision, and the review threads. It merges only when the named checks fail the same way on the tip, every other check passes, and every other branch rule is known and satisfied. The merge bypasses branch rules, so the GitHub App must be a bypass actor of the ruleset, or the classic protection must not apply to admins. The host records the head, base, and skipped checks in its inbox as `inherited-merge-proof:<repository>#<number>`.
 
 While GitHub still computes mergeability, the host rereads the pull request for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
 
@@ -429,8 +493,24 @@ When the budget is spent, the host parks the pull request before the next pass u
 - a person's comment or review that no pass saw yet
 - the first failing required check on a head
 - a merge conflict on a pull request with no failing check and no open review thread, once per head and base commit
+- any other merge conflict, once per head
+- a head whose required checks pass, once per head, so a failing optional check cannot hold its merge for a day
+- with `dailyPushBudget`, a head whose required checks fail, once for each time the push budget allows a push again
+- a pull request with one of `priorityLabels`, which the budget never holds
 
 The inbox stores the `dailyPassBudget` record `{ passes, human, exemptions }`, which the inbox summary also returns. `passes` holds the start time of each pass in the last 24 hours.
+
+### Limit pushes per pull request
+
+`dailyPushBudget` (default `false`) limits repair pushes per pull request in a rolling 24 hours, so review loops cannot add dozens of commits to one pull request. When it is spent:
+
+- `pushRepair` refuses the push and tells the model when the next push is allowed. The model then answers the review threads and reports the current head as reviewed.
+- A pass that resolves a merge conflict still pushes, and so does a pull request with one of `priorityLabels`.
+- A pull request whose required checks fail may still push once every two hours, so a validated CI repair does not wait a day. Between those pushes, the host parks it without a pass. Health lists it under `queue.parked` with `budget: "daily-push-budget"` and `resumeAt`. A person's comment or review or a merge conflict still starts a pass.
+- The prompt says whether the pass can push. When required checks fail, it also asks the model to fix them before review findings.
+- With `merge: 'direct'`, a reviewed head with failing required checks waits only while the budget refuses its push, and then gets the pass that repairs it.
+
+The inbox keeps the push times in the `repair-pushes:<repository>#<number>` meta entry.
 
 ### Dependency installation
 

@@ -31,16 +31,10 @@ function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
-/**
- * Reads the root app secret from an env record: `VITEHUB_SECRET`, then `NUXT_APP_SECRET`, so a Nuxt app needs only one
- * secret. Returns `undefined` when neither is a non-empty string.
- */
+/** Reads the root app secret, `VITEHUB_SECRET`, from an env record. Returns `undefined` when it is not a non-empty string. */
 export function readViteHubSecret(env: Readonly<Record<string, unknown>>): string | undefined {
-  for (const name of ["VITEHUB_SECRET", "NUXT_APP_SECRET"]) {
-    const value = env[name]
-    if (typeof value === "string" && value) return value
-  }
-  return undefined
+  const value = env.VITEHUB_SECRET
+  return typeof value === "string" && value ? value : undefined
 }
 
 /**
