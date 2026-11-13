@@ -7,7 +7,7 @@ import { normalizeKVOptions } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -38,7 +38,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING")
+  const explicit = readEnv(env, "VITEHUB_HOST")
   if (explicit) {
     return explicit
   }
@@ -103,6 +103,17 @@ async function resolveStorage(name = "default") {
   return promise
 }
 
+/**
+ * The configured driver that a store uses in this server process. App tests return `fs-lite`.
+ * An unknown store throws. Reading the driver does not open a connection to the store.
+ */
+export async function getKVStoreDriver(name: KVStoreName = "default"): Promise<KVDriver> {
+  const config = await resolveHostedConfig()
+  const store = resolveHostedKVStore(config.kv, name)
+  if (getViteHubTestMode()) return "fs-lite"
+  return store.driver
+}
+
 async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   operation: KVOperation,
   name: string,
@@ -117,7 +128,7 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async deleteIfEquals(key, expected) {
       return runKVOperation("deleteIfEquals", name, async (storage) => {
         if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })

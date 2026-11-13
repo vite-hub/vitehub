@@ -1,4 +1,4 @@
-import { email } from "vite-hub/email/server";
+import { email } from "vite-hub/email";
 
 const config = useRuntimeConfig();
 

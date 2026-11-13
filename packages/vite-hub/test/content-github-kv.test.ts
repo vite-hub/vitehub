@@ -33,7 +33,7 @@ async function project(content: string) {
 }
 
 async function pluginNames(root: string, options: Record<string, unknown> = {}) {
-  const config = await resolveConfig(serverBuild(root, vitehub({ preset: "node", env: false, ...options })), "build")
+  const config = await resolveConfig(serverBuild(root, vitehub({ host: "node", env: false, ...options })), "build")
   return { config, names: config.plugins.map(plugin => plugin.name) }
 }
 

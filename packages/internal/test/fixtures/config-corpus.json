@@ -200,6 +200,8 @@
   "packages/codemods/test/fixtures/nuxthub-atinotes/output/nuxt.config.ts": "ok",
   "packages/codemods/test/fixtures/nuxthub-chat/output/nuxt.config.ts": "ok",
   "packages/codemods/test/fixtures/nuxthub-starter/output/nuxt.config.ts": "ok",
+  "packages/codemods/test/fixtures/renamed-apis/input/vite.config.ts": "no-vitehub",
+  "packages/codemods/test/fixtures/renamed-apis/output/vite.config.ts": "no-vitehub",
   "packages/codemods/test/fixtures/resend-sdk/output/nuxt.config.ts": "ok",
   "packages/codemods/test/fixtures/t3-env-outside/input/nuxt.config.ts": "ok",
   "packages/codemods/test/fixtures/t3-env-outside/output/nuxt.config.ts": "ok",

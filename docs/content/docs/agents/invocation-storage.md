@@ -56,9 +56,9 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
-The default journal keeps prompts, messages, final text, tool input and output, progress updates, and generated session titles, so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these presets logs a warning while it uses the local file.
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, and generated session titles, so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
 
-The default journal requires Nitro-hosted Agents. For the Netlify preset or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
+The default journal requires Nitro-hosted Agents. For the Netlify host or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
 
 Set its options in `agent.invocations`:
 
@@ -120,7 +120,7 @@ export default defineConfig({
 :::
 ::
 
-- `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare preset, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
+- `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare host, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
 - `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
 - `observations` takes the [observation bounds](#bound-observation-storage).
 
@@ -131,7 +131,7 @@ VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-On the Cloudflare preset, a production build includes the libSQL client only when `databaseUrl` is set. A Worker that stores the journal in D1 or memory does not ship it, so `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` throws `AGENT_R1036` there. To move such a Worker to libSQL at runtime, set `databaseUrl` to a libSQL URL in the build. The variable still wins over it.
+On the Cloudflare host, a production build includes the libSQL client only when `databaseUrl` is set. A Worker that stores the journal in D1 or memory does not ship it, so `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` throws `AGENT_R1036` there. To move such a Worker to libSQL at runtime, set `databaseUrl` to a libSQL URL in the build. The variable still wins over it.
 
 The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
 
@@ -155,7 +155,7 @@ To give every Agent the same journal, set `agent.invocations` in the ViteHub opt
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: { driver: 'd1' },
     agent: { invocations: 'database' },
   },
@@ -171,7 +171,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: { driver: 'd1' },
     agent: { invocations: 'database' },
   }), nitro()],
@@ -186,7 +186,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: { driver: 'd1' },
     agent: { invocations: 'database' },
   })],
@@ -548,6 +548,33 @@ vitehub agent invocations export --url https://app.example.com --origin webhook 
 
 `export` reads the same target as `list` and prints one line per Invocation, oldest first: the record without observations, plus `prompt` and `runId` from `agent.invocation.start`, `final` (the final assistant text), and `deliveries`, each `agent.channel.delivery.effect` with its `channel`, `kind`, `intent`, `content`, and `skipped` reason. `--status`, `--origin`, and `--agent` select records. `--since` takes an age such as `7d` or a date such as `2026-10-01`. `--observations` adds every observation. Fields appear only if the journal kept them, so content settings decide whether `prompt`, `final`, and delivery content appear.
 
+`--activity` adds a compact trace of what the Agent did, so you can see which tools ran, which failed, and where tokens went without the full observations:
+
+```sh
+vitehub agent invocations export --database /data/agent-invocations.sqlite --since 7d --activity > activity.jsonl
+```
+
+Each line then has `activity`, an array in observation order. Every entry has `at` (the time of its first observation) and `kind`:
+
+| `kind` | Fields |
+| --- | --- |
+| `tool` | `id`, `name`, `title`, `status` (`running`, `completed`, or `failed`), `input`, `paths`, `exitCode`, `error`, `durationMs`, `outputBytes`, `output` |
+| `message` | `phase` (`commentary` or `final`), `text` |
+| `reasoning` | `text`, the reasoning summary that a provider Driver such as Codex streams |
+| `usage` | `inputTokens`, `outputTokens`, `cachedInputTokens`, `reasoningTokens`, `totalTokens`, `costUsd`, `model`, `provider` |
+| `approval` | `id`, `name`, `approved`, `reason` |
+| `error` | `message`, `recoverable` |
+
+One `tool` entry joins the start, the streamed output, and the result of one call. `input` is the command for a shell call, without the `bash -lc` wrapper, or the input as JSON. `paths` lists the files of a file change. A call with a non-zero `exitCode` is `failed`. `outputBytes` is the UTF-8 size of the output that the journal kept. `output` appears only for a failed call. A `usage` entry is one token usage update, so a model Driver reports one per model step and Codex one per update.
+
+The export bounds each trace:
+
+- `input`, `title`, `text`, `error`, `message`, and `reason` keep their first 1,000 characters and end with `…[+N chars]`.
+- `output` keeps the last 2,000 characters and starts with `[N chars+]…`.
+- A trace keeps its first 1,000 entries. `activityOmitted` counts the others.
+
+`recordTruncated: true` marks an entry whose content the journal shortened when it recorded it. `contentOmitted` lists `tool.input` or `tool.output` when the journal content policy did not keep them, so `input`, `exitCode`, and `outputBytes` can be absent. The trace has no per-tool token counts, because Drivers report usage per model step, not per tool call.
+
 `delete` and `prune` open a SQLite or libSQL journal directly:
 
 ```sh
@@ -606,7 +633,7 @@ Use the D1 adapter when the app has a D1 database. The binding resolves per oper
 ```ts [server/invocations.ts]
 import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
-import { useDatabaseBinding } from 'vite-hub/database/drizzle'
+import { useDatabaseBinding } from 'vite-hub/database'
 
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({
@@ -644,7 +671,7 @@ When using a stable D1 binding without request sessions, you can omit `migrate: 
 
 For ViteHub-managed SQLite or libSQL, use the [Database adapter](#store-invocations-in-a-vitehub-database). The host owns the binding, and the store never opens or closes it. Use [`redact`](#redact-stored-evidence) to keep sensitive values out of D1. Route authorization stays your app's policy.
 
-On the Cloudflare preset, the [default journal](#use-the-default-journal) uses this store with the D1 Database binding when no Agent Definition configures `invocations`. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
+On the Cloudflare host, the [default journal](#use-the-default-journal) uses this store with the D1 Database binding when no Agent Definition configures `invocations`. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 

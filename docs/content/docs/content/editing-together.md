@@ -172,7 +172,7 @@ With Realtime, several people edit one Markdown document at the same time. Turn 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     realtime: { authority: 'memory' },
   },
 })
@@ -188,7 +188,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { authority: 'memory' },
     }),
     nitro(),
@@ -205,7 +205,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { authority: 'memory' },
     }),
   ],
@@ -214,7 +214,7 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` uses the memory authority by default. A Node build needs `authority: 'memory'` (one server process). Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room authority: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
+`vite dev` uses the memory authority by default. A Node build shares rooms across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database, and keeps them in one process without either. Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room authority: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
 ### What people see
 

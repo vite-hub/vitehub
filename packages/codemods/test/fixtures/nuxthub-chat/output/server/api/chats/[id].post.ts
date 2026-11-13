@@ -1,7 +1,7 @@
 import { createError, defineEventHandler, getRouterParam, readValidatedBody } from 'nuxt/server'
 import type { UIMessage } from 'ai'
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, isStepCount, smoothStream, streamText, toUIMessageStream } from 'ai'
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AnthropicLanguageModelOptions } from '@ai-sdk/anthropic'
