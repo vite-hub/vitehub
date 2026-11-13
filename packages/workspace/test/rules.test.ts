@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace } from "../src/core/define.ts"
+import { registerWorkspacePlugin } from "../src/core/plugins.ts"
 import { resolveWorkspaceAutoCommit } from "../src/core/rules.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import type { WorkspaceRules } from "../src/core/types.ts"
@@ -139,6 +140,23 @@ describe("workspace rules", () => {
         .toThrow("Workspace rule \"secrets/**\" sets read. Workspace rules do not limit reads.")
       expect(() => createWorkspace({ name: "plugin-secrets", plugins: [{ id: "guard", rules }], store: { provider: "memory" } }))
         .toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
+    })
+
+    it("rejects a read rule from a plugin registered after the Workspace exists", async () => {
+      const workspace = createWorkspace({ name: "late-plugin", store: { provider: "memory" } })
+      await workspace.writeFile("secrets/key.txt", "CONFIDENTIAL")
+      const rules: WorkspaceRules = {
+        "secrets/**": {
+          // @ts-expect-error `read` is not a Workspace rule.
+          read: false,
+        },
+      }
+
+      expect(() => registerWorkspacePlugin("late-plugin", { id: "guard", rules })).toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
+      expect(() => registerWorkspacePlugin("late-plugin", { id: "guard", rules: { "secrets/**": { hidden: true } as never } }))
+        .toThrow(expect.objectContaining({ code: "WORKSPACE_R0076" }))
+      // The rejected plugin is not registered, so writes keep working.
+      await expect(workspace.writeFile("notes.md", "x")).resolves.toBe("notes.md")
     })
 
     it("keeps a broader write: false when a more specific rule does not set write", async () => {
