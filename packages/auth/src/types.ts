@@ -102,8 +102,29 @@ export type AuthAnonymousGuardedHandler<TInput, TResult> = (
   authorization: AuthAuthorization | AuthAnonymousAuthorization,
 ) => TResult | Promise<TResult>
 
+/** What `access.policy.allow` gets: the user, and the provider access tokens of the user's accounts. */
+export interface AuthAccessPolicyContext {
+  user: User & Record<string, unknown>
+  /** The access token of the user's account with this provider, such as `github`, or `null` when the user has none. */
+  accessToken: (providerId: string) => Promise<string | null>
+}
+
+/** Who may use the app. Auth asks it at sign-in and again after `recheck`, for sessions and MCP access tokens. */
+export interface AuthAccessPolicy {
+  /**
+   * Return `true` to let the user in. Any other value refuses the sign-in, or ends the session. When it throws, the
+   * request fails and the session stays.
+   */
+  allow: (context: AuthAccessPolicyContext) => boolean | Promise<boolean>
+  /** Milliseconds that an allowed answer holds for one session or one MCP user. `0` asks on each request. Default: 300000. */
+  recheck?: number
+}
+
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]
+  /** Paths that no access route guards, in the same form as `routes`. With `routes: ['/**']`, these are the only paths a signed-out visitor reaches. */
+  public?: string[]
+  policy?: AuthAccessPolicy
   signIn?: AuthSignInConfiguration
 }
 
@@ -170,6 +191,8 @@ export interface ResolvedAuthViteConfig {
   abilities?: string
   access: {
     routes: ResolvedAuthAccessRoute[]
+    /** Paths that the access middleware leaves to the handler. Set only when the Definition lists some. */
+    public?: string[]
   }
   basePath: string
   /** The app Database that `authDatabase()` names, which gets the Better Auth tables. `false` without the call. */

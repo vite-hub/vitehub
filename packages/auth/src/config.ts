@@ -219,6 +219,24 @@ function readAuthAccessRoutesConfig(body: ObjectExpression | undefined): Resolve
   return routes.elements.map((entry, index) => readAuthAccessRoute(entry === null || entry.type === "SpreadElement" ? undefined : entry, index))
 }
 
+function readAuthAccessPublicConfig(body: ObjectExpression | undefined): string[] {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
+  if (!access || !hasObjectProperty(access, "public")) return []
+
+  const routes = readObjectPropertyValue(access, "public")
+  if (routes?.type !== "ArrayExpression") {
+    throw authErrorDiagnostics.AUTH_C0064({ message: "`defineAuth()` access.public must be an inline array." })
+  }
+
+  return routes.elements.map((entry, index) => {
+    const route = entry === null || entry.type === "SpreadElement" ? undefined : staticString(entry)
+    if (typeof route === "undefined" || !route.startsWith("/")) {
+      throw authErrorDiagnostics.AUTH_C0064({ message: `\`defineAuth()\` access.public[${index}] must be an inline route string that starts with \`/\`.` })
+    }
+    return route
+  })
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -282,10 +300,12 @@ export function resolveAuthViteConfig(
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
 
   const abilities = discoverAuthAbilities(rootDir, discovery)
+  const publicRoutes = readAuthAccessPublicConfig(body)
   return {
     ...(abilities ? { abilities } : {}),
     access: {
       routes: readAuthAccessRoutesConfig(body),
+      ...(publicRoutes.length ? { public: publicRoutes } : {}),
     },
     basePath,
     definition,

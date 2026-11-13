@@ -22,7 +22,8 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
-import { assertNoRuntimeOption } from "./definition.ts"
+import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
+import { createAccessPolicyPlugin } from "./access-policy.ts"
 
 import type { BetterAuthOptions } from "better-auth"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -127,7 +128,7 @@ function stripViteHubOptions(
   environment: ProviderEnvironment,
 ): AuthBetterAuthRuntimeOptions {
   const {
-    access: _access,
+    access,
     adminClaim: _adminClaim,
     console: _console,
     database,
@@ -156,6 +157,11 @@ function stripViteHubOptions(
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   // `stateless()` keeps everything in cookies and must stay without a database.
   if (!storage.database && options.preset === undefined) storage.database = sharedMemoryDatabase(definition)
+  const policy = isPlainObject(access) ? access.policy : undefined
+  validateAuthAccessPolicy(policy)
+  if (policy && !storage.database && !storage.secondaryStorage) {
+    throw authErrorDiagnostics.AUTH_C0066({ message: "`defineAuth()` access.policy needs a Better Auth `database` or `secondaryStorage` adapter. A session that lives only in a cookie cannot be ended." })
+  }
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
@@ -167,6 +173,8 @@ function stripViteHubOptions(
     ...(impersonation ? [createImpersonationPlugin()] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
+    // After the app's plugins, so a plugin that signs a request in runs first and the policy sees its session.
+    ...(policy ? [createAccessPolicyPlugin(policy)] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined

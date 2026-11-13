@@ -177,11 +177,12 @@ function renderAuthRouteHandler(): string {
 
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
+  const publicRoutes = config?.access.public?.length ? `, ${JSON.stringify(config.access.public)}` : ""
   return [
     `import { createLazyAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}`,
     "",
     // Every request runs this middleware. It loads Better Auth only for a request that an access route matches.
-    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)}))`,
+    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)})${publicRoutes})`,
     "",
   ].join("\n")
 }
@@ -312,12 +313,12 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
   const merged = kit.config as NitroConfig
   if (config.access.routes.length > 0) {
-    const { routes } = config.access
+    const { routes, public: publicRoutes = [] } = config.access
     const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => Reflect.get(Object(module), "name") !== cachedAccessRouteGuardName)
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
-        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
+        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL, publicRoutes)
         // A bundler calls `build:config` after every `build:before` hook, such as Nuxt's `nitro:build:before`, and before
         // it builds or prerenders. Without a builder, Nitro calls only `build:before`.
         nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", check)

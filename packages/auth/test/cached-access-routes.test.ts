@@ -13,14 +13,14 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createProject(routes: string[]): Promise<string> {
+async function createProject(routes: string[], publicRoutes: string[] = []): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-cached-"))
   tempDirs.push(root)
   await mkdir(join(root, "server"), { recursive: true })
   await writeFile(join(root, "server/auth.ts"), [
     "import { defineAuth } from '@vite-hub/auth'",
     "export default defineAuth({",
-    `  access: { routes: [${routes.join(", ")}] },`,
+    `  access: { routes: [${routes.join(", ")}]${publicRoutes.length ? `, public: [${publicRoutes.join(", ")}]` : ""} },`,
     "})",
     "",
   ].join("\n"))
@@ -65,8 +65,8 @@ async function buildNitro(config: Record<string, unknown>, routeRules: RouteRule
   await runBuildHooks(nitro)
 }
 
-async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string): Promise<void> {
-  const root = await createProject(routes)
+async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string, publicRoutes?: string[]): Promise<void> {
+  const root = await createProject(routes, publicRoutes)
   await buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), routeRules, baseURL)
 }
 
@@ -105,6 +105,12 @@ describe("Auth access routes with cache route rules", () => {
 
   it("passes when the cached route is not guarded", async () => {
     await expect(buildViteApp(["'/dashboard/**'"], { "/blog/**": { swr: 60 }, "/": { prerender: true } })).resolves.toBeUndefined()
+  })
+
+  it("passes when every cached path is public, and fails when a cached path is not", async () => {
+    await expect(buildViteApp(["'/**'"], { "/": { prerender: true }, "/blog/**": { swr: 60 } }, undefined, ["'/'", "'/blog/**'"])).resolves.toBeUndefined()
+    await expect(buildViteApp(["'/**'"], { "/blog/**": { swr: 60 } }, undefined, ["'/blog'"])).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/**'"], { "/**": { prerender: true } }, undefined, ["'/'"])).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
   it("passes when the guarded route turns off an inherited cache", async () => {

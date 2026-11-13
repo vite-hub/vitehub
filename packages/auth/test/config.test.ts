@@ -268,6 +268,21 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
+  it("resolves static public routes, and leaves them out when there are none", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], public: ['/', '/login', '/api/auth/**'] },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }], public: ["/", "/login", "/api/auth/**"] })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], public: [] },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }] })
+  })
+
+  it.each(["publicRoutes", "['/', publicRoute]", "['/', ...more]", "['login']", "['/', ,'/x']"])("rejects access.public written as %s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: ['/**'], public: ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0064" }))
+  })
+
   it.each(["// Explain the next option", "/* Explain the next option */"])("resolves Auth metadata with %s comments", async (comment) => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
