@@ -425,6 +425,7 @@ export const historySchema = {
 | `dialect` | `'sqlite' \| 'postgresql'` | Optional. SQL dialect of the tables. The build fails if the target database uses another one. |
 | `tables` | `Record<string, string>` | Optional. Every table of the export, key to SQL name, such as `{ historyRefs: 'history_refs' }`. The build then lists tables without loading the module, so the Vite config loads neither the schema nor drizzle-orm. A key missing here is missing from the generated schema. |
 | `relations` | `string` | Optional. Export of `definition.module` that holds the relations of the contributed tables, from `defineRelationsPart()`. The target database merges them before the relations of its Definition, so the app wins a relation name. |
+| `migrations` | `string` | Optional. Absolute path of a folder of `.sql` files. See [Contribute SQL migrations](#contribute-sql-migrations). |
 
 `vitehub.databases` accepts an array or a factory, which can be async. The factory gets `{ root, projectRoot, serverDirs }`, where `root` is the Vite root. It runs once per discovery pass and must return the same result each time. Contributions are sorted by name.
 
@@ -469,6 +470,34 @@ vitehub: {
 ```
 
 `vitehub inspect definitions --kind database` shows `Definition: Implicit` with the plugins that need it, a `Contributed tables` field per table contribution, and a `Used by` field per entry without tables. When the app adds `server/databases/default.ts`, the contributions move to it and keep the same migrations folder. Contributions that need different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
+
+### Contribute SQL migrations
+
+A table contribution or an entry without tables can set `migrations` to a folder of `.sql` files:
+
+```ts [my-package/vite.ts] fragment
+vitehub: {
+  databases: () => [{ name: 'my-package', migrations: fileURLToPath(new URL('./migrations', import.meta.url)) }],
+},
+```
+
+`vitehub database generate` adds each file that the target database does not have yet to its migrations folder, as `<timestamp>_<name>_<file>/migration.sql`, after the migrations it generates. Files go in file name order. Commit them like other migrations. `vitehub database migrate`, D1, and migrate on start then apply them once, and a later generate does not add them again.
+
+- A file named `<name>.<dialect>.sql`, such as `0001_init.postgresql.sql`, applies only to a database of that dialect.
+- ViteHub puts a `--> statement-breakpoint` between statements, at the semicolons outside quotes and comments. A file that already has breakpoints is copied as written. Use breakpoints when a statement has its own semicolons, such as a trigger.
+- `vitehub inspect definitions` shows a `Contributed migrations` field with how many files are added and how many still need `vitehub database generate`.
+
+### Modules written for NuxtHub
+
+The Nuxt module of Database calls NuxtHub's database hooks with NuxtHub's arguments, so a module written for NuxtHub keeps its tables:
+
+| Hook | What ViteHub does |
+| --- | --- |
+| `hub:db:schema:extend({ dialect, paths })` | Each schema file becomes contributed tables for the default or only database. A file for another dialect, such as `schema.postgresql.ts` on SQLite, is skipped. |
+| `hub:db:migrations:dirs(dirs)` | Each folder becomes a contribution with `migrations`. |
+| `hub:db:queries:paths(queries, dialect)` | Not run. ViteHub prints a warning with the paths. |
+
+`dialect` is the dialect of the default or only database, else `sqlite`. The plugin `@vite-hub/database/nuxthub-hooks` owns these contributions, so inspection and errors name it. A hook in `nuxt.config.ts` `hooks` works too. New packages should use `vitehub.databases`.
 
 ### Contribute a Database
 

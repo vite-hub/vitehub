@@ -1,18 +1,19 @@
-import { join } from "pathe"
+import { join, resolve } from "pathe"
 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
-import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
+import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, selectMigrationContributions } from "./contributions.ts"
 import { resolveConfigValue } from "./config-value.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionDriver, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
+import { discoverDatabaseDefinitions, getDefaultMigrationsDir, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionDriver, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
+import { planContributedMigrations } from "./internal/contributed-migrations.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 import { localPgliteDir } from "./runtime/local-path.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
-import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
-import type { DatabaseConfigValue, DatabaseOptions } from "./types.ts"
+import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, ResolvedDatabaseMigrations, ResolvedDatabaseUse } from "./contributions.ts"
+import type { DatabaseConfigValue, DatabaseDialect, DatabaseOptions } from "./types.ts"
 
 export interface DatabaseInspectionOptions {
   /** Whether the integration's `cloudflare.http` makes development queries remote. */
@@ -52,6 +53,20 @@ function describeUse(use: ResolvedDatabaseUse): ViteHubDefinitionField {
   return { label: "Used by", value: [describeDatabaseContribution(use), use.reason].filter(Boolean).join(". ") }
 }
 
+// Contributed SQL reaches the database only after `vitehub database generate` adds it to the migrations folder.
+function describeContributedMigrations(contribution: ResolvedDatabaseMigrations, migrationsDir: string, dialect: DatabaseDialect, projectRoot: string): ViteHubDefinitionField {
+  let value: string
+  try {
+    const { added, pending } = planContributedMigrations(migrationsDir, [contribution], dialect)
+    const status = pending.length ? `${added.length} added, ${pending.length} not added yet. Run \`vitehub database generate\` to add them` : `${added.length} added`
+    value = `${relativeDefinitionFile(projectRoot, contribution.migrations)} from ${describeDatabaseContribution(contribution)}: ${status}`
+  }
+  catch (error) {
+    value = error instanceof Error ? error.message : String(error)
+  }
+  return { label: "Contributed migrations", value }
+}
+
 /** Where a Postgres Database runs in development and `vitehub database migrate` when it has no server. */
 function describePostgresDevelopment(handler: string, name: string): string {
   return readDatabaseDefinitionDriver(handler) === "pglite"
@@ -85,6 +100,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
   // The build checks contribution dialects, so inspection does too.
   const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.tables, dialects)
   const usesByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.uses, dialects)
+  const migrationsByDatabase = selectMigrationContributions(contributionsByDatabase, usesByDatabase)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
@@ -110,6 +126,12 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         : [],
       ...await Promise.all((contributionsByDatabase[definition.name] ?? []).map(contribution => describeContributedTables(contribution, options.rootDir))),
       ...(usesByDatabase[definition.name] ?? []).map(describeUse),
+      ...(migrationsByDatabase[definition.name] ?? []).map(contribution => describeContributedMigrations(
+        contribution,
+        resolve(options.rootDir, getDefaultMigrationsDir(options.rootDir, definition, options.serverDirs)),
+        dialects[definition.name] ?? "sqlite",
+        options.projectRoot,
+      )),
     ],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,

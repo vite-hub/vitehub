@@ -2,7 +2,7 @@ import type { AnyRelations, EmptyRelations, ExtractTablesFromSchema, ExtractTabl
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
-import type { ResolvedDatabaseContribution } from "./contributions.ts"
+import type { ResolvedDatabaseContribution, ResolvedDatabaseMigrations } from "./contributions.ts"
 
 export type DatabaseDialect = "sqlite" | "postgresql"
 
@@ -298,6 +298,8 @@ export interface ResolvedDBViteConfig {
   rootDir: string
   /** Tables that Vite plugins contribute, by target Database name. */
   tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
+  /** Folders of `.sql` migrations that Vite plugins contribute, by target Database name. */
+  migrationContributionsByDatabase: Record<string, ResolvedDatabaseMigrations[]>
 }
 
 export type DatabaseOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
