@@ -17,6 +17,8 @@ import type {
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
+import { createContentHistory } from "./history.ts"
+import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
 import { createContentSourceHeads } from "./source-heads.ts"
 import { createContentReadScope } from "./read-scope.ts"
 import type { ContentSourceHeads } from "./source-heads.ts"
@@ -93,6 +95,7 @@ export type {
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { registerContentKV } from "./kv.ts"
 export type { ContentKV } from "./kv.ts"
+export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
 export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
@@ -391,6 +394,13 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
    * it in ViteHub KV, and moves it with `advance()`. Reads follow a moved head within 5 seconds.
    */
   sources: ContentSourceHeads
+  /**
+   * The published history of the page at an app path, such as `/docs/guide`, newest first: `{ entries, cursor }`, with
+   * entries of `{ id, at, author, message, url }`. Null when no page has that path. A collection document lists its
+   * `published` revisions, never drafts. A `github()` Source page lists the commits that changed its file, up to the
+   * commit that readers get. It is safe to show on a public page, for "last updated", RSS, or a history panel.
+   */
+  history(path: string, options?: ContentHistoryOptions): Promise<ContentHistoryResult | null>
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -651,10 +661,48 @@ export function defineContent<
       return await policy(decision) === true
     },
   } as ContentDocumentsRuntime<TCollections>
+  const sourceNames = Object.keys(inputs)
+  /**
+   * The published document that readers get at an app path: a routed collection document, or a singleton with a `url`.
+   * A locale without a translation serves the source locale version, so its history is the history of that version.
+   */
+  async function publishedPage(documents: ContentCollectionsRuntime, path: string): Promise<ContentResolved | null> {
+    let found = await documents.resolve(path, { ref: "published" })
+    if (!found) {
+      const target = pagePath(path)
+      for (const collection of documents.collections.values()) {
+        if (collection.kind !== "singleton" || !collection.routable) continue
+        const document = await collection.get({ ref: "published" })
+        if (document && String(document.url) === document.url && pagePath(document.url) === target) {
+          found = { collection: collection.name, id: document.id }
+          break
+        }
+      }
+    }
+    if (!found || found.locale === undefined) return found
+    const served = await documents.collection(found.collection).get(found.id, { ref: "published", locale: found.locale })
+    return served?.locale === undefined ? found : { ...found, locale: served.locale }
+  }
+  const history = createContentHistory({
+    ...(documentsRuntime ? { resolve: (path: string) => publishedPage(documentsRuntime, path) } : {}),
+    revisions: (collection, id, revisionOptions) => requireDocuments().revisions(collection, id, revisionOptions),
+    page: async (path) => {
+      if (!sourceNames.length) return null
+      const target = pagePath(path)
+      const found = (await runtime.list(sourceNames)).find(file => pagePath(file.path) === target)
+      if (!found) return null
+      // Comark keys a file as `<source>/<Source key>`.
+      const { source, key } = found.meta
+      return { source, key: key.startsWith(`${source}/`) ? key.slice(source.length + 1) : key }
+    },
+    github: name => heads.github(name),
+    published: name => heads.published(name),
+  })
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
     ...documentsApi,
     sources: heads.api,
+    history,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
@@ -697,6 +745,12 @@ export function defineContent<
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.
   return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
+}
+
+/** An app path without its query, hash, and trailing slash, in lower case, as Comark Content stores page paths. */
+function pagePath(path: string): string {
+  const bare = path.split(/[?#]/, 1)[0]!.replace(/\/+$/, "")
+  return (bare.startsWith("/") ? bare : `/${bare}`).toLowerCase()
 }
 
 /**
