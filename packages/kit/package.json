@@ -128,6 +128,11 @@
       "import": "./dist/drawer.js",
       "default": "./dist/drawer.js"
     },
+    "./editable": {
+      "types": "./dist/editable.d.ts",
+      "import": "./dist/editable.js",
+      "default": "./dist/editable.js"
+    },
     "./field": {
       "types": "./dist/field.d.ts",
       "import": "./dist/field.js",
@@ -137,6 +142,11 @@
       "types": "./dist/file-input.d.ts",
       "import": "./dist/file-input.js",
       "default": "./dist/file-input.js"
+    },
+    "./form": {
+      "types": "./dist/form.d.ts",
+      "import": "./dist/form.js",
+      "default": "./dist/form.js"
     },
     "./gesture": {
       "types": "./dist/gesture.d.ts",
@@ -313,6 +323,16 @@
       "import": "./dist/tabs.js",
       "default": "./dist/tabs.js"
     },
+    "./tag-group": {
+      "types": "./dist/tag-group.d.ts",
+      "import": "./dist/tag-group.js",
+      "default": "./dist/tag-group.js"
+    },
+    "./tags-input": {
+      "types": "./dist/tags-input.d.ts",
+      "import": "./dist/tags-input.js",
+      "default": "./dist/tags-input.js"
+    },
     "./text-match": {
       "types": "./dist/text-match.d.ts",
       "import": "./dist/text-match.js",
@@ -390,6 +410,7 @@
     "@nuxt/schema": "4.6.4",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

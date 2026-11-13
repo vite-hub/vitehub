@@ -65,7 +65,7 @@ describe("typed Gmail catalog", () => {
 
   it("adds identity scopes and requests offline access through authorization", async () => {
     const test = setup()
-    const flow = await test.runtime.authorize({ name: "mail", redirectUri: "https://app.example/cb" })
+    const flow = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "https://app.example/cb" })
     const url = new URL(flow.url)
     expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth")
     expect(url.searchParams.get("access_type")).toBe("offline")
