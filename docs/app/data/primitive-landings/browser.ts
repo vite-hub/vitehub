@@ -46,7 +46,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "cloudflare", browser: true }),
+    vitehub({ host: "cloudflare", browser: true }),
     nitro(),
   ],
 })`,
@@ -68,7 +68,7 @@ import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
   modules: [
-    [viteHubNuxt, { preset: "cloudflare", browser: true }],
+    [viteHubNuxt, { host: "cloudflare", browser: true }],
   ],
 })`,
         },

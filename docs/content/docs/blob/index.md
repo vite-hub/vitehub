@@ -14,7 +14,7 @@ icon: i-lucide-files
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // On Node, files are saved in .vitehub/data/blob
       blob: true,
     },
@@ -30,7 +30,7 @@ icon: i-lucide-files
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // On Node, files are saved in .vitehub/data/blob
         blob: true,
       }),
@@ -47,7 +47,7 @@ icon: i-lucide-files
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // On Node, files are saved in .vitehub/data/blob
         blob: true,
       }),

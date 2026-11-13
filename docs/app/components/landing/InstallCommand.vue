@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyButton } from "@vite-hub/ui/copy-button";
+import { CopyButton } from "@vite-hub/ui";
 import { installOptions } from "./content";
 
 const commandTabItems = [

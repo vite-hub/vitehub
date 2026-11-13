@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/docs/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
 import { computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";

@@ -32,7 +32,7 @@ Then add `database: true` to the ViteHub options of your app. Keep the other opt
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', database: true },
+  vitehub: { host: 'node', database: true },
 })
 ```
 ::::
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true }), nitro()],
+  plugins: [vitehub({ host: 'node', database: true }), nitro()],
 })
 ```
 ::::
@@ -57,7 +57,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true })],
+  plugins: [vitehub({ host: 'node', database: true })],
 })
 ```
 ::::

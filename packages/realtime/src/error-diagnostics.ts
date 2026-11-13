@@ -77,14 +77,14 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
 
     // Build errors. The Vite integration throws them when it reads the config.
     REALTIME_AUTHORITY_CONFLICT: {
-      why: ({ authority, preset }: { authority: "cloudflare" | "memory", preset: string }) => authority === "memory"
-        ? `Realtime authority "memory" is single-process only, and the ${preset} deployment preset runs more than one process.`
-        : `Realtime authority "cloudflare" does not work with the ${preset} deployment preset.`,
-      fix: "Set `realtime.authority` to \"cloudflare\" with a Cloudflare preset, or to \"memory\" for one Node.js process.",
+      why: ({ authority, host }: { authority: "cloudflare" | "memory", host: string }) => authority === "memory"
+        ? `Realtime authority "memory" is single-process only, and the ${host} host runs more than one process.`
+        : `Realtime authority "cloudflare" does not work with the ${host} host.`,
+      fix: "Set `realtime.authority` to \"cloudflare\" with the Cloudflare host, or to \"memory\" for one Node.js process.",
     },
     REALTIME_MISSING_AUTHORITY: {
       why: "Realtime production builds need one room authority, and ViteHub cannot select one for this deployment.",
-      fix: "Deploy with a Cloudflare preset to use Durable Objects, or set `realtime.authority` to \"memory\" for one Node.js process.",
+      fix: "Deploy with the Cloudflare host to use Durable Objects, or set `realtime.authority` to \"memory\" for one Node.js process.",
     },
   },
 })

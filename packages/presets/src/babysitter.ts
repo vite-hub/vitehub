@@ -14,6 +14,7 @@ import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
 import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
+import { validWarmWorkspaces, type BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
@@ -22,6 +23,7 @@ import { githubAuthorAssociations } from "./babysitter/pull-request-filter.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
+export type { BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
 export type { AutomatedReviewClass } from "./babysitter/inbox/budgets.ts";
 export { BabysitterPlacementCapacityError } from "./babysitter/placement.ts";
 
@@ -57,6 +59,20 @@ export interface BabysitterPlacement {
   admitted?(): number | Promise<number>;
 }
 
+/** Where the Babysitter reports its state on each PR. Both need a verified GitHub App identity. */
+export interface BabysitterStatusOptions {
+  /** Keep the activity comment on the PR up to date. Defaults to `true`. */
+  comment?: boolean;
+  /**
+   * Mirror the state as a check run named `babysitter` on the PR head: queued, in progress, neutral
+   * while waiting, success when done and failure when a pass failed. Its details link opens the
+   * Console session. Needs the App's `checks: write` permission; a repository that answers 403 is
+   * reported once and skipped. The Babysitter leaves this check out of its own CI and merge decisions,
+   * so do not make it a required check. Defaults to `true`.
+   */
+  checkRun?: boolean;
+}
+
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("@vite-hub/agent/process").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
@@ -69,6 +85,8 @@ export interface BabysitterOptions {
    * Select PRs with the same rules as the GitHub Channel, with two differences. A PR passes when it
    * matches either `author.allow` or `authorAssociation.allow`; a match on either deny list rejects it.
    * Logins match case-insensitively and in either bot spelling, so `renovate[bot]` also matches `renovate`.
+   * Without `repository.allow`, the Babysitter serves every repository that its GitHub App installations
+   * can access, except archived ones and those in `repository.deny`, so installing the App on a repository enrolls it.
    */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
@@ -152,6 +170,16 @@ export interface BabysitterOptions {
   /** Rerun failed GitHub Actions runs once before a model pass repairs them. Defaults to `true`. */
   ciRecovery: boolean;
   /**
+   * Keep one workspace per open PR under `<dataDir>/pr-workspaces` instead of cloning, copying and
+   * installing for every pass. A pass on the head the previous pass pushed or left, after a pass that
+   * finished, on a clean tree, keeps node_modules and build caches and skips a current install. Any
+   * other pass empties the workspace and checks the head out again. Entries go when the PR closes,
+   * after `idleDays` without a pass, and least recently used first above `budgetGb` or below
+   * `minFreePercent` free disk. `resumeThreads` also continues the previous pass's provider thread.
+   * Passes placed in a Sandbox keep using their own workspace. Defaults to `false`.
+   */
+  warmWorkspaces: boolean | BabysitterWarmWorkspaces;
+  /**
    * Repair a PR whose base is another open PR's branch in parallel with its parent: checks, conflicts
    * and feedback. It never merges into the parent's branch and waits for the parent once its reviewed
    * head has nothing left to repair. Requires `merge: "direct"`. Defaults to `false`, which leaves a
@@ -179,6 +207,8 @@ export interface BabysitterOptions {
    * and 4096 MiB of free temporary space.
    */
   admission: BabysitterAdmissionOptions;
+  /** How the Babysitter reports its state on the PR. Defaults to `{ comment: true, checkRun: true }`. */
+  status: BabysitterStatusOptions;
 }
 
 /**
@@ -385,11 +415,13 @@ export const babysitter: BabysitterAgent = defineAgent({
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
     ciRecovery: true,
+    warmWorkspaces: false as boolean | BabysitterWarmWorkspaces,
     repairStackChildren: false,
     modelConcurrency: undefined as number | undefined,
     providerCooldownMs: 5 * 60_000,
+    status: {} as BabysitterStatusOptions,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, warmWorkspaces, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -431,6 +463,12 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+    }
+    if (!validWarmWorkspaces(warmWorkspaces)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "warmWorkspaces", expected: "a boolean or { resumeThreads, budgetGb, idleDays, minFreePercent, sweepMinutes } with non-negative numbers" });
+    }
+    if (!isRuntimeRecord(status) || [status.comment, status.checkRun].some(value => value !== undefined && !hasRuntimeType(value, "boolean"))) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STATUS_INVALID();
     }
     if (!hasRuntimeType(repairStackChildren, "boolean")) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "repairStackChildren", expected: "a boolean" });

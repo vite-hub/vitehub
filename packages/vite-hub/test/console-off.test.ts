@@ -8,7 +8,7 @@ import { vitehub, type ViteHubOptions } from "../src/index.ts"
 /** The `/_vitehub` routes that `vite dev` serves for one `console` value. */
 function consolePlugins(value: ViteHubOptions["console"]): Plugin[] {
   // SAFETY: vitehub() returns concrete plugins, and the included Nitro plugins as one nested list.
-  const plugins = (vitehub({ comments: false, console: value, env: false, preset: "node", schedule: true }) as PluginOption[]).flat() as Plugin[]
+  const plugins = (vitehub({ comments: false, console: value, env: false, host: "node", schedule: true }) as PluginOption[]).flat() as Plugin[]
   return plugins.filter(plugin => plugin.name === "vite-hub/console")
 }
 

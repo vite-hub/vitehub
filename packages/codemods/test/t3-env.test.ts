@@ -24,7 +24,7 @@ export const env = createEnv({
   client: { NUXT_PUBLIC_APP_URL: z.string() },
 })
 `,
-    "nuxt.config.ts": 'import "./env"\nexport default defineNuxtConfig({ vitehub: { preset: "node" } })\n',
+    "nuxt.config.ts": 'import "./env"\nexport default defineNuxtConfig({ vitehub: { host: "node" } })\n',
     "package.json": JSON.stringify({ dependencies: { "@t3-oss/env-nuxt": "^0.13.0" } }),
     ...files,
   }
@@ -101,7 +101,7 @@ describe("t3-env import safety", () => {
     'const { env } = require("./env")',
   ])("keeps the env module when nuxt.config reads it through %s", async (statement) => {
     const file = "nuxt.config.ts"
-    const cwd = await app({ [file]: `${statement}\nexport default defineNuxtConfig({ app: { baseURL: env.NUXT_PUBLIC_APP_URL }, vitehub: { preset: "node" } })\n` })
+    const cwd = await app({ [file]: `${statement}\nexport default defineNuxtConfig({ app: { baseURL: env.NUXT_PUBLIC_APP_URL }, vitehub: { host: "node" } })\n` })
     const run = await runCodemod("t3-env", { cwd })
     const after = await readFile(join(cwd, file), "utf8")
     expect(after).toContain(statement)
