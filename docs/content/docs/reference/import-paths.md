@@ -103,11 +103,12 @@ the same behavior.
 | `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
-| `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
-| `vite-hub/env` | Env Declaration helpers, presets, `defineEnvProvider()`, purpose-bound `seal()` and `unseal()`, `parseSchema()`, `SecretEnv`, and server-only Env access (`resolveServerEnv()`, `loadServerEnv()`, `inspectServerEnv()`). |
+| `vite-hub/database` | Database Definitions and generated `useDatabase()` access. |
+| `vite-hub/env` | Env Declaration helpers, presets, `defineEnvProvider()`, purpose-bound `seal()` and `unseal()`, `parseSchema()`, `SecretEnv`, and generated Env access (`useServerEnv()`, `usePublicEnv()`, `loadServerEnv()`, `deriveSecret()`). |
+| `vite-hub/env/server` | Resolve, load, describe, or inspect an explicit Server Env registry. |
 | `vite-hub/env/bridge` | Runtime credential replacement, scoped grants, durable activity, the authentication adapter `createEnvAuthenticator()`, and the management handler `createEnvBridgeHandler()`. |
 | `vite-hub/env/database` | Encrypted Env Bridge storage on ViteHub SQLite/Drizzle databases. A separate entry because it loads the optional `drizzle-orm` peer. |
-| `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
+| `vite-hub/email` and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/email/test` | `createTestEmail()`: in-memory message capture for tests. |
 | `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
 | `vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
@@ -127,7 +128,8 @@ the same behavior.
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
-| `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
+| `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |
+| `vite-hub/schedule/runtime` | Schedule Run stores and custom runtime wiring. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
@@ -171,8 +173,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/docs/primitive-rail` | Docs Package | `PrimitiveRail`, the navigation rail for Server Primitives. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
-| `#vitehub/env/public` | Env Package | Generated Public Env access. |
-| `#vitehub/env/server` | Env Package | Generated Server Env access. |
+| `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/ui/workspace` | UI Package | The WebContainer workspace parts and `PlaygroundContainer`, outside the root so a chat page never loads CodeMirror or xterm. |
 | `@vite-hub/ui/playground` | UI Package | Share links and zips for a playground, with no UI. They run in Node too. |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | UI Package | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |

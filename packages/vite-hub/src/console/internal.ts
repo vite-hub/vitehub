@@ -1,7 +1,7 @@
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
-import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
+import type { RuntimeDatabaseEntry } from "@vite-hub/database"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"

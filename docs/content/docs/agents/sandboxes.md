@@ -222,7 +222,7 @@ export default defineConfig({
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export default defineAgent({
   sandbox: {

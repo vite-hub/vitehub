@@ -142,7 +142,7 @@ export default defineConfig({
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 export default defineAgent({
   driver: codexDriver({
@@ -540,7 +540,7 @@ export default defineConfig({
 ::
 
 ```ts [server/agents/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
 

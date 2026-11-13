@@ -224,10 +224,11 @@ export interface EnvRuntimeRegistry<TServerEnv extends Record<string, unknown> =
   readonly [serverEnvType]?: (value: TServerEnv) => void
 }
 
-export interface ServerEnv {
-  [key: string]: unknown
-}
-export type PublicEnv = Record<string, unknown>
+/** Server Env. ViteHub generates its fields from the Env declarations into `.vitehub/types/`. */
+export interface ServerEnv {}
+/** Public Env. ViteHub generates its fields from the Env declarations into `.vitehub/types/`. */
+export interface PublicEnv {}
+export type ReadonlyServerEnv = DeepReadonly<ServerEnv>
 
 export interface EnvProviderContext<TEnv extends Record<string, unknown> = Record<string, unknown>> {
   env: DeepReadonly<TEnv>

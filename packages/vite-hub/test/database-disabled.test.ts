@@ -60,7 +60,7 @@ async function runDb(root: string, plugins: PluginOption[], args: string[]) {
 }
 
 describe("vitehub() without database", () => {
-  it.each(["vite-hub/database/drizzle", "@vite-hub/database/drizzle"])("fails the build when server code imports %s", async (specifier) => {
+  it.each(["vite-hub/database", "@vite-hub/database"])("fails the build when server code imports %s", async (specifier) => {
     const root = await createProject({
       "server/databases/default.ts": databaseDefinition,
       "src/server.ts": `import { useDatabase } from ${JSON.stringify(specifier)}\nexport const notes = useDatabase("default")\n`,
@@ -73,7 +73,7 @@ describe("vitehub() without database", () => {
   it("builds the same import when Database is enabled", async () => {
     const root = await createProject({
       "server/databases/default.ts": databaseDefinition,
-      "src/server.ts": `import { useDatabase } from "vite-hub/database/drizzle"\nexport const notes = useDatabase("default")\n`,
+      "src/server.ts": `import { useDatabase } from "vite-hub/database"\nexport const notes = useDatabase("default")\n`,
     })
 
     await expect(build(serverBuild(root, vitehub({ host: "node", database: true, env: false })))).resolves.toBeDefined()
@@ -89,7 +89,7 @@ describe("vitehub() without database", () => {
     const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
     if (!resolveId) throw new TypeError("Expected the disabled Database guard.")
     // SAFETY: The guard reads only the import source and importer.
-    expect(resolveId.call({} as never, "vite-hub/database/drizzle", join(root, "src/server.ts"), {} as never)).toBeUndefined()
+    expect(resolveId.call({} as never, "vite-hub/database", join(root, "src/server.ts"), {} as never)).toBeUndefined()
     expect((await runDb(root, plugins, ["database", "--help"])).stdout).toContain("generate")
   })
 
@@ -104,19 +104,19 @@ describe("vitehub() without database", () => {
     const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
     if (!resolveId) throw new TypeError("Expected the disabled Database guard.")
     // SAFETY: The guard reads only the import source and importer.
-    expect(resolveId.call({} as never, "vite-hub/database/drizzle", join(root, "src/server.ts"), {} as never)).toBeUndefined()
+    expect(resolveId.call({} as never, "vite-hub/database", join(root, "src/server.ts"), {} as never)).toBeUndefined()
   })
 
   it("reports imports when a composed Database integration is explicitly disabled", async () => {
     const root = await createProject({
-      "src/server.ts": `import { useDatabase } from "vite-hub/database/drizzle"\nexport const notes = useDatabase("default")\n`,
+      "src/server.ts": `import { useDatabase } from "vite-hub/database"\nexport const notes = useDatabase("default")\n`,
     })
 
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
     const databasePlugin = hubDb() as unknown as Plugin
     const plugins = [vitehub({ host: "node", database: false, env: false }), databasePlugin]
     await expect(build(serverBuild(root, plugins))).rejects.toThrow(
-      `Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database/drizzle". Set \`database: true\` in vitehub() to enable Database.`,
+      `Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database". Set \`database: true\` in vitehub() to enable Database.`,
     )
   })
 

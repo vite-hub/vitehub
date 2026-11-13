@@ -151,6 +151,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/connections/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/libsql-drizzle",
+  "@vite-hub/database/runtime/registry",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/email/runtime/console",
@@ -201,7 +202,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
   const path = subpath.replace(/^\.\//, "");
 
   if (subpath === "./package.json") return "package metadata";
-  if (packageName === "@vite-hub/cli") return "framework tooling";
+  if (packageName === "@vite-hub/cli" || packageName === "@vite-hub/codemods") return "framework tooling";
   if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";

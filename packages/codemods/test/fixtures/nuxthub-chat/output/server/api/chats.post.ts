@@ -1,6 +1,6 @@
 import { createError, defineEventHandler, readValidatedBody } from 'nuxt/server'
 import type { UIMessage } from 'ai'
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { z } from 'zod'
 
 export default defineEventHandler(async (event) => {
