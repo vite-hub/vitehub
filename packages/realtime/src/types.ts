@@ -178,7 +178,7 @@ export interface RealtimePersistenceOptions {
   maxWait?: number
 }
 
-export interface RealtimeDefinition {
+interface RealtimeDefinitionAccess {
   /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
   auth?: boolean
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
@@ -192,6 +192,10 @@ export interface RealtimeDefinition {
   origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
   /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
   authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+}
+
+/** A definition whose rooms edit one stored document each. */
+export interface RealtimeDocumentDefinition extends RealtimeDefinitionAccess {
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
   /**
    * Editor schema and Markdown codec. Defaults to the built-in Markdown kit. A function picks the codec of each
@@ -204,6 +208,20 @@ export interface RealtimeDefinition {
   /** Idle saves. `false` saves only when a client calls `save()` or `history.checkpoint()`. */
   persistence?: RealtimePersistenceOptions | false
 }
+
+/**
+ * A definition whose rooms hold no document, only presence: who is in the room and the awareness fields each client
+ * sets, such as a cursor. Nothing loads or saves, and `authorize()` is asked only for `read`. Join its rooms with
+ * `connectRealtimeRoom()` from `@vite-hub/realtime/client`.
+ */
+export interface RealtimePresenceDefinition extends RealtimeDefinitionAccess {
+  document: false
+  editor?: never
+  history?: never
+  persistence?: never
+}
+
+export type RealtimeDefinition = RealtimeDocumentDefinition | RealtimePresenceDefinition
 
 /** Server-written save state, mirrored in the read-only `status` Y.Map. */
 export interface RealtimeDocumentStatus {
