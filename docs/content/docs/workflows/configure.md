@@ -59,7 +59,17 @@ export default defineConfig({
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
 
-Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on other supported hosts. Netlify cannot infer one, so set `provider` or turn Workflow off there. On Node or Docker, ViteHub picks OpenWorkflow when you set `postgres.url` or `sqlite.path`.
+Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on Vercel. On other hosts, such as Node, Docker, and Deno, it picks OpenWorkflow when you set `postgres.url` or `sqlite.path`. Without them, the build fails with `WORKFLOW_C0020`. Add the provider and storage:
+
+```ts [vite.config.ts] fragment
+vitehub({
+  workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
+})
+```
+
+Then [start an OpenWorkflow worker](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker). Netlify cannot infer a provider, so set `provider` or turn Workflow off there.
+
+In `vite dev`, a Workflow without `provider` or storage runs inline in the dev server. The Workflow that only `agent` turns on also runs inline on these hosts. Run `vitehub durability list` to see the store that the app uses.
 
 ## Define a workflow
 

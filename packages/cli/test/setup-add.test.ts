@@ -750,12 +750,12 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it.each(["node", "deno"])("says that the default Workflow runs inline on %s, and not when a provider is set", async (host) => {
+  it.each(["node", "deno"])("asks for the Workflow provider on %s, and installs OpenWorkflow when it is set", async (host) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}" }`) })
 
-    const inline = await add(["workflow", "--dry-run"], root)
-    expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
-    expect(inline.json.install.packages).toEqual(["@vite-hub/workflow"])
+    const missing = await add(["workflow", "--dry-run"], root)
+    expect(missing.exitCode, missing.stdout).toBe(2)
+    expect(missing.json.missing).toEqual([{ choices: ["openworkflow"], field: "workflow.provider" }])
 
     const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
@@ -767,13 +767,20 @@ describe("vitehub add", () => {
     "workflow.postgres.schema=custom",
     "workflow.sqlite.path=   ",
     "workflow.postgres.url=",
-  ])("keeps the inline Workflow default with partial storage options (%s)", async (option) => {
+  ])("asks for the Workflow provider with partial storage options (%s)", async (option) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
     const { exitCode, json } = await add(["workflow", "--option", option, "--dry-run"], root)
 
-    expect(exitCode).toBe(0)
-    expect(json.install.packages).toEqual(["@vite-hub/workflow"])
-    expect(json.nextSteps.join("\n")).toContain("inline in the request process")
+    expect(exitCode).toBe(2)
+    expect(json.missing).toEqual([{ choices: ["openworkflow"], field: "workflow.provider" }])
+  })
+
+  it.each(["node", "deno"])("runs the Workflow that agent turns on inline on %s without a provider", async (host) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}" }`) })
+
+    const { exitCode, json, stdout } = await add(["agent", "--dry-run"], root)
+    expect(exitCode, stdout).toBe(0)
+    expect(json.nextSteps).toContainEqual(expect.stringContaining(`Workflow that agent turns on runs inline in the request process on ${host}, and a restart loses its runs.`))
   })
 
   it.each([
