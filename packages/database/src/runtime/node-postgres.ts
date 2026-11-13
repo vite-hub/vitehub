@@ -11,8 +11,9 @@ import type { LocalPostgresDatabase, PostgresDatabaseDefaults, PostgresDriverCon
 /** Opens a node-postgres pool. `db.$client` is the `pg` Pool. */
 const connectNodePostgres: PostgresDriverConnect = ({ relations, requestScoped, url }) => {
   // Cloudflare limits concurrent connections per request. Hyperdrive pools the origin connections.
-  // Without a URL, `pg` reads the PG* environment variables.
-  const pool = new pg.Pool({ ...url ? { connectionString: url } : {}, ...requestScoped ? { max: 5 } : {} })
+  // Without a URL, `pg` reads PGUSER but needs the postgres.js PGUSERNAME alias mapped explicitly.
+  const username = globalThis.process?.env.PGUSERNAME
+  const pool = new pg.Pool({ ...url ? { connectionString: url } : username !== undefined ? { user: username } : {}, ...requestScoped ? { max: 5 } : {} })
   pool.on("connect", client => client.on("notice", printPostgresWarning))
   // An idle client that loses its connection emits `error` on the pool. Without a listener, Node stops the process.
   pool.on("error", error => console.error(`[vitehub] Postgres connection error: ${error.message}`))

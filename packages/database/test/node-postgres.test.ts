@@ -87,6 +87,31 @@ describe("driver: \"node-postgres\"", () => {
     }
   })
 
+  it.each([
+    { username: "app_role", user: undefined, expected: "app_role" },
+    { username: "app_role", user: "other_role", expected: "app_role" },
+    { username: undefined, user: "pg_role", expected: "pg_role" },
+  ])("resolves PGUSERNAME=$username and PGUSER=$user consistently with the CLI", async ({ username, user, expected }) => {
+    const { createNodePostgresDatabase } = await import("../src/runtime/node-postgres.ts")
+    const { default: pg } = await import("pg")
+    vi.stubEnv("PGHOST", "db.internal")
+    vi.stubEnv("PGDATABASE", "app")
+    vi.stubEnv("PGUSERNAME", username)
+    vi.stubEnv("PGUSER", user)
+    try {
+      const db = createNodePostgresDatabase(definition, { binding: "HYPERDRIVE" })
+      const pool = Reflect.get(db, "$client") as InstanceType<typeof pg.Pool>
+      expect(new pg.Client(pool.options).user).toBe(expected)
+
+      const withUrl = createNodePostgresDatabase({ ...definition, connection: { url: "postgres://url_role:secret@primary/app" } }, { binding: "HYPERDRIVE" })
+      const urlPool = Reflect.get(withUrl, "$client") as InstanceType<typeof pg.Pool>
+      expect(new pg.Client(urlPool.options).user).toBe("url_role")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("prints server warnings, drops notices, and keeps the process alive on an idle connection error", async () => {
     const { createNodePostgresDatabase } = await import("../src/runtime/node-postgres.ts")
     Reflect.get(createNodePostgresDatabase({ ...definition, connection: { url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" }), "$client")
