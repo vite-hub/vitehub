@@ -53,9 +53,9 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
-export type BlobOperation = "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
+export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
- * `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder.
+ * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, or the removal of a non-empty folder.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
 export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
@@ -125,6 +125,11 @@ export interface BlobDriverAdapter<TOptions> {
   canonicalPathname?(pathname: string): string
   name: string
   options: TOptions
+  /**
+   * Copy an object with its content type and custom metadata, in the provider when it can. Returns `null` when `from`
+   * does not exist. Without it, `copy()` reads the object and writes it again.
+   */
+  copy?(from: string, to: string): Promise<BlobObject | null>
   createMultipartUpload?(pathname: string, options: BlobMultipartOptions): Promise<BlobDriverMultipartUpload>
   delete(pathnames: string | string[]): Promise<void>
   get(pathname: string): Promise<Blob | null>
@@ -286,9 +291,22 @@ export interface BlobMedia {
   variants(pathname: string): Promise<Result<MediaVariantEntry[], BlobErrorCode>>
 }
 
+/** Options of `blob.copy()`. */
+export interface BlobCopyOptions {
+  /** Replace an object at `to`. Defaults to `false`: the copy fails with `BLOB_CONFLICT`, as `media.move()` does. */
+  overwrite?: boolean
+}
+
 export interface BlobStorage {
   /** Media records, folders, and image variants. */
   readonly media: BlobMedia
+  /**
+   * Copy an object to `to` in the same store, with its content type and custom metadata. Returns the new object.
+   * `from` must exist (`BLOB_NOT_FOUND`), and `to` must be empty unless `overwrite` is set (`BLOB_CONFLICT`).
+   * `to` follows the rules of `put()`. The provider copies the bytes when it can: S3 and Vercel Blob copy on the server,
+   * the `fs` driver copies the file. R2 streams the object from the binding. Netlify Blobs reads and writes it.
+   */
+  copy(from: string, to: string, options?: BlobCopyOptions): Promise<Result<BlobObject, BlobErrorCode>>
   /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
   delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
