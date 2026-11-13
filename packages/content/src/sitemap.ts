@@ -8,6 +8,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import type { AnyContentCollection } from "./collections-types.ts"
 import type { ContentCollectionsRuntime, ContentDocumentSummary } from "./collections-runtime.ts"
 import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentMcpOptions } from "./mcp.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
@@ -27,6 +28,11 @@ export interface DefineContentSeoOptions {
    * of their latest `content.history()` entry. `title` defaults to the host name, `limit` to 20 items, at most 500.
    */
   rss?: boolean | ContentRssOptions
+  /**
+   * Serve a public read-only MCP server at `/mcp` with two tools: `list-pages` lists the published Markdown pages that
+   * the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
+   */
+  mcp?: boolean | ContentMcpOptions
   /**
    * Atomic leases for Source date refreshes across server instances. Use a shared LeaseStore, such as
    * `createSqlLeaseStore()` from `@vite-hub/runtime`. Without it, work is shared only within this Content instance.
@@ -89,7 +95,7 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots, markdown, rss, dateLeases, llms } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
   if (llms !== undefined && llms !== true && llms !== false) {
     if (llms === null || Object(llms) !== llms || Array.isArray(llms)) throw invalid("llms must be true, false, or { title, description }.")
@@ -109,6 +115,12 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
     const { title, description, limit } = rss as Record<string, unknown>
     if ((title !== undefined && String(title) !== title) || (description !== undefined && String(description) !== description)) throw invalid(shape)
     if (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 500)) throw invalid("rss limit must be an integer from 1 to 500.")
+  }
+  if (mcp !== undefined && mcp !== true && mcp !== false) {
+    const shape = "mcp must be true, false, or { name }."
+    if (mcp === null || Object(mcp) !== mcp || Array.isArray(mcp)) throw invalid(shape)
+    const { name } = mcp as Record<string, unknown>
+    if (name !== undefined && (String(name) !== name || !name.trim())) throw invalid(shape)
   }
   if (robots !== undefined && robots !== true && robots !== false) {
     if (robots === null || Object(robots) !== robots || Array.isArray(robots)) throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
@@ -233,6 +245,10 @@ export async function contentRoutedPages(collections: readonly AnyContentCollect
       const url = contentDocumentUrl(source.url, { id, data: document.data })
       if (url === null) continue
       const loc = absolute(url, site)
+      const seo: unknown = document.data.seo
+      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true) continue
+      const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
+      if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
       if (seen.has(loc)) continue
       seen.add(loc)
       const entry: ContentRoutedPage = { collection: source.name, id, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }
@@ -369,10 +385,16 @@ export function contentDocumentSummary(collection: AnyContentCollection, data: R
 /** The Markdown copy of a published document: its title, unless the body has its own, its description as a quote, then the body. */
 export async function renderMarkdownCopy(collection: AnyContentCollection, document: { data: Record<string, unknown>, body: string }, site: string | undefined): Promise<string> {
   const { title, description } = contentDocumentSummary(collection, document.data)
-  const body = document.body.trim()
+  return await renderPageMarkdownCopy({ title, description, body: document.body }, site)
+}
+
+/** Render a page from either a collection or a Source as Markdown. */
+export async function renderPageMarkdownCopy(page: { title?: string, description?: string, body: string }, site: string | undefined): Promise<string> {
+  const { title, description } = page
+  const body = page.body.trim()
   const head = [
     title && !/^#\s/.test(body) ? `# ${title}` : undefined,
-    description ? `> ${description}` : undefined,
+    description ? `> ${description.replace(/\s*\n\s*/g, " ")}` : undefined,
   ].filter(Boolean)
   return `${[...head, await absoluteLinks(body, site)].filter(Boolean).join("\n\n")}\n`
 }
