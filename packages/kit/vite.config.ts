@@ -11,10 +11,20 @@ const entries = readdirSync(new URL("src/", import.meta.url))
 export default defineConfig({
   pack: {
     ...packDefaults,
+    // The style family and its tokens ship as plain CSS: `@vite-hub/kit/styles/<file>.css`.
+    copy: [{ from: "src/styles", to: "dist" }],
     deps: {
       neverBundle: [/^@ui-sdk\//, "@nuxt/kit", "vue"],
       onlyBundle: false,
     },
     entry: entries,
+    exports: {
+      ...packDefaults.exports,
+      customExports: (exports) => ({
+        ...packDefaults.exports.customExports(exports),
+        "./styles/default.css": "./dist/styles/default.css",
+        "./styles/tokens.css": "./dist/styles/tokens.css",
+      }),
+    },
   },
 });

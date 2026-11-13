@@ -63,6 +63,7 @@ export default defineConfig({
       "src/build/page-tools.ts",
       "src/build/paths.ts",
       "src/build/provider-output-sources.ts",
+      "src/build/revision.ts",
       "src/build/scan-module.ts",
       "src/build/user-entry.ts",
       "src/build/vercel-config.ts",

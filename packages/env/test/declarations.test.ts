@@ -27,9 +27,8 @@ describe("env declarations", () => {
         for (const type of [undefined, "DeclaredType"]) {
           const result = await resolveDeclarations({
             value: env({
-              default: scenario.fallback,
+              ...(scenario.fallback === undefined ? { optional: true as const } : { default: scenario.fallback }),
               mode: "build",
-              optional: true,
               schema: z.coerce.number(),
               secret,
               source: env.source(scenario.names, { canonical: false }),
@@ -288,11 +287,13 @@ describe("env declarations", () => {
     expect(() => createRuntimeRegistry({ appName: proxy as never })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
-  it("rejects conflicting optional and required options", () => {
-    expect(() => env({
-      optional: true,
-      required: true,
-    })).toThrow("cannot use both optional and required")
+  it("accepts only optional: true for a value that can be missing", () => {
+    expect(env()).toMatchObject({ required: true })
+    expect(env({ optional: true })).toMatchObject({ required: false })
+    expect(env({ default: "eu" })).toMatchObject({ default: "eu", required: true })
+    expect(() => env({ required: true } as never)).toThrow("does not accept required")
+    expect(() => env({ optional: true, required: true } as never)).toThrow("does not accept required")
+    expect(() => env.boolean({ default: false, optional: true } as never)).toThrow("cannot use both optional and default")
   })
 
   it("reads the canonical name before the inferred path name", () => {
@@ -325,7 +326,7 @@ describe("env declarations", () => {
       canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",
       name: "VITEHUB_TELEGRAM_BOT_TOKEN",
     })
-    expect(resolveEnvSource(env({ source: env.gitSha() }), "env.release")).not.toHaveProperty("canonical")
+    expect(resolveEnvSource(env({ source: env.gitCommit() }), "env.release")).not.toHaveProperty("canonical")
     expect(resolveEnvSource(env({ source: env.source("TOKEN", { canonical: false }) }), "env.token")).toHaveProperty("canonical", false)
   })
 
@@ -375,15 +376,9 @@ describe("env declarations", () => {
       label: "git:commit",
       short: true,
     })
-    expect(env.gitRef()).toMatchObject({
-      kind: "git-ref",
-      label: "git:ref",
-    })
-    expect(env.gitSha({ short: true })).toMatchObject({
-      kind: "git-sha",
-      label: "git:sha",
-      short: true,
-    })
+    expect(env).not.toHaveProperty("gitRef")
+    expect(env).not.toHaveProperty("gitSha")
+    expect(env).not.toHaveProperty("variable")
     expect(env.gitTag()).toMatchObject({
       kind: "git-tag",
       label: "git:tag",
@@ -402,20 +397,23 @@ describe("env declarations", () => {
   it("resolves git metadata from build env before git", async () => {
     const explicit = createSourceContext({
       env: {
+        GITHUB_HEAD_REF: "feature",
         GITHUB_REF_NAME: "v1.2.3",
         GITHUB_REF_TYPE: "tag",
         GITHUB_SHA: "github-sha",
-        GIT_REF_NAME: "main",
+        GIT_BRANCH: "main",
         GIT_SHA: "abcdef1234567890",
         GIT_TAG: "v9.9.9",
       },
       mode: "build",
       rootDir: "/missing-git-root",
     })
-    expect(await explicit.git.sha()).toBe("abcdef1234567890")
-    expect(await explicit.git.sha({ short: true })).toBe("abcdef1")
-    expect(await explicit.git.ref()).toBe("main")
+    expect(await explicit.git.commit()).toBe("abcdef1234567890")
+    expect(await explicit.git.commit({ short: true })).toBe("abcdef1")
+    expect(await explicit.git.branch()).toBe("main")
     expect(await explicit.git.tag()).toBe("v9.9.9")
+    expect(explicit.git).not.toHaveProperty("sha")
+    expect(explicit.git).not.toHaveProperty("ref")
 
     const github = createSourceContext({
       env: {
@@ -426,9 +424,25 @@ describe("env declarations", () => {
       mode: "build",
       rootDir: "/missing-git-root",
     })
-    expect(await github.git.sha()).toBe("github-sha")
-    expect(await github.git.ref()).toBe("v1.2.3")
+    expect(await github.git.commit()).toBe("github-sha")
     expect(await github.git.tag()).toBe("v1.2.3")
+    // A tag push sets GITHUB_REF_NAME to the tag, so the branch comes from Git.
+    await expect(github.git.branch()).rejects.toThrow()
+
+    const githubBranch = createSourceContext({
+      env: { GITHUB_REF_NAME: "main", GITHUB_REF_TYPE: "branch" },
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    expect(await githubBranch.git.branch()).toBe("main")
+
+    // A pull request sets GITHUB_REF_NAME to "<number>/merge" and GITHUB_HEAD_REF to the source branch.
+    const githubPullRequest = createSourceContext({
+      env: { GITHUB_HEAD_REF: "feature", GITHUB_REF_NAME: "12/merge", GITHUB_REF_TYPE: "branch" },
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    expect(await githubPullRequest.git.branch()).toBe("feature")
 
     const inheritedGithubRefType = Object.create({ GITHUB_REF_TYPE: "tag" }) as Record<string, string | undefined>
     inheritedGithubRefType.GITHUB_REF_NAME = "inherited-tag"

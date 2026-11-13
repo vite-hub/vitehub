@@ -28,6 +28,23 @@ declare const message: EmailMessage
 const multipleSenders: EmailMessage = { from: ["first@example.com", "second@example.com"], subject: "Hello", to: "reader@example.com" }
 void multipleSenders
 
+// @ts-expect-error A message needs `text` or `html`.
+const withoutBody: EmailMessage = { from: "hello@example.com", subject: "Hello", to: "reader@example.com" }
+void withoutBody
+
+// @ts-expect-error ViteHub Email does not send provider templates. Render the template to `html`.
+const providerTemplate: EmailMessage = { from: "hello@example.com", html: "<p>Hi</p>", subject: "Hello", template: { id: "welcome" }, to: "reader@example.com" }
+void providerTemplate
+
+// @ts-expect-error ViteHub Email does not send React elements. Render them to `html`.
+const reactBody: EmailMessage = { from: "hello@example.com", react: {}, subject: "Hello", text: "Hi", to: "reader@example.com" }
+void reactBody
+
+const htmlOnly: EmailMessage = { from: "hello@example.com", html: "<p>Hi</p>", subject: "Hello", to: "reader@example.com" }
+const textOnly: EmailMessage = { from: "hello@example.com", subject: "Hello", text: "Hi", to: "reader@example.com" }
+void htmlOnly
+void textOnly
+
 hubEmail({ driver: "resend" })
 // @ts-expect-error Email requires a configured provider.
 hubEmail()

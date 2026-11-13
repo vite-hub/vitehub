@@ -59,20 +59,10 @@ describe("Workspace Source metadata", () => {
     }
 
     expect(custom(direct)).toBe(direct)
-    expect(file({
-      mount: { materialize: "lazy" },
-      path: "README.md",
-    })).toMatchObject({
-      mount: { materialize: "lazy", path: "" },
-      probeKeys: ["README.md"],
-    })
-    expect(markdown({
-      mount: { materialize: "lazy" },
-      path: "README.md",
-    })).toMatchObject({
-      mount: { materialize: "lazy" },
-      probeKeys: ["README.md"],
-    })
+    for (const source of [file({ mount: { materialize: "lazy" }, path: "README.md" }), markdown({ mount: { materialize: "lazy" }, path: "README.md" })]) {
+      expect(source).toMatchObject({ key: "README.md", mount: { materialize: "lazy" } })
+      expect(normalizeWorkspaceSourceMetadata("readme", source)).toMatchObject({ materialize: "lazy", mountPath: "", probeKeys: ["README.md"] })
+    }
     expect(glob({
       cache: { maxAge: 60 },
       include: "**/*.md",

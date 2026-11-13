@@ -13,21 +13,14 @@ import type {
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
   AuthFor,
-  AuthRuntimeOptions,
   RegisteredAuth,
   ViteHubAuth,
 } from "./types.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
-function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
-  return Boolean(options && Object.keys(options).length > 0)
-}
-
 function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
-  if (typeof definition.options === "function") return true
-  const runtime = definition.options.runtime
-  return typeof runtime === "function" || trustsProxyHeaders(definition.options) || trustsProxyHeaders(runtime)
+  return typeof definition.options === "function" || trustsProxyHeaders(definition.options)
 }
 
 function hasConfiguredPublicUrl(): boolean {
@@ -46,11 +39,8 @@ export function resolveDefaultDefinition(): AuthDefinition {
   return discoveredDefinition
 }
 
-export function createBetterAuthOptions(
-  definition: AuthDefinition,
-  runtimeOptions: AuthRuntimeOptions = {},
-): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: envResolverFor(definition) }).providerOptions
+export function createBetterAuthOptions(definition: AuthDefinition): AuthBetterAuthRuntimeOptions {
+  return resolveAuthOptions(definition, { env: envResolverFor(definition) }).providerOptions
 }
 
 export function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
@@ -63,14 +53,7 @@ export function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthB
   }
 }
 
-export function getAuthForDefinition<TDefinition extends AuthDefinition>(
-  definition: TDefinition,
-  runtimeOptions?: AuthRuntimeOptions,
-): AuthFor<TDefinition> {
-  if (hasRuntimeOptions(runtimeOptions)) {
-    return createAuthenticationProvider<AuthFor<TDefinition>>(createBetterAuthOptions(definition, runtimeOptions))
-  }
-
+export function getAuthForDefinition<TDefinition extends AuthDefinition>(definition: TDefinition): AuthFor<TDefinition> {
   return cachedAuth(definition)
 }
 
@@ -122,17 +105,16 @@ export function requestProvider(
 }
 
 /**
- * The Better Auth instance of the app's Auth Definition for a request that can differ from the event's own, with
- * runtime options. Apps call `useAuth(event)`. The Console reads it through `@vite-hub/auth/runtime/console`.
+ * The Better Auth instance of the app's Auth Definition for a request that can differ from the event's own. Apps call
+ * `useAuth(event)`. The Console reads it through `@vite-hub/auth/runtime/console`.
  */
 export function authForRequest(
   request: Pick<Request, "headers" | "url">,
-  runtimeOptions?: AuthRuntimeOptions,
   event?: ViteHubContext,
 ): RegisteredAuth {
   const definition = resolveDefaultDefinition()
-  if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
+  if (!hasRequestRuntimeOptions(definition) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition) as RegisteredAuth
   }
-  return requestProvider(definition, resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) })) as RegisteredAuth
+  return requestProvider(definition, resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) })) as RegisteredAuth
 }

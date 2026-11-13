@@ -37,7 +37,7 @@ export function declarationCode(field: EnvField, envName: string, style: CodeSty
   const options: string[] = []
   if (field.default !== undefined) options.push(`default: ${literal(field.default, style)}`)
   if (field.section === "public") options.push(`mode: ${quoteString("build", style)}`)
-  if (!field.required) options.push("required: false")
+  if (!field.required && field.default === undefined) options.push("optional: true")
   if (field.secret) options.push("secret: true")
   const names = [...new Set([field.variable, ...(field.extraVariables ?? [])])]
   const source = names.length === 1 ? quoteString(field.variable, style) : `[${names.map(name => quoteString(name, style)).join(", ")}]`
