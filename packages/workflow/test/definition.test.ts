@@ -1,7 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { features } from "@vite-hub/internal/features"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { assertWorkflowDefinitionName, defineWorkflow } from "../src/definition.ts"
@@ -20,6 +22,21 @@ describe("workflow definitions", () => {
     // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
     expect(() => defineWorkflow("onboard", undefined as never)).toThrow(/requires a workflow handler/)
     expect(defineWorkflow("onboard", async () => ({ ok: true }))).toEqual({ handler: expect.any(Function), name: "onboard", options: undefined })
+  })
+
+  it("loads the starter that `vitehub add workflow` writes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-starter-"))
+    tempDirs.push(root)
+    const file = join(root, "welcome.ts")
+    const source = features.workflow.definition!.template("welcome")
+      .replace("\"vite-hub/workflow\"", JSON.stringify(fileURLToPath(new URL("../src/definition.ts", import.meta.url))))
+    await writeFile(file, source)
+
+    const { default: definition } = await import(pathToFileURL(file).href) as { default: ReturnType<typeof defineWorkflow> }
+
+    expect(definition.name).toBe("welcome")
+    // SAFETY: The starter handler reads only the payload.
+    await expect(definition.handler({ id: "user-1" } as never, {} as never)).resolves.toEqual({ id: "user-1" })
   })
 
   it("registers optional native durable entries", () => {
