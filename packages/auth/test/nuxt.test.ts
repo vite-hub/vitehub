@@ -154,7 +154,7 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and build:manifest. The app has no abilities, so no <Can>.
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and build:manifest. The app has no abilities, so no <AuthPermission>.
     expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "build:manifest"])
   })
 
@@ -178,24 +178,24 @@ describe("Auth Nuxt integration", () => {
     }
   }
 
-  it("registers no <Can> when the app has no abilities", async () => {
+  it("registers no <AuthPermission> when the app has no abilities", async () => {
     const { components, hooks } = await registeredComponents({})
     expect(hooks).not.toContain("components:extend")
     expect(components).toEqual([])
   })
 
-  it("registers no <Can> when Auth is off, even with abilities", async () => {
+  it("registers no <AuthPermission> when Auth is off, even with abilities", async () => {
     const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, { auth: false })
     expect(components).toEqual([])
   })
 
-  it("registers <Can> and <Cannot> from the Vue entry when the app has abilities, unless the app has its own component", async () => {
+  it("registers <AuthPermission> from the Vue entry when the app has abilities, unless the app has its own component", async () => {
     const component = (name: string) => ({
-      chunkName: `components/${name.toLowerCase()}`,
+      chunkName: "components/auth-permission",
       export: name,
       filePath: "vite-hub/auth/vue",
       global: false,
-      kebabName: name.toLowerCase(),
+      kebabName: "auth-permission",
       meta: {},
       mode: "all",
       pascalName: name,
@@ -205,32 +205,31 @@ describe("Auth Nuxt integration", () => {
       shortPath: "vite-hub/auth/vue",
     })
     const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" })
-    expect(components).toEqual([component("Can"), component("Cannot")])
+    expect(components).toEqual([component("AuthPermission")])
 
-    const own = { pascalName: "Can", filePath: "/app/components/Can.vue" }
-    expect((await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, {}, [own])).components).toEqual([own, component("Cannot")])
+    const own = { pascalName: "AuthPermission", filePath: "/app/components/AuthPermission.vue" }
+    expect((await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, {}, [own])).components).toEqual([own])
   })
 
-  // Each pair of names is what Nuxt gives `Can.vue` in a components directory with the same prefix,
+  // Each pair of names is what Nuxt gives `AuthPermission.vue` in a components directory with the same prefix,
   // `components: [{ path, prefix }]`.
   it.each([
-    ["Auth", "AuthCan", "auth-can"],
-    ["auth", "AuthCan", "auth-can"],
-    ["my-auth", "MyAuthCan", "my-auth-can"],
-    ["UI", "UICan", "ui-can"],
-    ["MonÉquipe", "MonÉquipeCan", "mon-équipe-can"],
+    ["Auth", "AuthAuthPermission", "auth-auth-permission"],
+    ["auth", "AuthAuthPermission", "auth-auth-permission"],
+    ["my-auth", "MyAuthAuthPermission", "my-auth-auth-permission"],
+    ["UI", "UIAuthPermission", "ui-auth-permission"],
+    ["MonÉquipe", "MonÉquipeAuthPermission", "mon-équipe-auth-permission"],
     // Letters without case.
-    ["日本", "日本Can", "日本-can"],
+    ["日本", "日本AuthPermission", "日本-auth-permission"],
     // A combining mark: `e` followed by U+0301.
-    ["équipe", "ÉquipeCan", "équipe-can"],
-  ])("registers <Can> under the prefix %j as %s", async (prefix, pascalName, kebabName) => {
-    const own = { pascalName: "Can", filePath: "/app/components/Can.vue" }
+    ["équipe", "ÉquipeAuthPermission", "équipe-auth-permission"],
+  ])("registers <AuthPermission> under the prefix %j as %s", async (prefix, pascalName, kebabName) => {
+    const own = { pascalName: "AuthPermission", filePath: "/app/components/AuthPermission.vue" }
     const { components } = await registeredComponents({ "shared/abilities.ts": "export default {}\n" }, { auth: { components: { prefix } } }, [own])
-    // The export stays `Can`, so the generated component types read `typeof import("vite-hub/auth/vue")["Can"]`.
+    // The export stays `AuthPermission`, so the generated component types read `typeof import("vite-hub/auth/vue")["AuthPermission"]`.
     expect(components).toEqual([
       own,
-      expect.objectContaining({ chunkName: `components/${kebabName}`, export: "Can", filePath: "vite-hub/auth/vue", kebabName, pascalName }),
-      expect.objectContaining({ chunkName: `components/${kebabName}not`, export: "Cannot", filePath: "vite-hub/auth/vue", kebabName: `${kebabName}not`, pascalName: `${pascalName}not` }),
+      expect.objectContaining({ chunkName: `components/${kebabName}`, export: "AuthPermission", filePath: "vite-hub/auth/vue", kebabName, pascalName }),
     ])
   })
 
@@ -298,7 +297,7 @@ describe("Auth Nuxt integration", () => {
     authPlugin.config = authConfig
     await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and build:manifest. The app has no abilities, so no <Can>.
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and build:manifest. The app has no abilities, so no <AuthPermission>.
     expect(nuxt.hooks).toHaveLength(4)
   })
 

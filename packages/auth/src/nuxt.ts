@@ -71,7 +71,7 @@ type NuxtComponent = {
 
 const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
 /** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
-const abilityComponents = ["Can", "Cannot"]
+const abilityComponents = ["AuthPermission"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
@@ -181,7 +181,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  // Without `shared/abilities.ts`, the app has no rules to check, so the name `<Can>` stays free for the app. In
+  // Without `shared/abilities.ts`, the app has no rules to check, so the name `<AuthPermission>` stays free for the app. In
   // development, adding or removing the file restarts Nuxt (below), and this check runs again.
   if (authConfig?.abilities && !componentsRegistered.has(nuxt) && nuxt.hook) {
     componentsRegistered.add(nuxt)
@@ -272,9 +272,9 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
  * with the same `scule` functions, so `<name>.vue` in that directory gets the same names, unless the prefix ends with `name`.
  *
  * @example
- * componentNames("my-auth", "Can") // { kebabName: "my-auth-can", pascalName: "MyAuthCan" }
+ * componentNames("custom", "AuthPermission") // { kebabName: "custom-auth-permission", pascalName: "CustomAuthPermission" }
  */
 function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
-  const words = [...splitByCase(prefix), name]
+  const words = [...splitByCase(prefix), ...splitByCase(name)]
   return { kebabName: kebabCase(words), pascalName: pascalCase(words) }
 }

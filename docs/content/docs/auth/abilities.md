@@ -70,38 +70,44 @@ export default defineEventHandler(async (event) => {
 
 ## Check a rule in Vue
 
-`<Can>` shows its content when the rule allows, the `#denied` slot with `{ code, details }` when it refuses, and nothing while the session is unknown. `<Cannot>` is the mirror: it shows its content, with `{ code, details }`, only when the rule refuses. `useAbility().can()` and `useAbility().cannot()` return `undefined` for the same unknown state. In Nuxt, all of them are auto-imported. In other Vue apps, import them from `vite-hub/auth/vue`.
+`<AuthPermission>` renders `#allowed` when the rule allows and `#denied` with `{ code, details }` when it refuses. Default content is shorthand for `#allowed`. If both are present, `#allowed` takes precedence. Neither slot renders while the session is unknown or `pending` is true. `useAbility().can()` and `useAbility().cannot()` return `undefined` for the same unknown state.
+
+In Nuxt, these APIs are auto-imported. In other Vue apps, import them from `vite-hub/auth/vue`.
 
 ```vue [app/pages/posts/[id].vue]
 <script setup lang="ts">
 const route = useRoute()
 const { data: post } = await useFetch(`/api/posts/${route.params.id}`)
-const { can } = useAbility()
 </script>
 
 <template>
-  <article v-if="post">
-    <Can do="posts.edit" :with="post">
+  <AuthPermission v-if="post" check="posts.edit" :args="[post]">
+    <template #allowed>
       <button>Edit</button>
-      <template #denied="{ code }">
-        <p v-if="code === 'signed-out'">Sign in to edit this post.</p>
-      </template>
-    </Can>
-    <button v-if="can('posts.publish', post)">Publish</button>
-    <Cannot do="posts.edit" :with="post" v-slot="{ code }">
-      <p v-if="code === 'not-author'">Only the author can edit this post.</p>
-    </Cannot>
-  </article>
+    </template>
+    <template #denied="{ code }">
+      <p v-if="code === 'signed-out'">Sign in to edit this post.</p>
+      <p v-else>Only the author can edit this post.</p>
+    </template>
+  </AuthPermission>
 </template>
 ```
 
-For a rule with one argument, required or optional, pass it in `with`. For every other rule, such as two arguments, a default parameter, or a rest parameter, pass the list in `args`: `:args="[from, to]"`. `<Cannot>` takes the same props. The types pick the prop, so the wrong one fails to compile. The components and the functions pass the arguments as they are, the same as the server. Only the session makes the answer unknown, so render `<Can>` after the data loads (`v-if`), or set `:pending="!post"` to show nothing until then.
+Pass rule arguments in `args`, in the same order as on the server. For one argument, use `:args="[post]"`; for two, use `:args="[from, to]"`. Omit `args` when the rule takes no arguments or all its arguments are optional. The types check the rule name and its argument tuple. Use `v-if` to wait for data, or set `:pending="!post"` to show nothing while it loads.
 
-In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, `<Can>` shows nothing until Better Auth answers.
+For the allowed case alone, use default content:
 
-Nuxt registers `<Can>` only when the app or a layer has `shared/abilities.ts`. Without the file, the name stays free for your own components. In development, adding or removing the file restarts Nuxt. When the app already has a `Can` component, its component wins. To register `<Can>` under another name, set a prefix in `nuxt.config.ts`: `vitehub: { auth: { components: { prefix: 'Auth' } } }` gives `<AuthCan>`, with the same types. The prefix follows Nuxt's component prefix rules: Nuxt splits it into words as it splits the prefix of `components: [{ path, prefix }]`, so `'my-auth'` gives `<MyAuthCan>`.
+```vue fragment
+<AuthPermission check="posts.edit" :args="[post]">
+  <button>Edit</button>
+</AuthPermission>
+```
 
-Nuxt uses the Auth Definition's configured base path for browser session refreshes too. In other Vue apps with a custom client, call `provideAuthClient(client)` from a parent component's setup. Descendant `<Can>` components and Auth composables then share that client. For a single check, pass the client directly to `useAbility(client)`.
+In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, the component shows nothing until Better Auth answers.
+
+Nuxt registers `<AuthPermission>` only when the app or a layer has `shared/abilities.ts`. Adding or removing that file in development restarts Nuxt. An app component with the same name wins. A custom prefix, such as `vitehub: { auth: { components: { prefix: 'Custom' } } }`, registers `<CustomAuthPermission>` with the same types. Prefixes follow Nuxt's component prefix rules.
+
+Nuxt uses the Auth Definition's configured base path for browser session refreshes. In other Vue apps with a custom client, call `provideAuthClient(client)` from a parent component's setup. Descendant `<AuthPermission>` components and Auth composables share that client. For a single check, pass the client directly to `useAbility(client)`.
 
 ```ts fragment
 import { createAuthClient, provideAuthClient } from 'vite-hub/auth/vue'
