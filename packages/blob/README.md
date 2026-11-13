@@ -142,6 +142,8 @@ With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, an
 
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
 
+Filesystem listings sort keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. The cursor holds the last listed key, so a key added or removed between pages does not repeat or skip another key. A listing reads only the directories on the `prefix` path and the directories that the page reaches.
+
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
 ## Read-only handles
