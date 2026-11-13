@@ -81,8 +81,10 @@ catalogs:
     "@electric-sql/pglite": ^0.5.15
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
+    "@types/pg": ^8.15.0
     drizzle-kit: 1.0.0-rc.5
     drizzle-orm: 1.0.0-rc.5
+    pg: ^8.16.0
     postgres: ^3.4.9
   esbuild-v27:
     esbuild: ^0.27.7

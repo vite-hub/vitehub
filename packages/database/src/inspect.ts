@@ -95,6 +95,9 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...(dialects[definition.name] === "postgresql" ? [{ label: "Development", value: describePostgresDevelopment(definition.handler, definition.name) }] : []),
+      ...(dialects[definition.name] === "postgresql" && readDatabaseDefinitionDriver(definition.handler) === "node-postgres")
+        ? [{ label: "Driver", value: "node-postgres. Queries use a `pg` Pool." }]
+        : [],
       ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
       ...(dialects[definition.name] !== "postgresql" && (readDatabaseDefinitionRemote(definition.handler) ?? options.http))
         ? [{ label: "Development", value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data." }]

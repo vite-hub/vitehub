@@ -120,10 +120,13 @@ export interface PostgresConnectionConfig {
 }
 
 /**
- * `pglite` runs a Postgres Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
- * `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ * The client of a Postgres Database. Without `driver`, ViteHub uses postgres.js.
+ *
+ * - `node-postgres` uses the `pg` package and its `Pool`. Install `pg` in the app. `db.$client` is the Pool.
+ * - `pglite` runs the Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ *   `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
  */
-export type PostgresDatabaseDriver = "pglite"
+export type PostgresDatabaseDriver = "node-postgres" | "pglite"
 
 export interface PostgresDatabaseDefinitionOptions<
   TSchema extends Record<string, unknown> = Record<string, unknown>,

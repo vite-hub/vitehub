@@ -6,12 +6,11 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { runsOnPglite } from "./postgres-env.ts"
-import { createPostgresDatabase } from "./postgres.ts"
 import { keepOwnClient, trackPgliteClient } from "./request-stats.ts"
 
 import type { PGlite as PgliteClient } from "@electric-sql/pglite"
 import type { AnyRelations } from "drizzle-orm"
-import type { LocalPostgresDatabase, PostgresDatabaseDefaults } from "./postgres.ts"
+import type { LocalPostgresDatabase, PostgresDatabaseDefaults } from "./postgres-database.ts"
 import type { DatabaseConfigValue, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "../types.ts"
 
 export interface PgliteOptions {
@@ -108,11 +107,17 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
   }
 }
 
-/** Creates the Drizzle client of a Postgres Database in development, with PGlite when it has no server. */
+/**
+ * Creates the Drizzle client of a Postgres Database in development, with PGlite when it has no server. It loads only
+ * the driver of the Definition, so an app with `driver: "node-postgres"` needs no postgres.js, and the reverse.
+ */
 export async function createDevPostgresDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   defaults: PostgresDatabaseDefaults,
   options: PgliteOptions,
 ): Promise<RuntimePostgresDatabase<TSchema, TRelations>> {
-  return createPostgresDatabase(definition, defaults, await loadPglite(definition, defaults.url, options))
+  const create = definition.driver === "node-postgres"
+    ? (await import("./node-postgres.ts")).createNodePostgresDatabase
+    : (await import("./postgres.ts")).createPostgresDatabase
+  return create(definition, defaults, await loadPglite(definition, defaults.url, options))
 }

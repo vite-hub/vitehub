@@ -573,7 +573,7 @@ Vite and Nuxt output keep provisioned IDs as fallbacks for unset runtime env val
 
 ## Define a Postgres database
 
-Set `dialect: 'postgresql'`, write the tables with `drizzle-orm/pg-core`, and install the [`postgres`](https://github.com/porsager/postgres) driver.
+Set `dialect: 'postgresql'`, write the tables with `drizzle-orm/pg-core`, and install the [`postgres`](https://github.com/porsager/postgres) driver. To use [`pg`](https://node-postgres.com) instead, see [Use node-postgres](#use-node-postgres).
 
 ```bash
 pnpm add postgres
@@ -601,13 +601,45 @@ export default defineDatabase({
 | `connection.url` | `DatabaseConfigValue` | No | Postgres URL for Node, Vercel, local development, and `vitehub database migrate`. |
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
-| `driver` | `'pglite'` | No | Runs the Database on PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
+| `driver` | `'node-postgres' \| 'pglite'` | No | The client. Without it, ViteHub uses postgres.js. See the driver list below. |
+
+| Driver | Package | Use it for |
+| --- | --- | --- |
+| none (default) | `postgres` | postgres.js. `db.$client` is its `sql` function. |
+| `'node-postgres'` | `pg` | node-postgres. `db.$client` is a `pg` Pool. See [Use node-postgres](#use-node-postgres). |
+| `'pglite'` | `@electric-sql/pglite` | PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
 
 A Postgres Definition has its own connection. It ignores the top-level `connection`, the D1 options, and the local SQLite default. With a Hyperdrive binding at runtime, ViteHub uses its connection string, else `connection.url`. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. When none is set, development uses PGlite, and a production query fails with `DATABASE_MISSING_CONNECTION`.
 
 The client drops the notices of the server, such as `relation already exists, skipping` for each `CREATE ... IF NOT EXISTS`, and prints each Postgres warning with `console.warn`. Errors still reject the query.
 
 Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.
+
+### Use node-postgres
+
+Set `driver: 'node-postgres'` and install `pg` instead of `postgres`:
+
+```bash
+pnpm add pg
+```
+
+```ts [server/databases/default.ts] fragment
+export default defineDatabase({
+  dialect: 'postgresql',
+  driver: 'node-postgres',
+  connection: { url: process.env.DATABASE_URL },
+  schema,
+})
+```
+
+- The connection rules do not change: a Hyperdrive binding, then `connection.url`, then the PG* variables. Development without any of them still runs on PGlite.
+- `db.$client` is a `pg` Pool. Inside a Cloudflare request, each request gets its own Pool with at most 5 connections, as with postgres.js.
+- The app loads only the driver that its Definitions use. An app with only `driver: 'node-postgres'` does not need `postgres`, and an app without it never loads `pg`.
+- `migrateOnStart` and `vitehub database migrate` use `pg` too, with the same advisory lock.
+- The Pool prints Postgres warnings with `console.warn` and drops notices. An idle connection that fails prints an error and does not stop the process.
+
+> [!NOTE]
+> Cloudflare documents `pg` with Hyperdrive on Workers with `nodejs_compat`. ViteHub tests node-postgres on Node with a real Postgres server, and with fakes for Hyperdrive.
 
 ### Run Postgres locally with PGlite
 

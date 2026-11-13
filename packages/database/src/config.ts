@@ -615,7 +615,8 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
 export function readDatabaseDefinitionDriver(file: string): PostgresDatabaseDriver | undefined {
   const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "driver")
   if (expression === undefined) return
-  if (readStaticStringLiteral(expression) === "pglite") return "pglite"
+  const driver = readStaticStringLiteral(expression)
+  if (driver === "pglite" || driver === "node-postgres") return driver
   throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({ file })
 }
 

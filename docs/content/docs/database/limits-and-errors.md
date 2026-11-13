@@ -194,7 +194,7 @@ The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the databas
 
 ### DATABASE_INVALID_DRIVER
 
-`driver` of a Postgres Definition is not `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with `connection.url`.
+`driver` of a Postgres Definition is not `node-postgres` or `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with postgres.js.
 
 ### DATABASE_INVALID_NAME
 

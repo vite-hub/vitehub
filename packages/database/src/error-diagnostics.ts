@@ -160,9 +160,9 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_INVALID_DRIVER: {
       why: ({ file }: { file?: string }) => file
-        ? `The Database Definition "${file}" must set \`driver\` to the string literal "pglite".`
-        : "`defineDatabase().driver` must be `pglite`.",
-      fix: "Set `driver: 'pglite'` as a string literal, or remove `driver` to connect with `connection.url`.",
+        ? `The Database Definition "${file}" must set \`driver\` to the string literal "node-postgres" or "pglite".`
+        : "`defineDatabase().driver` must be `node-postgres` or `pglite`.",
+      fix: "Set `driver: 'node-postgres'` or `driver: 'pglite'` as a string literal, or remove `driver` to connect with postgres.js.",
     },
     DATABASE_INVALID_NAME: {
       why: "`defineDatabase().name` must be a normalized path of letters, numbers, dots, underscores, or dashes.",
