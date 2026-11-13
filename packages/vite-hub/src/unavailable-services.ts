@@ -6,7 +6,7 @@ type OptionalService = Extract<DeploymentService, "browser" | "realtime">
 interface ServiceAvailability {
   available: false
   fix: string
-  preset: string
+  host: string
   reason: string
 }
 
@@ -16,14 +16,14 @@ const services: Record<OptionalService, { label: string, ownerPlugin: string, fi
     ownerPlugin: "@vite-hub/browser/vite",
     fix: plan => plan.services.browser.supported
       ? "Set `browser: true` in vitehub()."
-      : "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+      : "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
   },
   realtime: {
     label: "Realtime",
     ownerPlugin: "@vite-hub/realtime/vite",
     fix: plan => plan.services.realtime.supported
-        ? "Set `realtime: true` in vitehub()."
-        : "Deploy with the Cloudflare preset and set `realtime: true` in vitehub().",
+      ? "Set `realtime: true` in vitehub()."
+      : "Deploy with the Cloudflare host and set `realtime: true` in vitehub().",
   },
 }
 
@@ -35,7 +35,7 @@ const availabilityModules = /^\0#vitehub\/(?:browser|realtime)\/availability$/
  * Tells server code which optional services this build lacks, and why.
  *
  * Each owner package reads `#vitehub/<service>/availability`. Its Vite plugin serves `{ available: true }` when the
- * service is on. For a service that is off, this plugin serves the preset, the reason, and the fix, so imports still
+ * service is on. For a service that is off, this plugin serves the host, the reason, and the fix, so imports still
  * build and calls fail with a message that names the host.
  */
 export function unavailableServicesPlugin(plan: DeploymentPlan, enabled: Record<OptionalService, boolean>): Plugin {
@@ -47,7 +47,7 @@ export function unavailableServicesPlugin(plan: DeploymentPlan, enabled: Record<
     modules.set(availabilityId(service), {
       available: false,
       fix: fix(plan),
-      preset: plan.preset,
+      host: plan.host,
       reason: policy.supported ? `vitehub() does not enable ${label}.` : policy.reason,
     })
   }

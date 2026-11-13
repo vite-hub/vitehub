@@ -15,7 +15,7 @@ import {
   type EmailSendResult,
 } from "../src/index.ts"
 import { renderEmailMarkdown } from "../src/markdown.ts"
-import { email } from "../src/server.ts"
+import { email } from "../src/index.ts"
 import { createTestEmail, type TestEmailClient } from "../src/test.ts"
 import { hubEmail } from "../src/vite.ts"
 import resend from "../src/drivers/resend.ts"

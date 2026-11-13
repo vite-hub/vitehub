@@ -122,8 +122,8 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ### REALTIME_AUTHORITY_CONFLICT
 
-`authority: "cloudflare"` needs a Cloudflare preset. `authority: "memory"`, `"postgres"`, and `"redis"` need the `node` preset.
+`authority: "cloudflare"` needs a Cloudflare host. `authority: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
 
 ### REALTIME_MISSING_AUTHORITY
 
-A production build with `authority: "auto"` found neither a Cloudflare nor a Node preset. Use the Cloudflare preset for Durable Objects, or the Node preset to share rooms through Postgres or Redis.
+A production build with `authority: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.

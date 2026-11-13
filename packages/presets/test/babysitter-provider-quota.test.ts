@@ -67,22 +67,46 @@ describe("Babysitter provider quota", () => {
     expect(await quota.modelLimit(1, Number.POSITIVE_INFINITY)).toBe(1);
   });
 
-  it("blocks forge requests for an hour and never shortens a longer block", async () => {
+  it("blocks forge requests for five minutes and doubles only while blocks repeat", async () => {
+    // A flat hour after every GitHub limit, including secondary limits that lift within minutes,
+    // left the scheduler idle from 06:18 to 07:18 UTC with 4834 of 5000 core requests left.
     const meta = store();
-    let now = 0;
+    const minute = 60_000;
+    let now = 1000 * minute;
     const forge = createForgeQuota(meta, () => now);
-    expect(await forge.block()).toBe(60 * 60_000);
-    now = 10;
-    expect(await forge.block()).toBe(60 * 60_000 + 10);
-    expect(await forge.blockedUntil()).toBe(60 * 60_000 + 10);
+    const blocks: number[] = [];
+    for (let strike = 0; strike < 6; strike++) {
+      const until = await forge.block();
+      blocks.push(until - now);
+      now = until;
+    }
+    expect(blocks).toEqual([5, 10, 20, 40, 60, 60].map(minutes => minutes * minute));
+    // An error while a block holds keeps it.
+    const until = await forge.block();
+    now += minute;
+    expect(await forge.block()).toBe(until);
+    expect(await forge.blockedUntil()).toBe(until);
+    // Two quiet hours after the last block, the next one starts at five minutes again.
+    now = until + 2 * 60 * minute;
+    expect(await forge.block() - now).toBe(5 * minute);
   });
 
   it("blocks forge requests until GitHub's reset time", async () => {
     const meta = store();
     const forge = createForgeQuota(meta, () => 1000);
     expect(await forge.block(1000 + 7 * 60_000)).toBe(1000 + 7 * 60_000);
-    // An unusable reset time falls back to one hour.
-    expect(await createForgeQuota(store(), () => 1000).block(500)).toBe(1000 + 60 * 60_000);
-    expect(await createForgeQuota(store(), () => 1000).block(1000 + 3 * 60 * 60_000)).toBe(1000 + 60 * 60_000);
+    // An unusable reset time falls back to the initial five-minute cooldown.
+    expect(await createForgeQuota(store(), () => 1000).block(500)).toBe(1000 + 5 * 60_000);
+    expect(await createForgeQuota(store(), () => 1000).block(1000 + 3 * 60 * 60_000)).toBe(1000 + 5 * 60_000);
+  });
+
+  it("does not spend a strike on an error during an active forge block", async () => {
+    let now = 1000;
+    const forge = createForgeQuota(store(), () => now);
+    const until = await forge.block();
+    now += 60_000;
+    expect(await forge.block()).toBe(until);
+    now = until;
+    expect(await forge.block() - now).toBe(10 * 60_000);
   });
 });

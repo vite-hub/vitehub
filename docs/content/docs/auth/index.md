@@ -56,7 +56,7 @@ icon: i-lucide-shield-check
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
-    vitehub: { preset: 'node', auth: true },
+    vitehub: { host: 'node', auth: true },
   })
   ```
   ::::
@@ -68,7 +68,7 @@ icon: i-lucide-shield-check
 
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'node', auth: true }),
+      vitehub({ host: 'node', auth: true }),
       nitro(),
     ],
   })
@@ -81,7 +81,7 @@ icon: i-lucide-shield-check
 
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'node', auth: true }),
+      vitehub({ host: 'node', auth: true }),
     ],
   })
   ```

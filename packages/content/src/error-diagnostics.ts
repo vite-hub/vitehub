@@ -58,7 +58,7 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** A new commit of a `github()` Source failed validation, so the head stays on the last valid commit. */
     CONTENT_R0019: {
-      fix: "Fix the document in the repository and push a new commit, then call `content.sources.advance()`. `content.sources.head()` shows the rejected commit and the reason.",
+      fix: "Fix the document in the repository and push a new commit, then run `vitehub content advance` or call `content.sources.advance()`. `vitehub content head` and `content.sources.head()` show the rejected commit and the reason.",
       why: ({ source, sha, reason, head }: { source: string, sha: string, reason: string, head: string | null }) => `[vitehub] Commit ${sha} of Content source ${JSON.stringify(source)} failed validation, so Content keeps ${head ? `commit ${head}` : "no head"}: ${reason}`,
     },
     /** A `github()` Source has no token, so it has no head commit. */
@@ -80,6 +80,21 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_R0023: {
       fix: "Check the `default` KV store. A host can limit the size of one value: Cloudflare KV takes up to 25 MiB. `content.sources.head()` shows the cache key and how many reads missed.",
       why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] Content could not store ${key} of Content source ${JSON.stringify(source)} in KV: ${reason}`,
+    },
+    /** A request to the GitHub push webhook route has no valid `X-Hub-Signature-256` header. */
+    CONTENT_R0024: {
+      fix: "Set the webhook secret in GitHub to the value of `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env, and set the content type to `application/json`. GitHub shows the failed delivery under Settings, Webhooks, Recent Deliveries.",
+      why: ({ delivery }: { delivery: string | null }) => `[vitehub] The GitHub webhook delivery ${delivery ?? "without an id"} has no valid X-Hub-Signature-256 signature, so Content ignored it.`,
+    },
+    /** A signed push names a repository that no `github()` Source of Content reads. */
+    CONTENT_R0025: {
+      fix: "Point the webhook at the app whose `server/content.ts` reads this repository with `github({ repo })`, or remove the webhook from the repository.",
+      why: ({ repo, heads }: { repo: string, heads: string }) => `[vitehub] Content received a GitHub push for ${repo}, but no github() Source reads that repository. Sources with a head: ${heads}.`,
+    },
+    /** The GitHub push webhook route has no secret, so it is disabled. */
+    CONTENT_R0026: {
+      fix: "Set `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env to the secret of the GitHub webhook. Without it, the head of each `github()` Source moves at most once per hour.",
+      why: () => "[vitehub] The Content GitHub webhook route answers 404, because the Server Env has no VITEHUB_GITHUB_WEBHOOK_SECRET.",
     },
     /** `content.sources.at()` received a ref that is not a full SHA, a `pr/<number>` ref, or a safe branch name. */
     CONTENT_R0027: {
@@ -113,6 +128,71 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_R0032: {
       fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env for a higher GitHub rate limit, then try again. `content.sources.allow()` holds each decision for 10 minutes.",
       why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content could not check on GitHub whether ref ${JSON.stringify(ref)} of Content source ${JSON.stringify(source)} is public: ${reason}`,
+    },
+    /** GitHub refused the branch lookup of a `github()` Source with 403 or 429, so the head did not move. */
+    CONTENT_R0035: {
+      fix: "Wait until the GitHub rate limit resets, then run `vitehub content advance`. Check that the token in `VITEHUB_GITHUB_TOKEN` or `github({ auth })` can read the repository: GitHub also answers 403 when it cannot.",
+      why: ({ source, head }: { source: string, head: string | null }) => `[vitehub] GitHub refused the branch lookup of Content source ${JSON.stringify(source)} with 403 or 429, as it does when the rate limit is hit, so Content keeps ${head ? `commit ${head}` : "no head"}.`,
+    },
+    /** `content.history()` read a page of a `github()` Source without a GitHub token, so it returned no entries. */
+    CONTENT_R0040: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env, or pass `github({ auth })`. Content then reads the commits of each page from GitHub and caches them per head commit.",
+      why: ({ source }: { source: string }) => `[vitehub] content.history() returned no entries for Content source ${JSON.stringify(source)} because it reads GitHub without a token.`,
+    },
+    /** `defineContent({ previews })` is not valid, or does not find the `github()` Source that preview URLs read. */
+    CONTENT_R0045: {
+      fix: "Set `previews: true` with one `github()` Source in `sources`, or name the Source with `previews: { source: \"docs\" }`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a document does not load or parse, such as frontmatter that is not valid YAML. Error. */
+    CONTENT_R0060: {
+      fix: "Fix the file that the finding names so it parses, then run `vitehub content check` again.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: frontmatter does not match the `schema` of `contentSource(input, { schema })`. Error. */
+    CONTENT_R0061: {
+      fix: "Change the frontmatter field that the finding names so it matches the schema, or change the schema.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link points to a missing page below a first path segment that holds pages, such as `/docs/kvv`. Error. */
+    CONTENT_R0062: {
+      fix: "Fix the link. When another route serves the path, add it to `defineContent({ check: { ignoreLinks } })` or pass `--ignore` to `vitehub content check`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link points to a path that no page of the Source serves, such as `/learn`. Another route may serve it. Warning. */
+    CONTENT_R0063: {
+      fix: "When another route of the app serves the path, add it to `defineContent({ check: { ignoreLinks } })` or pass `--ignore` to `vitehub content check`. Otherwise fix the link.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link names a heading that the target page does not have. Warning. */
+    CONTENT_R0064: {
+      fix: "Link to the id of an existing heading. Content makes the id from the heading text, such as `#configure-the-store`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page has no title, or a title shorter than 10 or longer than 60 characters. Warning. */
+    CONTENT_R0065: {
+      fix: "Set `title` in the frontmatter, between 10 and 60 characters with the site's title pattern. Use `seo.title` when the heading must stay.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page has no description, or one shorter than 70 or longer than 160 characters. Warning. */
+    CONTENT_R0066: {
+      fix: "Set `description` in the frontmatter, between 70 and 160 characters.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: two or more pages have the same title or the same description. Warning. */
+    CONTENT_R0067: {
+      fix: "Give each page its own title and description, or its own `seo.title` and `seo.description`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page skips a heading level, such as an `h2` followed by an `h4`. Warning. */
+    CONTENT_R0068: {
+      fix: "Go down one heading level at a time. The page title counts as the `h1`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `content.check()` or `vitehub content check` could not run, such as for an unknown Source or a commit GitHub does not give. */
+    CONTENT_R0069: {
+      fix: "Name a Source from `defineContent({ sources })`, pass `sha` only for a `github()` Source, and check that GitHub can serve the commit. In local mode, pass a folder that exists.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
   },
 })

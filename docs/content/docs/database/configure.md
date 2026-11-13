@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the integration
 
-Pass these options to `database`. `hubDb()` accepts the same options when you add it yourself.
+Pass these options to `database`. `hubDatabase()` accepts the same options when you add it yourself.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -79,7 +79,7 @@ export default defineConfig({
 | `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files. `false` turns it off. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
-With `vitehub()`, a Definition file alone does not turn Database on. Without the `database` option, importing `vite-hub/database/drizzle` fails the build or `vite dev` with `VITE_HUB_B0013`, and `vitehub database generate` and `migrate` exit with an error. Set `database`, or add `hubDb()` yourself.
+With `vitehub()`, a Definition file alone does not turn Database on. Without the `database` option, importing `vite-hub/database` fails the build or `vite dev` with `VITE_HUB_B0013`, and `vitehub database generate` and `migrate` exit with an error. Set `database`, or add `hubDatabase()` yourself.
 
 ## Define a database
 
@@ -93,7 +93,7 @@ A Database Definition is the file where you write your tables, next to the serve
 
 Use `server/databases/<name>/index.ts` when the Database has other files, such as schema modules. A folder with an `index.ts` is one Database, so ViteHub does not read its other files as Definitions. Every other file in `server/databases/` is a Definition. The migrations of the Database `<name>` are in `server/databases/<name>/migrations/`.
 
-`src/database.ts` cannot be used beside Named Databases, and two Default Databases fail discovery. Before this release, Databases used `server/databases/config.ts` and `server/databases/<name>/config.ts`. Those files now fail with `DATABASE_LEGACY_CONFIG_FILE`, and `npx @vite-hub/codemods define-forms` moves them.
+`src/database.ts` cannot be used beside Named Databases, and two Default Databases fail discovery. Before this release, Databases used `server/databases/config.ts` and `server/databases/<name>/config.ts`. Those files now fail with `DATABASE_LEGACY_CONFIG_FILE`, and the [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) moves them.
 
 An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/default.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/default/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
 
@@ -148,7 +148,7 @@ export default defineDatabase({
 Then `with` reads the related rows, and its result is typed:
 
 ```ts [server/api/users.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database'
 import { defineEventHandler } from 'h3'
 
 export default defineEventHandler(() => {

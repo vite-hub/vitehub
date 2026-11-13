@@ -39,9 +39,9 @@ The build and the development server include only the Console routes and server 
 - **Channels** lists the Channels of your Agents, their threads, and each conversation with its attachments and the runs that answered. You can download a conversation as Markdown or JSON. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
 - **Content** shows when `server/content.ts` defines document collections. It saves drafts, publishes, and restores revisions. `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console).
 - **Comments** shows when the app turns on [Comments](/docs/comments/configure#turn-comments-on-in-a-vitehub-app). It lists the threads that people left on the app's pages.
-- **Blob** lists stores and pages of object metadata. It uploads (up to 8 MiB) and deletes objects with `blob.put` and `blob.del`.
+- **Blob** lists stores and pages of object metadata. It uploads (up to 8 MiB) and deletes objects with `blob.put` and `blob.delete`.
 - **Database** lists found Definitions (the files that declare each resource), their source, definition mode, and table names, without connecting to a database.
-- **KV** lists stores and keys. It fetches a value only when you select its key. It edits and deletes with `kv.set` and `kv.del`.
+- **KV** lists stores and keys. It fetches a value only when you select its key. It edits and deletes with `kv.set` and `kv.delete`.
 - **Rate Limit** lists policies. It reads or resets the counter of a key you enter with `rate-limit.peek` and `rate-limit.reset`.
 - **Sandbox**, **Workspace**, **Workflow**, and **Queue** list Definitions and their source without starting runtime resources.
 - **Schedule** lists Schedule Definitions with their cron expression and time zone. It runs a Definition that sets `manual: true`.
@@ -145,7 +145,7 @@ pnpm vitehub project info --url https://app.example.com
   "name": "my-app",
   "vitehub": "0.1.0",
   "sections": ["env", "kv"],
-  "operations": ["definitions.list", "documents.action", "env.get", "kv.del", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
+  "operations": ["definitions.list", "documents.action", "env.get", "kv.delete", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
 }
 ```
 
@@ -399,7 +399,7 @@ export default defineNuxtConfig({
   vitehub: {
     console: true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   },
   $development: {
     vitehub: { console: { auth: false } },
@@ -418,7 +418,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   }), nitro()],
 }))
 ```
@@ -433,7 +433,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   })],
 }))
 ```
@@ -477,7 +477,7 @@ Earlier releases let the app sign people in to the Console with `console: { auth
 
 1. Remove `auth`, `origins`, `mcp`, and `signInPage` from the `console` options, or set `console: true`.
 2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/rpc?ticket=`: a signed call has no app session, a one-time link has its ticket as proof, and the route checks its own access. A build fails when an app route file, such as `server/routes/_vitehub/rpc.post.ts`, uses the same path.
-3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/development/app-mcp).
+3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/mcp).
 4. Link the app in [console.vitehub.dev](#in-production), and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows. Invite the people who used the app's Console to your team.
 5. For the CLI, make a key with `vitehub secret console-key`, and replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 6. Connect agents to the [ViteHub MCP](/docs/development/mcp) of the Console instead of `/_vitehub/mcp`.
@@ -571,7 +571,7 @@ A section entry is the section id, or `'<section>:read'` for read only. A read g
 
 #### Grant one Blob store
 
-`'blob'` allows the Blob operations (`blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`) on every store. `'blob:<store>'` allows them on one store, and `'blob:<store>:read'` only the reads. A store grant gives editors the public Media store without the private Content store:
+`'blob'` allows the Blob operations (`blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, and `blob.variants`) on every store. `'blob:<store>'` allows them on one store, and `'blob:<store>:read'` only the reads. A store grant gives editors the public Media store without the private Content store:
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
@@ -779,7 +779,7 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 | A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. |
 | KV or Blob inspection returns a provider error | Check that the deployed app has permission and credentials to read the configured store. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal. |
-| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
+| Agent Console startup fails on a deployment host | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
 | The Console cannot reach a deployed app | Link the app with the URL that serves it, and check that the server is public. The Console cannot reach a `vite dev` server on your machine. |
 | The build fails with `VITE_HUB_B0020` and names a `console` option | The option is removed. Follow the fix in the message, or see [Move from auth: "app" or Console Auth](#move-from-auth-app-or-console-auth). |
 | `console.impersonation` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition with Better Auth's `admin` plugin, such as `server/auth.ts`. |

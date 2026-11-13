@@ -845,7 +845,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     }
     const blobs: Array<(typeof blobStores)["default"][number]> = blobStores[store]
     const index = blobs.findIndex(blob => blob.pathname === pathname)
-    if (input.action === "del") {
+    if (input.action === "delete") {
       if (index !== -1) blobs.splice(index, 1)
       json(response, { deleted: index !== -1, pathname, store })
       return true
@@ -898,7 +898,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
         json(response, { error: "KV store or key not found" }, 404)
         return true
       }
-      if ((input.action === "set" || input.action === "del") && input.key.toLowerCase().startsWith("vitehub:")) {
+      if ((input.action === "set" || input.action === "delete") && input.key.toLowerCase().startsWith("vitehub:")) {
         json(response, { code: "KV_RESERVED_KEY", message: `ViteHub owns the keys that start with vitehub:.`, status: 403 }, 403)
         return true
       }
@@ -908,7 +908,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
         json(response, { created, key: input.key, store: name, type: typeof input.value })
         return true
       }
-      if (input.action === "del") {
+      if (input.action === "delete") {
         const deleted = kvStores[name].delete(input.key)
         json(response, { deleted, key: input.key, store: name })
         return true

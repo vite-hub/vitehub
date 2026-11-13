@@ -12,7 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineSchedule` from `vite-hub/schedule` | Declare a Static Schedule Definition, or a Definition without `cron` that code starts. |
 | `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule` from `vite-hub/schedule` | Start a Definition without `cron` once or on a cron, and read or cancel what you started. |
-| `runSchedule` from `vite-hub/schedule/runtime` | Run a Definition that sets `manual: true` now. |
+| `runSchedule` from `vite-hub/schedule` | Run a Definition that sets `manual: true` now. |
 | `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `vite-hub/schedule/runtime` | Configure Schedule Run storage. |
 | `setScheduleRunStore` from `vite-hub/schedule/runtime` | Wire custom runtime state. |
@@ -106,20 +106,19 @@ KV failed. `error.cause` has the KV error.
 
 ## Run a Definition now
 
-`runSchedule(name, { registry })` runs one schedule (a Definition) with `manual: true` now. Each call records a Schedule Run with a `srun_manual_` id, so it never collides with a cron run.
+`runSchedule(name)` runs one Static Schedule Definition immediately. It reads the Static Schedule Definitions that ViteHub discovered. The Definition must set `manual: true`. Each call creates a new Schedule Run with a `srun_manual_` id, so a manual run never collides with a cron occurrence.
 
 ```ts [server/api/reports/run.post.ts]
 import { defineEventHandler } from 'h3'
-import registry from '#vitehub/schedule/registry'
-import { runSchedule } from 'vite-hub/schedule/runtime'
+import { runSchedule } from 'vite-hub/schedule'
 
 export default defineEventHandler(async () => {
-  const run = await runSchedule('daily-report', { registry })
+  const run = await runSchedule('daily-report')
   return { id: run.id, status: run.status }
 })
 ```
 
-`scheduledAt` runs it as if the cron fired then: `runSchedule('daily-report', { registry, scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset, and defaults to now. The handler gets it and the run records it.
+Pass `scheduledAt` to run the Definition as if its cron fired at that time: `runSchedule('daily-report', { scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset. The handler gets it as `scheduledAt`, and the run records it. It defaults to now.
 
 When the handler fails, `runSchedule()` resolves with the failed run. It rejects with:
 

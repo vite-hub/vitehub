@@ -17,6 +17,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
+import { invocationActivityTrace } from "../invocations/activity.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
 import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
@@ -55,6 +56,8 @@ const fileActions = new Set<string | undefined>(["export", "list", "show", "tail
 
 interface ParsedArgs {
   action?: Action | "cancel"
+  /** export adds a compact activity trace. */
+  activity: boolean
   /** wait-idle only waits on this Agent's Invocations. */
   /** export only prints this Agent's Invocations. */
   agent?: string
@@ -171,6 +174,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --agent <name>            export only this Agent's Invocations.",
     "  --since <duration|date>   export only Invocations created after this age or ISO date, such as 7d or 2026-10-01.",
     "  --observations            export every observation too.",
+    "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
+    "                            token usage, approvals, and errors, in order. Long text is cut.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -247,6 +252,7 @@ function redactCliArgument(argument: string): string {
 
 function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const parsed: ParsedArgs = {
+    activity: false,
     dryRun: false,
     help: false,
     interval: 1_000,
@@ -291,6 +297,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "--json") parsed.json = true
     else if (argument === "--dry-run") parsed.dryRun = true
     else if (argument === "--observations") parsed.observations = true
+    else if (argument === "--activity") parsed.activity = true
     else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
     else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
@@ -341,7 +348,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && !waiting && parsed.action !== "export" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle and export." })
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
   if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
-  const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined]] as const
+  const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
   const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
   if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
   if (parsed.action === "export" && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
@@ -938,8 +945,9 @@ function observationAttributes(observations: readonly Observation[], name: strin
 /**
  * One export line: the record without observations, plus the prompt, the final assistant text, and each Channel
  * delivery that the observations carry. `final` is the finish result text, or the final message deltas before finish.
+ * `--activity` adds the compact activity trace, and `--observations` every observation.
  */
-function exportLine(record: AgentInvocationRecord, includeObservations: boolean) {
+function exportLine(record: AgentInvocationRecord, options: { activity: boolean, observations: boolean }) {
   const { cursor: _cursor, observations, ...invocation } = record
   const start = observationAttributes(observations, "agent.invocation.start")[0] ?? {}
   const finish = observationAttributes(observations, "agent.invocation.finish").at(-1)?.["result.text"]
@@ -967,7 +975,8 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
       kind: effect["channel.effect.kind"],
       ...(effect["channel.effect.skipped"] === undefined ? {} : { skipped: effect["channel.effect.skipped"] }),
     })),
-    ...(includeObservations ? { observations } : {}),
+    ...(options.activity ? invocationActivityTrace(observations) : {}),
+    ...(options.observations ? { observations } : {}),
   }
 }
 
@@ -979,7 +988,7 @@ async function exportInvocations(parsed: ParsedArgs, context: AgentInvocationsCl
       && (parsed.since === undefined || record.createdAt >= parsed.since))
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
   for (const summary of records) {
-    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed.observations))}\n`)
+    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed))}\n`)
   }
   return 0
 }

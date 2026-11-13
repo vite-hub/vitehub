@@ -15,7 +15,7 @@ in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, as in
 
 | Authority | Use |
 | --- | --- |
-| `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `preset: 'cloudflare'`. A Node server uses Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
+| `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare host or hosting environment, such as `host: 'cloudflare'`. A Node server uses Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
 | `redis` | Node only. Each instance holds its rooms in memory and shares them with the other instances through Redis pub/sub. Needs `REDIS_URL` when the server starts. |
 | `postgres` | Node only. Each instance holds its rooms in memory and shares them through Postgres `LISTEN`/`NOTIFY`. Uses the connection of the Default Database, which must be on Postgres. `REALTIME_POSTGRES_URL` overrides it. |
@@ -33,7 +33,7 @@ itself. The server prints its choice when it starts:
 ```
 
 ViteHub rejects the `memory`, `postgres`, and `redis` authorities on other
-deploy presets, and the `cloudflare` authority with a deploy preset that is not
+deploy hosts, and the `cloudflare` authority with a deploy host that is not
 Cloudflare.
 
 ## Share rooms across Node instances
@@ -48,7 +48,7 @@ on instance B then edit the same document and see each other.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
     database: true,
     realtime: true,
@@ -66,7 +66,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
       realtime: true,
@@ -85,7 +85,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
       realtime: true,

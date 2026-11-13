@@ -52,6 +52,11 @@
       "import": "./dist/client.js",
       "default": "./dist/client.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./internal/runtime/unavailable": {
       "types": "./dist/internal/runtime/unavailable.d.ts",
       "import": "./dist/internal/runtime/unavailable.js",

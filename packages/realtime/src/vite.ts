@@ -3,7 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { basename, dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -11,10 +12,10 @@ import { cloneRecord as record } from "@vite-hub/internal/object"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 export { discoverRealtimeDefinitions } from "./discovery.ts"
-import { realtimeDurableObjectKey } from "./durable-key.ts"
 import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
@@ -55,7 +56,7 @@ export interface RealtimeVitePluginOptions extends RealtimeOptions {
   contribute?: (context: RealtimeContributionContext) => Promise<RealtimeContribution | undefined> | RealtimeContribution | undefined
 }
 
-export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata }
 
 export interface RealtimeInspectionOptions {
   /** Resolved room authority. Defaults to `auto`. */
@@ -85,8 +86,8 @@ interface NitroConfig extends Record<string, unknown> {
   preset?: string
 }
 
-function configureCloudflareRealtime(nitro: NitroConfig, nitro2: boolean): void {
-  nitro.preset = nitro2 ? "cloudflare-durable" : "cloudflare-module"
+function configureCloudflareRealtime(nitro: NitroConfig): void {
+  nitro.preset = "cloudflare-module"
   const cloudflare = record(nitro.cloudflare)
   const wrangler = record(cloudflare.wrangler)
   const durableObjects = record(wrangler.durable_objects)
@@ -209,6 +210,10 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
     vitehub: {
+      // Without a room authority the build fails or Realtime is unavailable, so there is no state to report.
+      durability: () => hasRoomAuthority
+        ? [{ export: "realtimeDurability", input: { authority: inspectionAuthority }, module: durabilityModuleFile(import.meta.url), primitive: "realtime" }]
+        : [],
       inspect: () => ({
         definitions: [{
           kind: "realtime",
@@ -230,12 +235,12 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const discovered = discoverRealtimeDefinitions(root, serverDirs)
       // SAFETY: Vite's config contract exposes Nitro options through this optional property.
       const nitro = { ...(config as { nitro?: NitroConfig }).nitro }
-      const deploymentPreset = resolveHost({ nitro })
-      const provider = getHostingProvider(deploymentPreset)
+      const host = resolveHost({ nitro })
+      const provider = getHostingProvider(host)
       const authority = options.authority || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
       const build = isProductionBuild(config, environment)
-      const node = !deploymentPreset || deploymentPreset === "node"
+      const node = !host || host === "node"
       // A Node build shares its rooms with the other instances through Postgres or Redis. `vite dev` keeps them in memory.
       const nodeAuthority = !build || !node ? undefined
         : authority === "postgres" || authority === "redis" ? authority
@@ -243,7 +248,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       // The authority a contribution may rely on. Configurations that fail below have none. Rooms on Node live in the
       // memory of each instance, also when they are shared.
       const available: RealtimeContributionContext["authority"] | undefined
-        = authority === "cloudflare" ? (!deploymentPreset || deploymentPreset === "cloudflare" ? "cloudflare" : undefined)
+        = authority === "cloudflare" ? (!host || host === "cloudflare" ? "cloudflare" : undefined)
           : authority === "auto" && provider === "cloudflare" ? "cloudflare"
             : authority !== "auto" ? (node ? "memory" : undefined)
               : !build || nodeAuthority ? "memory" : undefined
@@ -302,21 +307,18 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
         ...nodeFiles({ busPlugin, handlerFile, registryFile }).map(([file, contents]) => writeFile(file, contents)),
       ])
 
-      if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", preset: deploymentPreset })
+      if (authority === "cloudflare" && host && host !== "cloudflare") {
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", host })
       }
       let durablePlugin: string | undefined
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         inspectionAuthority = "cloudflare"
-        configureCloudflareRealtime(nitro, (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: number })[VITEHUB_NITRO_MAJOR_VERSION] === 2)
-        // Nitro 2 upgrades sockets in the Durable Object with only the request in hand: give Realtime its storage.
+        configureCloudflareRealtime(nitro)
+        // The plugin does not import the Realtime server (Tiptap, ProseMirror, Yjs), so a cold start does not load it.
         durablePlugin = resolve(directory, "durable-object.mjs")
-        // The same global registerRealtimeDurableObject() writes, set without importing the Realtime server: a Nitro
-        // plugin loads with the Worker, and the server (Tiptap, ProseMirror, Yjs) would then load on every cold start.
         await writeFile(durablePlugin, [
           "export default (nitroApp) => {",
-          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state, env }) => {",
-          `    globalThis[Symbol.for(${JSON.stringify(realtimeDurableObjectKey)})] = { env, state }`,
+          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state }) => {",
           "    // Answer the clients' keepalive without waking the Durable Object from hibernation.",
           `    if (typeof WebSocketRequestResponsePair === "function") state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(${JSON.stringify(realtimeKeepalivePing)}, ${JSON.stringify(realtimeKeepalivePong)}))`,
           "  })",
@@ -327,8 +329,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       else if (build && authority === "auto" && !nodeAuthority) {
         throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
-      else if (authority !== "auto" && !node && deploymentPreset) {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority, preset: deploymentPreset })
+      else if (authority !== "auto" && !node && host) {
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority, host })
       }
       if (nodeAuthority) inspectionAuthority = nodeAuthority === "auto" ? "node" : nodeAuthority
       else if (authority === "memory" || authority === "postgres" || authority === "redis" || (authority === "auto" && !build && inspectionAuthority !== "cloudflare")) {

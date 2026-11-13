@@ -172,7 +172,7 @@ With Realtime, several people edit one Markdown document at the same time. Turn 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     realtime: { authority: 'memory' },
   },
 })
@@ -188,7 +188,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { authority: 'memory' },
     }),
     nitro(),
@@ -205,7 +205,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { authority: 'memory' },
     }),
   ],

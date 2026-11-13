@@ -800,7 +800,7 @@ describe("blob runtime", () => {
     expect(await body?.text()).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
-    expectBlobSuccess(await blob.del("notes/hello.txt"))
+    expectBlobSuccess(await blob.delete("notes/hello.txt"))
     expect(await blob.head("notes/hello.txt")).toEqual([undefined, null])
   })
 
@@ -1250,7 +1250,7 @@ describe("blob runtime", () => {
     ])
 
     expect(await expectBlobSuccess(await blob.get("notes/100%25.txt"))?.text()).toBe("value")
-    expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
+    expectBlobSuccess(await blob.delete("notes/h%C3%A9llo.txt"))
     expect(await blob.head("notes/h%C3%A9llo.txt")).toEqual([undefined, null])
   })
 
@@ -1261,7 +1261,7 @@ describe("blob runtime", () => {
     })
 
     expectBlobSuccess(await blob.put("notes/100%25.txt", "value"))
-    expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
+    expectBlobSuccess(await blob.delete("notes/h%C3%A9llo.txt"))
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(
       "notes/100%.txt",

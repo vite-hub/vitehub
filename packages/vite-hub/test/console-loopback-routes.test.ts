@@ -143,7 +143,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
       const url = new URL(standard.req.url)
       // The front process signs the request of a loopback socket before Nitro forwards it.
       const node = { headers: { host: "localhost:3000" } as Record<string, string>, method: standard.req.method, socket: { remoteAddress: "127.0.0.1" }, url: url.pathname }
-      await viteHubDevPeerDevHandler({ node: { req: node } })
+      await viteHubDevPeerDevHandler({ runtime: { node: { req: node } } })
       standard.req.headers.set("x-vitehub-dev-peer", node.headers["x-vitehub-dev-peer"]!)
       standard.req.headers.delete("x-forwarded-host")
       const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default

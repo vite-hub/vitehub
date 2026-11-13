@@ -53,7 +53,7 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     node: { options: { database: { comment: "On Node, tables are saved in local SQLite", value: "true" } } },
     vercel: { imports: [envImport], options: { database: { comment: "On Vercel, tables are saved in hosted libSQL", value: libsqlConnection } } },
   },
-  // email/configure.md, "Configure Vite": `email: true` selects Cloudflare Email. Other presets set `driver: 'resend'`.
+  // email/configure.md, "Configure Vite": `email: true` selects Cloudflare Email. Other hosts set `driver: 'resend'`.
   email: {
     cloudflare: { options: { email: { comment: "Cloudflare Email sends the email", value: "true" } } },
     deno: resend,

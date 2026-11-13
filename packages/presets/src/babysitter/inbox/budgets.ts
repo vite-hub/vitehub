@@ -94,6 +94,26 @@ export function dailyPassResumeAt(budget: DailyPassBudget | undefined, limit: nu
   const passes = (budget?.passes ?? []).filter(at => at > now - day).sort((left, right) => left - right)
   return passes.length < limit ? undefined : passes[passes.length - limit]! + day
 }
+/** Whether a pass may push under `dailyPushBudget`, and when the next push may happen when it may not. */
+type RepairPushAllowance =
+  | { allowed: true; count: number; spaced?: true }
+  | { allowed: false; count: number; nextAt: number }
+/** Past the push budget, a PR with failing required checks may push this long after its last push. */
+const ciRepairPushSpacing = 2 * 60 * 60_000
+/**
+ * Whether a pass may push, given the times of the PR's repair pushes. A conflict repair and a PR with a
+ * priority label always may. Past `limit` pushes in 24 hours, a PR whose required checks fail may still
+ * push once every two hours, so the cap never refuses a validated CI repair for a day. Any other PR
+ * waits until its oldest push is 24 hours old.
+ */
+export function repairPushAllowance(pushes: readonly number[], limit: number, state: { requiredChecks: string; conflicted: boolean; priority: boolean; now: number }): RepairPushAllowance {
+  const recent = pushes.filter(at => at > state.now - day)
+  if (state.conflicted || state.priority || recent.length < limit) return { allowed: true, count: recent.length }
+  const freesAt = Math.min(...recent) + day
+  if (state.requiredChecks !== 'failed') return { allowed: false, count: recent.length, nextAt: freesAt }
+  const spacedAt = Math.max(...recent) + ciRepairPushSpacing
+  return spacedAt <= state.now ? { allowed: true, count: recent.length, spaced: true } : { allowed: false, count: recent.length, nextAt: Math.min(spacedAt, freesAt) }
+}
 export interface InboxBudgets { providerRetries?: number; noProgress?: number; reviewPushes?: number; minorReviewRounds?: number; dailyPasses?: number }
 export function validateBudgets(budgets: InboxBudgets): void {
   if (budgets.providerRetries !== undefined) v.parse(count, budgets.providerRetries)

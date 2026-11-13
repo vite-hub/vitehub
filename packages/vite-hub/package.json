@@ -372,11 +372,6 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
-    "./database/drizzle": {
-      "types": "./dist/database/drizzle.d.ts",
-      "import": "./dist/database/drizzle.js",
-      "default": "./dist/database/drizzle.js"
-    },
     "./decisions": {
       "types": "./dist/decisions.d.ts",
       "import": "./dist/decisions.js",
@@ -417,11 +412,6 @@
       "import": "./dist/email/markdown.js",
       "default": "./dist/email/markdown.js"
     },
-    "./email/server": {
-      "types": "./dist/email/server.d.ts",
-      "import": "./dist/email/server.js",
-      "default": "./dist/email/server.js"
-    },
     "./email/test": {
       "types": "./dist/email/test.d.ts",
       "import": "./dist/email/test.js",
@@ -446,6 +436,11 @@
       "types": "./dist/env/seal.d.ts",
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
+    },
+    "./env/server": {
+      "types": "./dist/env/server.d.ts",
+      "import": "./dist/env/server.js",
+      "default": "./dist/env/server.js"
     },
     "./forge": {
       "types": "./dist/forge.d.ts",
@@ -592,6 +587,11 @@
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
+    "./runtime/durability": {
+      "types": "./dist/runtime/durability.d.ts",
+      "import": "./dist/runtime/durability.js",
+      "default": "./dist/runtime/durability.js"
+    },
     "./runtime/h3": {
       "types": "./dist/runtime/h3.d.ts",
       "import": "./dist/runtime/h3.js",
@@ -687,160 +687,15 @@
       "import": "./dist/ui.js",
       "default": "./dist/ui.js"
     },
-    "./ui/agent-session": {
-      "types": "./dist/ui/agent-session.d.ts",
-      "import": "./dist/ui/agent-session.js",
-      "default": "./dist/ui/agent-session.js"
-    },
-    "./ui/attachment": {
-      "types": "./dist/ui/attachment.d.ts",
-      "import": "./dist/ui/attachment.js",
-      "default": "./dist/ui/attachment.js"
-    },
-    "./ui/avatar-stack": {
-      "types": "./dist/ui/avatar-stack.d.ts",
-      "import": "./dist/ui/avatar-stack.js",
-      "default": "./dist/ui/avatar-stack.js"
-    },
-    "./ui/comments": {
-      "types": "./dist/ui/comments.d.ts",
-      "import": "./dist/ui/comments.js",
-      "default": "./dist/ui/comments.js"
-    },
-    "./ui/connection-status": {
-      "types": "./dist/ui/connection-status.d.ts",
-      "import": "./dist/ui/connection-status.js",
-      "default": "./dist/ui/connection-status.js"
-    },
-    "./ui/bubble": {
-      "types": "./dist/ui/bubble.d.ts",
-      "import": "./dist/ui/bubble.js",
-      "default": "./dist/ui/bubble.js"
-    },
-    "./ui/chat": {
-      "types": "./dist/ui/chat.d.ts",
-      "import": "./dist/ui/chat.js",
-      "default": "./dist/ui/chat.js"
-    },
-    "./ui/chat-message": {
-      "types": "./dist/ui/chat-message.d.ts",
-      "import": "./dist/ui/chat-message.js",
-      "default": "./dist/ui/chat-message.js"
-    },
-    "./ui/chat-session": {
-      "types": "./dist/ui/chat-session.d.ts",
-      "import": "./dist/ui/chat-session.js",
-      "default": "./dist/ui/chat-session.js"
-    },
-    "./ui/choices-input": {
-      "types": "./dist/ui/choices-input.d.ts",
-      "import": "./dist/ui/choices-input.js",
-      "default": "./dist/ui/choices-input.js"
-    },
-    "./ui/code-block": {
-      "types": "./dist/ui/code-block.d.ts",
-      "import": "./dist/ui/code-block.js",
-      "default": "./dist/ui/code-block.js"
-    },
-    "./ui/code-view": {
-      "types": "./dist/ui/code-view.d.ts",
-      "import": "./dist/ui/code-view.js",
-      "default": "./dist/ui/code-view.js"
-    },
-    "./ui/device-frame": {
-      "types": "./dist/ui/device-frame.d.ts",
-      "import": "./dist/ui/device-frame.js",
-      "default": "./dist/ui/device-frame.js"
-    },
-    "./ui/file-diff": {
-      "types": "./dist/ui/file-diff.d.ts",
-      "import": "./dist/ui/file-diff.js",
-      "default": "./dist/ui/file-diff.js"
-    },
-    "./ui/file-tree": {
-      "types": "./dist/ui/file-tree.d.ts",
-      "import": "./dist/ui/file-tree.js",
-      "default": "./dist/ui/file-tree.js"
-    },
-    "./ui/file-view": {
-      "types": "./dist/ui/file-view.d.ts",
-      "import": "./dist/ui/file-view.js",
-      "default": "./dist/ui/file-view.js"
-    },
-    "./ui/filter-search": {
-      "types": "./dist/ui/filter-search.d.ts",
-      "import": "./dist/ui/filter-search.js",
-      "default": "./dist/ui/filter-search.js"
-    },
     "./ui/headless": {
       "types": "./dist/ui/headless.d.ts",
       "import": "./dist/ui/headless.js",
       "default": "./dist/ui/headless.js"
     },
-    "./ui/markdown": {
-      "types": "./dist/ui/markdown.d.ts",
-      "import": "./dist/ui/markdown.js",
-      "default": "./dist/ui/markdown.js"
-    },
     "./ui/markdown-editor": {
       "types": "./dist/ui/markdown-editor.d.ts",
       "import": "./dist/ui/markdown-editor.js",
       "default": "./dist/ui/markdown-editor.js"
-    },
-    "./ui/marker": {
-      "types": "./dist/ui/marker.d.ts",
-      "import": "./dist/ui/marker.js",
-      "default": "./dist/ui/marker.js"
-    },
-    "./ui/message": {
-      "types": "./dist/ui/message.d.ts",
-      "import": "./dist/ui/message.js",
-      "default": "./dist/ui/message.js"
-    },
-    "./ui/message-parts": {
-      "types": "./dist/ui/message-parts.d.ts",
-      "import": "./dist/ui/message-parts.js",
-      "default": "./dist/ui/message-parts.js"
-    },
-    "./ui/multi-file-diff": {
-      "types": "./dist/ui/multi-file-diff.d.ts",
-      "import": "./dist/ui/multi-file-diff.js",
-      "default": "./dist/ui/multi-file-diff.js"
-    },
-    "./ui/patch-diff": {
-      "types": "./dist/ui/patch-diff.d.ts",
-      "import": "./dist/ui/patch-diff.js",
-      "default": "./dist/ui/patch-diff.js"
-    },
-    "./ui/prompt-input": {
-      "types": "./dist/ui/prompt-input.d.ts",
-      "import": "./dist/ui/prompt-input.js",
-      "default": "./dist/ui/prompt-input.js"
-    },
-    "./ui/tool-list": {
-      "types": "./dist/ui/tool-list.d.ts",
-      "import": "./dist/ui/tool-list.js",
-      "default": "./dist/ui/tool-list.js"
-    },
-    "./ui/sync-status": {
-      "types": "./dist/ui/sync-status.d.ts",
-      "import": "./dist/ui/sync-status.js",
-      "default": "./dist/ui/sync-status.js"
-    },
-    "./ui/trace": {
-      "types": "./dist/ui/trace.d.ts",
-      "import": "./dist/ui/trace.js",
-      "default": "./dist/ui/trace.js"
-    },
-    "./ui/trace-run": {
-      "types": "./dist/ui/trace-run.d.ts",
-      "import": "./dist/ui/trace-run.js",
-      "default": "./dist/ui/trace-run.js"
-    },
-    "./ui/unresolved-file": {
-      "types": "./dist/ui/unresolved-file.d.ts",
-      "import": "./dist/ui/unresolved-file.js",
-      "default": "./dist/ui/unresolved-file.js"
     },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",
@@ -1058,6 +913,7 @@
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
@@ -1095,7 +951,6 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
     "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
@@ -1139,6 +994,7 @@
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
@@ -1243,6 +1099,9 @@
       "optional": true
     },
     "@vite-hub/cms": {
+      "optional": true
+    },
+    "@vite-hub/codemods": {
       "optional": true
     },
     "@vite-hub/comments": {

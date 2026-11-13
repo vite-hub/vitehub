@@ -32,7 +32,7 @@ Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` o
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     realtime: true,
     workspace: true,
   },
@@ -51,7 +51,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: true,
       workspace: true,
     }), nitro(),
@@ -70,7 +70,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: true,
       workspace: true,
     }),

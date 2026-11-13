@@ -1,5 +1,3 @@
-import { isH3V1Event } from "@vite-hub/internal/runtime/h3-v1-request"
-
 import type { Auth } from "better-auth"
 
 /**
@@ -23,13 +21,11 @@ function readString(value: unknown, path: readonly string[]): string | undefined
 
 /**
  * The client IP address that the host reports for a request event: Standard Context `runtime.clientAddress`, which is
- * `cf-connecting-ip` on Cloudflare and the peer address on Node, or the socket of an H3 1 event without Standard
- * Context. Forwarding headers such as `X-Forwarded-For` are not read.
+ * `cf-connecting-ip` on Cloudflare and the peer address on Node. Forwarding headers such as `X-Forwarded-For` are
+ * not read.
  */
 export function eventClientAddress(event: unknown): string | undefined {
-  const address = readString(event, ["~standard", "runtime", "clientAddress"])
-  if (address || typeof event !== "object" || event === null || !isH3V1Event(event)) return address
-  return readString(event, ["node", "req", "socket", "remoteAddress"])
+  return readString(event, ["~standard", "runtime", "clientAddress"])
 }
 
 /** Remember the host address of a Request that Auth passes to Better Auth. */

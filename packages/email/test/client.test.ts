@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createEmail } from "../src/index.ts"
 import { emailProviderError } from "../src/provider.ts"
-import { email } from "../src/server.ts"
+import { email } from "../src/index.ts"
 
 import type { EmailClient, EmailDriver, EmailMessage } from "../src/index.ts"
 import type { EmailProviderError } from "../src/types.ts"
