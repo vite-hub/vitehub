@@ -33,7 +33,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'node',
-    realtime: { authority: 'memory' },
+    realtime: true,
     workspace: true,
   },
 })
@@ -52,7 +52,7 @@ export default defineConfig({
     vue(),
     vitehub({
       host: 'node',
-      realtime: { authority: 'memory' },
+      realtime: true,
       workspace: true,
     }), nitro(),
   ],
@@ -71,7 +71,7 @@ export default defineConfig({
     vue(),
     vitehub({
       host: 'node',
-      realtime: { authority: 'memory' },
+      realtime: true,
       workspace: true,
     }),
   ],
@@ -80,7 +80,7 @@ export default defineConfig({
 ::::
 :::
 
-- `authority: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
+- `realtime: true` keeps the rooms in the memory of your dev server. A Node build shares them across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
 
 Create `server/realtime/docs.ts`. The file name is the name of the room setup: `docs`.
@@ -188,7 +188,7 @@ The tabs get each edit at once. Realtime saves the Markdown file to the Workspac
 
 ## What happens when you deploy
 
-In this tutorial, the rooms and the files are in memory. A server restart loses them, and two servers do not share them. Before you deploy, pick a room authority and a Workspace store that keep their data. [Configure](/docs/realtime/configure#host-support) shows what each host supports.
+In this tutorial, the rooms and the files are in memory. A server restart loses them. Before you deploy, pick a Workspace store that keeps its files. To run several Node instances, use a Postgres Default Database or set `REDIS_URL`, so that they share rooms. [Configure](/docs/realtime/configure#host-support) shows what each host supports.
 
 ## Next steps
 

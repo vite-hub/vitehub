@@ -20,7 +20,7 @@ import type {
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { checkContentDocuments, contentCheckResult, parseContentFiles } from "./check.ts"
 import type { ContentCheckFinding, ContentCheckInput, ContentCheckOptions, ContentCheckResult } from "./check.ts"
-import { contentSource, contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSource, contentSourceKeys, contentSourceKind, contentSourceRoute, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import { createContentHistory } from "./history.ts"
 import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
@@ -37,8 +37,9 @@ import { createContentPreview, createRequestScope } from "./preview.ts"
 import { contentRefTokenParameter } from "./preview-parameters.ts"
 import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
-import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderPageMarkdownCopy, siteOrigin } from "./sitemap.ts"
+import { contentLabel, contentMarkdownCopy, contentMarkdownCopyPage, contentRoutedPages, contentSitemapEntries, markdownPrefix, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
 import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
+import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
@@ -68,6 +69,7 @@ import type {
   ContentSingleton,
 } from "./collections-types.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
+import type { ContentSearchSectionsOptions, ContentSourceSearchSection } from "./search-sections.ts"
 import type { ContentCollectionDefinition, ContentFields, DocumentsDefinition, SingletonDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
 import type {
@@ -107,7 +109,7 @@ export type {
   ContentScheduleStatus,
   ContentUnscheduleOptions,
 } from "./schedules.ts"
-export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export type { ContentSourceInput, ContentSourceMarkdown, ContentSourceMarkdownPage, ContentSourceOptions, ContentSourceReader, ContentSourceSeo } from "./content-source.ts"
 export { registerContentKV } from "./kv.ts"
 export type { ContentKV } from "./kv.ts"
 export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
@@ -137,6 +139,8 @@ export { file, image } from "@vite-hub/blob"
 export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
+export { contentSearchSections } from "./search-sections.ts"
+export type { ContentSearchSection, ContentSearchSectionsOptions, ContentSourceSearchSection } from "./search-sections.ts"
 export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
 export type { ContentFieldAddress } from "./field.ts"
 export type {
@@ -151,7 +155,7 @@ export type {
   ContentHeadSite,
 } from "./head.ts"
 export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
-export type { ContentRssOptions, ContentSitemapEntry, ContentSitemapOptions, DefineContentLlmsOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export type { ContentMarkdownOptions, ContentRssOptions, ContentSitemapEntry, ContentSitemapOptions, DefineContentLlmsOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export { renderContentRss } from "./rss.ts"
 export { defineContentMcpHandler } from "./mcp.ts"
 export type { ContentMcpOptions, ContentPageMarkdown, ContentPageSummary, ContentPagesOptions } from "./mcp.ts"
@@ -273,8 +277,13 @@ export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
   TCollections extends ContentCollections = ContentCollections,
   TPresetOptions extends object = object,
-> = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
+> = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources" | "markdown"> & {
   plugins?: TPlugins
+  /**
+   * Comark parser options. `plugins` add to Content's Comark UI preset, and a plugin with a preset plugin's name
+   * replaces it. `preset: false` parses with `plugins` alone, for an app that brings its own Comark UI configuration.
+   */
+  markdown?: NonNullable<ContentOptions["markdown"]> & { preset?: false }
   /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
   route?: boolean
   /** One read-only Source, served as the `default` instance. */
@@ -308,8 +317,8 @@ export type DefineContentOptions<
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
    * Markdown document of those collections at its URL plus `.md`, and at its URL for `Accept: text/markdown`;
-   * `rss: true` serves `/rss.xml` with the newest Markdown pages; `llms: true` serves `/llms.txt`, `/llms-full.txt`,
-   * and `/sitemap.md`; `mcp: true` serves a public read-only MCP server at `/mcp` with `list-pages` and `get-page`.
+   * `rss: true` serves `/rss.xml` with the newest Markdown pages; `mcp: true` serves a public read-only MCP server at
+   * `/mcp` with `list-pages` and `get-page`; `llms: true` serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`.
    * ViteHub generates the routes when this call sets them.
    */
   seo?: DefineContentSeoOptions
@@ -461,6 +470,11 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
    */
   check(options?: { source?: string, sha?: string }): Promise<ContentCheckResult>
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
+  /**
+   * Every document of the Sources split by heading, for a search that ranks in the browser or in another index. Each
+   * part has its document's Source name and Content key, such as `docs/guide.md`. Works on every host, with no database.
+   */
+  searchSections(names?: string | readonly string[], options?: ContentSearchSectionsOptions): Promise<ContentSourceSearchSection[]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
     clear(name?: string): Promise<void>
@@ -489,12 +503,11 @@ export function defineContent<
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
-  const customPlugins = sharedOptions.markdown?.plugins ?? []
+  const { preset, ...markdownOptions } = sharedOptions.markdown ?? {}
+  const customPlugins = markdownOptions.plugins ?? []
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
-  sharedOptions.markdown = {
-    ...sharedOptions.markdown,
-    plugins: [...comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
-  }
+  const presetPlugins = preset === false ? [] : comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name))
+  sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins, ...customPlugins] }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
@@ -721,8 +734,8 @@ export function defineContent<
     return instance.cache
   }
   const routedSources = Object.entries(inputs).flatMap(([name, input]) => {
-    const url = contentSourceUrl(input)
-    return url === undefined ? [] : [{ name, url, list: () => from(name).list() }]
+    const route = contentSourceRoute(input)
+    return route === undefined ? [] : [{ name, ...route, list: () => from(name).list() }]
   })
   /**
    * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
@@ -754,23 +767,42 @@ export function defineContent<
     if (content instanceof Uint8Array) return new TextDecoder().decode(content)
     return String(content) === content ? content : null
   }
-  /** The Markdown copy of a routed page, from its published collection document or its Source file. */
-  async function pageMarkdown(page: ContentRoutedPage, site: string | undefined): Promise<string | null> {
+  /**
+   * The Markdown copy of a routed page, from its published collection document or its Source file. A Source with
+   * `contentSource(input, { markdown })` renders its own copy. `footer` adds the end that only the `.md` copy has.
+   */
+  async function pageMarkdown(page: ContentRoutedPage, site: string | undefined, footer = false): Promise<string | null> {
     if (page.key !== undefined) {
       const text = await sourceText(page.collection, page.key)
       if (text === null) return null
+      const render = routedSources.find(source => source.name === page.collection)?.markdown
+      if (render) {
+        const copy = await render({ id: page.id, key: page.key, path: contentPagePath(page.loc, site), text, ...page.title ? { title: page.title } : {}, ...page.description ? { description: page.description } : {}, ...site ? { site } : {} })
+        if (copy === null || typeof copy === "string") return copy
+        return footer && copy.footer ? `${copy.markdown}${copy.footer}` : copy.markdown
+      }
       const parsed = parseDocumentFile(text)
       if ("issues" in parsed) return null
-      return await renderPageMarkdownCopy({ title: page.title, description: page.description, body: parsed.body }, site)
+      return await renderMarkdownCopy({ title: page.title, description: page.description, body: parsed.body }, site)
     }
     if (!documentsRuntime) return null
     const collection = documentsRuntime.collection(page.collection)
     const document = await collection.get(page.id, { ref: "published", ...(page.locale === undefined ? {} : { locale: page.locale }) })
-    return document ? await renderPageMarkdownCopy({ title: page.title, description: page.description, body: document.body }, site) : null
+    return document ? await renderMarkdownCopy({ title: page.title, description: page.description, body: document.body }, site) : null
   }
-  /** The routed Markdown pages that `content.pages()` lists. */
-  async function markdownPages(site: string | undefined): Promise<ContentRoutedPage[]> {
-    return (await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)).filter(page => page.markdown)
+  /**
+   * The routed Markdown pages that `content.pages()` lists. `all` adds the pages that indexes leave out, `noindex` ones
+   * and ones whose canonical URL points elsewhere: they still have a Markdown copy.
+   */
+  async function markdownPages(site: string | undefined, all = false): Promise<ContentRoutedPage[]> {
+    return (await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources, { all })).filter(page => page.markdown)
+  }
+  /** The Source page whose Markdown copy is at `path`, such as `/docs/kv.md`, or with the `seo.markdown` prefix. */
+  async function sourceCopyPage(path: string, site: string | undefined): Promise<ContentRoutedPage | undefined> {
+    const page = contentMarkdownCopyPage(path, markdownPrefix(seo))
+    if (page === undefined || !routedSources.length) return
+    const key = contentPageKey(page)
+    return (await contentRoutedPages([], site, routedSources, { all: true })).find(candidate => candidate.markdown && contentPageKey(contentPagePath(candidate.loc, site)) === key)
   }
   /** Compute the page dates of a `github()` Source at its new head, so no feed or sitemap request waits for them. */
   async function warmDates(name: string): Promise<void> {
@@ -813,23 +845,31 @@ export function defineContent<
       if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0070({ message: "[vitehub] content.page() takes a page path such as /blog/hello." })
       const site = siteFor(pageOptions) ?? "http://localhost"
       const key = contentPageKey(path)
-      const page = (await markdownPages(site)).find(candidate => contentPageKey(contentPagePath(candidate.loc)) === key)
+      // Like the `.md` copy, a `noindex` page is readable by its path, though `pages()` does not list it.
+      const page = (await markdownPages(site, true)).find(candidate => contentPageKey(contentPagePath(candidate.loc, site)) === key)
       if (!page) return null
       let markdown = await pageMarkdown(page, site)
       if (markdown === null) return null
       if (markdown.length > contentPageCharacters) markdown = `${markdown.slice(0, contentPageCharacters)}\n\n[The page is longer than ${contentPageCharacters} characters and ends here. Open ${contentPageSummary(page, site).url} for the rest.]\n`
       return { ...contentPageSummary(page, site), content: markdown }
     },
-    markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
-      documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
+    markdown: async (path: string, markdownOptions?: ContentSitemapOptions) => {
+      const site = siteFor(markdownOptions)
+      const prefix = markdownPrefix(seo)
+      const copy = documentsRuntime ? await contentMarkdownCopy(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path, site) : null
+      if (copy !== null) return copy
+      const page = await sourceCopyPage(path, site)
+      return page ? await pageMarkdown(page, site, true) : null
+    },
     llms: async (llmsOptions: ContentLlmsOptions = {}) => {
       const llms = seo?.llms
-      return await contentLlmsFile(
-        documentsRuntime ? [...documentsRuntime.collections.values()] : [],
-        typeof llms === "object" ? llms : {},
-        siteFor(llmsOptions),
-        llmsOptions.file ?? "llms.txt",
-      )
+      const site = siteFor(llmsOptions)
+      // One section per collection or Source, named by its label.
+      const label = (page: ContentRoutedPage) => page.key === undefined && documentsRuntime
+        ? documentsRuntime.collection(page.collection).label
+        : routedSources.find(source => source.name === page.collection)?.label ?? contentLabel(page.collection)
+      const pages = (await markdownPages(site)).map(page => ({ ...page, path: contentPagePath(page.loc, site), section: label(page) }))
+      return await contentLlmsFile(pages, page => pageMarkdown(page, site), typeof llms === "object" ? llms : {}, site, llmsOptions.file ?? "llms.txt", markdownPrefix(seo))
     },
     robots: (sitemapOptions?: ContentSitemapOptions) => {
       const robots = seo?.robots
@@ -1003,7 +1043,7 @@ export function defineContent<
         // Comark keys a file as `<source>/<Source key>`.
         const key = file.meta.key.startsWith(`${name}/`) ? file.meta.key.slice(name.length + 1) : file.meta.key
         if (!keys.has(key)) continue
-        const path = url === undefined ? file.path : contentDocumentUrl(url, { id: file.path.replace(/^\/+/, ""), data: file.data })
+        const path = url === undefined ? file.path : contentDocumentUrl(url, { id: file.path.replace(/^\/+/, ""), data: file.data, key })
         if (path !== null) pages.push({ key, path, url: previewUrl(`/pr/${pull}`, path, site, signed?.token) })
       }
       pages.sort((left, right) => left.path.localeCompare(right.path))
@@ -1085,6 +1125,20 @@ export function defineContent<
     handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
+    searchSections: fresh(async (target, names?: string | readonly string[], opts?: ContentSearchSectionsOptions) => {
+      const sections: ContentSourceSearchSection[] = []
+      const picked = names === undefined ? target.instances : [names].flat().map(name => target.from(name))
+      // One parse of the whole Source, as full-text search indexes it, instead of one read per document.
+      for (const instance of picked) {
+        for (const file of (await instance.snapshot()).items) {
+          if (file.meta.kind !== "document" || !file.nodes) continue
+          const title = typeof file.data.title === "string" ? file.data.title : ""
+          for (const section of contentSearchSections({ path: file.path, title, nodes: file.nodes }, opts))
+            sections.push({ ...section, source: instance.name, key: file.meta.key })
+        }
+      }
+      return sections
+    }, readScope.names),
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names }), names => readScope.names(names)),
     manifest: fresh(target => target.manifest(), () => undefined),
     // The synchronous reads of a preview request use the commit view of its ref, as `get()` and `list()` do.

@@ -128,6 +128,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   agent: {
     // `run-node-tests.mjs` runs this file outside Vitest.
     entry: ["test/browser-smoke-cleanup.test.mjs"],
+    // The real SSH provider tests use the host's OpenSSH key generator.
+    ignoreBinaries: ["ssh-keygen"],
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },
@@ -146,8 +148,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: viteHubAppEntries,
     vite: false,
   },
-  // test/mcp.test.ts reads normalizeToolResult() from the docs toolkit by file path.
-  content: { ignoreDependencies: ["@nuxtjs/mcp-toolkit"] },
   // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
   database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {

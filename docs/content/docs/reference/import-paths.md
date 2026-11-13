@@ -122,6 +122,7 @@ the same behavior.
 | `vite-hub/rate-limit/drivers/memory` | `memoryRateLimitDriver()`: fixed windows in one process, for local runs and tests. |
 | `vite-hub/rate-limit/drivers/cloudflare` | `cloudflareRateLimitDriver()`: direct access to a Cloudflare Rate Limiting binding. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
+| `vite-hub/realtime/bus` | Node room fanout through Postgres or Redis, bus selection, and shutdown hooks for manual server integration. |
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
 | `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |

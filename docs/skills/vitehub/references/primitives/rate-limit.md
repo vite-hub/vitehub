@@ -6,6 +6,6 @@ Source page: https://vitehub.dev/raw/docs/rate-limit.md
 
 Use Rate Limit to guard an action with an atomic counter and a defined window. Put identity derivation in the caller or Agent Capability.
 
-Choose a provider whose guarantees match the action. Memory is local to one process. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
+Choose a provider whose guarantees match the action. Memory is local to one process. On Node, the `kv` provider shares counts when KV uses Redis or Postgres; read the boot line that names the provider. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
 
 Prove allowed, rejected, reset, and provider failure behavior. Check the resolved window and enforcement mode in generated inspection state.

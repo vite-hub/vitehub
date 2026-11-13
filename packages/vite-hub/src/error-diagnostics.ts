@@ -31,6 +31,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "This server has no durability report. ViteHub records it when a Node server starts.",
       fix: "Run the app with the Node host, then run vitehub durability list against that server.",
     },
+    VITE_HUB_R0144: {
+      ...dynamicError,
+      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,
@@ -118,6 +122,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_B0023: {
       ...dynamicError,
       fix: "Upgrade to Nuxt 5, which supplies Nitro 3 and H3 2. Until Nuxt 5 is stable, run pnpm add nuxt@npm:nuxt-nightly@5x.",
+    },
+    VITE_HUB_B0024: {
+      ...dynamicError,
+      fix: "Remove the obsolete option from `vitehub()` or the `vitehub` options in nuxt.config.ts, and apply the migration shown in the error message.",
     },
   },
 })

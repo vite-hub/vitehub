@@ -201,6 +201,19 @@ export interface AuthConsoleSession {
   expiresAt: string;
   updatedAt: string;
 }
+/** A user that a host signs in without a password, such as a Console member or an invited guest. */
+export interface AuthConsoleHostUserInput {
+  /** The email of an existing person. Without it, the user is new and gets a placeholder email. */
+  email?: string;
+  name: string;
+  image?: string;
+  /** Roles to add to the comma-separated `user.role` of `admin()`. */
+  roles: readonly string[];
+}
+/** A live session of a user that holds a host role, with the user's roles. */
+export interface AuthConsoleHostSession extends AuthConsoleSession {
+  roles: string[];
+}
 export interface AuthConsoleAgent {
   id: string;
   clientId: string;

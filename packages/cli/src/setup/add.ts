@@ -329,7 +329,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno host cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the host's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
     }
     if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
-      const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
+      const choices = host === "cloudflare" ? ["cloudflare", "auto"] : host === "node" ? ["auto", "postgres", "redis", "memory"] : ["memory"]
       if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
         throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this host. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }

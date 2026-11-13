@@ -67,7 +67,7 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     routeName: "vitehub-console-kv",
   },
   site: {
-    description: "Choose who uses the page tools on the site without signing in: your browsers and invited guests.",
+    description: "Sign your browsers and invited guests in to the site, for the page tools.",
     icon: "i-lucide-globe-lock",
     label: "Site access",
     routeName: "vitehub-console-site",

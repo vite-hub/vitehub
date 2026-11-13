@@ -10,14 +10,17 @@
     "test": "vp run --cache -t @vite-hub/console#build && vp test"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:unjs",
-    "vite-hub": "workspace:*"
+    "vite-hub": "workspace:*",
+    "zod": "catalog:runtime"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
