@@ -1,8 +1,4 @@
-import { markdownCopyUrl } from "./markdown-negotiation.ts"
-import { contentDocumentSummary, contentIndexedDocuments, renderMarkdownCopy } from "./sitemap.ts"
-
-import type { AnyContentCollection } from "./collections-types.ts"
-import type { ContentDocumentSummary } from "./collections-runtime.ts"
+import { markdownCopyUrl as copyUrl } from "./markdown-negotiation.ts"
 import type { DefineContentLlmsOptions } from "./sitemap.ts"
 
 /** The files that `defineContent({ seo: { llms: true } })` serves. */
@@ -42,38 +38,30 @@ function absolute(path: string, site: string | undefined): string {
   return site ? `${site}${path}` : path
 }
 
-interface AgentDocument {
-  collection: AnyContentCollection
-  document: ContentDocumentSummary
-  url: string
+/** A routed Markdown page with its section in `llms.txt`. */
+export interface ContentLlmsPage {
+  /** The page path, such as `/blog/hello`. */
+  path: string
   title?: string
   description?: string
+  /** The `llms.txt` section of the page: the label of its collection. */
+  section: string
 }
 
-/** Published Markdown documents with a URL that search engines may index, in definition order. */
-async function agentDocuments(collections: readonly AnyContentCollection[], site: string | undefined): Promise<AgentDocument[]> {
-  const documents: AgentDocument[] = []
-  for await (const { collection, document, url } of contentIndexedDocuments(collections, site)) {
-    if (collection.format !== "markdown") continue
-    documents.push({ collection, document, url, ...contentDocumentSummary(collection, document.data) })
-  }
-  return documents
-}
-
-/** Pages grouped by collection label, each group in URL order, with the home page split out. */
-function sections(documents: readonly AgentDocument[]): { home?: AgentDocument, groups: Map<string, AgentDocument[]> } {
-  const groups = new Map<string, AgentDocument[]>()
-  let home: AgentDocument | undefined
-  for (const document of documents) {
-    if (document.url.replace(/\/+$/, "") === "") {
-      home ??= document
+/** Pages grouped by section, each group in URL order, with the home page split out. */
+function sections<TPage extends ContentLlmsPage>(pages: readonly TPage[]): { home?: TPage, groups: Map<string, TPage[]> } {
+  const groups = new Map<string, TPage[]>()
+  let home: TPage | undefined
+  for (const page of pages) {
+    if (page.path.replace(/\/+$/, "") === "") {
+      home ??= page
       continue
     }
-    const group = groups.get(document.collection.label)
-    if (group) group.push(document)
-    else groups.set(document.collection.label, [document])
+    const group = groups.get(page.section)
+    if (group) group.push(page)
+    else groups.set(page.section, [page])
   }
-  for (const group of groups.values()) group.sort((left, right) => left.url < right.url ? -1 : left.url > right.url ? 1 : 0)
+  for (const group of groups.values()) group.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
   return { home, groups }
 }
 
@@ -125,38 +113,39 @@ export function renderContentSitemapMarkdown(options: { title: string, host: str
   return lines.join("\n")
 }
 
-/** One file of `defineContent({ seo: { llms } })`, from the published Markdown documents with a URL. */
-export async function contentLlmsFile(collections: readonly AnyContentCollection[], options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile): Promise<string> {
-  const documents = await agentDocuments(collections, site)
+/**
+ * One file of `defineContent({ seo: { llms } })`, from the routed Markdown pages in definition order. `copy` reads the
+ * Markdown copy of one page for `llms-full.txt`.
+ */
+export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: readonly TPage[], copy: (page: TPage) => Promise<string | null>, options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile, prefix = ""): Promise<string> {
   const title = llmsTitle(options, site)
-  const { home, groups } = sections(documents)
+  const markdownCopyUrl = (path: string) => copyUrl(path, prefix)
+  const { home, groups } = sections(pages)
+  const ordered = [...home ? [home] : [], ...[...groups.values()].flat()]
   if (file === "sitemap.md") {
-    const ordered = [...home ? [home] : [], ...[...groups.values()].flat()]
     return renderContentSitemapMarkdown({
       title,
       host: site ? new URL(site).hostname : title,
-      pages: ordered.map(document => ({ path: document.url, href: absolute(markdownCopyUrl(document.url), site), ...(document.title ? { title: document.title } : {}) })),
+      pages: ordered.map(page => ({ path: page.path, href: absolute(markdownCopyUrl(page.path), site), ...(page.title ? { title: page.title } : {}) })),
     })
   }
   if (file === "llms-full.txt") {
-    const ordered = [...home ? [home] : [], ...[...groups.values()].flat()]
-    const copies = await Promise.all(ordered.map(async ({ collection, document }) => {
-      const full = await collection.get(document.id, { ref: "published", ...(document.locale === undefined ? {} : { locale: document.locale }) })
-      return full ? await renderMarkdownCopy(collection, full, site) : undefined
-    }))
-    return copies.filter(copy => copy !== undefined).join("\n\n")
+    const copies = await Promise.all(ordered.map(copy))
+    return copies.filter(text => text !== null).join("\n\n")
   }
-  const link = (document: AgentDocument): ContentLlmsLink => ({
-    title: document.title ?? document.url,
-    href: absolute(markdownCopyUrl(document.url), site),
-    ...(document.description ? { description: document.description } : {}),
+  const link = (page: TPage): ContentLlmsLink => ({
+    title: page.title ?? page.path,
+    href: absolute(markdownCopyUrl(page.path), site),
+    ...(page.description ? { description: page.description.replace(/\s*\n\s*/g, " ") } : {}),
   })
+  const description = [options.description, options.details].filter(Boolean).join("\n\n")
   return renderContentLlms({
     title,
-    ...(options.description ? { description: options.description } : {}),
+    ...(description ? { description } : {}),
     sections: [
       ...home ? [{ title: "Overview", links: [{ title, href: absolute(markdownCopyUrl("/"), site) }] }] : [],
       { title: "Documentation Sets", links: [{ title, href: absolute("/llms-full.txt", site), ...(options.description ? { description: options.description } : {}) }] },
+      ...options.sections ?? [],
       ...[...groups].map(([label, group]) => ({ title: label, description: rawSectionDescription, links: group.map(link) })),
     ],
   })
