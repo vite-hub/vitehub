@@ -332,6 +332,17 @@ Definitions that share a SQLite file share one transaction. Their migrations run
 
 A Cloudflare Worker reads D1 through a binding, so it cannot migrate when it starts. When a deploy ships code before its migrations, the new code queries tables or columns that do not exist yet. Set `migrateOnDeploy: true` to apply the migrations as part of the deploy:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', database: { migrateOnDeploy: true } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
@@ -341,6 +352,19 @@ export default defineConfig({
   plugins: [vitehub({ host: 'cloudflare', database: { migrateOnDeploy: true } }), nitro()],
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', database: { migrateOnDeploy: true } })],
+})
+```
+:::
+::
 
 The build then puts one `wrangler d1 migrations apply <binding> --remote` for each D1 binding before `wrangler deploy` in the deploy command of `.output/nitro.json`:
 
