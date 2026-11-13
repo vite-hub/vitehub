@@ -2,9 +2,10 @@ import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, val
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId, watch } from "vue"
 
 import { fieldErrors, formRoute, submitForm } from "./client.ts"
-import { unwrap } from "./schema.ts"
+import { formFields, isLongText } from "./fields.ts"
 
 import type { FormSchema, FormStore } from "@formisch/vue"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { PropType, Ref, VNode } from "vue"
 import type { FormAnchor, FormFieldErrors, FormSubmitError, SubmitFormOptions } from "./client.ts"
 import type { SchemaNode } from "./schema.ts"
@@ -166,39 +167,25 @@ export interface AutoFormField {
   maxLength?: number
 }
 
-const longTextKeys = /^(message|details|description|text|body|comment|feedback|workflow|notes?)$/i
-
-function humanize(key: string): string {
-  const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase()
-  return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
 /**
- * The fields of a Valibot object schema, in order: a string becomes a text, email, or url input, or a textarea when it
- * is long; a number becomes a number input; a boolean a checkbox; a picklist or enum a select. `v.title()` and
- * `v.description()` set the label and the help text.
+ * The fields of a Valibot object schema, in order, from `formFields()`: a string becomes a text, email, or url input,
+ * or a textarea when it is long; a number becomes a number input; a boolean a checkbox; a picklist or enum a select.
+ * `v.title()` and `v.description()` set the label and the help text. A field that no form can draw, such as a nested
+ * object, throws `FORMS_C0002`.
  */
 export function describeFormFields(schema: unknown): AutoFormField[] {
   const root = schema as SchemaNode
   if (root?.type !== "object" || !root.entries) throw new TypeError("[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).")
-  return Object.entries(root.entries).map(([key, entry]) => {
-    // `v.pipe(v.optional(v.string()), v.title("Name"))` keeps its title on the outer pipe.
-    const { node, required, actions } = unwrap(entry)
-    const action = (type: string) => actions.find(item => item.type === type)
-    const label = action("title")?.title ?? humanize(key)
-    const description = action("description")?.description
-    const min = action("min_length")?.requirement
-    const max = action("max_length")?.requirement
-    const field: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(typeof min === "number" ? { minLength: min } : {}), ...(typeof max === "number" ? { maxLength: max } : {}) }
-    const base = node.type
-    if (base === "boolean") return { ...field, control: "checkbox", required: false }
-    if (base === "number") return { ...field, inputType: "number" }
-    // `options` of a Valibot enum holds its values without the reverse keys of a TypeScript numeric enum.
-    if (base === "picklist" || base === "enum") return { ...field, control: "select", options: (node.options ?? []).filter((option): option is string | number => typeof option === "string" || typeof option === "number") }
-    if (action("email")) return { ...field, inputType: "email" }
-    if (action("url")) return { ...field, inputType: "url" }
-    if (longTextKeys.test(key) || (typeof max === "number" && max > 200)) return { ...field, control: "textarea" }
-    return { ...field, inputType: "text" }
+  return formFields(schema as StandardSchemaV1).map((field) => {
+    const { name: key, label, description, required, minLength, maxLength } = field
+    const base: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}) }
+    if (field.type === "boolean") return { ...base, control: "checkbox", required: false }
+    if (field.options) return { ...base, control: "select", options: field.options }
+    if (field.type === "number" || field.type === "integer") return { ...base, inputType: "number" }
+    if (field.format === "email") return { ...base, inputType: "email" }
+    if (field.format === "uri") return { ...base, inputType: "url" }
+    if (isLongText(field)) return { ...base, control: "textarea" }
+    return { ...base, inputType: "text" }
   })
 }
 
