@@ -123,7 +123,7 @@ const bundledInternal: Record<string, string[]> = {
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
-const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
+const packsWithPublint = ["forge", "gateways", "kit", "presets", "runtime", "shell"];
 
 // Settings that no manifest, config or script states.
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {

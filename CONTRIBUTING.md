@@ -93,6 +93,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
 A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.

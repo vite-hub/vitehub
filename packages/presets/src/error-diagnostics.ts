@@ -47,6 +47,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ count, nextAt }: { count: number; nextAt: string }) => `Daily push budget spent: this PR has ${count} repair pushes in the last 24 hours, and the next push is allowed at ${nextAt}.`,
       fix: "Do not push or commit again in this pass. Reply to and resolve the remaining review threads, then report the current PR head as reviewedHead.",
     },
+    PRESETS_BABYSITTER_MAIN_REPAIR_NEEDS_PREFIX: {
+      why: "Babysitter mainRepair needs a mainRepairBranchPrefix: repair PRs are opened on branches with that prefix.",
+      fix: "Set mainRepairBranchPrefix, such as \"repair-main-\", or set mainRepair to false.",
+    },
     PRESETS_BABYSITTER_MINOR_ROUNDS_NEED_BUDGET: {
       why: "Babysitter minorReviewRounds needs a reviewPushBudget: settled rounds spend that budget.",
       fix: "Set reviewPushBudget to a positive integer, or set minorReviewRounds to false.",

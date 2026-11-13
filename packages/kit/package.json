@@ -1,0 +1,420 @@
+{
+  "name": "@vite-hub/kit",
+  "version": "0.1.0",
+  "description": "Headless Vue parts for ViteHub UI: every ui-sdk part under one import path for each part, and a Nuxt module that auto-imports them.",
+  "keywords": [
+    "a11y",
+    "headless",
+    "nuxt",
+    "nuxt-module",
+    "ui-sdk",
+    "unstyled",
+    "vitehub",
+    "vue"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/kit"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./accordion": {
+      "types": "./dist/accordion.d.ts",
+      "import": "./dist/accordion.js",
+      "default": "./dist/accordion.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "default": "./dist/agent.js"
+    },
+    "./alert-dialog": {
+      "types": "./dist/alert-dialog.d.ts",
+      "import": "./dist/alert-dialog.js",
+      "default": "./dist/alert-dialog.js"
+    },
+    "./async-options": {
+      "types": "./dist/async-options.d.ts",
+      "import": "./dist/async-options.js",
+      "default": "./dist/async-options.js"
+    },
+    "./autocomplete": {
+      "types": "./dist/autocomplete.d.ts",
+      "import": "./dist/autocomplete.js",
+      "default": "./dist/autocomplete.js"
+    },
+    "./avatar": {
+      "types": "./dist/avatar.d.ts",
+      "import": "./dist/avatar.js",
+      "default": "./dist/avatar.js"
+    },
+    "./button": {
+      "types": "./dist/button.d.ts",
+      "import": "./dist/button.js",
+      "default": "./dist/button.js"
+    },
+    "./calendar": {
+      "types": "./dist/calendar.d.ts",
+      "import": "./dist/calendar.js",
+      "default": "./dist/calendar.js"
+    },
+    "./carousel": {
+      "types": "./dist/carousel.d.ts",
+      "import": "./dist/carousel.js",
+      "default": "./dist/carousel.js"
+    },
+    "./checkbox": {
+      "types": "./dist/checkbox.d.ts",
+      "import": "./dist/checkbox.js",
+      "default": "./dist/checkbox.js"
+    },
+    "./collapsible": {
+      "types": "./dist/collapsible.d.ts",
+      "import": "./dist/collapsible.js",
+      "default": "./dist/collapsible.js"
+    },
+    "./color": {
+      "types": "./dist/color.d.ts",
+      "import": "./dist/color.js",
+      "default": "./dist/color.js"
+    },
+    "./color-picker": {
+      "types": "./dist/color-picker.d.ts",
+      "import": "./dist/color-picker.js",
+      "default": "./dist/color-picker.js"
+    },
+    "./combobox": {
+      "types": "./dist/combobox.d.ts",
+      "import": "./dist/combobox.js",
+      "default": "./dist/combobox.js"
+    },
+    "./command": {
+      "types": "./dist/command.d.ts",
+      "import": "./dist/command.js",
+      "default": "./dist/command.js"
+    },
+    "./date": {
+      "types": "./dist/date.d.ts",
+      "import": "./dist/date.js",
+      "default": "./dist/date.js"
+    },
+    "./date-input": {
+      "types": "./dist/date-input.d.ts",
+      "import": "./dist/date-input.js",
+      "default": "./dist/date-input.js"
+    },
+    "./date-picker": {
+      "types": "./dist/date-picker.d.ts",
+      "import": "./dist/date-picker.js",
+      "default": "./dist/date-picker.js"
+    },
+    "./dialog": {
+      "types": "./dist/dialog.d.ts",
+      "import": "./dist/dialog.js",
+      "default": "./dist/dialog.js"
+    },
+    "./drawer": {
+      "types": "./dist/drawer.d.ts",
+      "import": "./dist/drawer.js",
+      "default": "./dist/drawer.js"
+    },
+    "./field": {
+      "types": "./dist/field.d.ts",
+      "import": "./dist/field.js",
+      "default": "./dist/field.js"
+    },
+    "./file-input": {
+      "types": "./dist/file-input.d.ts",
+      "import": "./dist/file-input.js",
+      "default": "./dist/file-input.js"
+    },
+    "./gesture": {
+      "types": "./dist/gesture.d.ts",
+      "import": "./dist/gesture.js",
+      "default": "./dist/gesture.js"
+    },
+    "./history": {
+      "types": "./dist/history.d.ts",
+      "import": "./dist/history.js",
+      "default": "./dist/history.js"
+    },
+    "./hover-card": {
+      "types": "./dist/hover-card.d.ts",
+      "import": "./dist/hover-card.js",
+      "default": "./dist/hover-card.js"
+    },
+    "./image": {
+      "types": "./dist/image.d.ts",
+      "import": "./dist/image.js",
+      "default": "./dist/image.js"
+    },
+    "./image-cropper": {
+      "types": "./dist/image-cropper.d.ts",
+      "import": "./dist/image-cropper.js",
+      "default": "./dist/image-cropper.js"
+    },
+    "./input": {
+      "types": "./dist/input.d.ts",
+      "import": "./dist/input.js",
+      "default": "./dist/input.js"
+    },
+    "./label": {
+      "types": "./dist/label.d.ts",
+      "import": "./dist/label.js",
+      "default": "./dist/label.js"
+    },
+    "./listbox": {
+      "types": "./dist/listbox.d.ts",
+      "import": "./dist/listbox.js",
+      "default": "./dist/listbox.js"
+    },
+    "./menu": {
+      "types": "./dist/menu.d.ts",
+      "import": "./dist/menu.js",
+      "default": "./dist/menu.js"
+    },
+    "./menubar": {
+      "types": "./dist/menubar.d.ts",
+      "import": "./dist/menubar.js",
+      "default": "./dist/menubar.js"
+    },
+    "./meter": {
+      "types": "./dist/meter.d.ts",
+      "import": "./dist/meter.js",
+      "default": "./dist/meter.js"
+    },
+    "./navigation-menu": {
+      "types": "./dist/navigation-menu.d.ts",
+      "import": "./dist/navigation-menu.js",
+      "default": "./dist/navigation-menu.js"
+    },
+    "./number": {
+      "types": "./dist/number.d.ts",
+      "import": "./dist/number.js",
+      "default": "./dist/number.js"
+    },
+    "./number-input": {
+      "types": "./dist/number-input.d.ts",
+      "import": "./dist/number-input.js",
+      "default": "./dist/number-input.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./observe": {
+      "types": "./dist/observe.d.ts",
+      "import": "./dist/observe.js",
+      "default": "./dist/observe.js"
+    },
+    "./otp-input": {
+      "types": "./dist/otp-input.d.ts",
+      "import": "./dist/otp-input.js",
+      "default": "./dist/otp-input.js"
+    },
+    "./overlays": {
+      "types": "./dist/overlays.d.ts",
+      "import": "./dist/overlays.js",
+      "default": "./dist/overlays.js"
+    },
+    "./pagination": {
+      "types": "./dist/pagination.d.ts",
+      "import": "./dist/pagination.js",
+      "default": "./dist/pagination.js"
+    },
+    "./password-input": {
+      "types": "./dist/password-input.d.ts",
+      "import": "./dist/password-input.js",
+      "default": "./dist/password-input.js"
+    },
+    "./popover": {
+      "types": "./dist/popover.d.ts",
+      "import": "./dist/popover.js",
+      "default": "./dist/popover.js"
+    },
+    "./preferences": {
+      "types": "./dist/preferences.d.ts",
+      "import": "./dist/preferences.js",
+      "default": "./dist/preferences.js"
+    },
+    "./primitive": {
+      "types": "./dist/primitive.d.ts",
+      "import": "./dist/primitive.js",
+      "default": "./dist/primitive.js"
+    },
+    "./progress": {
+      "types": "./dist/progress.d.ts",
+      "import": "./dist/progress.js",
+      "default": "./dist/progress.js"
+    },
+    "./radio": {
+      "types": "./dist/radio.d.ts",
+      "import": "./dist/radio.js",
+      "default": "./dist/radio.js"
+    },
+    "./rating": {
+      "types": "./dist/rating.d.ts",
+      "import": "./dist/rating.js",
+      "default": "./dist/rating.js"
+    },
+    "./resizable": {
+      "types": "./dist/resizable.d.ts",
+      "import": "./dist/resizable.js",
+      "default": "./dist/resizable.js"
+    },
+    "./scroll-area": {
+      "types": "./dist/scroll-area.d.ts",
+      "import": "./dist/scroll-area.js",
+      "default": "./dist/scroll-area.js"
+    },
+    "./segmented-control": {
+      "types": "./dist/segmented-control.d.ts",
+      "import": "./dist/segmented-control.js",
+      "default": "./dist/segmented-control.js"
+    },
+    "./select": {
+      "types": "./dist/select.d.ts",
+      "import": "./dist/select.js",
+      "default": "./dist/select.js"
+    },
+    "./separator": {
+      "types": "./dist/separator.d.ts",
+      "import": "./dist/separator.js",
+      "default": "./dist/separator.js"
+    },
+    "./shortcuts": {
+      "types": "./dist/shortcuts.d.ts",
+      "import": "./dist/shortcuts.js",
+      "default": "./dist/shortcuts.js"
+    },
+    "./slider": {
+      "types": "./dist/slider.d.ts",
+      "import": "./dist/slider.js",
+      "default": "./dist/slider.js"
+    },
+    "./switch": {
+      "types": "./dist/switch.d.ts",
+      "import": "./dist/switch.js",
+      "default": "./dist/switch.js"
+    },
+    "./tabs": {
+      "types": "./dist/tabs.d.ts",
+      "import": "./dist/tabs.js",
+      "default": "./dist/tabs.js"
+    },
+    "./text-match": {
+      "types": "./dist/text-match.d.ts",
+      "import": "./dist/text-match.js",
+      "default": "./dist/text-match.js"
+    },
+    "./textarea": {
+      "types": "./dist/textarea.d.ts",
+      "import": "./dist/textarea.js",
+      "default": "./dist/textarea.js"
+    },
+    "./time-input": {
+      "types": "./dist/time-input.d.ts",
+      "import": "./dist/time-input.js",
+      "default": "./dist/time-input.js"
+    },
+    "./timeline": {
+      "types": "./dist/timeline.d.ts",
+      "import": "./dist/timeline.js",
+      "default": "./dist/timeline.js"
+    },
+    "./toast": {
+      "types": "./dist/toast.d.ts",
+      "import": "./dist/toast.js",
+      "default": "./dist/toast.js"
+    },
+    "./toggle": {
+      "types": "./dist/toggle.d.ts",
+      "import": "./dist/toggle.js",
+      "default": "./dist/toggle.js"
+    },
+    "./token-input": {
+      "types": "./dist/token-input.d.ts",
+      "import": "./dist/token-input.js",
+      "default": "./dist/token-input.js"
+    },
+    "./toolbar": {
+      "types": "./dist/toolbar.d.ts",
+      "import": "./dist/toolbar.js",
+      "default": "./dist/toolbar.js"
+    },
+    "./tooltip": {
+      "types": "./dist/tooltip.d.ts",
+      "import": "./dist/tooltip.js",
+      "default": "./dist/tooltip.js"
+    },
+    "./tree": {
+      "types": "./dist/tree.d.ts",
+      "import": "./dist/tree.js",
+      "default": "./dist/tree.js"
+    },
+    "./trigger-menu": {
+      "types": "./dist/trigger-menu.d.ts",
+      "import": "./dist/trigger-menu.js",
+      "default": "./dist/trigger-menu.js"
+    },
+    "./waterfall": {
+      "types": "./dist/waterfall.d.ts",
+      "import": "./dist/waterfall.js",
+      "default": "./dist/waterfall.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/kit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run --cache -t @vite-hub/kit#build && vp test"
+  },
+  "dependencies": {
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2"
+  },
+  "devDependencies": {
+    "@nuxt/kit": "4.6.2",
+    "@nuxt/schema": "4.6.4",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "nuxt": "catalog:nuxt",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
+  },
+  "peerDependencies": {
+    "@nuxt/kit": "^4.0.0 || ^5.0.0-0",
+    "@nuxt/schema": "^4.0.0 || ^5.0.0-0",
+    "nuxt": "^4.0.0 || ^5.0.0-0",
+    "vue": "catalog:vue-compat"
+  },
+  "peerDependenciesMeta": {
+    "@nuxt/kit": {
+      "optional": true
+    },
+    "@nuxt/schema": {
+      "optional": true
+    },
+    "nuxt": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

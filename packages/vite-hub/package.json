@@ -902,6 +902,7 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kit": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/mcp": "workspace:*",
@@ -932,7 +933,6 @@
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
-    "reka-ui": "^2.11.0",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",
@@ -1005,7 +1005,6 @@
     "openworkflow": "catalog:workflow",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
-    "reka-ui": "^2.10.5",
     "vite": "catalog:vite-compat",
     "vite-doctor": "*",
     "vue": "catalog:vue-compat"
@@ -1177,9 +1176,6 @@
       "optional": true
     },
     "posthog-node": {
-      "optional": true
-    },
-    "reka-ui": {
       "optional": true
     },
     "vite": {

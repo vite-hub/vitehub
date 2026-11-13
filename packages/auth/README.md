@@ -299,17 +299,19 @@ Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `dat
 
 `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
+`database` and `secondaryStorage` take Better Auth adapters only. In a static Definition, `database` takes only `authDatabase()`. `authDatabase("auth")` uses the Named Database `auth`:
+
 ```ts
 import { defineAuth } from "@vite-hub/auth"
+import { authDatabase } from "@vite-hub/auth/database"
 
 export default defineAuth({
   basePath: "/auth",
-  database: { name: "auth", dedicated: true },
-  secondaryStorage: { store: "auth" },
+  database: authDatabase("auth"),
 });
 ```
 
-`database: true`, `database: { name }`, and `secondaryStorage` are placement metadata. ViteHub removes metadata-shaped values before calling `betterAuth()`, so they do not create Database or KV adapters. Use `authDatabase()` for the app Database, or return another Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`.
+Return another Better Auth `database` adapter, or a `secondaryStorage` adapter, from the Definition callback or `runtime`. Auth rejects `true`, `{ name }`, and `{ store }`, because they do not create storage.
 
 ## Nuxt
 
@@ -539,7 +541,7 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 
 - Supply a strong Better Auth secret from Server Env at request time; never put it in Public Env, client code, Agent input, logs, or traces. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth uses `deriveSecret("vitehub:auth")` from `VITEHUB_SECRET`.
 - Set request-aware `baseURL` or use `requestOrigin` so callback and cookie origins match the deployed host.
-- Use `authDatabase()` and apply its migration, configure another Better Auth database adapter, or use `stateless()` for social sign-in without a database. `database: true` and `secondaryStorage` metadata are not adapters.
+- Use `authDatabase()` and apply its migration, configure another Better Auth database adapter, or use `stateless()` for social sign-in without a database.
 - Protect application routes and the Console endpoint explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
