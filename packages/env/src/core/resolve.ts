@@ -417,6 +417,9 @@ export function resolveEnvSource(declaration: EnvVariableDeclaration, path: stri
   const source = declaration.source ?? inferEnvSource(path)
   const canonical = canonicalEnvName(path, prefix)
   if (source.kind !== "env" || canonical === undefined || source.canonical === false) return source
+  if (canonical === "VITEHUB_HOST") {
+    throw invalidEnvDeclaration(path, 'VITEHUB_HOST is reserved for deployment host selection. Use env.source("APP_HOST", { canonical: false }) for an application host value, or change the Env prefix.')
+  }
   const names = [...new Set([canonical, ...(source.names ?? [source.name])])]
   return names.length === 1
     ? { ...source, canonical }

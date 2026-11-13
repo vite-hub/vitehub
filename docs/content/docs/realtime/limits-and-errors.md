@@ -110,8 +110,8 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ### REALTIME_AUTHORITY_CONFLICT
 
-`authority: "cloudflare"` needs a Cloudflare preset. `authority: "memory"` runs in one process, so it needs the `node` preset.
+`authority: "cloudflare"` needs a Cloudflare host. `authority: "memory"` runs in one process, so it needs the `node` host.
 
 ### REALTIME_MISSING_AUTHORITY
 
-A production build with `authority: "auto"` found no Cloudflare preset. Use a Cloudflare preset, or set `authority: "memory"` for one Node.js process.
+A production build with `authority: "auto"` found no Cloudflare host. Use a Cloudflare host, or set `authority: "memory"` for one Node.js process.

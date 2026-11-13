@@ -1,3 +1,9 @@
+import { execFile } from "node:child_process"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { github } from "../src/channels.ts"
@@ -114,6 +120,39 @@ describe("Agent forge access", () => {
     })
 
     expect(await runAgentInline(agent, runtime(), {})).toBeUndefined()
+  })
+
+  it("commits as the github() Channel App identity without user Git configuration", async () => {
+    const identity = { login: "quiver-bot[bot]", email: "294442778+quiver-bot[bot]@users.noreply.github.com" }
+    const channel = github({ app: { token: tokenSource(), identity: { ...identity, appId: 294442778 } } })
+    // SAFETY: the test token source does not read the callback context.
+    const env = await forgeGitEnvironment(runtime() as AgentCallbackContext, { [forgeAccessKey]: readForgeAccess(channel) }, { repository: "acme/app" })
+    expect(env).toMatchObject({
+      GIT_AUTHOR_NAME: identity.login,
+      GIT_AUTHOR_EMAIL: identity.email,
+      GIT_COMMITTER_NAME: identity.login,
+      GIT_COMMITTER_EMAIL: identity.email,
+    })
+
+    const repository = await mkdtemp(join(tmpdir(), "vitehub-forge-identity-"))
+    try {
+      const ambient = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_") && key !== "EMAIL"))
+      const git = async (...args: string[]) => (await promisify(execFile)("git", args, { cwd: repository, env: { ...ambient, ...env } })).stdout.trim()
+      await git("init", "-q")
+      await git("commit", "--allow-empty", "-qm", "fix")
+      expect(await git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(`${identity.login} <${identity.email}>|${identity.login} <${identity.email}>`)
+    }
+    finally {
+      await rm(repository, { force: true, recursive: true })
+    }
+  })
+
+  it("sets no commit identity when the github() Channel App has none", async () => {
+    const channel = github({ app: { token: tokenSource() } })
+    // SAFETY: the test token source does not read the callback context.
+    const env = await forgeGitEnvironment(runtime() as AgentCallbackContext, { [forgeAccessKey]: readForgeAccess(channel) }, { repository: "acme/app" })
+    expect(env.GH_TOKEN).toBe("installation-token")
+    expect(Object.keys(env).filter(key => key.startsWith("GIT_AUTHOR_") || key.startsWith("GIT_COMMITTER_"))).toEqual([])
   })
 
   it("asks the github() Channel App for a token that lasts most of the hour for git and gh", async () => {

@@ -19,7 +19,7 @@ describe("vitehub status with vitehub.lock", () => {
     const root = await createProject({
       "package.json": pnpmManifest,
       "README.md": `<!-- vitehub:stack -->\n${command}\n<!-- /vitehub:stack -->\n`,
-      "vite.config.ts": viteConfig('{ preset: "deno", workspace: true }'),
+      "vite.config.ts": viteConfig('{ host: "deno", workspace: true }'),
       "vitehub.lock": lock,
       ...workspacePackage,
     })

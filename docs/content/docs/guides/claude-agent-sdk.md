@@ -27,7 +27,7 @@ pnpm add @vite-hub/agent @anthropic-ai/claude-agent-sdk@0.3.246
 
 The SDK installs one native Claude Code package for your OS and CPU. ViteHub uses that package and downloads nothing during the build or at startup.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -35,7 +35,7 @@ The SDK installs one native Claude Code package for your OS and CPU. ViteHub use
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -51,7 +51,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   }), nitro()],
@@ -66,7 +66,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -99,7 +99,7 @@ The Agent name `coder` comes from the file path. `runtime: false` runs the Agent
 
 | Option | What it does |
 | --- | --- |
-| `gateway` | Sends model requests through an [AI gateway](/docs/agents/ai-gateways). `anthropic()` calls the Anthropic API with your key. |
+| `gateway` | Sends model requests through an [AI gateway](/docs/gateways). `anthropic()` calls the Anthropic API with your key. |
 | `instructions` | Instructions for this Agent, written to a prompt file for Claude Code. |
 | `permissions` | `'ask'` (default), `'allow-edits'`, `'allow-edits-unattended'`, or `'allow-all'`. `'allow-edits-unattended'` allows file edits and denies other requests without a prompt. |
 | `requirements` | Commands Claude Code needs. `agent.status()` reports the ones missing on the host. |
@@ -117,7 +117,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ViteHub forwards no other process variables, so a server `ANTHROPIC_API_KEY` reaches Claude Code only through the gateway or `driver.env`. With no gateway, Claude Code uses the host user's sign-in. Use an API key for an app that other people use: Anthropic does not allow third-party products to offer claude.ai sign-in (see the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)).
 
-To use another service, change the preset: `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, and `ollama()` also serve Claude Code. [AI gateway presets](/docs/agents/ai-gateways#presets) lists their variables.
+To use another service, change the preset: `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, and `ollama()` also serve Claude Code. [AI gateway presets](/docs/gateways/configure#presets) lists their variables.
 
 ### Call the Agent from a route
 
@@ -220,7 +220,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `preset: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |
@@ -240,7 +240,7 @@ On Cloudflare Workers, use a model-backed Driver with an Anthropic model instead
 ## Related pages
 
 - [Agent Drivers](/docs/agents/agent-drivers): all provider Driver options.
-- [AI gateways](/docs/agents/ai-gateways): presets, variables, and custom gateways.
+- [AI gateways](/docs/gateways): presets, variables, and custom gateways.
 - [Run the Codex SDK with ViteHub](/docs/guides/codex-sdk): the same setup for OpenAI Codex.
 - [Sandboxes](/docs/agents/sandboxes) and [Compare AI sandbox providers](/docs/guides/sandbox-providers).
 - [Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel): a model-backed Agent on serverless hosts.

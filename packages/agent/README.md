@@ -103,7 +103,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-See [AI gateways](../../docs/content/docs/agents/ai-gateways.md).
+See [AI gateways](../../docs/content/docs/gateways/index.md).
 
 ## Direct invocations
 
@@ -145,7 +145,7 @@ To run Codex on a user's ChatGPT plan, set `driver: codexDriver({ gateway: chatg
 
 Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, including approval-required provider actions. The factory options expose shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options. Only these factories import the provider runtime, so an app that does not call one does not bundle it. A string such as `driver: "codex"` or a plain `{ kind: "codex" }` object fails with `AGENT_R0490` or `AGENT_R0492`.
 
-Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
+Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/gateways/index.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
 The Agent reads the Codex `auth.json` from a Server Env secret:
 
@@ -173,7 +173,7 @@ export default defineConfig({
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
 import { file } from "@vite-hub/workspace";
-import { loadServerEnv } from "#vitehub/env/server";
+import { loadServerEnv } from "@vite-hub/env";
 
 export default defineAgent({
   driver: codexDriver({
@@ -207,7 +207,12 @@ Journaled Invocations require a successful cancellation-state read before execut
 
 Hosts can persist external delivery evidence with `await invocations.appendObservation(invocationId, event, { id: deliveryId })`. The stable observation ID makes retries idempotent. The store assigns the sequence atomically, including for completed, failed, or cancelled Invocations, without changing lifecycle state or taking the running Agent's claim. The configured content policy still applies. Appends return the persisted record, return `undefined` when the Invocation does not exist, and throw if storage fails or the observation capacity prevents an append. Retain the same ID when retrying an ambiguous storage failure. Use one store instance per SQLite connection so its write queue serializes concurrent append calls.
 
-`permissions` accepts `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"` and defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly when provider actions should run without approval. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider-backed invocations accept live input through invocation input mode `"steer"` when the provider adds the input to its active turn. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills. A Provider Driver writes Agent-owned Skills and the colocated `instructions.md` into its working directory or Sandbox Home for each Invocation. ViteHub does not store them as Workspace Sources for a Provider Driver, so an owned Workspace does not materialize them on every Invocation.
+`permissions` accepts `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"` and defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly when provider actions should run without approval. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider-backed invocations accept live input through invocation input mode `"steer"` when the provider adds the input to its active turn. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills. A Provider Driver writes the colocated `instructions.md` into its working directory or Sandbox Home for each Invocation. ViteHub does not store Agent-owned Skills or instructions as Workspace Sources for a Provider Driver, so an owned Workspace does not materialize them on every Invocation.
+
+A Provider Driver never writes Skills into its working directory. For each Invocation, it writes Agent-owned Skills to one private folder outside the checkout. It also links the Workspace Skills that the provider cannot read in its working directory: Skills under another provider's skill root, and Skills of the outer Workspace root when the provider runs in a nested pull request checkout. Codex loads the folder as an extra skill root. Claude Code reads it through `--add-dir`. The folder is removed when the Invocation ends. In a Sandbox, the Driver writes these Skills to the one Home skill root that the provider reads: `.agents/skills` for Codex, `.claude/skills` for Claude Code. With `launch`, the provider host must see the temporary directory of the ViteHub host (`os.tmpdir()`) at the same path, because the folder is there.
+
+> [!WARNING]
+> Breaking change: Skills no longer appear at `<cwd>/.agents/skills`, `<cwd>/.codex/skills`, or `<cwd>/.claude/skills`, and the Driver no longer copies a Skill between those roots. A pull request checkout keeps only its own files. Do not read Skill files from the checkout in prompts or launch wrappers. Codex needs `skills/extraRoots/set` in `codex app-server`. Codex 0.153.4 and 0.167.0 support it.
 
 ## Invocation budgets
 
@@ -402,7 +407,7 @@ for the code format and an application catalog example.
 
 `teams()` builds its Chat SDK adapter from `env.server.teams` (`TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, `TEAMS_API_URL`) and needs `@chat-adapter/teams`. `adapter` options such as `{ userName }` take precedence over Env; an adapter or factory is used as given.
 
-`teams()`, `slack({ adapter })`, `discord()`, and `telegram()` also send, as the adapter of a `defineChannel()` from `vite-hub/channels`, with one contract: `useChannel(name).send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their Chat SDK adapter for sends from Server Env; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
+`teams()`, `slack({ adapter })`, `discord()`, and `telegram()` also send, as the adapter of a `defineChannel()` from `vite-hub/channels`, with one contract: `useChannel(name).send(message, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). The message (`ChatMessage`) is Markdown text, or a Chat SDK message that goes to the adapter as is, such as `{ card, fallbackText }`. `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new message instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their Chat SDK adapter for sends from Server Env; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
 
 To replace a temporary message in a channel thread, set `thread.root` on the first send so the temporary message is a reply. Replacing the root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
 
@@ -498,9 +503,11 @@ A store that connects on first use can implement `open()`. The journal calls it 
 
 GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repository mount. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` use the Workspace root. Set `workspace: false` to disable the contribution. When the pull request cannot be loaded, a delivery with the Workspace fails with `AGENT_R0370` and the GitHub error. Only deliveries already admitted to the webhook queue retry automatically. An initial metadata failure needs redelivery, or startup replay when the durable webhook inbox is enabled; GitHub does not automatically redeliver failed webhooks. Without the Workspace, the pull request details are best effort and the error goes in `pullRequest.metadata.unavailable`.
 
+With the Workspace, the Channel adds the `vitehub-resolving-merge-conflicts` Skill at `.agents/skills/vitehub-resolving-merge-conflicts/SKILL.md`, and the pull request prompt names it for merge and rebase conflicts. Without the Workspace, the prompt gives the steps inline.
+
 Provider Drivers get the mount as a real Git checkout of the exact head SHA, with `origin`, the fetched base branch, and a local head branch that tracks the pull request branch. A declared GitHub Source of the same repository and scope at the same mount is replaced for the Invocation; a different repository or scope fails with an error that names the Source. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
 
-An Agent with one github() Channel that sets `app` gets forge access from that Channel. The Channel resolves a token for each repository: the `app.token` callback when it is set, otherwise an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository. Every Invocation of the Agent gets this access, including streamed runs. The pull request checkout, `git()`, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`. The run keeps that token, so the Channel asks for one that stays valid for at least 55 minutes; an App installation token that expires sooner is minted again. A custom `app.token` callback receives this as `minLifetime` in milliseconds. The Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, scoped to the pull request base and head repositories, and never in process arguments. A run without a pull request, such as a Teams or chat run, gets Git credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. To use a host-managed credential, set `github({ app: { token } })`.
+An Agent with one github() Channel that sets `app` gets forge access from that Channel. The Channel resolves a token for each repository: the `app.token` callback when it is set, otherwise an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository. Every Invocation of the Agent gets this access, including streamed runs. The pull request checkout, `git()`, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`. The run keeps that token, so the Channel asks for one that stays valid for at least 55 minutes; an App installation token that expires sooner is minted again. A custom `app.token` callback receives this as `minLifetime` in milliseconds. When the Channel sets `app.identity`, Provider Drivers and `git()` also receive `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME` from its `login`, and `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` from its `email`, so commits work without `user.name` and `user.email`. `createGitHubHost({ identity }).channel()` sets `app.identity` from the host identity. Identity in `driver.env` takes precedence. The Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, scoped to the pull request base and head repositories, and never in process arguments. A run without a pull request, such as a Teams or chat run, gets Git credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. To use a host-managed credential, set `github({ app: { token } })`.
 
 Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. `webhooks.aliases` adds more paths. A Channel module in `server/channels`, such as `server/channels/tickets/index.ts`, that default-exports `defineChannel()` with a `webhook()` or `stripe()` adapter serves `/api/_vitehub/channels/<name>` and the adapter's literal `path` without an Agent Definition; its trigger selects the Agent with a task. `defineAgent({ channels: ['slack'] })` lists Channels of `server/channels` by name; ViteHub registers each listed module before the Agent module runs, and the Agent then serves the Channel's routes. See [Give a Channel its own route](../../docs/content/docs/agents/channels.md#give-a-channel-its-own-route). `webhooks.stateScope` replaces the `webhook:<agent>:<origin>:<registration>:` scope of the webhook State and queue. Set it to the old scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner. Give each registration its own scope; ViteHub does not check this. See [Keep webhook State when a Channel moves](../../docs/content/docs/agents/channels.md#keep-webhook-state-when-a-channel-moves). See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
 
@@ -552,7 +559,7 @@ The child gets a fresh runtime from the parent's configuration. `name` is not in
 
 Child configuration overrides parent defaults. Channels, Sources, and Skills merge by key, replacing each matching definition as a whole. Hooks merge by name: when both layers define a hook, the parent's hook runs first, then the child's. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
-Three options compose with the parent, so the child does not restate it:
+Four options compose with the parent, so the child does not restate it:
 
 ```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -561,8 +568,12 @@ import bot from '../bot/agent'
 
 export default defineAgent({
   extends: bot,
-  // Receives the parent's list. An array replaces it.
-  driver: { requirements: inherited => [...inherited, 'kubectl'] },
+  driver: {
+    // Receives the parent's instruction document. A string replaces it.
+    instructions: { extend: inherited => `${inherited}\n\n## Development\n\nYou run as bot-dev.` },
+    // Receives the parent's list. An array replaces it.
+    requirements: inherited => [...inherited, 'kubectl'],
+  },
   // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
   capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
   // Sets the mode of every Source that does not set its own, including inherited Sources.
@@ -570,12 +581,13 @@ export default defineAgent({
 })
 ```
 
+- `driver.instructions: { extend }` gets the parent's instructions as one string and returns the child's complete document. It can append text or edit the inherited text. Without a parent, it receives `''`. When the parent's instructions are static strings, ViteHub applies the function once. When they use a callback or a template, it applies the function for each Invocation, after the parent's document resolves. Template slots such as `{{{ context.customInstructions }}}` and `data.context.*` bindings in the returned document render as usual. A plain function is not an extension: it stays a per-Invocation callback that receives the Invocation context. A colocated `instructions.md` cannot extend the parent's document.
 - `driver.requirements` can be a function of the inherited list. Without a parent, it receives `[]`.
 - A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` by server name into the parent's `mcp()` Capability. The child's entry for a server wins as a whole, and options that the child leaves unset, such as `unavailableNotice`, are inherited. Set `inherit: false` to replace the parent's `mcp()` Capability.
 - `workspace.materialize` is the default [`materialize` mode](https://vitehub.dev/docs/workspace/configure) for every Source in `workspace.sources` that does not set its own. Sources that Capabilities contribute keep their own mode.
 Child configuration overrides parent defaults. Channels, Sources, and Skills merge by key, replacing each matching definition as a whole. Hooks merge by name: when both layers define a hook, the parent's hook runs first, then the child's. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
-`extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Compose shared instruction strings in TypeScript, or import Markdown with `?raw` and assign the composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
+`extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Build on the parent's instructions with `driver.instructions: { extend }`, or import Markdown with `?raw` and assign a composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
 
 A definition that is not discovered, such as one created in a Schedule, uses the colocated Skills of the discovered Agent it extends. It reads them when it runs, so module import order does not matter. Use `agentWithSkills()` to add Skills to such a definition without an Agent folder:
 
@@ -591,6 +603,8 @@ const changelogAgent = agentWithSkills(
 ```
 
 Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
+
+A discovered child Agent with its own `skills/` folder also keeps the colocated Skills of its parent. A child Skill folder replaces the parent folder with the same name, including its references.
 
 ### Presets from a package
 
@@ -856,7 +870,8 @@ be loaded through the existing instruction resolver or Markdown import path.
 To discard the inherited template, use
 `instructions: { mode: "replace", value: "A complete instruction document." }`.
 A new `{ template, content }` object also replaces the inherited template.
-Without a template, extending instructions replaces the inherited document.
+Without a template, extending instructions replaces the inherited document. To add to
+the inherited document instead, use `instructions: { extend: inherited => ... }`.
 
 ### Process hosts
 

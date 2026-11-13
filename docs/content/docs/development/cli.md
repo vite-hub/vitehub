@@ -62,9 +62,11 @@ Available namespaces:
   schedule    Run Static Schedule Definitions, start Schedules from the CLI, and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
+  durability  Show where each primitive of this Node server keeps its state: shared, on this host, or in this process.
   types       Generate ViteHub TypeScript declarations.
   i18n        Show translation coverage, and move translations to and from PO files.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
+  migrate     Rewrite the app for this ViteHub release. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
@@ -114,6 +116,10 @@ Available namespaces:
 | `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
+| `vitehub content head` | Available | Content Package | Show the commit that each `github()` Source serves, the rejected commit, the last webhook delivery, and what holds the head back. |
+| `vitehub content advance` | Available | Content Package | Move the head of a `github()` Source to the latest commit of its branch when every document parses. Exits 1 when the head is held back. |
+| `vitehub content pin` | Available | Content Package | Serve one commit of a `github()` Source until `unpin`, for example to roll back. |
+| `vitehub content unpin` | Available | Content Package | Remove the pin of a `github()` Source and move to the latest valid commit. |
 | `vitehub cms roles` | Available | CMS Package | List each CMS role with the Content and Comments actions it allows. See [Roles and access](/docs/cms/access). |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -129,6 +135,7 @@ Available namespaces:
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
+| `vitehub migrate run` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with the codemods of `@vite-hub/codemods`. `vitehub migrate` runs it on the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
@@ -153,6 +160,7 @@ Available namespaces:
 | `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
+| `vitehub durability list` | Available | ViteHub Framework | Show where each primitive of a Node server keeps its state (`shared`, `host`, or `process`), and the instance count. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vitehub agent usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
 | `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
 | `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |
@@ -191,8 +199,8 @@ pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --yes
 pnpm dlx vite-hub init my-app --host vercel --features email --option email.driver=resend --yes --json
 ```
 
-- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ preset })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
-- `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `preset`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
+- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
+- `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `host`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
 - `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with a pinned starter and the `5x` nightly channel, checks that it declares a Nuxt 5 version, then adds the `vite-hub/nuxt` module. Existing Nuxt apps must also declare a known Nuxt 5 version before any installation or config edit. A tag or an unsupported version stops adoption and leaves existing files for manual setup.
@@ -235,7 +243,7 @@ pnpm vitehub status --json
 
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
-- `host`: the `preset` from the config, else the host from the environment, as `detectHost()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `host`: the `host` from the config, else the host from the environment, as `detectHost()` reads it, else `node`. `source` tells which one. A dynamic host or config reports `name: "unknown"` and feature support with `level: "unknown"`.
 - `live`: the deployment that receives production traffic, with its commit and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](#list-deployments).
 - `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
@@ -273,7 +281,7 @@ When running a pkg.pr.new preview of the CLI, added ViteHub packages use the sam
 
 ### `SETUP_FEATURE_UNSUPPORTED`
 
-The host of the project cannot provide the feature. Run `vitehub catalog` to see which hosts support it, or set `preset` to another host.
+The host of the project cannot provide the feature. Run `vitehub catalog` to see which hosts support it, or set `host` to another host.
 
 ### `SETUP_INPUT_NEEDED`
 
@@ -392,7 +400,7 @@ The file holds no secret, but it is local to your machine. `link` adds `.vitehub
 
 ### `SETUP_LINK_HOST_UNSUPPORTED`
 
-The host is `node`, a self-hosted server, which has no project to link. Pass `--host`, or set `preset` in `vitehub()`. The command exits with `3`.
+The host is `node`, a self-hosted server, which has no project to link. Pass `--host`, or set `host` in `vitehub()`. The command exits with `3`.
 
 ### `SETUP_LINK_CREDENTIALS_MISSING`
 
@@ -684,7 +692,7 @@ Rate Limits (rate-limit): 1
 
 `--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` (from the project root), `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the kinds.
 
-`inspect output` lists the Provider Output files (the files a build writes for the host) and shows which exist. Deployment paths use the preset's output directory, such as `.output` or `.vercel/output`. Run a production build first.
+`inspect output` lists the Provider Output files (the files a build writes for the host) and shows which exist. Deployment paths use the host's output directory, such as `.output` or `.vercel/output`. Run a production build first.
 
 ```bash [Terminal]
 pnpm build
@@ -959,7 +967,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/tasks/db/seed.ts]
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineTask } from 'nitro/task'
 
 export default defineTask({

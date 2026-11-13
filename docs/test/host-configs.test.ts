@@ -58,7 +58,7 @@ describe("host configs of the primitive heroes", () => {
         expect(code).toBeUndefined();
         return;
       }
-      expect(code).toContain(`preset: '${host}'`);
+      expect(code).toContain(`host: '${host}'`);
       // A config that declares Env values imports `env`.
       expect(code!.includes("env(")).toBe(/^import \{ env \} from /m.test(code!));
       // The hero panel is narrow. A rewrite is never wider than the files of its hero.
@@ -78,7 +78,7 @@ describe("rewriteHostConfig", () => {
     "import { env } from 'vite-hub/env'",
     "",
     "vitehub({",
-    "  preset: 'node',",
+    "  host: 'node',",
     "  // Two lines",
     "  // of comment",
     "  kv: {",
@@ -95,12 +95,12 @@ describe("rewriteHostConfig", () => {
     vercel: { options: { queue: { value: "true" } }, remove: ["kv"] },
   };
 
-  it("sets the preset, replaces the option and its comment, and drops imports only other hosts use", () => {
+  it("sets the host, replaces the option and its comment, and drops imports only other hosts use", () => {
     expect(rewriteHostConfig(code, configs, "cloudflare")).toBe([
       "import { vitehub } from 'vite-hub'",
       "",
       "vitehub({",
-      "  preset: 'cloudflare',",
+      "  host: 'cloudflare',",
       "  // Workers KV",
       "  kv: true,",
       "  queue: true,",
@@ -114,7 +114,7 @@ describe("rewriteHostConfig", () => {
       "import { env } from 'vite-hub/env'",
       "",
       "vitehub({",
-      "  preset: 'netlify',",
+      "  host: 'netlify',",
       "  // Two lines",
       "  // of comment",
       "  kv: {",
@@ -130,7 +130,7 @@ describe("rewriteHostConfig", () => {
       "import { vitehub } from 'vite-hub'",
       "",
       "vitehub({",
-      "  preset: 'vercel',",
+      "  host: 'vercel',",
       "  queue: true,",
       "})",
     ].join("\n"));

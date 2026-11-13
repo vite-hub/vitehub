@@ -13,7 +13,7 @@ icon: i-lucide-mail
   import renderWelcome from '#vitehub/emails/welcome'
   import { defineEventHandler } from 'h3'
   import { renderEmailMarkdown } from 'vite-hub/email/markdown'
-  import { email } from 'vite-hub/email/server'
+  import { email } from 'vite-hub/email'
 
   export default defineEventHandler(async () => {
     // Fill the template, then make HTML and text
@@ -44,7 +44,7 @@ icon: i-lucide-mail
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // Resend sends the email
       email: {
         driver: 'resend',
@@ -69,7 +69,7 @@ icon: i-lucide-mail
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       // Resend sends the email
       email: {
         driver: 'resend',
@@ -93,7 +93,7 @@ icon: i-lucide-mail
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       // Resend sends the email
       email: {
         driver: 'resend',

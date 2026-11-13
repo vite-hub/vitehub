@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GitHubRequiredCheckPolicy } from "../src/github/index.ts";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
 import { failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait } from "../src/babysitter/ci-attribution.ts";
-import { directMergeReadiness, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { approvedIfOutside, directMergeReadiness, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { missingRequiredChecks } from "../src/babysitter/wait.ts";
 
 const head = "a".repeat(40);
@@ -116,8 +116,8 @@ describe("Babysitter CI attribution", () => {
 
   it("validates bypassInheritedChecks", () => {
     expect(resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: { "Vite-Hub/ViteHub": ["CI", "publish preview packages"], "acme/app": [] } })).toEqual({
-      mode: "direct", method: "squash", bypassInheritedChecks: new Map([["vite-hub/vitehub", new Set(["ci", "publish preview packages"])]]) });
-    expect(resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: {} })).toEqual({ mode: "direct", method: "squash" });
+      mode: "direct", method: "squash", ready: approvedIfOutside, bypassInheritedChecks: new Map([["vite-hub/vitehub", new Set(["ci", "publish preview packages"])]]) });
+    expect(resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: {} })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
     expect(() => resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: ["ci"] })).toThrow("bypassInheritedChecks");
     expect(() => resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: { "acme/app": [""] } })).toThrow("bypassInheritedChecks");
   });

@@ -18,7 +18,7 @@ describe("Console section access metadata", () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv:read", "blob"] }) })
     installConsoleSections("/app", ["kv", "blob", "email"])
 
-    const result = listConsoleSections(await consoleAccess(requestEvent(new Request("https://app.example/_vitehub/api/sections"))))
+    const result = await listConsoleSections(await consoleAccess(requestEvent(new Request("https://app.example/_vitehub/api/sections"))))
     expect(result).toEqual({ readOnly: ["kv"], scoped: true, sections: ["kv", "blob"] })
   })
 })

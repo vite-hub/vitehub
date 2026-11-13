@@ -2,7 +2,10 @@
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import * as v from "valibot";
 import { createConsoleBlobMediaClient } from "../client/blob-media";
+import { requestConsole } from "../client/request";
+import { useConsoleToast } from "../client/toast";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { consoleFolderName, consoleFolderTrail, consoleMediaTypes } from "../client/media-library";
 import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
@@ -104,6 +107,42 @@ function open(next: ConsoleMediaFile | undefined): void {
   file.value = next?.pathname;
 }
 
+const toast = useConsoleToast();
+const blobFileSchema = v.object({ contentType: v.optional(v.string()), data: v.string() });
+// Types that a browser shows without running them. Any other file opens as plain text, so an HTML or SVG object
+// cannot run script with the Console's origin.
+const viewableTypes = /^(?:image\/(?:avif|gif|jpeg|png|webp)|application\/(?:json|pdf)|text\/(?:csv|markdown|plain))(?:;|$)/i;
+
+/** Opens the contents of a file in a new tab, through `blob.get` or the URL that serves it. */
+async function openContents(target: ConsoleMediaFile): Promise<void> {
+  if (target.url) {
+    window.open(target.url, "_blank", "noopener");
+    return;
+  }
+  // The tab opens during the double click, so the browser does not block it while the file loads.
+  const tab = window.open("about:blank", "_blank");
+  if (!tab) {
+    toast.error("The browser blocked the new tab. Allow pop-ups for this site to open files.");
+    return;
+  }
+  tab.opener = null;
+  try {
+    const result = v.parse(blobFileSchema, await requestConsole(props.blobBase, {
+      body: { action: "get", pathname: target.pathname, store: store.value },
+      method: "POST",
+    }));
+    const type = result.contentType ?? target.contentType;
+    const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: viewableTypes.test(type) ? type : "text/plain;charset=utf-8" }));
+    tab.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+  catch (error) {
+    tab.close();
+    toast.error(error instanceof Error ? `Couldn't open ${target.name}. ${error.message}` : `Couldn't open ${target.name}.`);
+  }
+}
+
 onMounted(async () => {
   rememberConsoleSection("blob");
   readOnly.value = await isConsoleSectionReadOnly(props.sectionsBase, "blob");
@@ -131,6 +170,7 @@ onMounted(async () => {
           :client="client"
           :active="active?.pathname"
           @open="open"
+          @activate="openContents"
         >
           <template #toolbar>
             <USelect v-if="stores.length > 1" v-model="store" class="w-36" :items="storeItems" aria-label="Blob store" />
@@ -145,6 +185,7 @@ onMounted(async () => {
           :object="client.object(active.pathname)"
           :store="store"
           @close="open(undefined)"
+          @open="openContents(active)"
         />
         <UEmpty
           v-else-if="activeError"

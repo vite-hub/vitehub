@@ -14,7 +14,7 @@ The ViteHub MCP is an [MCP](https://modelcontextprotocol.io) server that runs in
 | `https://console.vitehub.dev/mcp` | None | Docs tools: search and read the ViteHub docs. |
 | `https://console.vitehub.dev/mcp/account` | Your Console account, with OAuth | Docs tools, and project tools for the apps that your team linked. |
 
-Your app does not serve an MCP server for the Console. To give your own users an MCP server, see [App MCP](/docs/development/app-mcp).
+Your app does not serve an MCP server for the Console. To give your own users an MCP server, see [MCP server](/docs/mcp).
 
 ## Connect an agent
 

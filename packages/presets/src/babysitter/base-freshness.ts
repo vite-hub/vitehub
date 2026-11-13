@@ -1,5 +1,6 @@
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 
 /** GitHub REST reads, as GitHub returns them. */
 export interface BaseFreshnessReader {
@@ -22,7 +23,7 @@ const pushMarginMs = 2 * 60_000;
 export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Snapshot, head: string, baseRef: string, conclusions: ReadonlySet<string>, signal: AbortSignal): Promise<string | undefined> {
   const { repository } = snapshot;
   const runIds = [...new Set(Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
     const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
     return id ? [id] : [];
   }))];
@@ -114,7 +115,7 @@ export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapsho
   for (const value of baseStatuses) {
     if (isRuntimeRecord(value) && hasRuntimeType(value.context, "string") && hasRuntimeType(value.state, "string") && !latestStatuses.has(value.context)) latestStatuses.set(value.context, value.state);
   }
-  return baseChecks.some(check => isRuntimeRecord(check) && failing.has(String(check.name)) && hasRuntimeType(check.conclusion, "string") && failedSet.has(check.conclusion.toLowerCase()))
+  return baseChecks.some(check => isRuntimeRecord(check) && !isBabysitterCheckRun(check) && failing.has(String(check.name)) && hasRuntimeType(check.conclusion, "string") && failedSet.has(check.conclusion.toLowerCase()))
     || [...latestStatuses].some(([context, value]) => failing.has(context) && failedSet.has(value.toLowerCase()))
     ? undefined
     : compare.ahead_by;

@@ -120,19 +120,16 @@ export const CodeView = defineComponent({
   },
 });
 
-export {
-  getSingularPatch,
-  parseDiffFromFile,
-  parsePatchFiles,
-  type CodeViewItem,
-  type CodeViewLineSelection,
-  type CodeViewOptions,
-  type DiffLineAnnotation,
-  type FileContents,
-  type FileDiffMetadata,
-  type FileDiffOptions,
-  type FileOptions,
-  type LineAnnotation,
-  type SelectedLineRange,
-  type UnresolvedFileOptions,
+export type {
+  CodeViewItem,
+  CodeViewLineSelection,
+  CodeViewOptions,
+  DiffLineAnnotation,
+  FileContents,
+  FileDiffMetadata,
+  FileDiffOptions,
+  FileOptions,
+  LineAnnotation,
+  SelectedLineRange,
+  UnresolvedFileOptions,
 } from "@pierre/diffs";
