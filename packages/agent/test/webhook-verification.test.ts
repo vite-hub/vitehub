@@ -576,6 +576,45 @@ describe("bearer webhook signature", () => {
     await expect(missing.send()).resolves.toMatchObject({ status: 500 })
     expect(missing.run).not.toHaveBeenCalled()
   })
+
+  it("rejects a registration whose secretToken resolves to no secret and that has no header", async () => {
+    const registration = [{ id: "custom", provider: "custom", secretToken: () => undefined }]
+    await expect(verifyAgentWebhookRequest(registration, new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
+      .rejects.toMatchObject({ message: expect.stringContaining("Webhook registration \"custom\" declares secretToken but it resolved to no secret"), statusCode: 401 })
+  })
+
+  it("does not call verify with an empty key when secretToken resolves to no secret", async () => {
+    const verify = vi.fn(() => true)
+    const registration = [{ id: "custom", provider: "custom", secretToken: () => undefined, signature: { verify } }]
+    await expect(verifyAgentWebhookRequest(registration, new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
+      .rejects.toMatchObject({ statusCode: 401 })
+    expect(verify).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unsigned request on a Channel route whose secretToken resolves to no secret", async () => {
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        intake: channelAdapter("intake", {
+          messages: false,
+          triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "check" } }) }) },
+          webhooks: { path: "/api/intake/webhook", secretToken: () => undefined },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/intake/webhook", {
+      body: "{}",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), "intake", { agentName: "ops" })
+    expect(response.status).toBe(401)
+    expect(run).not.toHaveBeenCalled()
+  })
 })
 
 it.each(["gitlab", "forgejo"] as const)("verifies the %s Channel through the client", async kind => {

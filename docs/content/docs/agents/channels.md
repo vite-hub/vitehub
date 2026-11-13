@@ -264,7 +264,13 @@ import { defineChannel, webhook } from 'vite-hub/channels'
 import { ticketEvent } from './events'
 
 export default defineChannel({
-  adapter: webhook({ kind: 'tickets', path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] }),
+  adapter: webhook({
+    kind: 'tickets',
+    path: '/api/tickets/webhook',
+    aliases: ['/webhooks/tickets'],
+    signature: 'bearer',
+    secret: () => process.env.TICKETS_WEBHOOK_SECRET,
+  }),
   on: {
     webhook: defineChannelTrigger({
       input: ticketEvent,
@@ -297,6 +303,9 @@ export default defineChannel({
     path: '/api/airtable/webhook',
     durableState: true,
     stateScope: 'webhook:support:airtable:airtable:',
+    header: 'x-airtable-content-mac',
+    secret: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -307,12 +316,24 @@ export default defineChannel({
 
 ### Verify a webhook signature
 
-Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHeader`, `secretToken`, and `signature` on a webhook registration of `channelAdapter()`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()`, set `secretHeader`, `secretToken`, and `signature`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+`webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
+
+```ts [server/channels/public-events.ts]
+import { defineChannel, webhook } from 'vite-hub/channels'
+
+export default defineChannel({
+  // Anyone who knows the URL can send events.
+  adapter: webhook({ secret: false }),
+  on: { /* ... */ },
+})
+```
 
 | `signature` | The header carries |
 | --- | --- |
-| Not set | The `secretToken` value itself. |
-| `'bearer'` | `Bearer <secretToken>`. `secretHeader` defaults to `'authorization'`. |
+| `'token'` on `webhook()`, not set on a registration | The secret itself, compared in constant time. Set `header`, such as `'x-gitlab-token'`. |
+| `'bearer'` | `Bearer <secret>`. The header defaults to `'authorization'`. |
 | `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
 | `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
 | `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
@@ -320,7 +341,7 @@ Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHe
 
 `github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
 
-`bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When `secretToken` gives no secret, the webhook answers `500` naming the Channel, so a missing secret never leaves the route open. Return `false` from `secretToken` to turn verification off.
+`bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When the secret function gives no secret, the webhook does not run the trigger: `bearer` answers `500` naming the Channel, and the other signatures answer `401`. A missing secret never leaves the route open. Return `false` from the secret function to turn verification off for that request.
 
 `secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
