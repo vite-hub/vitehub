@@ -326,6 +326,24 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+### Default mount
+
+Without a `mount` path, ViteHub picks the mount from the Source kind. The
+import does not change it:
+
+- A file Source puts its one file at its own key. This applies to `file()` and
+  `markdown()` from `vite-hub/workspace` or `vite-hub/source`, and to the
+  `'README.md'` and `{ path }` shorthands. `readme: file('README.md')` appears
+  at `README.md`.
+- `fetch()` also puts its one file at its own path.
+- Every other Source mounts under its binding key. `docs: glob({ ... })` puts
+  the key `intro.md` at `docs/intro.md`.
+
+Set `mount` to move a file Source, for example
+`readme: { source: file('README.md'), mount: 'docs' }` puts it at
+`docs/README.md`. A file Source in `vite-hub/source` has a `key` property, so
+you can check the path in code.
+
 For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
 to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
 have it. See [Source configuration](/docs/source/configure) for the loader options.

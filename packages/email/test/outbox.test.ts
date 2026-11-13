@@ -20,7 +20,7 @@ const message: EmailMessage = {
   to: ["ada@example.com", { email: "grace@example.com", name: "Grace" }],
 }
 
-function providerDriver(send: EmailDriver["send"] = (_, context) => ({ data: { at: new Date(), driver: "resend", id: "re_1", stream: context.stream }, error: null })): EmailDriver {
+function providerDriver(send: EmailDriver["send"] = () => ({ data: { at: new Date(), driver: "resend", id: "re_1" }, error: null })): EmailDriver {
   return { initialize: vi.fn(), name: "resend", send: vi.fn(send) }
 }
 
@@ -87,12 +87,6 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()?.list().map(entry => entry.delivery.status)).toEqual(["sent", "sent", "failed"])
   })
 
-  it("captures effective personalized recipients and subject", async () => {
-    const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: false, driver: providerDriver(), provider: "resend" }) })
-    await email.send({ ...message, personalizations: [{ to: "personal@example.com", cc: "cc@example.com", bcc: "bcc@example.com", subject: "Personal" }] })
-    expect(getEmailOutbox()?.list()[0]).toMatchObject({ to: ["personal@example.com"], cc: ["cc@example.com"], bcc: ["bcc@example.com"], subject: "Personal" })
-  })
-
   it("isolates messages, limits, clear, and ids between runtime identities", async () => {
     const first = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: false, driver: providerDriver(), limit: 2, provider: "resend", runtimeId: "first-runtime" }) })
     const second = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: false, driver: providerDriver(), limit: 5, provider: "resend", runtimeId: "second-runtime" }) })
@@ -130,7 +124,6 @@ describe("Email development outbox", () => {
       bcc: "audit@example.com",
       cc: ["team@example.com"],
       metadata: { apiKey: "re_live_secret", campaign: "spring" },
-      preheader: "Start here",
       replyTo: "support@example.com",
       scheduledAt: new Date("2026-10-01T09:00:00.000Z"),
       tags: [{ name: "category", value: "welcome" }],
@@ -153,7 +146,6 @@ describe("Email development outbox", () => {
       html: message.html,
       id: "outbox-1",
       metadata: { apiKey: "[redacted]", campaign: "spring" },
-      preheader: "Start here",
       provider: "resend",
       replyTo: ["support@example.com"],
       scheduledAt: "2026-10-01T09:00:00.000Z",

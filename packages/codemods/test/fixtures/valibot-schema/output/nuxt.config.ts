@@ -12,14 +12,14 @@ export default defineNuxtConfig({
     env: {
       public: {
         apiBase: env({ default: 'https://api.example.com', mode: 'build', source: env.source('NUXT_PUBLIC_API_BASE') }),
-        sampleRate: env.number({ default: 0.5, mode: 'build', required: false, source: env.source('NUXT_PUBLIC_SAMPLE_RATE') }),
+        sampleRate: env.number({ default: 0.5, mode: 'build', source: env.source('NUXT_PUBLIC_SAMPLE_RATE') }),
       },
       server: {
         apiSecret: env({ default: '', secret: true, source: env.source('NUXT_API_SECRET') }),
         databaseUrl: env({ secret: true, source: env.source(['NUXT_DATABASE_URL', 'DATABASE_URL']) }),
         maxRetries: env.number({ default: 3, source: env.source('NUXT_MAX_RETRIES') }),
         featureEnabled: env.boolean({ default: false, source: env.source('NUXT_FEATURE_ENABLED') }),
-        logLevel: env.enum(['debug', 'info', 'warn'], { default: 'info', required: false, source: env.source('NUXT_LOG_LEVEL') }),
+        logLevel: env.enum(['debug', 'info', 'warn'], { default: 'info', source: env.source('NUXT_LOG_LEVEL') }),
         allowedOrigins: env({ default: 'https://example.com', source: env.source('NUXT_ALLOWED_ORIGINS') }),
         stripe: {
           secretKey: env({ default: '', secret: true, source: env.source('NUXT_STRIPE_SECRET_KEY') }),

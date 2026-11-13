@@ -62,8 +62,6 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
 }
 
 export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">> & { events?: AuthEventsConfiguration | false }
-export type AuthRuntimeOptionsResolver = (context: AuthRuntimeContext) => AuthRuntimeOptions
-export type AuthRuntimeConfiguration = AuthRuntimeOptions | AuthRuntimeOptionsResolver
 
 export interface AuthSignInConfiguration {
   callbackURL?: string
@@ -109,21 +107,8 @@ export interface AuthAccessConfiguration {
   signIn?: AuthSignInConfiguration
 }
 
-export interface AuthDatabaseReference {
-  dedicated?: boolean
-  name: string
-}
-
-export type AuthDatabaseConfiguration = true | AuthDatabaseReference
-
 /** The Better Auth adapter of `authDatabase()`. `vitehubDatabase` names the app Database that holds the Auth tables. */
 export type AuthAppDatabase = ((options: BetterAuthOptions) => DBAdapter<BetterAuthOptions>) & { readonly vitehubDatabase: string }
-
-export interface AuthSecondaryStorageReference {
-  store: string
-}
-
-export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
   /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
@@ -133,13 +118,18 @@ export interface AuthViteHubOptions {
   console?: AuthConsoleOptions;
   access?: AuthAccessConfiguration
   basePath?: string
-  /** `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. */
-  database?: AuthDatabaseConfiguration | AuthAppDatabase
+  /**
+   * `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
+   * Auth adapter from the Definition callback.
+   */
+  database?: AuthAppDatabase
   /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
   preset?: AuthPreset
   route?: false
-  runtime?: AuthRuntimeConfiguration
-  secondaryStorage?: AuthSecondaryStorageConfiguration
+  /** Removed. Pass a callback that returns all options: `defineAuth(({ env }) => ({ ... }))`. */
+  runtime?: never
+  /** Return a Better Auth `secondaryStorage` adapter from the Definition callback. */
+  secondaryStorage?: never
 }
 
 export type AuthRuntimeOnlyOptions = {
@@ -151,12 +141,8 @@ export type AuthDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthB
 
 export type AuthResolvedDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthBetterAuthOptions> =
   TOptions
-  & Omit<AuthViteHubOptions, "database" | "runtime" | "secondaryStorage">
-  & Omit<AuthRuntimeOptions, "database" | "secondaryStorage">
-  & {
-    database?: AuthDatabaseConfiguration | BetterAuthOptions["database"]
-    secondaryStorage?: AuthSecondaryStorageConfiguration | BetterAuthOptions["secondaryStorage"]
-  }
+  & Omit<AuthViteHubOptions, "database" | "secondaryStorage">
+  & AuthRuntimeOptions
 
 export type AuthDefinitionResolver<TOptions extends AuthResolvedDefinitionOptions = AuthResolvedDefinitionOptions> =
   (context: AuthRuntimeContext) => TOptions
@@ -173,14 +159,6 @@ export interface DiscoveredAuthDefinition {
   source: "server-auth" | "server-auth-suffix"
 }
 
-export type ResolvedAuthDatabaseConfiguration =
-  | { mode: "default" }
-  | { dedicated: boolean; mode: "named"; name: string }
-
-export type ResolvedAuthSecondaryStorageConfiguration =
-  | { mode: "default" }
-  | { mode: "named"; store: string }
-
 export interface ResolvedAuthAccessRoute {
   authorize?: true
   method?: string
@@ -194,13 +172,11 @@ export interface ResolvedAuthViteConfig {
     routes: ResolvedAuthAccessRoute[]
   }
   basePath: string
-  database: ResolvedAuthDatabaseConfiguration
   /** The app Database that `authDatabase()` names, which gets the Better Auth tables. `false` without the call. */
   tables: false | { database: string }
   definition: DiscoveredAuthDefinition
   rootDir: string
   route: false | string
-  secondaryStorage: false | ResolvedAuthSecondaryStorageConfiguration
 }
 
 export type AuthBetterAuthRuntimeOptions<

@@ -16,8 +16,6 @@ const envSourceIdentifiers = [
   "env",
   "git:branch",
   "git:commit",
-  "git:ref",
-  "git:sha",
   "git:tag",
   "package.json",
   "provider",

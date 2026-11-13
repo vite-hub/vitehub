@@ -110,13 +110,10 @@ function consoleRecord(message: EmailOutboxMessage): ViteHubConsoleRecord {
     ...(message.bcc?.length ? [{ label: "Bcc", value: message.bcc.join(", ") }] : []),
     ...(message.replyTo?.length ? [{ label: "Reply-To", value: message.replyTo.join(", ") }] : []),
     { label: "Subject", value: message.subject },
-    ...(message.preheader ? [{ label: "Preheader", value: message.preheader }] : []),
     { label: "Provider", value: message.provider },
     { label: "Delivery", value: formatEmailOutboxDelivery(message.delivery) },
     { label: "Captured", value: message.capturedAt },
     ...(message.scheduledAt ? [{ label: "Scheduled at", value: message.scheduledAt }] : []),
-    ...(message.stream ? [{ label: "Stream", value: message.stream }] : []),
-    ...(message.template ? [{ label: "Provider template", value: message.template }] : []),
     { label: "Headers", value: headers.length ? headers.map(([name, value]) => `${name}: ${value}`).join("\n") : "None" },
     {
       label: "Attachments",
