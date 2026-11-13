@@ -653,8 +653,9 @@ function mergeNitroWorkspaceConfig(value: unknown, dev: boolean): NitroConfig {
 }
 
 function configureNitroWorkspaceAssets(nitro: NitroConfig, root: string): void {
-  // Nuxt 4 bundles the server with Nitro 2 outside Vite, so `resolveId` below never sees the assets registry. The
-  // alias gives that bundle the files that `buildStart` writes, for hosts without a file system.
+  // Nitro can bundle the server outside Vite (Nuxt with `experimental.nitroViteEnvironment: false`), so `resolveId`
+  // below never sees the assets registry. The alias gives that bundle the files that `buildStart` writes, for hosts
+  // without a file system.
   // The Nitro types of the host decide the alias type, so read it as a plain record.
   const alias: unknown = nitro.alias
   nitro.alias = { ...(alias && typeof alias === "object" ? alias : {}), [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(root, workspaceAssetsRegistryPath) }

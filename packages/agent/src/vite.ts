@@ -182,7 +182,6 @@ const optionalAgentRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
@@ -848,12 +847,6 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
       (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
     )
   }
-  const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
-  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
-  externals.inline = externals.inline === true
-    ? true
-    : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
-  nitro.externals = externals
   if (isWebContainer()) {
     const existingTraceDeps = Array.isArray(nitro.traceDeps) ? nitro.traceDeps : []
     nitro.traceDeps = [...new Set([...existingTraceDeps, ...wasmSqliteTraceDeps])]
@@ -1024,8 +1017,27 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  const sourceSymbol = Symbol.for('vitehub.agent.definitionSource')",
     "  if (resolvedAgent !== agent) Object.defineProperty(resolvedAgent, sourceSymbol, { configurable: true, value: agent })",
-    "  if (Object.keys(skills).length && typeof setDiscoveredSkills !== 'function') {",
-    "    const descriptor = { configurable: true, enumerable: true, value: skills }",
+    "  const currentSkillsGetter = Object.getOwnPropertyDescriptor(agent, skillsSymbol)?.get",
+    "  const updateSymbol = Symbol.for('vitehub.agent.discoveredSkillsUpdate')",
+    "  const updateSkills = currentSkillsGetter && Reflect.get(currentSkillsGetter, updateSymbol)",
+    "  if (typeof updateSkills === 'function') updateSkills(skills)",
+    "  if (Object.keys(skills).length && typeof setDiscoveredSkills !== 'function' && typeof updateSkills !== 'function') {",
+    "    // Skills extend by name. A Skill folder of this Agent replaces the inherited folder with the same name, including its references.",
+    "    // Read the inherited Skills when the Agent runs, because the registry can load this Agent before its parent.",
+    "    const inheritedSkills = Object.getOwnPropertyDescriptor(agent, skillsSymbol)?.get",
+    `    const skillName = (source${typescript ? ": unknown" : ""}) => {`,
+    "      const path = source && typeof source === 'object' ? Reflect.get(source, 'workspacePath') : undefined",
+    "      return typeof path === 'string' ? path.split('/')[2] : undefined",
+    "    }",
+    "    let localSkills = skills",
+    "    const update = (sources" + (typescript ? ": typeof skills | undefined" : "") + ") => { localSkills = sources || {} }",
+    "    const extendedSkills = () => {",
+    "      const inherited = inheritedSkills?.call(agent)",
+    "      const ownSkillNames = new Set(Object.values(localSkills).map(skillName))",
+    "      return { ...Object.fromEntries(Object.entries(inherited && typeof inherited === 'object' ? inherited : {}).filter(([, source]) => !ownSkillNames.has(skillName(source)))), ...localSkills }",
+    "    }",
+    "    Object.defineProperty(extendedSkills, updateSymbol, { value: update })",
+    "    const descriptor = inheritedSkills ? { configurable: true, enumerable: true, get: extendedSkills } : { configurable: true, enumerable: true, value: skills }",
     "    Object.defineProperty(agent, skillsSymbol, descriptor)",
     "    if (resolvedAgent !== agent) {",
     "      Object.defineProperty(resolvedAgent, skillsSymbol, descriptor)",
@@ -2293,7 +2305,7 @@ async function writeAgentWebhookRouteHandler(
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
             `  const webhookAliases = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, '') || '/', target])))};`,
             "  nitroApp.hooks.hook('request', event => {",
-            "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
+            "    const pathname = new URL(event?.path || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
             "    waitUntil ||= waitUntilFromContext(event)",
             "    void warmWebhookRoutes()",

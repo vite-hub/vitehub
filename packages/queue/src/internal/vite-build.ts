@@ -162,7 +162,7 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
     "export default defineMiddleware((event) => {",
     ...(cloudflare ? ["  const runtimeEvent = event as any"] : []),
     ...(vercel ? ["  Object.assign(event, { waitUntil: vitehubWaitUntil })"] : []),
-    ...(cloudflare ? [`  Object.assign(event, { env: runtimeEvent.env ?? runtimeEvent.context?.cloudflare?.env ?? runtimeEvent.context?._platform?.cloudflare?.env ?? runtimeEvent.req?.runtime?.cloudflare?.env ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env${cloudflareGlobals ? " ?? vitehubEnv, waitUntil: vitehubWaitUntil" : ""} })`] : []),
+    ...(cloudflare ? [`  Object.assign(event, { env: runtimeEvent.env ?? runtimeEvent.context?.cloudflare?.env ?? runtimeEvent.context?._platform?.cloudflare?.env ?? runtimeEvent.req?.runtime?.cloudflare?.env${cloudflareGlobals ? " ?? vitehubEnv, waitUntil: vitehubWaitUntil" : ""} })`] : []),
     "  enterQueueRuntimeEvent(event)",
     "})",
     "",
