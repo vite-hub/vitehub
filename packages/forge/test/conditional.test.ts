@@ -135,7 +135,7 @@ describe("conditional Forge requests", () => {
   it("keeps useForge() entries through GitHub App token rotation, per installation", async () => {
     const github = fakeGitHub({ "/repos/acme/web/pulls/1": { body: { number: 1 }, etag: "\"pr\"" } })
     const key = privateKey()
-    const forgeFor = (installation: string) => useForge({ env: { VITEHUB_GITHUB_APP_ID: "7", VITEHUB_GITHUB_PRIVATE_KEY: key, VITEHUB_GITHUB_INSTALLATION_ID: installation }, fetch: github.fetch })
+    const forgeFor = (installation: string) => useForge({ env: { VITEHUB_GITHUB_APP_ID: "7", VITEHUB_GITHUB_PRIVATE_KEY: key, VITEHUB_GITHUB_INSTALLATION_ID: installation, VITEHUB_GITHUB_APP_OWNER: "acme" }, fetch: github.fetch })
     const read = async (installation: string, refresh: boolean) => {
       const [error, provider] = await forgeFor(installation).provider({ refresh })
       if (error) throw error

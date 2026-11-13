@@ -8,6 +8,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
@@ -159,7 +160,7 @@ export interface GitHubAppEnvironment {
  * repository from the App, and the App's bot identity for commits. Results are cached.
  */
 export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
-  if (app.installationId !== undefined && !app.owner) throw new TypeError("GitHub App `installationId` needs `owner`, the repository owner of that installation.")
+  if (app.installationId !== undefined && !app.owner) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_OWNER_MISSING()
   const routing = {
     ...(app.installationId === undefined ? {} : { installationId: app.installationId }),
     ...(app.owner ? { owner: app.owner.toLowerCase() } : {}),

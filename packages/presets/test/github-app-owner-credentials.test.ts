@@ -22,7 +22,7 @@ it.each(["onmax", "OnMax"])("uses owner-scoped installation IDs configured as %s
 
 it("rejects a fixed installation without its owner", () => {
   const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  expect(() => createGitHubAppCredentials({ appId: 1, privateKey, installationId: 101 })).toThrow("`installationId` needs `owner`");
+  expect(() => createGitHubAppCredentials({ appId: 1, privateKey, installationId: 101 })).toThrow(expect.objectContaining({ code: "PRESETS_GITHUB_APP_OWNER_MISSING" }));
 });
 
 it("isolates concurrent installation lookups from another caller's cancellation", async () => {
