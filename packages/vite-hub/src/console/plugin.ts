@@ -138,8 +138,8 @@ function renderConsoleNitroPlugin(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  // The page tools pill comes with Site access: the browsers and guests that use it without an app sign-in.
-  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
+  // With Auth, the page tools pill comes with Site access: the Console signs members and guests in to the app.
+  const sections = withConsoleDocumentEditorSections(pageTool && configuredSections.includes("auth") ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)

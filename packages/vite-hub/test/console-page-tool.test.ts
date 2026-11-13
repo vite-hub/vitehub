@@ -21,8 +21,8 @@ import type { ConsoleAuthorize, ConsoleAuthorizeContext } from "../src/console/a
 import type { ConsolePageUser } from "../src/console/runtime/server/page-tool.ts"
 
 const people: Record<string, ConsolePageUser> = {
-  admin: { user: { id: "u1", role: "admin" }, admin: true },
-  member: { user: { id: "u2", role: "user" }, admin: false },
+  admin: { user: { id: "u1", role: "admin" }, console: true },
+  member: { user: { id: "u2", role: "user" }, console: false },
 }
 
 /** Installs the Console page tool with an Auth reader that takes the person from a `person` cookie. */
