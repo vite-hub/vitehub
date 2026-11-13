@@ -15,19 +15,16 @@ describe("server auth helpers", () => {
   it("turns an Auth Definition into Better Auth options with runtime storage", () => {
     const runtimeDatabase = { runtime: "database" }
     const runtimeSecondaryStorage = { runtime: "secondary-storage" }
-    const definition = defineAuth({
+    const definition = defineAuth(() => ({
       appName: "ViteHub",
       basePath: "/auth/",
-      database: { dedicated: true, name: "auth" },
-      secondaryStorage: { store: "auth" },
-    })
-
-    const options = createBetterAuthOptions(definition, {
       baseURL: "https://example.com",
       database: runtimeDatabase as never,
       secret: "runtime-secret",
       secondaryStorage: runtimeSecondaryStorage as never,
-    })
+    }))
+
+    const options = createBetterAuthOptions(definition)
 
     expect(options).toMatchObject({
       appName: "ViteHub",
@@ -40,14 +37,12 @@ describe("server auth helpers", () => {
     expect(options).not.toHaveProperty("route")
   })
 
-  it("merges Auth Definition runtime options into Better Auth options", () => {
-    const definition = defineAuth({
+  it("passes Auth Definition callback options to Better Auth", () => {
+    const definition = defineAuth(({ requestOrigin }) => ({
       appName: "ViteHub",
-      runtime: ({ requestOrigin }) => ({
-        baseURL: requestOrigin,
-        secret: "runtime-secret",
-      }),
-    })
+      baseURL: requestOrigin,
+      secret: "runtime-secret",
+    }))
 
     expect(createBetterAuthOptions(definition)).toMatchObject({
       appName: "ViteHub",
@@ -104,10 +99,10 @@ describe("server auth helpers", () => {
       trustedOrigins: ["https://app.example.com"],
     })
 
-    expect(createAuthRequestRuntimeOptions(definition, request, {
+    expect(createAuthRequestRuntimeOptions(defineAuth(() => ({
       baseURL: "https://auth.example.com",
       trustedOrigins: ["https://app.example.com"],
-    })).toMatchObject({
+    })), request)).toMatchObject({
       baseURL: "https://auth.example.com",
       trustedOrigins: ["https://app.example.com"],
     })
@@ -129,7 +124,7 @@ describe("server auth helpers", () => {
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://bot.example.com", dev: "https://agents.example.com" } })
       expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub" }), request).baseURL).toBe("https://agents.example.com")
       // An unset value keeps the default instead of overriding it with undefined.
-      expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub", runtime: () => ({ baseURL: undefined }) }), request).baseURL).toBe("https://agents.example.com")
+      expect(createAuthRequestRuntimeOptions(defineAuth(() => ({ appName: "ViteHub", baseURL: undefined })), request).baseURL).toBe("https://agents.example.com")
     }
     finally {
       vi.unstubAllGlobals()
@@ -137,14 +132,12 @@ describe("server auth helpers", () => {
   })
 
   it("derives request runtime options from the Auth Definition", () => {
-    const definition = defineAuth({
+    const definition = defineAuth(({ request, requestOrigin }) => ({
       appName: "ViteHub",
-      runtime: ({ request, requestOrigin }) => ({
-        baseURL: requestOrigin,
-        requestURL: request?.url,
-        secret: "request-secret",
-      }) as never,
-    })
+      baseURL: requestOrigin,
+      requestURL: request?.url,
+      secret: "request-secret",
+    }) as never)
     const request = new Request("https://request.example.com/api/auth/session")
 
     expect(createAuthRequestRuntimeOptions(definition, request)).toMatchObject({
@@ -159,20 +152,18 @@ describe("server auth helpers", () => {
     setAuthRuntimeEnvResolver(() => ({ secret: "env-secret" }))
     vi.resetModules()
     const reloaded = await import("../src/internal/server.ts")
-    const definition = defineAuth({ runtime: ({ env }) => ({ secret: env.secret as string }) })
+    const definition = defineAuth(({ env }) => ({ secret: env.secret as string }))
 
     expect(reloaded.createBetterAuthOptions(definition)).toMatchObject({ secret: "env-secret" })
   })
 
-  it("passes ViteHub runtime env into Auth Definition runtime callbacks", () => {
+  it("passes ViteHub runtime env into Auth Definition callbacks", () => {
     setAuthRuntimeEnvResolver(() => ({ secret: "env-secret" }))
-    const definition = defineAuth({
+    const definition = defineAuth(({ env, requestOrigin }) => ({
       appName: "ViteHub",
-      runtime: ({ env, requestOrigin }) => ({
-        baseURL: requestOrigin,
-        secret: env.secret as string,
-      }),
-    })
+      baseURL: requestOrigin,
+      secret: env.secret as string,
+    }))
 
     expect(createAuthRequestRuntimeOptions(definition, new Request("https://env.example.com/api/auth"))).toMatchObject({
       baseURL: "https://env.example.com",
@@ -307,15 +298,6 @@ describe("server auth helpers", () => {
 
   it("requires an Auth Session and starts configured provider sign-in for HTML requests", async () => {
     const runtime = vi.fn(() => ({
-      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
-      socialProviders: {
-        github: {
-          clientId: "github-client",
-          clientSecret: "github-secret",
-        },
-      },
-    }))
-    const definition = defineAuth({
       access: {
         signIn: {
           callbackURL: "/app",
@@ -324,8 +306,15 @@ describe("server auth helpers", () => {
         },
       },
       appName: "ViteHub",
-      runtime,
-    })
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+      socialProviders: {
+        github: {
+          clientId: "github-client",
+          clientSecret: "github-secret",
+        },
+      },
+    }))
+    const definition = defineAuth(runtime)
 
     const response = await withAuth(() => undefined, definition)(new Request("https://app.example.com/app", {
       headers: { accept: "text/html" },
@@ -339,10 +328,10 @@ describe("server auth helpers", () => {
   })
 
   it("returns JSON unauthorized for non-HTML guarded requests", async () => {
-    const definition = defineAuth({
+    const definition = defineAuth(() => ({
       appName: "ViteHub",
-      runtime: () => ({ secret: "abcdefghijklmnopqrstuvwxyz0123456789" }),
-    })
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+    }))
 
     const response = await withAuth(() => undefined, definition)(new Request("https://app.example.com/api/data", {
       method: "POST",
@@ -354,10 +343,10 @@ describe("server auth helpers", () => {
   })
 
   it("accepts request events with Standard Context for guarded requests", async () => {
-    const definition = defineAuth({
+    const definition = defineAuth(() => ({
       appName: "ViteHub",
-      runtime: () => ({ secret: "abcdefghijklmnopqrstuvwxyz0123456789" }),
-    })
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+    }))
 
     const response = await withAuth(() => undefined, definition)(requestEvent(new Request("https://app.example.com/api/data", { method: "POST" })))
 

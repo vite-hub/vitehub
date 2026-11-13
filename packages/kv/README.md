@@ -51,6 +51,8 @@ export default defineConfig({
 
 Use `hubKV()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
+An `fs-lite` store without `base` keeps the default store in `.vitehub/data/kv` and each named store in `.vitehub/data/kv-stores/<store>`, so named stores never share keys.
+
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted), Redis over TCP (`redis`), and a table in the app's Database (`database`). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
 ## Shared stores on Node

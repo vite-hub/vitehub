@@ -1,3 +1,4 @@
+import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
 
 import type { MemoryRecord, MemoryStoreAdapter } from "../src/capabilities/memory.ts"
@@ -348,6 +349,36 @@ describe("agent memory capability", () => {
     await adapter.delete({ id: created.item.id, scope: { agent: "support" }, store: "agent" })
     await expect(adapter.read({ id: created.item.id, scope: { agent: "support" }, store: "agent" })).resolves.toEqual({ item: null })
     expect(files.get(".vitehub/memory/test.jsonl")?.trim().split("\n")).toHaveLength(2)
+  })
+
+  it("reads a missing JSONL file as empty memory and fails on other read errors", async () => {
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const store = (error: Error) => workspaceJsonlMemoryStore().create({
+      workspace: {
+        fs: {
+          appendFile: vi.fn(),
+          mkdir: vi.fn(),
+          readFile: async () => { throw error },
+          writeFile: vi.fn(),
+        },
+      },
+    } as never)
+    const request = { query: "anything", scope: { agent: "support" }, store: "agent" }
+
+    const missing = await store(Object.assign(new Error("ENOENT: memory/memory.jsonl"), { code: "ENOENT" }))
+    await expect(missing.search(request)).resolves.toEqual({ items: [] })
+    const notFound = await store(new ViteHubError("WORKSPACE_NOT_FOUND", "[vitehub] Workspace file does not exist: memory/memory.jsonl."))
+    await expect(notFound.search(request)).resolves.toEqual({ items: [] })
+    const denied = await store(Object.assign(new Error("EACCES: memory/memory.jsonl"), { code: "EACCES" }))
+    await expect(denied.search(request)).rejects.toThrow("EACCES")
+  })
+
+  it("rejects store retention, which memory() does not apply", async () => {
+    const { memory } = await import("../src/capabilities.ts")
+    const adapter = { create: vi.fn(), kind: "test" }
+    // Untyped JS config can still pass the removed option.
+    const stores = { agent: { adapter, retention: { hardDelete: true }, scope: { agent: "support" } } } as never
+    expect(() => memory({ stores })).toThrow(/Memory store "agent" sets retention/)
   })
 
   it("uses a workspace-level JSONL path by default", async () => {

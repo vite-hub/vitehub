@@ -3,7 +3,7 @@ import postgres from "postgres"
 import * as Y from "yjs"
 
 import type { RealtimeBus } from "../src/bus-protocol.ts"
-import type { RealtimeDefinition } from "../src/types.ts"
+import type { RealtimeDocumentDefinition } from "../src/types.ts"
 import { defineDatabase } from "@vite-hub/database"
 import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
@@ -32,7 +32,7 @@ async function waitFor(check: () => boolean, timeout = 5_000): Promise<boolean> 
   return check()
 }
 
-function realtimeDefinition(adapter: RealtimeDefinition["document"]): RealtimeDefinition {
+function realtimeDefinition(adapter: RealtimeDocumentDefinition["document"]): RealtimeDocumentDefinition {
   return { document: adapter, editor: createStubEditor().editor }
 }
 

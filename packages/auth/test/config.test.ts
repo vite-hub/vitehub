@@ -192,7 +192,6 @@ describe("resolveAuthViteConfig", () => {
         routes: [],
       },
       basePath: "/api/auth",
-      database: { mode: "default" },
       definition: {
         handler: file,
         name: "default",
@@ -200,25 +199,50 @@ describe("resolveAuthViteConfig", () => {
       },
       rootDir,
       route: "/api/auth",
-      secondaryStorage: false,
       tables: false,
     })
   })
 
-  it("resolves named database and KV placement metadata", async () => {
+  it.each([
+    "database: true",
+    "database: { name: 'auth', dedicated: true }",
+    "database: { dedicated: true }",
+    "database: authDatabase",
+  ])("rejects a static database that is not authDatabase(): %s", async (option) => {
     const rootDir = await createTempProject()
-    await writeAuth(rootDir, "server.auth.ts", [
-      "  basePath: '/auth',",
-      "  database: { name: 'auth', dedicated: true },",
-      "  secondaryStorage: { store: 'auth' },",
-    ])
+    await writeAuth(rootDir, "server.auth.ts", [`  ${option},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({
+      code: "AUTH_C0014",
+      fix: expect.stringContaining("authDatabase()"),
+    }))
+  })
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
-      basePath: "/auth",
-      database: { dedicated: true, mode: "named", name: "auth" },
-      route: "/auth",
-      secondaryStorage: { mode: "named", store: "auth" },
-    })
+  it.each(["secondaryStorage: true", "secondaryStorage: { store: 'auth' }", "secondaryStorage: kvStorage"])("rejects static secondary storage: %s", async (option) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server.auth.ts", [`  ${option},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0017" }))
+  })
+
+  it.each([
+    ["{ database: { name: 'auth' } }", "AUTH_C0014"],
+    ["{ database: true }", "AUTH_C0014"],
+    ["{ secondaryStorage: { store: 'auth' } }", "AUTH_C0017"],
+  ])("rejects placement returned from a callback: %s", async (options, code) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      `export default defineAuth(() => (${options}))`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
+  })
+
+  it("accepts Better Auth adapters returned from a callback", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "export default defineAuth(({ env }) => ({ database: { dialect: createDialect(env), type: 'sqlite' }, secondaryStorage: createStorage(env) }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
   })
 
   it("resolves static access route middleware config", async () => {
@@ -249,15 +273,6 @@ describe("resolveAuthViteConfig", () => {
     await writeAuth(rootDir, "server/auth.ts", [
       `  ${comment}`,
       "  basePath: '/auth',",
-      `  ${comment}`,
-      "  database: {",
-      `    ${comment}`,
-      "    name: 'accounts', dedicated: true,",
-      "  },",
-      "  secondaryStorage: {",
-      `    ${comment}`,
-      "    store: 'sessions',",
-      "  },",
       "  access: {",
       `    ${comment}`,
       "    routes: [",
@@ -276,9 +291,7 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
       access: { routes: [{ route: "/public" }, { authorize: true, route: "/private" }] },
       basePath: "/auth",
-      database: { dedicated: true, mode: "named", name: "accounts" },
       route: "/auth",
-      secondaryStorage: { mode: "named", store: "sessions" },
     })
   })
 
@@ -361,7 +374,6 @@ describe("resolveAuthViteConfig", () => {
           { method: "POST", route: "/api/app" },
         ],
       },
-      database: { mode: "default" },
     })
   })
 
@@ -389,28 +401,13 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
-  it("resolves route opt-out and default secondary storage opt-in", async () => {
+  it("resolves route opt-out", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
-      "  database: true,",
       "  route: false,",
-      "  secondaryStorage: true,",
     ])
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
-      database: { mode: "default" },
-      route: false,
-      secondaryStorage: { mode: "default" },
-    })
-  })
-
-  it("rejects dynamic ViteHub-owned config", async () => {
-    const rootDir = await createTempProject()
-    await writeAuth(rootDir, "server/auth.ts", [
-      "  database: authDatabase,",
-    ])
-
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/database must be `true` or an inline object/)
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({ route: false })
   })
 
   it("rejects non-static Auth Definition option keys", async () => {
@@ -486,26 +483,9 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
   })
 
-  it("requires names for object-shaped database and secondary storage config", async () => {
-    const rootDir = await createTempProject()
-    await writeAuth(rootDir, "server/auth.ts", [
-      "  database: { dedicated: true },",
-    ])
-
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/database.name is required/)
-
-    await rm(join(rootDir, "server", "auth.ts"))
-    await writeAuth(rootDir, "server/auth.ts", [
-      "  secondaryStorage: {},",
-    ])
-
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/secondaryStorage.store is required/)
-  })
   it.each([
     "({ env }) => { if (env.other) return { database: authDatabase('other') }; return { database: authDatabase() } }",
     "({ env }) => { if (env.other) return { database: otherAdapter }; return { database: authDatabase() } }",
-    "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
-    "{ runtime: () => ({ database: authDatabase('other') }) }",
     "{ database: authDatabase('schema'), database: otherAdapter }",
     "{ database: authDatabase('schema'), 'database': otherAdapter }",
   ])("rejects ambiguous owned Database placement: %s", async (options) => {
@@ -516,6 +496,20 @@ describe("resolveAuthViteConfig", () => {
       `export default defineAuth(${options})`,
     ])
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/statically invariant Database/)
+  })
+
+  it.each([
+    "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
+    "{ advanced: { cookiePrefix: 'acme' }, runtime: () => ({ advanced: { trustedProxyHeaders: true } }) }",
+    "() => ({ runtime: { secret: 'secret' } })",
+  ])("rejects the removed runtime option at build time: %s", async (options) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth(${options})`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0039" }))
   })
 
   it("uses the last duplicate database property when it owns the tables", async () => {
@@ -546,7 +540,7 @@ describe("resolveAuthViteConfig", () => {
     const rootDir = await createTempProject()
     for (const options of [
       `{ database: authDatabase(), ${model}: { additionalFields: { tenant: { type: 'string' } } } }`,
-      `{ database: authDatabase(), runtime: () => ({ ${model}: { additionalFields: extraFields } }) }`,
+      `() => ({ database: authDatabase(), ${model}: { additionalFields: extraFields } })`,
     ]) {
       await writeAuthSource(rootDir, "server/auth.ts", [
         "import { defineAuth } from 'vite-hub/auth'",
