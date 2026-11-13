@@ -55,7 +55,7 @@ curl -i http://localhost:5173/api/auth/sign-up/email \
 
 Successful output has status `200`, a `better-auth.session_token` cookie, and the new user's email. `hubAuth()` discovers `server/auth.ts` and generates the Nitro route handler for `/api/auth/**`. Nitro serves it in development and in production builds.
 
-This default proves discovery and the session route locally. Without a database adapter, all requests in one server process share one in-memory store, so a user who signs up can sign in until the process restarts. It is not durable storage. Use `authDatabase()` before relying on sessions across restarts or replicas, or use the `stateless()` preset for social sign-in without a database.
+This default proves discovery and the session route locally. Without `database`, a development server keeps users and sessions in the memory of its process, so a user who signs up can sign in until the process restarts. A production build without `database` or `preset` fails with `AUTH_C0063`. Use `authDatabase()` to keep users across restarts and replicas, or the `stateless()` preset for social sign-in without a database. Set `database: "memory"` only when one server process may lose its users when it restarts.
 
 ## Keep users in the app Database
 
