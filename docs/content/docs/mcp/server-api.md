@@ -1,6 +1,6 @@
 ---
 title: MCP server API
-description: Every option of defineMcpTool(), defineMcpPrompt(), defineMcpResource(), and defineMcpHooks(), what a handler gets and returns, and how it reports an error to the Agent.
+description: Every option of defineMcpTool(), defineMcpPrompt(), defineMcpResource(), and defineMcpHooks(), and what a handler gets and returns.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
