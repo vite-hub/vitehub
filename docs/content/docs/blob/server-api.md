@@ -234,6 +234,31 @@ export default {
 
 Across runtimes, the cache is best effort. Source updates at the same time can remove a newer entry and cause another transform. The fingerprint check never returns an entry for the wrong source version. Drivers need no distributed locks or conditional writes.
 
+## Keep served objects in the edge cache
+
+On Cloudflare, each `serve()` reads the object from R2. When the bucket is far from the Worker, each read adds a round trip, and a page that loads dozens of files waits for them. Set `edgeCache` to keep each object in the cache of the Cloudflare location that runs the Worker. The next `GET` for it in that location gets the cached copy without reading R2. `maxAge` is how long the copy stays, in seconds.
+
+```ts [server/routes/builds/[...pathname].get.ts]
+import { blob } from '@vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  // Each build uploads its files under new pathnames and never writes them again.
+  return blob.serve(event.req, `builds/${pathname}`, { edgeCache: { maxAge: 31_536_000 } })
+})
+```
+
+- The cache answers `Range` and `If-None-Match` itself, so a video seek and a `304` skip R2 too. A request with `If-Range` reads R2.
+- Each response gets the headers of its own call: `cacheControl`, `headers`, and `download` can differ between requests for the same object. The cached copy keeps only the type, size, and `ETag` of the object.
+- Only whole `200` responses of up to 25 MB go into the cache. `HEAD` requests, `variant`, and `transform` read storage each time.
+- Each Cloudflare location, and each hostname of the app, keeps its own copy.
+- On other hosts, `edgeCache` does nothing, and `serve()` reads storage as before.
+
+> [!WARNING]
+> Nothing removes a cached copy before `maxAge` ends. A later `put()` or `delete()` on the pathname does not reach it, so give a long `maxAge` only to pathnames that are never written again, such as content-hashed names. The copy is reachable only through `serve()`, so check authorization in the route before you call it, as without `edgeCache`.
+
 ## Write options
 
 | Option | Type | Description |

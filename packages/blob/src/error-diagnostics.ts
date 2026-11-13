@@ -115,5 +115,6 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0042: withFix("Sign a new link with `blob.sign()`. Pass a larger `expiresIn` when the client needs more time."),
     BLOB_R0043: withFix("Send a smaller body, or sign the link with a larger `maxSize`."),
     BLOB_R0044: withFix("Set the env variable that the message names in the server environment, with the same value as at build time. The Blob config read it from `process.env` at build time, and ViteHub reads it again at runtime."),
+    BLOB_R0045: withFix("Pass `edgeCache.maxAge` in seconds as a positive integer, for example `blob.serve(request, pathname, { edgeCache: { maxAge: 3600 } })`."),
   },
 })

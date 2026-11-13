@@ -18,6 +18,7 @@ import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
+import { edgeCacheKey, keepInEdgeCache, matchEdgeCache } from "./internal/edge-cache.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
@@ -371,12 +372,21 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
     },
     async serve(request, pathname, options = {}) {
+      const { edgeCache } = options
+      if (edgeCache && (!Number.isSafeInteger(edgeCache.maxAge) || edgeCache.maxAge <= 0)) {
+        throw blobErrorDiagnostics.BLOB_R0045({ message: "`edgeCache.maxAge` must be a positive integer." })
+      }
       const decodedPath = decodePathname(pathname)
       const issue = pathnameIssue(decodedPath)
       if (issue) return blobErrorResponse(request, 400, `Invalid Blob pathname: it ${issue}.`)
       if (isReservedPath(decodedPath)) return blobErrorResponse(request, 404, "Blob not found.")
+      const edge = edgeCache && !options.variant && !options.transform
+        ? { key: edgeCacheKey(request, store, driver.canonicalPathname?.(decodedPath) ?? decodedPath), maxAge: edgeCache.maxAge }
+        : undefined
+      const kept = edge && await matchEdgeCache(request, edge.key)
+      if (kept) return keptResponse(kept, options, decodedPath)
       const [error, response] = await serveRequest(request, decodedPath, options)
-      if (!error) return response
+      if (!error) return edge ? keepInEdgeCache(request, edge.key, response, edge.maxAge) : response
       if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, 404, "Blob not found.")
       if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, 400, error.message)
       throw error
@@ -402,6 +412,24 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       headers.set("Content-Disposition", attachmentDisposition(options.download === true ? normalizedPath : options.download))
     }
     return headers
+  }
+  // The cache answered the range and `If-None-Match` from the object's own headers. The other headers come from this
+  // request's options, like a response that reads storage.
+  function keptResponse(kept: Response, options: BlobServeResponseOptions, normalizedPath: string): Response {
+    const headers = responseHeaders(options, normalizedPath)
+    const etag = kept.headers.get("etag")
+    if (etag) headers.set("ETag", etag)
+    const contentType = kept.headers.get("content-type") ?? undefined
+    sandboxActiveContent(headers, options, contentType)
+    if (kept.status === 304) return notModified(headers)
+    for (const name of ["content-length", "content-range"]) {
+      const value = kept.headers.get(name)
+      if (value !== null) headers.set(name, value)
+    }
+    headers.set("Accept-Ranges", "bytes")
+    if (contentType) headers.set("Content-Type", contentType)
+    headers.set("X-Content-Type-Options", "nosniff")
+    return new Response(kept.body, { headers, status: kept.status })
   }
   // A stored file can have any type that the uploader sent. Serve a type that a browser opens as a page in a CSP
   // sandbox, so it cannot run script on the app origin. The sandbox is added to a policy from the `headers` option.

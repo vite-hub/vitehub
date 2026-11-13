@@ -1370,6 +1370,9 @@ importers:
       '@cf-wasm/photon':
         specifier: 0.4.0
         version: 0.4.0
+      '@cloudflare/vitest-plugin':
+        specifier: 'catalog:'
+        version: 1.3.6(@cloudflare/workers-types@5.20261019.1)(@types/node@24.19.1)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
