@@ -20,13 +20,13 @@ Two roles come from Better Auth:
 - `admin` has every CMS and Better Auth admin permission.
 - `user` is the role of each new user. It has no CMS permission, so a new user cannot read drafts until you give them a role.
 
-The role policy also decides `read`, the [`/api/content/**` route](/docs/content/configure#public-route), so a visitor without a role gets `401`. When visitors read that route, set `route: 'public'`:
+The role policy also decides `read`, the [`/api/content/**` route](/docs/content/configure#public-access), so a visitor without a role gets `401`. When visitors read that route, set `access: 'public'`. The roles still decide drafts, writes, and publishing:
 
 ```ts [server/content.ts] fragment
 export default defineContent({
   extends: [cms, { access: 'roles' }],
   collections: { posts },
-  route: 'public',
+  access: 'public',
 })
 ```
 

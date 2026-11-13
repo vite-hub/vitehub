@@ -14,10 +14,10 @@ afterEach(async () => {
 
 const secret = "Salary bands: confidential."
 
-function handbook(authorize: ContentAuthorize | undefined, seo: DefineContentSeoOptions = { llms: true, mcp: true }, route: boolean | "public" = true) {
+function handbook(authorize: ContentAuthorize | undefined, seo: DefineContentSeoOptions = { llms: true, mcp: true }, access: { route?: boolean, access?: "public" } = {}) {
   const content = defineContent({
     logger: false,
-    route,
+    ...access,
     ...(authorize ? { authorize } : {}),
     sources: { handbook: contentSource(files({ "salary.md": `---\ntitle: Salary\n---\n${secret}\n` }), { url: "/handbook/:id" }) },
     seo: { site: "https://example.com", ...seo },
@@ -78,16 +78,16 @@ describe("generated Content readers", { timeout: 30_000 }, () => {
     expect(await responses.mcp.text()).toContain("Salary bands")
   })
 
-  it("serves everyone without authorize when route is public", async () => {
+  it("serves everyone without authorize when access is public", async () => {
     const policy = vi.fn<ContentAuthorize>(() => false)
-    const responses = await readers(handbook(policy, allReaders, "public"))
+    const responses = await readers(handbook(policy, allReaders, { access: "public" }))
     for (const [name, response] of Object.entries(responses)) expect.soft(response.status, name).toBe(200)
     expect(responses.llms.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate")
     expect(policy).not.toHaveBeenCalled()
   })
 
   it("asks authorize when route is false", async () => {
-    const responses = await readers(handbook(() => false, allReaders, false))
+    const responses = await readers(handbook(() => false, allReaders, { route: false }))
     expect(responses.api.status).toBe(404)
     for (const name of ["llms", "markdown", "mcp", "sitemap", "rss"] as const) expect.soft(responses[name].status, name).toBe(401)
   })
@@ -105,6 +105,6 @@ describe("generated Content readers", { timeout: 30_000 }, () => {
     expect(() => defineContent({ sources: { docs }, route: false, previews: true })).toThrow(/authorize/)
     expect(() => defineContent({ sources: { docs }, route: false, seo: { robots: true } })).not.toThrow()
     expect(() => defineContent({ sources: { docs }, route: false, seo: { llms: true }, authorize: ({ action }) => action === "read" })).not.toThrow()
-    expect(() => defineContent({ sources: { docs }, route: "public", seo: { llms: true }, previews: true })).not.toThrow()
+    expect(() => defineContent({ sources: { docs }, access: "public", seo: { llms: true }, previews: true })).not.toThrow()
   })
 })

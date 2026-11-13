@@ -76,7 +76,7 @@ const compares = () => fake.requests.filter(request => request.path.startsWith("
 
 function sourceSite(seo: Record<string, unknown> = { rss: true }) {
   const content = defineContent({
-    route: "public",
+    access: "public",
     logger: false,
     sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", root: "content" }), { url: "/docs/:id" }) },
     seo: { site: "https://example.com", sitemap: true, ...seo },

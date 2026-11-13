@@ -177,7 +177,7 @@ describe("seo.mcp for Sources", () => {
       "content/elsewhere.md": "---\ntitle: Elsewhere\nseo:\n  canonical: https://elsewhere.test/original\n---\nElsewhere body.\n",
     })
     const content = defineContent({
-      route: "public",
+      access: "public",
       logger: false,
       sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", root: "content" }), { url: "/docs/:id" }) },
       seo: { site: "https://example.com", mcp: true },
@@ -225,7 +225,7 @@ describe("seo.mcp for Sources", () => {
       "content/data.json": "{\"title\":\"Data\"}\n",
     })
     const content = defineContent({
-      route: "public",
+      access: "public",
       logger: false,
       sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", root: "content" }), { url: "/docs/:id" }) },
       seo: { site: "https://example.com", mcp: true },

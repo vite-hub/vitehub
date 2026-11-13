@@ -305,13 +305,18 @@ export type DefineContentOptions<
    */
   markdown?: NonNullable<ContentOptions["markdown"]> & { preset?: false }
   /**
-   * The `/api/content/**` route. `true` (default) serves it. Each request to it, to the `seo` routes except
-   * `robots.txt`, and to preview URLs asks `authorize` with `action: "read"`; without a policy they serve everyone.
-   * A `github()` Source can read a private repository with a token, so with one, set `authorize` or say
-   * `route: "public"`. `"public"` serves all of them to everyone without `authorize`. `false` serves no
-   * `/api/content/**`, and keeps server methods, Console editing, and the other readers available.
+   * The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`, and keeps server
+   * methods, Console editing, and the other readers available.
    */
-  route?: boolean | "public"
+  route?: boolean
+  /**
+   * Who reads published Content through the generated readers: `/api/content/**`, the `seo` routes, Markdown copies,
+   * `/mcp`, and preview URLs. Without it, each request to them except `robots.txt` asks `authorize` with
+   * `action: "read"`; without a policy they serve everyone. `"public"` serves all of them to everyone without asking
+   * `authorize`. It does not open writes or publishing: `authorize` still decides those. A `github()` Source can read
+   * a private repository with a token, so with one, set `authorize` or `access: "public"`.
+   */
+  access?: "public"
   /** One read-only Source, served as the `default` instance. */
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
@@ -417,10 +422,12 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
   /**
-   * `defineContent({ route })`: `true` when `/api/content/**` is served, `"public"` when it and the other readers serve
-   * everyone without `authorize`, `false` when there is no `/api/content/**`. Server methods and Console editing remain available.
+   * `defineContent({ route })`: `true` when `/api/content/**` is served, `false` when it is not. Server methods and
+   * Console editing remain available.
    */
-  readonly route: boolean | "public"
+  readonly route: boolean
+  /** `defineContent({ access })`: `"public"` when every generated reader serves everyone without asking `authorize`. */
+  readonly access?: "public"
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
   readonly live: "auto" | false
   /**
@@ -525,7 +532,7 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, check: checkOptions = {}, live = "auto", route = true, previews = false, ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, check: checkOptions = {}, live = "auto", route = true, access, previews = false, ...sharedOptions } = options
   if (previews !== true && previews !== false && (Object(previews) !== previews || typeof previews.source !== "string")) {
     throw contentErrorDiagnostics.CONTENT_R0045({ message: "[vitehub] defineContent({ previews }) must be true, false, or { source: \"<github() Source name>\" }." })
   }
@@ -569,12 +576,19 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
-  if (route !== true && route !== false && route !== "public") {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ route }) must be true, false, or "public", received ${JSON.stringify(route)}.` })
+  // `route: "public"` was the old public spelling. Name the new one instead of a generic type error.
+  if ((route as unknown) === "public") {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: '[vitehub] defineContent({ route: "public" }) is now defineContent({ access: "public" }). route only turns /api/content/** on or off.' })
+  }
+  if (route !== true && route !== false) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ route }) must be true or false, received ${JSON.stringify(route)}.` })
+  }
+  if (access !== undefined && access !== "public") {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ access }) must be "public" when it is set, received ${JSON.stringify(access)}.` })
   }
   // A `github()` Source reads with a token, so its private files must not become public without a decision.
   const tokenSources = Object.entries(inputs).flatMap(([name, input]) => input !== undefined && contentSourceKind(input) === "github" ? [name] : [])
-  if (route !== "public" && !policy && tokenSources.length) {
+  if (access !== "public" && !policy && tokenSources.length) {
     const readers = [
       ...route ? ["/api/content/**"] : [],
       ...seo?.sitemap ? ["/sitemap.xml"] : [],
@@ -585,7 +599,7 @@ export function defineContent<
       ...previews === false ? [] : ["preview URLs"],
     ]
     if (readers.length) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${readers.join(", ")} would serve the github() Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or route: "public" when the repository is public.${route ? " route: false removes /api/content/**." : ""}` })
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${readers.join(", ")} would serve the github() Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the repository is public.${route ? " route: false removes /api/content/**." : ""}` })
     }
   }
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
@@ -869,6 +883,7 @@ export function defineContent<
     seo,
     live,
     route,
+    ...access ? { access } : {},
     hasPolicy: policy !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) => {
       const { pages, dates } = await routedPages(siteFor(sitemapOptions), sitemapOptions?.waitUntil)
@@ -1061,7 +1076,7 @@ export function defineContent<
   }
   const reportedDenials = new Set<string>()
   // Who reads published Content through preview URLs, as through `/api/content/**`.
-  const readAccess: ContentReadAccess = { route, hasPolicy: policy !== undefined, can: async ({ user }) => policy !== undefined && await policy({ user, action: "read" }) === true }
+  const readAccess: ContentReadAccess = { route, access, hasPolicy: policy !== undefined, can: async ({ user }) => policy !== undefined && await policy({ user, action: "read" }) === true }
   const previewRoutes: ContentSourcePreviewRoutes = {
     async previewLinks(pull, linkOptions = {}) {
       if (previews === false) throw contentErrorDiagnostics.CONTENT_R0079()
@@ -1265,7 +1280,7 @@ function pagePath(path: string): string {
 
 /**
  * Serve the Comark Content Web handler as a Fetchable route. With a Content runtime, each request first asks
- * `authorize` with `action: "read"`, unless `defineContent({ route: "public" })` or there is no policy. A denied
+ * `authorize` with `action: "read"`, unless `defineContent({ access: "public" })` or there is no policy. A denied
  * request gets 401 without a user and 403 with one. An answer that `authorize` decided, and a request with a valid
  * preview cookie, which reads the `draft` ref, get `Cache-Control: private, no-store`.
  */

@@ -5,8 +5,10 @@ import type { ContentUser } from "./index.ts"
  * `/api/content/**`, the sitemap, RSS, `llms.txt`, Markdown copies, `/mcp`, and preview URLs.
  */
 export interface ContentReadAccess {
-  /** `defineContent({ route })`. `"public"` serves every reader to everyone without `authorize`. */
-  readonly route?: boolean | "public"
+  /** `defineContent({ route })`. `false` serves no `/api/content/**`. */
+  readonly route?: boolean
+  /** `defineContent({ access })`. `"public"` serves every reader to everyone without asking `authorize`. */
+  readonly access?: "public"
   /** Whether `defineContent()` has an `authorize` policy. */
   readonly hasPolicy?: boolean
   can?(context: { user: ContentUser | null, action: "read" }): Promise<boolean>
@@ -21,9 +23,9 @@ export interface ContentHandlerOptions {
   user?: (request: Request) => ContentUser | null | undefined | Promise<ContentUser | null | undefined>
 }
 
-/** Whether a reader asks `authorize`: the runtime has a policy, and `route` is not `"public"`. */
+/** Whether a reader asks `authorize`: the runtime has a policy, and `access` is not `"public"`. */
 export function contentReadGated(content: ContentReadAccess): boolean {
-  return content.route !== "public" && content.hasPolicy === true
+  return content.access !== "public" && content.hasPolicy === true
 }
 
 /**

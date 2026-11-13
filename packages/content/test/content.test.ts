@@ -1041,24 +1041,33 @@ describe("defineContentHandler", () => {
     expect(policy).toHaveBeenLastCalledWith({ user: { id: "ana" }, action: "read" })
   })
 
-  it("serves everyone without authorize when route is public", async () => {
+  it("serves everyone without authorize for read when access is public", async () => {
     const policy = vi.fn<ContentAuthorize>(() => false)
-    const content = defineContent({ source: guide, authorize: policy, route: "public" })
+    const content = defineContent({ source: guide, authorize: policy, access: "public" })
     expect((await defineContentHandler(content).fetch(request())).status).toBe(200)
     expect(policy).not.toHaveBeenCalled()
+    // The readers skip authorize, but content.can() still asks it.
+    expect(await content.can({ user: { id: "ana" }, action: "read" })).toBe(false)
+    expect(policy).toHaveBeenCalledOnce()
   })
 
   it("requires a decision before it serves a github() Source", () => {
     const handbook = github({ repo: "acme/private" })
-    expect(() => defineContent({ sources: { handbook } })).toThrow(/route: "public"/)
+    expect(() => defineContent({ sources: { handbook } })).toThrow(/access: "public"/)
     expect(() => defineContent({ sources: { handbook }, route: true })).toThrow(/authorize/)
-    expect(defineContent({ sources: { handbook }, route: "public" }).route).toBe("public")
+    expect(defineContent({ sources: { handbook }, access: "public" })).toMatchObject({ access: "public", route: true })
     expect(defineContent({ sources: { handbook }, route: false }).route).toBe(false)
     expect(defineContent({ sources: { handbook }, authorize: ({ user }) => user !== null }).route).toBe(true)
   })
 
-  it("rejects an unknown route value", () => {
-    expect(() => defineContent({ source: guide, route: "open" as never })).toThrow(/must be true, false, or "public"/)
+  it("rejects an unknown route or access value", () => {
+    expect(() => defineContent({ source: guide, route: "open" as never })).toThrow(/must be true or false/)
+    expect(() => defineContent({ source: guide, access: "open" as never })).toThrow(/must be "public"/)
+  })
+
+  it("names access: \"public\" for the old route: \"public\"", () => {
+    // @ts-expect-error route is a boolean. Public reading moved to access.
+    expect(() => defineContent({ source: guide, route: "public" })).toThrow(expect.objectContaining({ code: "CONTENT_R0006", message: expect.stringContaining('access: "public"') }))
   })
 
   it("asks read for the whole route, and read-draft for one collection", async () => {

@@ -176,7 +176,7 @@ it.each([
   ["@vite-hub/source", ["/_vitehub/content/github", "/api/content/**"]],
 ])("adds the GitHub push webhook route when server/content.ts imports github from %s", async (module, routes) => {
   const generated = await generatedRoutes({
-    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, route: "public" })\n`,
+    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, access: "public" })\n`,
   })
   expect(generated.routes).toEqual(routes)
 })

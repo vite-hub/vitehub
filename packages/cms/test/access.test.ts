@@ -126,6 +126,19 @@ describe("the default policy of defineContent({ extends: cms })", () => {
     }
   })
 
+  it("keeps the roles for writes when visitors read publicly", async () => {
+    const content = defineContent({ extends: [cms, { access: "roles" }], access: "public", collections, logger: false })
+    try {
+      expect(content.access).toBe("public")
+      expect(await content.can({ collection: "posts", action: "write" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "viewer" }, collection: "posts", action: "publish" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "write" })).toBe(true)
+    }
+    finally {
+      content.dispose()
+    }
+  })
+
   it("uses the app's authorize instead", async () => {
     const content = defineContent({ extends: [cms, { workspace: "site", access: "roles" }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
     try {

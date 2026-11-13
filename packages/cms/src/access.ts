@@ -94,7 +94,7 @@ export function cmsCan(user: CmsUser | null | undefined, permissions: CmsPermiss
 /**
  * `defineContent({ authorize })` from the CMS roles: `content.can()` allows an action when a role of the user has
  * `content:<action>`. `defineContent({ extends: [cms, { access: "roles" }] })` uses it when the app sets no `authorize`.
- * Only CMS roles have `content:read`, so `/api/content/**` needs `defineContent({ route: "public" })` to serve visitors.
+ * Only CMS roles have `content:read`, so `/api/content/**` needs `defineContent({ access: "public" })` to serve visitors.
  */
 export const cmsContentAuthorize: ContentAuthorize = ({ user, action }) => cmsCan(user, { content: [action] })
 

@@ -19,7 +19,7 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`seo: { markdown, llms }`](#markdown-for-agents) | Markdown copies of each page, `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
 
-With `authorize`, every generated SEO route except `/robots.txt` asks it for `read` first, as `/api/content/**` does, and answers with `Cache-Control: private, no-store`. Set `route: 'public'`, or return `true` for `action: 'read'`, to serve them to crawlers and agents. See [Public route](/docs/content/configure#public-route).
+With `authorize`, every generated SEO route except `/robots.txt` asks it for `read` first, as `/api/content/**` does, and answers with `Cache-Control: private, no-store`. Set `access: 'public'`, or return `true` for `action: 'read'`, to serve them to crawlers and agents. See [Public access](/docs/content/configure#public-access).
 
 ## Document URLs
 

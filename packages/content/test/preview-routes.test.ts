@@ -135,7 +135,7 @@ function repository() {
 function server(options: { previews?: boolean | { source: string }, sources?: Record<string, ReturnType<typeof github>>, authorize?: ContentAuthorize } = {}) {
   const drafts = defineContentPreset({ name: "drafts", options: {}, configure: () => ({ privateBranches: [draftBranch] }) })
   const content = defineContent({
-    ...options.authorize ? { authorize: options.authorize } : { route: "public" as const },
+    ...options.authorize ? { authorize: options.authorize } : { access: "public" as const },
     extends: drafts,
     sources: options.sources ?? { docs: github({ repo: "acme/docs", ref: "main" }) },
     previews: options.previews ?? true,
@@ -380,7 +380,7 @@ describe("content.sources.route()", () => {
       },
     }))
     const content = defineContent({
-      route: "public",
+      access: "public",
       sources: { docs: github({ repo: "acme/docs", ref: "main" }), other: github({ repo: "acme/docs", ref: "main" }) },
       previews: { source: "docs" },
       plugins: [media(), readTitle()],
@@ -434,7 +434,7 @@ describe("content.sources.route()", () => {
 
   it("rejects an invalid previews option", () => {
     // @ts-expect-error A Source name goes in `{ source }`.
-    expect(() => defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs" }) }, previews: "docs", logger: false })).toThrow(expect.objectContaining({ code: "CONTENT_R0045" }))
+    expect(() => defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs" }) }, previews: "docs", logger: false })).toThrow(expect.objectContaining({ code: "CONTENT_R0045" }))
   })
 })
 

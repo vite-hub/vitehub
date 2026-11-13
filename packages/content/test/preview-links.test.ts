@@ -80,7 +80,7 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
       rules: { "**": { write: false } },
     })
     const content = defineContent({
-      route: "public",
+      access: "public",
       extends: [pullRequests, { workspace }] as const,
       collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() }, url: options.url ?? "/posts/:id" }) },
       sources: { site: github({ repo: "onmax/repo", ref: "main", root: "content" }) },
@@ -171,7 +171,7 @@ function docs() {
 }
 
 function app(options: ContentSourceOptions = {}) {
-  const content = defineContent({ route: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", include: "**/*.md" }), options) }, previews: true, seo: { site: "https://docs.example" }, logger: false })
+  const content = defineContent({ access: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", include: "**/*.md" }), options) }, previews: true, seo: { site: "https://docs.example" }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -241,7 +241,7 @@ describe("content.sources.previewLinks()", { timeout: 30_000 }, () => {
   it("fails with CONTENT_R0075 for a missing pull request and CONTENT_R0079 without previews", async () => {
     docs()
     await expect(app().sources.previewLinks(99)).rejects.toMatchObject({ code: "CONTENT_R0075" })
-    const off = defineContent({ route: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+    const off = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
     cleanup.push(() => off.dispose())
     await expect(off.sources.previewLinks(1)).rejects.toMatchObject({ code: "CONTENT_R0079" })
   })

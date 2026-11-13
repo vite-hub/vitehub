@@ -71,7 +71,7 @@ export default defineContent({
 })
 ```
 
-`action` is `read` for a request to `/api/content/**`, `read-draft` for drafts, `write` for save, remove, and restore, or `publish`. With a policy, `/api/content/**` serves only the requests that it allows for `read`. The CMS roles allow `read` only to users with a role, so a site whose visitors read `/api/content/**` sets `route: 'public'`.
+`action` is `read` for a request to `/api/content/**`, `read-draft` for drafts, `write` for save, remove, and restore, or `publish`. With a policy, `/api/content/**` serves only the requests that it allows for `read`. The CMS roles allow `read` only to users with a role, so a site whose visitors read `/api/content/**` sets `access: 'public'`. The roles still decide `read-draft`, `write`, and `publish`.
 
 - [Access](/docs/content/configure#access) lists every field that `authorize` gets, and shows how to give Agents less access than their user.
 - [Give editors only the Content section](/docs/content/console#give-editors-only-the-content-section) keeps editors out of other Console sections.

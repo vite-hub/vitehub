@@ -18,7 +18,8 @@ icon: i-lucide-sliders-horizontal
 | `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` with no setup. See [CMS options](/docs/cms/configure#options). Not with `workspace`. |
 | `workspace` | `string` | Your own Workspace for `collections`. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that every Content reader and surfaces check with `content.can()`. See [Access](#access). |
-| `route` | `true \| 'public' \| false` | The `/api/content/**` route. `true` (default) serves it, and it asks `authorize` for `read`. `'public'` serves it and every other reader to everyone. `false` serves no `/api/content/**`. See [Access](#access). |
+| `route` | `boolean` | The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`. |
+| `access` | `'public'` | Serves `/api/content/**` and every other reader to everyone without asking `authorize` for `read`. `authorize` still decides writes and publishing. See [Public access](#public-access). |
 | `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
@@ -388,13 +389,13 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public route](#public-route) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
 
 ::warning
 Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.
 ::
 
-### Public route
+### Public access
 
 `/api/content/**` serves published documents and every Source. So do the SEO routes that you turn on, such as `/llms-full.txt`, Markdown copies, and `/mcp`, and preview URLs. Without `authorize`, they serve everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_R0006` until you choose who reads it:
 
@@ -405,7 +406,7 @@ Runtime methods, such as `save()` and `publish()`, are trusted server API and sk
  })
 ```
 
-Set `route: 'public'` when the repository is public, or `route: false` when the app reads Content only on the server and turns on no SEO route or preview. `route: 'public'` also skips `authorize` on every reader for an app that has a policy, such as a CMS site whose visitors read `/api/content/**` or `/sitemap.xml`. To serve the SEO routes to everyone without `/api/content/**`, set `route: false` and return `true` for `action: 'read'` in `authorize`. A denied request gets `401` without a user and `403` with one. `/robots.txt` names no page, so it stays public. A preview URL that a Console preview cookie or a signed link opened does not ask `authorize`.
+Set `access: 'public'` when the repository is public, or `route: false` when the app reads Content only on the server and turns on no SEO route or preview. `access: 'public'` also skips `authorize` on every reader for an app that has a policy, but `authorize` still decides `read-draft`, `write`, and `publish`. Use it for a CMS site whose visitors read `/api/content/**` or `/sitemap.xml`. To serve the SEO routes to everyone without `/api/content/**`, set `route: false` and return `true` for `action: 'read'` in `authorize`. A denied request gets `401` without a user and `403` with one. `/robots.txt` names no page, so it stays public. A preview URL that a Console preview cookie or a signed link opened does not ask `authorize`.
 
 ### Sources parsed at build
 

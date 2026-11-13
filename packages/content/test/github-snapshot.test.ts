@@ -45,7 +45,7 @@ afterEach(async () => {
 })
 
 function server() {
-  const content = defineContent({ route: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }) }, logger: false })
+  const content = defineContent({ access: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }) }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -176,7 +176,7 @@ describe("github() snapshot in a server build", () => {
       "import { kv } from \"@vite-hub/kv\"",
       "",
       "registerContentKV(kv)",
-      "export default defineContent({ route: 'public', sources: { docs: contentSource(github({ repo: \"acme/docs\", ref: \"main\" }), { url: \"/:id\" }) }, logger: false })",
+      "export default defineContent({ access: 'public', sources: { docs: contentSource(github({ repo: \"acme/docs\", ref: \"main\" }), { url: \"/:id\" }) }, logger: false })",
       "",
     ].join("\n"))
     const { build: viteBuild } = await import("vite")
