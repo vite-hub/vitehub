@@ -1,4 +1,4 @@
-import { createStorage, hasDotSegment, normalizeBaseKey } from "unstorage"
+import { createStorage, normalizeBaseKey } from "unstorage"
 import type { Driver } from "unstorage"
 
 const removeBatchSize = 100
@@ -10,7 +10,6 @@ export function createKVStorage(driver: Driver) {
   storage.clear = async (base, options = {}) => {
     const prefix = normalizeBaseKey(base)
     if (!prefix) return clear(base, options)
-    if (hasDotSegment(prefix)) throw new Error(`[unstorage] Invalid base: ${JSON.stringify(base)}`)
     // unstorage clear(base) selects mounted stores, not keys in the root store, so give the base to the driver.
     // Every KV driver deletes only the keys that start with `prefix`. It ends with ":", so "a" never clears "ab".
     if (driver.clear) return driver.clear(prefix, options)
