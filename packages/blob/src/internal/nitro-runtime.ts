@@ -14,23 +14,13 @@ const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packa
 type BlobProvider = "cloudflare" | "vercel"
 
 const driverModules = {
-  akamai: "drivers/akamai",
   azure: "drivers/azure",
-  box: "drivers/box",
   "cloudflare-r2": "drivers/cloudflare",
-  "digitalocean-spaces": "drivers/digitalocean-spaces",
-  dropbox: "drivers/dropbox",
   fs: "drivers/fs",
   gcs: "drivers/gcs",
-  "google-drive": "drivers/google-drive",
-  hetzner: "drivers/hetzner",
   minio: "drivers/minio",
   "netlify-blobs": "drivers/netlify-blobs",
-  onedrive: "drivers/onedrive",
   s3: "drivers/s3",
-  storj: "drivers/storj",
-  supabase: "drivers/supabase",
-  uploadthing: "drivers/uploadthing",
   "vercel-blob": "drivers/vercel-bundled",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
@@ -188,9 +178,9 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function resolveBlobStoreConfig(name) {",
           "  const stores = blobConfig.stores || { default: blobConfig.store }",
-          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name)",
+          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name, stores)",
           "  const store = stores[name]",
-          "  if (!store) throw unknownBlobStoreError(name)",
+          "  if (!store) throw unknownBlobStoreError(name, stores)",
           "  return store",
           "}",
           "",

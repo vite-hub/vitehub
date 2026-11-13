@@ -88,17 +88,53 @@ Workspace on Cloudflare uses the memory store by default, so its state stays in 
 
 Workflow defaults to OpenWorkflow on Node and in Local Vite with the `node` preset, and each server runs the OpenWorkflow worker. It uses `OPENWORKFLOW_POSTGRES_URL`, then the app's Postgres Default Database, else a SQLite file on one host. Local Vite uses the SQLite file unless `workflow.remote` is `true`. Deno defaults to Vercel Workflow, which runs inline off Vercel. Netlify requires an explicit `workflow.provider`. An explicit `workflow.provider` always wins.
 
-## Proof scope
+## Test status
 
-Cloudflare's nightly run covers nine primitives, Rate Limit included. Vercel covers eight, because ViteHub has no Vercel Rate Limit driver. Browser and Agent routes have contract tests but are not in those deployed runs.
+Each host has a test status. The status tells what CI checks. It does not tell whether the latest run passed: the [live smoke runs](https://github.com/vite-hub/vitehub/actions/workflows/live-smoke.yml) and the CI runs show that.
+
+- **Live tested:** a nightly CI job deploys the shared playground to the real host and calls the primitive.
+- **Tested locally:** CI calls the primitive on a local runtime of the host, such as Wrangler, a Vercel function bridge, or Node. No CI job calls it on the real host.
+- **Experimental:** ViteHub has a provider or output for the host, but no CI run calls the primitive there. Unit tests, mocks, or build-output checks can exist.
+
+| Host | Status | What CI checks |
+| --- | --- | --- |
+| Cloudflare | Live tested | The live smoke calls the nine primitives in the next table. CI on `main` runs the same checks, except Sandbox, on Wrangler. |
+| Vercel | Live tested | The live smoke calls the eight primitives in the next table. CI on `main` runs Database, KV, Schedule, and Workflow on a local function bridge with local Redis and libSQL. |
+| Netlify | Experimental | CI on `main` builds one Agent app and sends one chat request to it through Netlify CLI. No CI run calls a primitive on Netlify. |
+| Deno | Experimental | CI builds one app and starts its Deno server. No CI run calls a primitive on Deno. |
+| Node and self-hosted | Tested locally | Package tests run Node providers, such as Blob `fs`, KV `fs-lite`, the local Queue, and Rate Limit `memory`. Service tests run Database, KV, and Schedule with real Postgres and Redis. No CI job deploys a Node server. |
+
+Local Vite and Nitro and UnJS have no test status. Local Vite is the dev server, and Nitro is integration glue.
+
+On Cloudflare and Vercel, the status changes per primitive. A dash means that the host has no provider for the primitive.
+
+<!-- support-matrix:test-status:start -->
+| Primitive | Cloudflare | Vercel |
+| --- | --- | --- |
+| Browser | Experimental | — |
+| Blob | Live tested | Live tested |
+| Cache | Experimental | Experimental |
+| Database | Live tested | Live tested |
+| Email | Experimental | Experimental |
+| KV | Live tested | Live tested |
+| Queue | Live tested | Live tested |
+| Rate Limit | Live tested | — |
+| Realtime | Experimental | — |
+| Sandbox | Live tested | Live tested |
+| Schedule | Live tested | Live tested |
+| Workflow | Live tested | Live tested |
+| Workspace | Live tested | Live tested |
+<!-- support-matrix:test-status:end -->
+
+Agent routes are not in the live smoke on any host.
 
 ## Qualifications
 
 - **Local Vite:** Active integrations expose their imports and generated registries. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` give local state. A local build can still generate output for an explicit or detected hosted provider.
-- **Cloudflare:** Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent have package output outside the nightly run. Integrations build the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. ViteHub can provision R2 buckets, D1 databases, KV namespaces, and Cloudflare Queues.
-- **Vercel:** Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have package output outside the nightly run. Integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. ViteHub can create a Blob store and set the project environment.
-- **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. CI runs the real-project fixture through Netlify CLI. There is no Netlify provisioning or published live proof.
-- **Deno:** Agent chat and webhook routes and KV with `deno-kv` work with their documented permissions. A production build stages the Nitro application and package-owned standalone Schedule output under `.output`. Add Schedule with `hubSchedule({ providerOutput: "standalone" })`; `vitehub({ preset: "deno", schedule: true })` rejects Schedule because `vitehub()` does not own that output. There is no published live Deno proof.
+- **Cloudflare:** Integrations build the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. Browser and Agent add package-owned output. ViteHub can provision R2 buckets, D1 databases, KV namespaces, and Cloudflare Queues.
+- **Vercel:** Integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. Agent routes add package-owned output. ViteHub can create a Blob store and set the project environment.
+- **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. There is no Netlify provisioning or live test.
+- **Deno:** Agent chat and webhook routes and KV with `deno-kv` need their documented permissions. A production build stages the Nitro application and package-owned standalone Schedule output under `.output`. Add Schedule with `hubSchedule({ providerOutput: "standalone" })`; `vitehub({ preset: "deno", schedule: true })` rejects Schedule because `vitehub()` does not own that output. There is no live Deno test.
 - **Nitro and UnJS:** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring belong to their packages. Nitro is glue, not a storage or execution provider. There is no Nitro provisioning or unified live matrix.
 - **Node and self-hosted:** Server APIs and handlers run when their driver supports Node. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` are single-process providers. ViteHub does not emit one Node deployment bundle, provision a self-hosted plan, or publish a live suite.
 

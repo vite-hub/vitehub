@@ -2,6 +2,7 @@ import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
+import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
@@ -132,18 +133,18 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   if (postgres.url !== undefined && !explicitPostgresUrl) {
     throw workflowErrorDiagnostics.WORKFLOW_R0029({ message: "`workflow.postgres.url` must resolve to a non-empty Postgres URL. Check its runtime environment declaration." })
   }
-  const sqlitePath = explicitSqlitePath || (!explicitPostgresUrl ? readEnv("OPENWORKFLOW_SQLITE_PATH") : undefined)
-  if (sqlitePath) {
+  const storage = resolveOpenWorkflowStorage({ postgresUrl: explicitPostgresUrl, sqlitePath: explicitSqlitePath }, readEnv)
+  if (storage.backend === "sqlite" && storage.source !== "default") {
     return {
       backend: "sqlite",
       namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
-      path: normalizeSqlitePath(sqlitePath),
+      path: normalizeSqlitePath(storage.path),
       runMigrations: sqlite.runMigrations,
       source: "configured",
     }
   }
 
-  const configuredUrl = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL")
+  const configuredUrl = storage.backend === "postgres" ? storage.url : undefined
   const url = configuredUrl || readDatabasePostgresUrl()
   if (url) {
     return {

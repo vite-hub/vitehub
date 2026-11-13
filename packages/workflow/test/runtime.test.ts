@@ -7,10 +7,12 @@ import { runInNewContext } from "node:vm"
 
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { isSerializedResponse, serializeResponse, toResponse, ViteHubError } from "@vite-hub/runtime"
+import { checkDurability } from "@vite-hub/runtime/durability"
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import type { WorkflowExecutionContext, WorkflowHandler, WorkflowProviderStep } from "../src/types.ts"
 import { normalizeWorkflowOptions } from "../src/config.ts"
+import { workflowDurability } from "../src/durability.ts"
 import { defineWorkflow } from "../src/definition.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { describeOpenWorkflowStorage, getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowDatabaseUrl, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
@@ -288,6 +290,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   setVercelWorkflowRuntimeLoader()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
 
@@ -1686,6 +1689,20 @@ describe("workflow runtime", () => {
 
     expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
     expect(openWorkflowMock.postgres).not.toHaveBeenCalled()
+  })
+
+  it("reports the OPENWORKFLOW_POSTGRES_URL backend used by the runtime and permits three instances", async () => {
+    vi.stubEnv("OPENWORKFLOW_POSTGRES_URL", " postgres://localhost/shared-workflows ")
+    const config = { provider: "openworkflow" as const }
+    await getOpenWorkflowRuntime(config)
+
+    expect(openWorkflowMock.connect).toHaveBeenCalledWith("postgres://localhost/shared-workflows", {
+      namespaceId: "production",
+      schema: "openworkflow",
+    })
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+    const report = workflowDurability(config, { env: process.env, find: () => undefined })
+    expect(checkDurability(report, { env: { VITEHUB_INSTANCES: "3" }, log: false }).problems).toEqual([])
   })
 
   it("runs registered definitions through the OpenWorkflow SQLite provider", async () => {

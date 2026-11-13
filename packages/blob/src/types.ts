@@ -4,23 +4,13 @@ import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hu
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
 export type BlobDriver =
-  | "akamai"
   | "azure"
-  | "box"
   | "cloudflare-r2"
-  | "digitalocean-spaces"
-  | "dropbox"
   | "fs"
   | "gcs"
-  | "google-drive"
-  | "hetzner"
   | "minio"
   | "netlify-blobs"
-  | "onedrive"
   | "s3"
-  | "storj"
-  | "supabase"
-  | "uploadthing"
   | "vercel-blob"
 export type BlobType = "audio" | "blob" | "image" | "pdf" | "text" | "video" | `${string}/${string}`
 export type SizeUnit = "B" | "GB" | "KB" | "MB"
@@ -72,7 +62,14 @@ export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION
 
 export type BlobSignOptions =
   | { expiresIn: number, method: "GET" }
-  | { contentType?: string, createOnly?: boolean, expiresIn: number, method: "PUT" }
+  | {
+    contentType?: string
+    createOnly?: boolean
+    expiresIn: number
+    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` driver binds it. */
+    maxSize?: BlobSize
+    method: "PUT"
+  }
 
 export interface BlobSignedRequest {
   headers: Record<string, string>
@@ -141,7 +138,8 @@ export interface BlobDriverAdapter<TOptions> {
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
   resumeMultipartUpload?(pathname: string, uploadId: string): Promise<BlobDriverMultipartUpload>
-  sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
+  /** `store` names the Blob Store, for a driver that signs links to the app itself. */
+  sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
 /** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
@@ -184,6 +182,11 @@ export interface BlobEnsureOptions {
 export interface BlobServeResponseOptions {
   /** Defaults to the `Cache-Control` of `headers`, or `private, no-cache`. */
   cacheControl?: string
+  /**
+   * Send `Content-Disposition: attachment`, so a browser saves the file and does not open it. `true` uses the last
+   * segment of the pathname as the file name. A string sets the file name.
+   */
+  download?: boolean | string
   /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**
@@ -362,10 +365,13 @@ export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
 
 export interface FsBlobStoreConfig {
   base?: string
-  defaultUrlExpiresIn?: number
   driver: "fs"
   /** A local store cannot be remote: `remote: true` fails with `BLOB_C0018`. */
   remote?: boolean
+  /**
+   * Origin of the links that `sign()` returns, such as `https://app.example`. Add the base URL of the app when it has
+   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`.
+   */
   urlBaseUrl?: string
 }
 
@@ -410,16 +416,6 @@ export interface AzureBlobStoreConfig extends HostedBlobStoreConfig {
   sasToken?: string
 }
 
-export interface SupabaseBlobStoreConfig extends HostedBlobStoreConfig {
-  bucket: string
-  defaultUrlExpiresIn?: number
-  driver: "supabase"
-  key?: string
-  public?: boolean
-  publicBaseUrl?: string
-  url?: string
-}
-
 export interface NetlifyBlobsStoreConfig extends HostedBlobStoreConfig {
   consistency?: "eventual" | "strong"
   deployScoped?: boolean
@@ -429,99 +425,16 @@ export interface NetlifyBlobsStoreConfig extends HostedBlobStoreConfig {
   token?: string
 }
 
-interface S3CompatibleBlobStoreConfig extends HostedBlobStoreConfig {
-  accessKeyId?: string
-  bucket: string
-  defaultUrlExpiresIn?: number
-  driver: "akamai" | "digitalocean-spaces" | "hetzner" | "storj"
-  endpoint?: string
-  forcePathStyle?: boolean
-  publicBaseUrl?: string
-  region?: string
-  secretAccessKey?: string
-}
-
-export interface UploadThingBlobStoreConfig extends HostedBlobStoreConfig {
-  acl?: "private" | "public-read"
-  defaultUrlExpiresIn?: number
-  downloadTimeoutMs?: number
-  driver: "uploadthing"
-  region?: string
-  slug?: string
-  token?: string
-}
-
-export interface GoogleDriveBlobStoreConfig extends HostedBlobStoreConfig {
-  credentials?: { client_email: string, private_key: string }
-  driveId?: string
-  driver: "google-drive"
-  fileIdCacheSize?: number
-  keyFilename?: string
-  publicByDefault?: boolean
-  rootFolderId?: string
-  subject?: string
-}
-
-export interface OneDriveBlobStoreConfig extends HostedBlobStoreConfig {
-  accessToken?: string | (() => string | Promise<string>)
-  clientCredentials?: { tenantId: string, clientId: string, clientSecret: string }
-  copyTimeoutMs?: number
-  driveId?: string
-  driver: "onedrive"
-  oauth?: { clientId: string, clientSecret: string, refreshToken: string, tenantId?: string }
-  publicByDefault?: boolean
-  rootFolderPath?: string
-  siteId?: string
-  userId?: string
-}
-
-export interface DropboxBlobStoreConfig extends HostedBlobStoreConfig {
-  accessToken?: string | (() => string | Promise<string>)
-  appKey?: string
-  appSecret?: string
-  defaultUrlExpiresIn?: number
-  driver: "dropbox"
-  publicBaseUrl?: string
-  publicByDefault?: boolean
-  refreshToken?: string
-  rootFolderPath?: string
-}
-
-export interface BoxBlobStoreConfig extends HostedBlobStoreConfig {
-  ccg?: { clientId: string, clientSecret: string, enterpriseId?: string, userId?: string }
-  defaultUrlExpiresIn?: number
-  developerToken?: string
-  driver: "box"
-  jwt?: { configJsonString: string } | { configFilePath: string }
-  oauth?: { clientId: string, clientSecret: string, refreshToken: string }
-  publicBaseUrl?: string
-  publicByDefault?: boolean
-  rootFolderId?: string
-}
-
 export type BlobStoreConfig =
-  | AkamaiBlobStoreConfig
   | AzureBlobStoreConfig
-  | BoxBlobStoreConfig
   | CloudflareR2BlobStoreConfig
-  | DigitalOceanSpacesBlobStoreConfig
-  | DropboxBlobStoreConfig
   | FsBlobStoreConfig
   | GcsBlobStoreConfig
-  | GoogleDriveBlobStoreConfig
-  | HetznerBlobStoreConfig
   | MinioBlobStoreConfig
   | NetlifyBlobsStoreConfig
-  | OneDriveBlobStoreConfig
   | S3BlobStoreConfig
-  | StorjBlobStoreConfig
-  | SupabaseBlobStoreConfig
-  | UploadThingBlobStoreConfig
   | VercelBlobStoreConfig
 
-export type AkamaiBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "akamai", region: string }
-export type DigitalOceanSpacesBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "digitalocean-spaces", region: string }
-export type HetznerBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "hetzner", region: string }
 export interface MinioBlobStoreConfig extends HostedBlobStoreConfig {
   accessKeyId?: string
   bucket?: string
@@ -533,7 +446,6 @@ export interface MinioBlobStoreConfig extends HostedBlobStoreConfig {
   region?: string
   secretAccessKey?: string
 }
-export type StorjBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "storj" }
 
 export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig, ResolvedBlobStoreSecrets {
   binding: string
@@ -573,7 +485,14 @@ export type ResolvedBlobStoreConfig = ResolvedBlobStoreSecrets & (
   | ResolvedVercelBlobStoreConfig
 )
 
-export type BlobStoreName = "default" | (string & {})
+/**
+ * The configured Blob stores, by name. ViteHub writes it to `.vitehub/types/blob.d.ts` from `blob.stores`, so
+ * `blob.store()` rejects an unknown name before the app runs.
+ */
+export interface BlobStoreRegistry {}
+
+/** A key of `blob.stores`. Before ViteHub writes the generated types, any name type checks. */
+export type BlobStoreName = [keyof BlobStoreRegistry] extends [never] ? "default" | (string & {}) : Extract<keyof BlobStoreRegistry, string>
 
 export type BlobServeOptions = boolean | {
   /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
@@ -586,7 +505,8 @@ export type BlobServeOptions = boolean | {
   headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
-  store?: BlobStoreName
+  /** A key of `blob.stores`. Defaults to `"default"`. */
+  store?: string
 }
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
@@ -601,7 +521,7 @@ export interface BlobServeConfig {
   headers?: Record<string, string>
   publicBaseUrl?: string
   route: string
-  store: BlobStoreName
+  store: string
 }
 
 interface BlobModuleBaseOptions {

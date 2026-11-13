@@ -15,6 +15,7 @@ icon: i-lucide-code-2
 | `useDatabaseBinding` from `vite-hub/database/drizzle` | Get the D1 binding or request session of a database. |
 | `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
 | `getPostgresConnectionUrl` from `vite-hub/database/drizzle` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
+| `ensureMigrations` from `vite-hub/database/drizzle` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
 | `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
@@ -139,6 +140,29 @@ The helper trusts your counts. It does not read row contents or SQL defaults. An
 
 Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
 
+## Apply migrations from server code
+
+`ensureMigrations(name?)` applies the pending migrations of the Database `name`, or of every Database without a name. It uses the same code as [migrate on start](/docs/database/configure#migrate-when-the-server-starts): the same migrations table, the same data loss check, and the Postgres advisory lock. Use it where the start plugin does not run first: a Nitro task, a Nitro plugin, an app test, or a build with `migrateOnStart: false`.
+
+```ts [server/tasks/db/migrate.ts]
+import { ensureMigrations } from 'vite-hub/database/drizzle'
+import { defineTask } from 'nitro/task'
+
+export default defineTask({
+  meta: { description: 'Apply the pending migrations' },
+  async run() {
+    await ensureMigrations()
+    return { result: 'ok' }
+  },
+})
+```
+
+A process runs the migrations of a Database once. Calls during that run, and calls after it succeeds, wait for the same run and apply nothing. The start plugin shares this run, so a call after the start does no work. When a run fails, the call rejects and the process forgets the run, so the next call tries again. A new run waits for the run before it, so Definitions that share a SQLite file apply each migration once. Several processes on one Postgres database apply each migration once: one process takes the lock and the others wait, then find nothing pending.
+
+The build writes the migrations into the server output, and the server reads them at the first call. A Cloudflare or Vercel build ships none, and a call rejects with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`: migrate those from the deployment with `vitehub database migrate` or Wrangler. Remote libSQL and D1 over HTTP reject with the same error. In app tests with `vite-hub/test`, a SQLite Database is an in-memory copy that already has its migrations, so the call skips it.
+
+A Nitro plugin that calls `ensureMigrations()` also runs in the prerender server during the build. Check `import.meta.prerender` first if the build must not migrate the runtime database.
+
 ## See database work on each request
 
 With the evlog Nitro module, added through `vitehub({ observability })` or by hand, each request's wide event gets a `database` field:
@@ -155,4 +179,4 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 
 `calls: 9`, `maxConcurrent: 1`, and a high `ms` mean the calls ran one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
 
-It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.
+It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres, also on local PGlite. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.

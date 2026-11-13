@@ -33,6 +33,17 @@ it("gives an unknown store name the fix of BLOB_R0027", async () => {
   await expect(blob.store("missing").get("note.txt")).rejects.toMatchObject({
     code: "BLOB_R0027",
     fix: blobErrorDiagnostics.BLOB_R0027({ message: "" }).fix,
-    message: "Unknown Blob store \"missing\".",
+    message: "Unknown Blob store \"missing\". Configured stores: \"default\".",
+  })
+})
+
+it("lists the configured store names for an unknown store name", async () => {
+  const store = { base: ".vitehub/data/blob", driver: "fs" } as const
+  setBlobRuntimeConfig({ store, stores: { default: store, media: store } })
+
+  await expect(blob.store("medai").get("note.txt")).rejects.toMatchObject({
+    code: "BLOB_R0027",
+    fix: expect.stringContaining("one of the store names that the message lists"),
+    why: "Unknown Blob store \"medai\". Configured stores: \"default\", \"media\".",
   })
 })

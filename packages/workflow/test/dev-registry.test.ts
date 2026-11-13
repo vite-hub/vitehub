@@ -285,7 +285,8 @@ describe("Workflow dev registry", () => {
     ["postgresql", true],
     ["sqlite", false],
   ] as const)("passes the %s Default Database URL to OpenWorkflow: %s", async (dialect, uses) => {
-    const { generated } = await buildWithDatabase(() => ({ databases: { default: { dialect } } }))
+    const { generated, plugin } = await buildWithDatabase(() => ({ databases: { default: { dialect } } }))
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { defaultDatabase: uses } }])
 
     if (uses) {
       expect(await generated()).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database/drizzle"`)
@@ -306,6 +307,7 @@ describe("Workflow dev registry", () => {
     await (plugin.buildStart as unknown as () => Promise<void>).call({})
 
     expect(await generated()).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { defaultDatabase: true } }])
   })
 
   it("does not read Database Definition files without the Database plugin", async () => {

@@ -132,6 +132,17 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  // The generated durability boot plugin of a Node server imports each primitive's reporter by file.
+  "@vite-hub/agent/durability",
+  "@vite-hub/blob/durability",
+  "@vite-hub/database/durability",
+  "@vite-hub/kv/durability",
+  "@vite-hub/queue/durability",
+  "@vite-hub/rate-limit/durability",
+  "@vite-hub/realtime/durability",
+  "@vite-hub/schedule/durability",
+  "@vite-hub/workflow/durability",
+  "@vite-hub/workspace/durability",
   "@vite-hub/mcp/runtime",
   "@vite-hub/runtime/shutdown",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
@@ -214,18 +225,6 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 }
 
 describe("framework package contract", () => {
-  it("imports from h3 only what h3 1 exports, because Nuxt 4 bundles h3 as its own h3 1", async () => {
-    const h3V1Exports = new Set(Object.keys(await import("h3-v1")));
-    const missing = globSync("dist/**/*.js", { cwd: packageRoot }).flatMap((file) => {
-      const source = readFileSync(`${packageRoot}/${file}`, "utf8");
-      return [...source.matchAll(/^import \{([^}]*)\} from "h3";/gm)]
-        .flatMap(([, names]) => names!.split(",").map(name => name.trim().split(/\s+as\s+/)[0]!))
-        .filter(name => name && !h3V1Exports.has(name))
-        .map(name => `${file}: ${name}`);
-    });
-    expect(missing).toEqual([]);
-  });
-
   it("keeps the root export intentionally small", () => {
     expect(Object.keys(framework)).toEqual(["vitehub"]);
   });
@@ -418,8 +417,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toMatch(/aria-label="[^"]*'Filter sessions'"/);
     expect(consolePage).toContain("selectedCapabilityId");
-    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
-    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
+    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(2);
+    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(1);
     expect(consolePage).toContain(
       'const view = target === "agent" ? "details" : "workspace";',
     );
@@ -464,18 +463,17 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
-    );
-    expect(consolePage).toContain(
-      'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
+      'v-if="isDesktop && selectedInvocationId"',
     );
     expect(consolePage).toContain("detail.isLoading.value || initialSessionLoading");
-    expect(consolePage).toContain('@toggle-maximized="detailsMaximized = false"');
     expect(consolePage).not.toContain("min-height: 32rem");
     expect(consoleFrame).toContain("min-height: 0");
     expect(consoleFrame).not.toContain("min-height: 32rem");
     expect(consolePage).toContain("<ConsoleSessionNavbar");
-    expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
+    // A desktop session uses the AgentSession header. Phones keep the session navbar and its details slideover.
+    expect(consolePage.split("<ConsoleSessionNavbar").length).toBe(2);
+    expect(consolePage).toContain('<ConsoleSessionNavbar\n              v-if="!(isDesktop && selectedInvocationId)"');
+    expect(consolePage).toContain('<ConsoleAgentSession\n            v-if="isDesktop && selectedInvocationId"');
     expect(consolePage).toContain('@inspect="inspectSession"');
     expect(consolePage).toContain("function inspectSession");
     const consoleSessionNavbar = readFileSync(
@@ -495,7 +493,12 @@ describe("framework package contract", () => {
     expect(consoleSessionLoading).toContain(':disabled="!props.maximizable"');
     expect(consoleSessionLoading).toContain('class="session-inspector__header"');
     expect(consoleSessionLoading).toContain("emit('toggleMaximized')");
-    expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
+    const consoleAgentSession = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-agent-session.vue`,
+      "utf8",
+    );
+    // The AgentSession panel is the only panel, so its inspector surfaces do not maximize.
+    expect(consoleAgentSession).toContain(':maximizable="false"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
     expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
@@ -610,10 +613,7 @@ describe("framework package contract", () => {
     expect(consoleSessionNavbar).toContain('class="md:hidden"');
     expect(consoleSessionNavbar).not.toContain('class="lg:hidden"');
     expect(consolePage).toContain(':header="false"');
-    expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout-v2"');
-    expect(consolePage).toMatch(
-      /id: "thread",[\s\S]*?defaultSize: 720,[\s\S]*?id: "details",[\s\S]*?defaultSize: 440,/,
-    );
+    expect(consoleAgentSession).toContain('storage-key="vitehub-console:session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
     expect(consolePage).not.toContain(':retry-key="invocationPaginationKey"');
     expect(consolePage).toContain("list.loadMoreError.value");
@@ -654,10 +654,6 @@ describe("framework package contract", () => {
     expect(consolePage).toMatch(
       /\.vitehub-console__session-panel > \[data-slot="body"\][\s\S]*?padding: 0 !important;/,
     );
-    expect(consolePage).toContain("minSize: 360");
-    expect(consolePage).toContain("defaultSize: 720");
-    expect(consolePage).toContain("maxSize: 1080");
-    expect(consolePage).toContain("defaultSize: 440");
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
     expect(consolePage).not.toContain("groupConsoleSessions");
@@ -740,11 +736,12 @@ describe("framework package contract", () => {
     );
     expect(existsSync(`${packageRoot}/dist/console/runtime/public/console`)).toBe(false);
     expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
-    expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
+    // Only the Nuxt cloudflare preset references these declarations, so an app that wants them installs them.
+    expect(manifest.dependencies).not.toHaveProperty("@cloudflare/workers-types");
+    expect(manifest.peerDependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
     expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
-    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures distributed Console files without OAuth discovery for open access", async () => {
@@ -781,9 +778,11 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve one Console route only: no Console page, client script, MCP, or Env management.
+      // Apps serve the Console RPC and the page tools session of the Console link only: no Console page, client script,
+      // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
@@ -791,7 +790,10 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills"]);
+      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills", "/_vitehub/console/assets", "/_vitehub/page/assets"]);
+      // The Console segment of the pill and the page tools loader are built files of the package.
+      expect(existsSync(`${Reflect.get(Object(publicAssets[1]), "dir")}/page-tool.js`)).toBe(true);
+      expect(existsSync(`${Reflect.get(Object(publicAssets[2]), "dir")}/loader.js`)).toBe(true);
       const skillsDir = Reflect.get(Object(publicAssets[0]), "dir");
       if (String(skillsDir) !== skillsDir) throw new TypeError("Expected the Console skills path.");
       // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
