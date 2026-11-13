@@ -32,7 +32,7 @@ async function loadParser(): Promise<ShellParser> {
   }
   // A bundled sh-syntax can't find main.wasm on disk, and Workers can't compile WebAssembly from bytes.
   // Nitro bundles this import as a compiled module, and esbuild as bytes.
-  const processor = shSyntax.getProcessor(imports => WebAssembly.instantiate(wasm, imports))
+  const processor = shSyntax.getProcessor((imports: Record<string, unknown>) => WebAssembly.instantiate(wasm, imports))
   return (text, options) => processor(text, options)
 }
 
