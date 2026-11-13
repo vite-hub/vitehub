@@ -614,14 +614,23 @@ Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) fo
 
 Set `connection.replicas` to the URLs of read replicas. ViteHub opens one postgres.js client for each one, and gives you Drizzle's [`withReplicas()`](https://orm.drizzle.team/docs/read-replicas) database:
 
-```ts [server/databases/default.ts] fragment
+```ts [server/databases/replicas.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, pgTable, text } from 'drizzle-orm/pg-core'
+
 export default defineDatabase({
+  name: 'replicas',
   dialect: 'postgresql',
   connection: {
     url: process.env.DATABASE_URL,
     replicas: [process.env.DATABASE_REPLICA_1_URL, process.env.DATABASE_REPLICA_2_URL],
   },
-  schema,
+  schema: {
+    notes: pgTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
 })
 ```
 
@@ -630,7 +639,7 @@ import { defineEventHandler } from 'h3'
 import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(() => {
-  const { db, schema } = useDatabase()
+  const { db, schema } = useDatabase('replicas')
   return db.$replica.select().from(schema.notes)
 })
 ```
