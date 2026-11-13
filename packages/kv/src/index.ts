@@ -17,7 +17,7 @@ export type {
   KVListPage,
   KVOptions,
   KVOperation,
-  KVSetIfAbsentOptions,
+  KVSetOptions,
   KVStorage,
   KVStoreConfig,
   KVStoreOptions,

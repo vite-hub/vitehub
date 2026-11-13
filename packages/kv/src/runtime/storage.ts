@@ -7,7 +7,7 @@ import { normalizeKVOptions } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVSetOptions, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -125,6 +125,18 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   return kvResult(operation, name, () => run(storage), codes)
 }
 
+// JavaScript callers can pass any object, so the runtime checks what the `KVSetOptions` type allows.
+function readSetTTL(operation: "set" | "setIfAbsent", options: KVSetOptions | undefined): number | undefined {
+  if (options === undefined) return
+  for (const option of Object.keys(options)) {
+    if (option !== "ttl") throw kvErrorDiagnostics.KV_INVALID_OPTION({ operation, option })
+  }
+  const ttl: unknown = options.ttl
+  if (ttl === undefined) return
+  if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl))) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  return ttl
+}
+
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
@@ -155,14 +167,17 @@ function createKVStorage(name = "default"): KVStorage {
       if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
-    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options), kvWriteLimitCodes) },
+    async set(key, value, options) {
+      return runKVOperation("set", name, async (storage) => {
+        const ttl = readSetTTL("set", options)
+        return storage.setItem(key, value, ttl === undefined ? undefined : { ttl })
+      }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
+    },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
-        const ttl = options?.ttl
-        if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl)))) throw kvErrorDiagnostics.KV_INVALID_TTL()
-        return storage.setIfAbsentItem(key, value, ttl)
-      }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
+        return storage.setIfAbsentItem(key, value, readSetTTL("setIfAbsent", options))
+      }, ["KV_INVALID_OPTION", "KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     store: selectKVStore,
   }

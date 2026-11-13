@@ -29,8 +29,8 @@ interface KVListResponse {
 interface KVValueResponse {
   editable?: boolean;
   found: boolean;
-  /** `unknown`: the key may expire, and the store cannot say when. `none`: the store never expires keys. */
-  expiry?: "none" | "unknown";
+  /** `unknown`: the key may expire, and the store cannot say when. */
+  expiry?: "unknown";
   format?: "json" | "text";
   key: string;
   store: string;
@@ -136,7 +136,7 @@ function parseValue(value: unknown): KVValueResponse {
   if (typeof source.value === "string") parsed.value = source.value;
   if (source.truncated === true) parsed.truncated = true;
   parsed.editable = source.editable === true;
-  if (source.expiry === "none" || source.expiry === "unknown") parsed.expiry = source.expiry;
+  if (source.expiry === "unknown") parsed.expiry = source.expiry;
   return parsed;
 }
 

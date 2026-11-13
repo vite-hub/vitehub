@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { link, lstat, mkdir, mkdtemp, opendir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { basename, join, relative, resolve, sep } from "node:path"
 
@@ -9,6 +9,11 @@ import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
+
+function ttlOption(options: unknown): number | undefined {
+  const ttl: unknown = options && typeof options === "object" ? Reflect.get(options, "ttl") : undefined
+  return typeof ttl === "number" ? ttl : undefined
+}
 
 // unstorage's atomic writes and setIfAbsentItem() stage values in files with this name. They are not keys.
 const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
@@ -147,21 +152,62 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   const { getItem, getItemRaw, getMeta, hasItem, removeItem, setItem, setItemRaw } = driver
+  // The expiry of a key with a TTL is a file here, with the expiry time in milliseconds.
+  // A key that has expired reads as missing. The next write, delete(), or clear() of the key removes its files.
+  // Expiry and lock files are named by a hash of the key, so their names stay short for any key.
+  const expiries = join(layout, "expires")
+  const locks = join(layout, "locks")
+  const hashed = (key: string) => createHash("sha256").update(key).digest("hex")
+  const expiryPath = (key: string) => join(expiries, hashed(key))
+  async function isExpired(key: string): Promise<boolean> {
+    const text = await readFile(expiryPath(key), "utf8").catch((error: unknown) => {
+      if (hasCode(error, "ENOENT")) return undefined
+      throw error
+    })
+    return text !== undefined && Number(text) <= Date.now()
+  }
+  async function writeExpiry(key: string, ttl: number | undefined): Promise<void> {
+    if (ttl === undefined) return rm(expiryPath(key), { force: true })
+    await mkdir(expiries, { recursive: true })
+    await writeFile(expiryPath(key), String(Date.now() + ttl * 1000))
+  }
+  // Writes to one key hold its lock, so a value and its expiry change together, also across processes on one disk.
+  async function withKeyLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+    await mkdir(locks, { recursive: true })
+    // proper-lockfile tracks its locks by this path, so each key needs its own.
+    const release = await lock(join(locks, hashed(key)), { realpath: false, retries: { retries: 100, minTimeout: 5, maxTimeout: 100 } })
+    try {
+      return await run()
+    }
+    finally {
+      await release()
+    }
+  }
+
   driver.getItem = async (key, operationOptions) => {
     const value = await getItem(fileName(key), operationOptions)
     // unstorage returns filesystem read errors as values rather than rejecting.
     if (value instanceof Error) throw value
-    return value
+    return value !== null && await isExpired(key) ? null : value
   }
   driver.getItemRaw = async (key, operationOptions) => {
     const value = await getItemRaw?.(fileName(key), operationOptions)
     if (value instanceof Error) throw value
-    return value
+    return value !== null && value !== undefined && await isExpired(key) ? null : value
   }
-  driver.getMeta = (key, operationOptions) => getMeta?.(fileName(key), operationOptions) ?? null
-  driver.setItem = (key, value, operationOptions) => setItem?.(fileName(key), value, operationOptions)
-  driver.setItemRaw = (key, value, operationOptions) => setItemRaw?.(fileName(key), value, operationOptions)
-  driver.removeItem = (key, operationOptions) => removeItem?.(fileName(key), operationOptions)
+  driver.getMeta = async (key, operationOptions) => await isExpired(key) ? null : (getMeta?.(fileName(key), operationOptions) ?? null)
+  driver.setItem = (key, value, operationOptions) => withKeyLock(key, async () => {
+    await setItem?.(fileName(key), value, operationOptions)
+    await writeExpiry(key, ttlOption(operationOptions))
+  })
+  driver.setItemRaw = (key, value, operationOptions) => withKeyLock(key, async () => {
+    await setItemRaw?.(fileName(key), value, operationOptions)
+    await writeExpiry(key, ttlOption(operationOptions))
+  })
+  driver.removeItem = (key, operationOptions) => withKeyLock(key, async () => {
+    await removeItem?.(fileName(key), operationOptions)
+    await writeExpiry(key, undefined)
+  })
   driver.clear = async () => {
     // Delete only encoded key files, keeping the layout record and its workspace for later initialization.
     const entries = await readdir(root).catch((error: unknown) => {
@@ -171,40 +217,40 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     for (const entry of entries) {
       if (keyOf(entry) !== undefined) await rm(join(root, entry), { force: true, recursive: true })
     }
+    await rm(expiries, { force: true, recursive: true })
   }
   driver.hasItem = async (key, operationOptions) => {
     // Keep the underlying driver's key validation before resolving its file path.
     if (!await hasItem(fileName(key), operationOptions)) return false
     try {
-      return (await stat(join(root, fileName(key)))).isFile()
+      if (!(await stat(join(root, fileName(key)))).isFile()) return false
     }
     catch (error) {
       // A key can be removed between the existence check and stat.
       if (hasCode(error, "ENOENT")) return false
       throw error
     }
+    return !await isExpired(key)
   }
-  // link() publishes the complete file and fails when the key exists, in one step, also across processes on one disk.
-  // fs-lite never expires keys, so the TTL does not apply.
-  driver.setIfAbsentItem = async (key, value) => {
+  // The key lock makes the check and the write one step. rename() publishes the complete file, so readers see the whole
+  // value or none, and it replaces an expired value.
+  driver.setIfAbsentItem = async (key, value, ttl) => {
     // The underlying driver validates the key before it resolves the file path.
     if (await driver.hasItem(key, {})) return false
-    const path = join(root, fileName(key))
-    await mkdir(root, { recursive: true })
-    // Beside the destination, so link() stays on one disk. Key listings skip unstorage's temporary file names.
-    const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
-    await writeFile(temporary, value, "utf8")
-    try {
-      await link(temporary, path)
+    return withKeyLock(key, async () => {
+      if (await driver.hasItem(key, {})) return false
+      // Beside the destination, so rename() stays on one disk. Key listings skip unstorage's temporary file names.
+      const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
+      try {
+        await writeFile(temporary, value, "utf8")
+        await rename(temporary, join(root, fileName(key)))
+      }
+      finally {
+        await rm(temporary, { force: true })
+      }
+      await writeExpiry(key, ttl)
       return true
-    }
-    catch (error) {
-      if (hasCode(error, "EEXIST") && (await stat(path)).isFile()) return false
-      throw error
-    }
-    finally {
-      await rm(temporary, { force: true })
-    }
+    })
   }
 
   // Yields each key, or undefined for a skipped entry, which still counts as listing work.
@@ -218,7 +264,9 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
       throw error
     }
     for await (const entry of entries) {
-      if (entry.name !== basename(layout) && !layoutRecord.test(entry.name)) yield entry.isFile() ? keyOf(entry.name) : undefined
+      if (entry.name === basename(layout) || layoutRecord.test(entry.name)) continue
+      const key = entry.isFile() ? keyOf(entry.name) : undefined
+      yield key !== undefined && await isExpired(key) ? undefined : key
     }
   }
 

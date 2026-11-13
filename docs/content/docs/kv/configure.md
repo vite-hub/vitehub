@@ -131,7 +131,7 @@ The loop also checks records with a numeric suffix. If any command fails, keep t
 
 In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel host do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.
 
-On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It does not expire keys.
+On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits), raises a `ttl` below 60 seconds to 60, and does not support `setIfAbsent()`, like Cloudflare KV.
 
 Set `remote: true` to use the real store in development:
 
@@ -220,6 +220,6 @@ export default defineConfig({
 ::
 
 - Cache keys start with `nitro-cache:`, apart from your keys. `base` changes the prefix. Development uses the dev store.
-- Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds, Redis, the `database` driver, Upstash, and Deno KV expire them on time, and `fs-lite` keeps the file until a new write. Nitro checks the age on each read, so it never serves an expired entry as fresh.
+- Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds. Redis, the `database` driver, Upstash, Deno KV, and `fs-lite` expire them on time. Nitro checks the age on each read, so it never serves an expired entry as fresh.
 - The build fails when `kv` is not enabled.
 - A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) wins over this option.

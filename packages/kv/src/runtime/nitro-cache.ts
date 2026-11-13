@@ -27,7 +27,8 @@ export default function createKVCacheDriver(options: KVCacheDriverOptions = {}):
     getItem: name => unwrap(kv.get(key(name), { type: "text" })),
     // Raw entries are stored as base64 text; reading them as text would decode the bytes as UTF-8 and mangle them.
     getItemRaw: name => unwrap(kv.get(key(name), { type: "bytes" })),
-    setItem: (name, value, opts: TransactionOptions) => unwrap(kv.set(key(name), value, opts)),
+    // Nitro sends `{ ttl }` or no options. KV accepts no other option.
+    setItem: (name, value, opts: TransactionOptions) => unwrap(kv.set(key(name), value, typeof opts?.ttl === "number" ? { ttl: opts.ttl } : undefined)),
     removeItem: name => unwrap(kv.delete(key(name))),
     async getKeys(base) {
       return (await unwrap(kv.keys(key(base)))).map(name => name.slice(prefix.length))
