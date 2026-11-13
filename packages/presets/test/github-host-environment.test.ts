@@ -46,6 +46,14 @@ it("isolates provider credentials and git directories across concurrent checkout
   expect((await host.environment()).GIT_DIR).toBeUndefined();
 });
 
+it("gives the channel forge access the host commit identity", async () => {
+  const identity = { login: "quiver-bot[bot]", email: "294442778+quiver-bot[bot]@users.noreply.github.com" }
+  const host = createGitHubHost({ credentials: () => ({ token: "installation-token" }), identity })
+  const access: unknown = Reflect.get(host.channel(), Symbol.for("vitehub.agent.forgeAccess"))
+  if (typeof access !== "function") throw new Error("The host channel has no forge access.")
+  await expect(access({}, { repository: "acme/app" })).resolves.toEqual({ token: "installation-token", identity });
+})
+
 it("mints a new App token when the cached one expires within the requested lifetime", async () => {
   const { generateKeyPairSync } = await import("node:crypto")
   const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ format: "pem", type: "pkcs8" }).toString()

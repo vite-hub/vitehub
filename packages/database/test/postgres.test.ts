@@ -127,6 +127,16 @@ describe("Postgres Database Definitions", () => {
     expect(() => defineDatabase({ dialect: "mysql", schema: { notes } }))
       .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
+
+  it("accepts `driver: \"pglite\"` only on a Postgres Definition", () => {
+    expect(defineDatabase({ dialect: "postgresql", driver: "pglite", schema: { notes } })).toMatchObject({ driver: "pglite" })
+    // @ts-expect-error PGlite is the only driver option.
+    expect(() => defineDatabase({ dialect: "postgresql", driver: "postgres", schema: { notes } }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DRIVER" }))
+    // @ts-expect-error A SQLite Definition has no driver option.
+    expect(() => defineDatabase({ driver: "pglite", schema: {} }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_OPTION", message: expect.stringContaining("driver") }))
+  })
 })
 
 describe("Postgres build configuration", () => {
@@ -197,14 +207,15 @@ describe("Postgres build configuration", () => {
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
     expect(drizzleConfig).toContain("dialect: \"postgresql\"")
-    expect(drizzleConfig).toContain("  dbCredentials: (process.env[\"DATABASE_URL\"])?.trim() ? { url: (process.env[\"DATABASE_URL\"]).trim() } : { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+    expect(drizzleConfig).toContain("const url = (process.env[\"DATABASE_URL\"])?.trim()\n")
+    expect(drizzleConfig).toContain("  ...(url ? { dbCredentials: { url } } : postgresEnv ? { dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] } } : { driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/pglite\" } }),\n")
     expect(drizzleConfig).toContain("out: \"server/databases/default/migrations\"")
     await expect(readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")).resolves.toContain("export { table_0 as notes }")
     const types = await readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")
     expect(types).toContain("dialect: \"postgresql\"")
   })
 
-  it("gives Drizzle Kit the PG* environment variables when a Postgres Definition has no URL", async () => {
+  it("gives Drizzle Kit the PG* environment variables, else the PGlite folder, when a Postgres Definition has no URL", async () => {
     const rootDir = await createLoadableProject()
     await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
     const config = resolveDBViteConfig(undefined, rootDir)!
@@ -212,10 +223,10 @@ describe("Postgres build configuration", () => {
     await writeGeneratedDatabaseArtifacts(config)
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
-    expect(drizzleConfig).toContain("  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+    expect(drizzleConfig).toContain("  ...(postgresEnv ? { dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] } } : { driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/pglite\" } }),\n")
   })
 
-  it("gives Drizzle Kit the PG* environment variables for an empty literal URL", async () => {
+  it("gives Drizzle Kit the PG* environment variables, else the PGlite folder, for an empty literal URL", async () => {
     const rootDir = await createLoadableProject()
     await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
@@ -226,7 +237,31 @@ describe("Postgres build configuration", () => {
     await writeGeneratedDatabaseArtifacts(config)
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
-    expect(drizzleConfig).toContain("  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+    expect(drizzleConfig).toContain("  ...(postgresEnv ? { dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] } } : { driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/pglite\" } }),\n")
+  })
+
+  it("gives Drizzle Kit the PGlite folder for `driver: \"pglite\"`, even with a URL", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/reports.ts", [
+      "  name: 'reports',",
+      "  dialect: 'postgresql',",
+      "  driver: 'pglite',",
+      "  connection: { url: process.env.DATABASE_URL },",
+    ])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    await writeGeneratedDatabaseArtifacts(config)
+
+    const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
+    expect(drizzleConfig).toContain("  ...{ driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/reports.pglite\" } },\n")
+    expect(drizzleConfig).not.toContain("DATABASE_URL")
+  })
+
+  it("requires a literal `driver`", async () => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',", "  driver: process.env.DATABASE_DRIVER,"])
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DRIVER" }))
   })
 
   it("keeps the libSQL runtime out of the Vite databases module of a Postgres-only app", async () => {
@@ -266,6 +301,7 @@ describe("Postgres build configuration", () => {
       { label: "Mode", value: "Default" },
       { label: "Dialect", value: "PostgreSQL" },
       { label: "Tables", value: "notes" },
+      { label: "Development", value: "PGlite in `.vitehub/data/database/pglite` when there is no `connection.url` and no PG* variable." },
     ])
   })
 

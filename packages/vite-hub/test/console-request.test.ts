@@ -141,6 +141,24 @@ describe("Console requests", () => {
       .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
   })
 
+  it("shows the Console sentence for an Auth guard refusal", async () => {
+    const refusal = (status: number, statusText: string, code: string) =>
+      Response.json({ status, statusText, message: `${statusText}.`, data: { code } }, { status, statusText })
+    fetchMock.mockResolvedValueOnce(refusal(401, "Unauthorized", "SIGNED_OUT"))
+    await expect(requestConsole("/signed-out/_vitehub/api/sections")).rejects.toMatchObject({
+      code: "CONSOLE_SIGN_IN_REQUIRED",
+      status: 401,
+      why: "You are not signed in, or your session ended.",
+    })
+
+    fetchMock.mockResolvedValueOnce(refusal(403, "Forbidden", "FORBIDDEN"))
+    await expect(requestConsole("/forbidden/_vitehub/api/sections")).rejects.toMatchObject({
+      code: "CONSOLE_ACCESS_DENIED",
+      status: 403,
+      why: "The Console access policy rejected this account.",
+    })
+  })
+
   it("deduplicates keys repeated across provider pages", () => {
     expect(appendUniqueConsoleKeys(["first", "repeated"], ["repeated", "last"]))
       .toEqual(["first", "repeated", "last"])

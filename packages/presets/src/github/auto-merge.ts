@@ -6,8 +6,10 @@ import * as v from "valibot"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { checkLogExcerpt, compactCiLog, parseCheckLogSelection, type CheckLogExcerpt, type CheckLogSelection } from "./ci-logs.ts"
 import type { GitHubHost } from "./host.ts"
 import type { GitHubRepairCommit } from "./repair.ts"
+import type { GitHubDependencyStatus } from "./install.ts"
 
 interface GitHubMentionToken {
   attrSet: (name: string, value: string) => void
@@ -101,6 +103,8 @@ export interface GitHubPullRequestOperationsOptions {
   commentPrefix?: string
   /** Host-owned checkout push, already bound to its source branch and expected-head lease. */
   push?: () => Promise<string>
+  /** Host-owned report of dependency inputs that changed since the last install. */
+  checkDependencies?: () => Promise<GitHubDependencyStatus>
   /** Host-owned frozen installation after resolving dependency conflicts. */
   refreshDependencies?: () => Promise<void>
   /** Host-owned staging and commit in the assigned repair checkout. */
@@ -145,13 +149,14 @@ export interface GitHubPullRequestOperations {
   requestAutoMerge(): Promise<GitHubAutoMergeResult>
   comment(body: string): Promise<void>
   mention(login: string, body: string): Promise<void>
-  readCheckLogs(runId: number): Promise<{ text: string, truncated: boolean }>
+  readCheckLogs(runId: number, selection?: CheckLogSelection): Promise<CheckLogExcerpt>
   readBaseCheckEvidence(): Promise<GitHubBaseCheckEvidence>
-  readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
+  readBaseCheckLogs(runId: number): Promise<CheckLogExcerpt & { repository: string, headSha: string }>
   /** Posts the outcome and its reason as a thread reply, then resolves the thread. */
   resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<string>
+  checkDependencies(): Promise<GitHubDependencyStatus>
   refreshDependencies(): Promise<void>
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
@@ -405,16 +410,15 @@ export function createGitHubPullRequestOperations(
     return { provider, run: { ref, raw: run.raw } }
   }
 
-  /** The logs of the failed jobs of one run, bounded to `logLimit` characters. */
-  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<{ text: string, truncated: boolean }> {
-    let text = ""
+  /** The compacted logs of the failed jobs of one run, each under a `## <job>` heading. */
+  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<string> {
+    const logs: string[] = []
     for await (const job of provider.ci.jobs(run.ref, { signal })) {
       if (job.state !== "failure") continue
       const log = await new Response(await provider.ci.log(job.ref, { signal })).text()
-      text += `${text ? "\n" : ""}## ${job.name}\n${log}`
-      if (text.length > logLimit) break
+      logs.push(`## ${job.name}\n${compactCiLog(log)}`)
     }
-    return { text: text.slice(0, logLimit), truncated: text.length > logLimit }
+    return logs.join("\n")
   }
 
   return {
@@ -449,10 +453,11 @@ export function createGitHubPullRequestOperations(
       }
       const logs = await failedJobLogs(provider, run)
       await exactBaseSnapshot()
-      return { repository, headSha: base, ...logs }
+      return { repository, headSha: base, ...checkLogExcerpt(logs, logLimit) }
     },
-    async readCheckLogs(runId) {
+    async readCheckLogs(runId, selection = {}) {
       if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
+      const lines = parseCheckLogSelection(selection)
       await snapshot()
       const { provider, run } = await readRun(runId)
       const raw = v.parse(v.object({
@@ -464,7 +469,7 @@ export function createGitHubPullRequestOperations(
         || !(raw.head_sha === expectedHeadOid || raw.pull_requests.some(pr => pr.number === options.number && pr.head.sha === expectedHeadOid))) {
         throw new Error("Workflow run does not belong to this pull request head.")
       }
-      return await failedJobLogs(provider, run)
+      return checkLogExcerpt(await failedJobLogs(provider, run), logLimit, lines)
     },
     async comment(body) {
       nonempty(body, "Comment")
@@ -534,6 +539,9 @@ export function createGitHubPullRequestOperations(
       }
       const { provider, pullRequest } = await forge()
       await provider.threads.update(pullRequest, update, { signal })
+    },
+    async checkDependencies() {
+      return await options.checkDependencies?.() ?? { current: true, changedInputs: [], reason: "This worker has no host dependency install." }
     },
     async refreshDependencies() {
       if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")

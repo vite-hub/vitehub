@@ -5,11 +5,11 @@ import { stateless } from "@vite-hub/auth/presets"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { forgetGitHubToken, rememberGitHubToken } from "../forge/tokens.ts"
 import { commentsRoute } from "../page.ts"
-import { requestOf } from "./request.ts"
 
 import type { createAuthForRequest } from "@vite-hub/auth/server"
 import type { CommentsGitHubAccess, CommentsRequestEvent, CommentsUser } from "../types.ts"
@@ -142,7 +142,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
     configured,
     async user(event) {
       if (!configured()) return null
-      const request = requestOf(event)
+      const request = getStandardContext(event).req
       const instance = await auth(event, request)
       const session = await instance.api.getSession({ headers: request.headers })
       const user: unknown = session?.user

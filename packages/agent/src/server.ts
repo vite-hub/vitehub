@@ -46,6 +46,7 @@ export {
 
 export type {
   AgentInvocationAnnotationValue,
+  AgentInvocationGetOptions,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
