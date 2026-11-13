@@ -79,6 +79,13 @@ export interface DatabaseIntegrationOptions {
     /** Apply migrations that drop tables or columns or delete rows. */
     allowDataLoss?: boolean
   }
+  /**
+   * Applies the pending migrations of each Cloudflare D1 binding as part of the deploy, before the Worker deploys. The
+   * generated deploy command in `nitro.json` runs `wrangler d1 migrations apply <binding> --remote` first, so
+   * `nitro deploy --prebuilt`, Workers Builds and `vitehub deploy` stop when a migration fails. The build fails with
+   * `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED` for another host, or for a database without a D1 binding.
+   */
+  migrateOnDeploy?: boolean
   projectRoot?: string
 }
 
