@@ -31,7 +31,7 @@ Add `channels: true` and `agent: true` to the ViteHub options in `nuxt.config.ts
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true, channels: true },
+  vitehub: { host: 'node', agent: true, channels: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true, channels: true }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: true, channels: true }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true, channels: true })],
+  plugins: [vitehub({ host: 'node', agent: true, channels: true })],
 })
 ```
 ::::

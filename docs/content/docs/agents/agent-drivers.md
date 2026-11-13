@@ -89,7 +89,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -109,7 +109,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -128,7 +128,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -239,7 +239,7 @@ launch: ({ command, providerCommand }) => ({
 
 ### Route model requests through a gateway
 
-Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/agents/ai-gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
+Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -254,7 +254,7 @@ export default defineAgent({
 })
 ```
 
-[AI gateways](/docs/agents/ai-gateways) lists the presets, their variables, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the Driver fails at definition time with `AGENT_R0976`.
+[AI gateways](/docs/gateways) lists the presets, their variables, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the Driver fails at definition time with `AGENT_R0976`.
 
 ViteHub maps the gateway to each provider:
 
@@ -411,7 +411,7 @@ Install the client, an optional peer dependency:
 pnpm add advocaat
 ```
 
-It asks through the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to use Vercel or Cloudflare AI Gateway:
+It asks through the [`typesafe()` AI gateway](/docs/gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to use Vercel or Cloudflare AI Gateway:
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -475,7 +475,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -495,7 +495,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -514,7 +514,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -553,7 +553,7 @@ export default defineAgent({
 
 State, instructions, and criteria accept JSON. Root numbers and booleans become text for the `advocaat` Entry contract. Nested ones stay native. Score legends keep the level descriptions.
 
-`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/agents/ai-gateways#errors).
+`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/gateways/limits-and-errors#errors).
 
 The Console and `vitehub agent info` show the Driver kind as `ask`.
 

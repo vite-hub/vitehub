@@ -3,14 +3,14 @@ import type { AgentChannelDefinition } from '@vite-hub/agent'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
-import { lstat, mkdtemp, readdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
-import { prepareGitHubPullRequestWorkspace } from "./checkout.ts"
+import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
 const exec = promisify(execFile)
@@ -62,8 +62,12 @@ export interface GitHubHostPullRequest {
 
 export interface GitHubHostCheckout extends GitHubHostAccess {
   path: string
-  /** Restore source instruction files only before the provider injects its instructions. */
-  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean }): Promise<void>
+  /**
+   * Restore source instruction files only before the provider injects its instructions. For the
+   * `persistent.work` directory, `reuse` keeps its ignored files when the tracked tree matches the
+   * head, and the result says whether it did.
+   */
+  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
   commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
   push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
@@ -72,6 +76,11 @@ export interface GitHubHostCheckout extends GitHubHostAccess {
 export interface GitHubHostCheckoutOptions {
   signal?: AbortSignal
   timeout?: number
+  /**
+   * Keep the host clone in `checkout` after the callback and fetch into it next time instead of
+   * cloning. `work` is the provider workspace that `prepareWorkspace` keeps between calls.
+   */
+  persistent?: { checkout: string, work: string }
 }
 
 export interface GitHubHostForgeOptions extends GitHubHostCheckoutOptions {
@@ -168,6 +177,8 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
       const installationId = configured ?? await installation(context.repository, context.signal)
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
+    /** Every repository that the App's installations can access. */
+    repositories: (signal?: AbortSignal): Promise<GitHubAppRepository[]> => client.repositories(signal),
     /** The App bot's login and noreply email, used as the commit author. */
     async identity(): Promise<{ appId: number, login: string, email: string }> {
       identity ??= (async () => {
@@ -395,7 +406,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     if (pullRequest.headRepository && !pullRequest.headRef) {
       throw new Error("A pull request headRef is required when headRepository is supplied.")
     }
-    const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
+    const persistent = options.persistent
+    if (persistent) await mkdir(persistent.checkout, { recursive: true })
+    const checkout = persistent ? await realpath(persistent.checkout) : await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
     const checkoutIdentity = await lstat(checkout, { bigint: true })
     const isCheckout = async (path: string) => {
       try {
@@ -454,20 +467,46 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions)
         if (pullRequest.headRef.startsWith("-")) throw new Error("A pull request headRef cannot start with a dash.")
       }
-      // Provider workspaces must be self-contained. A blobless partial clone
-      // defers file objects to a lazy network fetch, which is unavailable to
-      // isolated agent runs when they inspect a full PR diff.
-      await exec("git", ["clone", "--no-checkout", "--", `https://github.com/${pullRequest.repository}.git`, checkout], commandOptions)
-      if (pullRequest.headRef) {
-        // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
-        const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
-        const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
-        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
-        await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
-      }
-      else {
-        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
-        await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", "--detach", "FETCH_HEAD"], commandOptions)
+      const cloneUrl = `https://github.com/${pullRequest.repository}.git`
+      // A kept clone is reused only when its own .git directory belongs to this repository;
+      // `git -C` alone would find a parent repository.
+      let reuseClone = Boolean(persistent)
+        && Boolean((await lstat(join(checkout, ".git")).catch(() => undefined))?.isDirectory())
+        && await exec("git", ["-C", checkout, "rev-parse", "--absolute-git-dir"], commandOptions)
+          .then(async result => result.stdout.trim() === await realpath(join(checkout, ".git")), () => false)
+        && await exec("git", ["-C", checkout, "config", "--local", "--get", "remote.origin.url"], commandOptions)
+          .then(result => result.stdout.trim() === cloneUrl, () => false)
+      // Fetch-time gc must not run detached while a provider workspace copies this .git directory.
+      const fetchConfig = persistent ? ["-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false"] : []
+      const checkoutMode = persistent ? ["--force"] : []
+      for (;;) {
+        try {
+          if (!reuseClone) {
+            if (persistent) await Promise.all((await readdir(checkout)).map(entry => rm(join(checkout, entry), { recursive: true, force: true, maxRetries: 3 })))
+            // Provider workspaces must be self-contained. A blobless partial clone
+            // defers file objects to a lazy network fetch, which is unavailable to
+            // isolated agent runs when they inspect a full PR diff.
+            await exec("git", ["clone", "--no-checkout", "--", cloneUrl, checkout], commandOptions)
+          }
+          if (pullRequest.headRef) {
+            // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
+            const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
+            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
+            await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
+            await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
+          }
+          else {
+            await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
+            await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "--detach", "FETCH_HEAD"], commandOptions)
+          }
+          if (persistent) await exec("git", ["-C", checkout, "clean", "-ffdxq"], commandOptions)
+          break
+        }
+        catch (error) {
+          // A kept clone that Git cannot update, such as one with a stale lock or a broken ref, is cloned again.
+          if (!reuseClone || operation.signal.aborted) throw error
+          reuseClone = false
+        }
       }
       await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
       const pushUrl = pullRequest.headRepository
@@ -481,7 +520,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
       operation.signal.throwIfAborted()
-      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean } = {}) => await prepareGitHubPullRequestWorkspace(checkout, target, { ...options, signal: operation.signal })
+      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean, reuse?: boolean, reason?: string } = {}) => persistent && resolve(target) === resolve(persistent.work)
+        ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, { reuse: options.reuse, reason: options.reason, signal: operation.signal })
+        : await prepareGitHubPullRequestWorkspace(checkout, target, { restoreInstructions: options.restoreInstructions, signal: operation.signal })
       let pushHead = pullRequest.headSha
       const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
       const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
@@ -534,7 +575,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       operation.close()
       // Cleanup is best effort. Preserve the callback result or error when
       // the checkout moved or filesystem discovery fails.
-      await cleanupCheckout().catch(() => undefined)
+      if (!persistent) await cleanupCheckout().catch(() => undefined)
     }
   }
 

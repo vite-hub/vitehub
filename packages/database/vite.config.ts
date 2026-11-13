@@ -45,6 +45,7 @@ export default defineConfig({
       },
     }],
     entry: [
+      "src/durability.ts",
       "src/index.ts",
       "src/cli.ts",
       "src/config.ts",

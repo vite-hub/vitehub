@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Develop locally
 
-`pnpm dev` runs Queue jobs in the dev server for every preset. `sendQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
+`pnpm dev` runs Queue jobs in the dev server for every host. `sendQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
 
 ```bash [Terminal]
 pnpm vitehub queue list
@@ -25,7 +25,7 @@ pnpm vitehub queue jobs clear --state dead --yes
 
 Each command takes `--json`, and `--url` for a deployed app. The Console and agents run the same `queue.jobs-*` operations.
 
-With `preset: 'node'`, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+With `host: 'node'`, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
 
 For Cloudflare or Vercel, build to check the Nitro output. A plain Node process, such as a `tsx` script, skips Vite discovery and the generated registry, so `sendQueue()` finds no queue files there.
 

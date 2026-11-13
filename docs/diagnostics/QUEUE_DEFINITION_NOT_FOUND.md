@@ -32,8 +32,8 @@ Use the name that discovery gives the file. Here the file is `server/queues/welc
 
 ```diff [vite.config.ts]
  export default defineConfig({
--  plugins: [vitehub({ preset: 'cloudflare' })],
-+  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+-  plugins: [vitehub({ host: 'cloudflare' })],
++  plugins: [vitehub({ host: 'cloudflare', queue: true })],
  })
 ```
 

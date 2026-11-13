@@ -76,7 +76,7 @@ describe("local operation RPC", () => {
     useViteHubDevPeerKey()
     const signed = async (remoteAddress: string, headers: Record<string, string> = {}) => {
       const req = { headers: { host: "localhost", ...headers }, method: "POST", socket: { remoteAddress }, url: "/_vitehub/rpc" }
-      await viteHubDevPeerDevHandler({ node: { req } })
+      await viteHubDevPeerDevHandler({ runtime: { node: { req } } })
       return Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
     }
     const body = { operation: "test.echo", input: { text: "local" } }

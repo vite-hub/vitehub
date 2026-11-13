@@ -28,7 +28,7 @@ icon: i-lucide-calendar-clock
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
@@ -46,7 +46,7 @@ icon: i-lucide-calendar-clock
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // Keeps Schedule Run history across restarts
         kv: true,
         // Checks for due schedules every minute
@@ -65,7 +65,7 @@ icon: i-lucide-calendar-clock
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // Keeps Schedule Run history across restarts
         kv: true,
         // Checks for due schedules every minute

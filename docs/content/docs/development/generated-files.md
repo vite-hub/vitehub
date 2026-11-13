@@ -29,18 +29,18 @@ not these files.
 | `.vitehub/nitro/realtime/registry.mjs` | Realtime Package | Registry of discovered Realtime Definitions. |
 | `.vitehub/nitro/realtime/handler.ts` | Realtime Package | WebSocket, save, refresh, and checkpoint route handler. |
 | `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Chat Webhook Route handler for chat-capable Agents. |
-| `.vitehub/agent/discord-gateway-plugin.ts` | Agent Package | Nitro process lifecycle for Discord Gateway listeners on the Node preset. |
+| `.vitehub/agent/discord-gateway-plugin.ts` | Agent Package | Nitro process lifecycle for Discord Gateway listeners on the Node host. |
 | `.vitehub/agent/discord-gateway-route.ts` | Agent Package | Nitro route handler that wakes the Discord Gateway listener for Discord Agents. |
 | `.vitehub/agent/registry-dev-plugin.ts` | Agent Package | `vite dev` only. Nitro plugin that gives the Agent package the generated Agent registry, and the KV package when KV is configured. |
 | `.vitehub/nitro/connections/registry-dev-plugin.ts` | Connections Package | `vite dev` only. Nitro plugin that gives the Connections package the generated Connection registry. |
 | `.vitehub/nitro/dev-defines.mjs` | ViteHub Framework | `vite dev` only. Nitro plugin that sets the `__VITEHUB_*__` build constants as globals for packages that Node loads. |
-| `.vitehub/agent/deno-server.ts` | Agent Package | Standalone Deno server for Agent chat and webhook routes. Written only when the Agent integration sets `runtime: 'deno'`. The `deno` preset serves Agent routes from Nitro instead. |
+| `.vitehub/agent/deno-server.ts` | Agent Package | Standalone Deno server for Agent chat and webhook routes. Written only when the Agent integration sets `runtime: 'deno'`. The `deno` host serves Agent routes from Nitro instead. |
 | `.vitehub/schedule/deno-cron.mjs` | Schedule Package | Deno `Deno.cron` wake output for Static Schedule Definitions. |
 | `.vitehub/nitro/schedule/*` | Schedule Package | Narrow Nitro bridge for Schedule Provider Wake. |
 | `.vitehub/provision.json` | ViteHub CLI | Non-secret Provision State read by Vite Integrations. |
-| `.output/server/index.mjs` | Provider Output | Server entry for the `node`, `cloudflare`, and `deno` presets. |
-| `.output/server/wrangler.json` | Provider Output | Cloudflare Worker config written by a `cloudflare` preset build. |
-| `.vercel/output/**` | Provider Output | Vercel Build Output written by a `vercel` preset build. |
+| `.output/server/index.mjs` | Provider Output | Server entry for the `node`, `cloudflare`, and `deno` hosts. |
+| `.output/server/wrangler.json` | Provider Output | Cloudflare Worker config written by a `cloudflare` host build. |
+| `.vercel/output/**` | Provider Output | Vercel Build Output written by a `vercel` host build. |
 | `.netlify/v1/functions/**` | Provider Output | Netlify Agent and static Schedule functions from their package integrations. |
 
 In `vite dev`, Node loads the Agent, Workspace, Connections, and runtime packages straight from `node_modules`. Vite transforms only your code, generated modules, and other ViteHub packages. Those Node-loaded packages cannot read Vite virtual modules or `define` constants, so the `vite dev` only plugins give them these values at Nitro start and after each reload. Builds bundle the packages and skip these plugins.
@@ -50,7 +50,7 @@ Nuxt puts the `.vitehub/agent/**` files in its build directory instead, under `<
 ## Inspect generation
 
 After a production build, the CLI lists the host output: which files the
-packages and preset write, and if each exists. It hides secrets.
+packages and host write, and if each exists. It hides secrets.
 
 ```bash [Terminal]
 pnpm build
@@ -58,7 +58,7 @@ pnpm vitehub inspect output
 ```
 
 List the files in `.vitehub` after Vite starts or builds. The set depends on
-your features and preset.
+your features and host.
 
 ```bash [Terminal]
 find .vitehub -maxdepth 4 -type f | sort
