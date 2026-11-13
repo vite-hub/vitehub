@@ -22,10 +22,12 @@ With `auth` in `vitehub()`, the MCP server needs an access token. Install `@bett
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { mcpOAuth } from 'vite-hub/auth/mcp'
 
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
+  database: authDatabase(),
   plugins: [...mcpOAuth({ resource: `${requestOrigin}/mcp`, loginPage: '/sign-in' })],
 }))
 ```

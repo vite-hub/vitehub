@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createProject(routes: string[]): Promise<string> {
+async function createProject(routes: string[], database: string | null = "'memory'"): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-cached-"))
   tempDirs.push(root)
   await mkdir(join(root, "server"), { recursive: true })
@@ -21,6 +21,7 @@ async function createProject(routes: string[]): Promise<string> {
     "import { defineAuth } from '@vite-hub/auth'",
     "export default defineAuth({",
     `  access: { routes: [${routes.join(", ")}] },`,
+    ...(database ? [`  database: ${database},`] : []),
     "})",
     "",
   ].join("\n"))
@@ -198,5 +199,25 @@ describe("Auth access routes with cache route rules", () => {
     const nitro: Record<string, unknown> = {}
     for (const hook of hooks) await hook(nitro)
     await expect(buildNitro(nitro, { "/dashboard/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+})
+
+describe("Auth memory store in a build", () => {
+  it("fails the build when the Definition has no database or preset", async () => {
+    const root = await createProject(["'/dashboard/**'"], null)
+    await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), {})).rejects.toMatchObject({
+      code: "AUTH_C0063",
+      fix: expect.stringContaining("database: \"memory\""),
+    })
+  })
+
+  it("keeps the implicit memory store on a development server", async () => {
+    const root = await createProject(["'/dashboard/**'"], null)
+    await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: { dev: true }, projectRoot: root }), {})).resolves.toBeUndefined()
+  })
+
+  it("builds with database: \"memory\"", async () => {
+    const root = await createProject(["'/dashboard/**'"])
+    await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), {})).resolves.toBeUndefined()
   })
 })

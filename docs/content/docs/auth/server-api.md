@@ -199,8 +199,10 @@ Add `authorize` when a session alone is not enough. ViteHub calls it only after 
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
+  database: authDatabase(),
   access: {
     routes: [
       {

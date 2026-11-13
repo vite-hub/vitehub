@@ -47,6 +47,7 @@ console.log(error.toJSON())
 | `AUTH_C0060` | Both `shared/abilities.ts` and another `shared/abilities.*` file exist. Keep one. |
 | `AUTH_C0061` | A callback returns `database: true` or `{ name }`. Return `authDatabase()` or another Better Auth adapter. See [Storage adapters](/docs/auth/configure#storage-adapters). |
 | `AUTH_C0062` | A callback returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
+| `AUTH_C0063` | A production build or server has an Auth Definition without `database` or `preset`. Set `database: authDatabase()`, use `preset: stateless()`, or set `database: "memory"` to keep users in one process. |
 | [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
