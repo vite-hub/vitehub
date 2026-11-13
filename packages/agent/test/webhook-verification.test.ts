@@ -617,6 +617,63 @@ describe("bearer webhook signature", () => {
   })
 })
 
+describe("channelAdapter() webhook registrations without verification", () => {
+  async function intake() {
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
+    const invoke = vi.fn(() => Response.json({ ran: true }))
+    return { channelAdapter, invoke, triggers: { hook: defineChannelTrigger({ invoke }) } }
+  }
+
+  async function post(channel: unknown) {
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const agent = defineAgent({ channels: { intake: channel as never }, driver: { run: () => "ok" } })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    return await handler(new Request("https://example.com/api/_vitehub/channels/intake", {
+      body: "{}",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), "intake", { agentName: "ops" })
+  }
+
+  it("throws at define time when a registration declares no verification and no opt-out", async () => {
+    const { channelAdapter, triggers } = await intake()
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: {} })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: true })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: [{ secretToken: false }, { id: "second" }] })).toThrow(/"second"/)
+    expect(() => channelAdapter("intake", {
+      messages: false,
+      triggers: { hook: { ...triggers.hook, webhooks: [{ provider: "intake" }] } },
+      webhooks: false,
+    })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+  })
+
+  it("answers 401 to an unsigned POST when a registration declares no verification", async () => {
+    const { channelAdapter, invoke, triggers } = await intake()
+    // A hand-built Channel skips the define-time check, so the route must still fail closed.
+    const response = await post({ ...channelAdapter("intake", { messages: false, triggers, webhooks: false }), webhooks: {} })
+    expect(response.status).toBe(401)
+    expect(await response.text()).toContain("declares no verification")
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("answers 401 to an unsigned POST when a trigger's own registration declares no verification", async () => {
+    const { channelAdapter, invoke, triggers } = await intake()
+    const channel = channelAdapter("intake", { messages: false, triggers, webhooks: false })
+    const response = await post({ ...channel, triggers: { hook: { ...triggers.hook, webhooks: [{ provider: "intake" }] } } })
+    expect(response.status).toBe(401)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("accepts an unsigned POST when the registration opts out with secretToken: false", async () => {
+    const { channelAdapter, invoke, triggers } = await intake()
+    const response = await post(channelAdapter("intake", { messages: false, triggers, webhooks: { secretToken: false } }))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ran: true })
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+})
+
 it.each(["gitlab", "forgejo"] as const)("verifies the %s Channel through the client", async kind => {
   const { gitlab, forgejo } = await import("../src/channels.ts")
   const { signDelivery } = await import("forges/testing")

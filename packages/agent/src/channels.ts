@@ -3841,6 +3841,7 @@ export function channelAdapter<
   }
   validateChannelMessageDefinition(kind, options.message)
   validateChannelHistoryDefinition(kind, options.history, options.triggers)
+  assertChannelWebhookVerification(kind, options)
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
     // SAFETY: An omitted message configuration selects the default settings object.
     options.messages === undefined ? {} as AgentMessageChannelSettings<TRuntimeConfig> : options.messages
@@ -3877,8 +3878,30 @@ function simulatedChannelOptions<
     adapter: () => createSimulatedChatAdapter(kind),
     webhooks: Array.isArray(webhooks)
       ? webhooks.map(registration => ({ ...registration, secretToken: false }))
-      : webhooks && typeof webhooks === "object" ? { ...webhooks, secretToken: false } : true,
+      : webhooks && typeof webhooks === "object" ? { ...webhooks, secretToken: false } : { secretToken: false },
   }
+}
+
+/**
+ * Every webhook registration of a Channel that ViteHub verifies must declare how: a secret, a secret header, or a
+ * signature. `secretToken: false` accepts unsigned requests on purpose. A Chat SDK adapter verifies its own message
+ * webhooks, so the Channel's `webhooks` are checked only with `messages: false`. A trigger's own `webhooks` never
+ * reach a Chat SDK adapter, so they are always checked.
+ */
+function assertChannelWebhookVerification<TRuntimeConfig extends AgentRuntimeConfig>(
+  kind: string,
+  options: Pick<AgentChannelDefinitionOptions<TRuntimeConfig, unknown, never, unknown>, "messages" | "triggers" | "webhooks">,
+): void {
+  const check = (owner: string, webhooks: AgentChannelDefinition<TRuntimeConfig>["webhooks"]) => {
+    if (webhooks === undefined || webhooks === false) return
+    const registrations: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[] = webhooks === true ? [{}] : Array.isArray(webhooks) ? webhooks : [webhooks]
+    for (const registration of registrations) {
+      if (registration.secretToken !== undefined || registration.signature !== undefined || registration.secretHeader !== undefined) continue
+      throw agentDiagnostics.AGENT_R1044({ registration: registration.id || owner })
+    }
+  }
+  if (options.messages === false) check(kind, options.webhooks)
+  for (const [name, trigger] of Object.entries(options.triggers || {})) check(`${kind}.${name}`, trigger.webhooks)
 }
 
 /** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */

@@ -573,6 +573,7 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
   registrations: AgentWebhookRegistrationDefinition<TRuntimeConfig>[],
   context: AgentCallbackContext<TRuntimeConfig>,
 ): Promise<AgentWebhookVerificationResult> {
+  let unconfigured: AgentWebhookRegistrationDefinition<TRuntimeConfig> | undefined
   for (const registration of registrations) {
     const secretToken = await resolveWebhookSecret(registration.secretToken, context)
     if (secretToken !== undefined && secretToken !== false && typeof secretToken !== "string") {
@@ -588,6 +589,7 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
       if (registration.secretToken !== undefined) {
         throw unresolvedSecretError(registration)
       }
+      if (registration.signature === undefined) unconfigured ??= registration
       continue
     }
     if (secretToken === false) {
@@ -599,6 +601,9 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
     throw webhookVerificationError(`[vitehub] Webhook secret header "${secretHeader}" is required.`)
   }
   // No registration verified the request. A required check never passes by default.
+  if (unconfigured) {
+    throw webhookVerificationError(`[vitehub] Webhook registration "${unconfigured.id || unconfigured.provider}" declares no verification. Set secretToken with secretHeader, signature: "bearer", or signature: { verify }; secretToken: false explicitly disables verification.`)
+  }
   throw webhookVerificationError("[vitehub] Webhook secret verification failed.")
 }
 

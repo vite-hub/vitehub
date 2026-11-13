@@ -318,6 +318,8 @@ export default defineChannel({
 
 Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()`, set `secretHeader`, `secretToken`, and `signature`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
 
+Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secretToken`, `secretHeader`, or `signature`, or set `secretToken: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
+
 `webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
 
 ```ts [server/channels/public-events.ts]
