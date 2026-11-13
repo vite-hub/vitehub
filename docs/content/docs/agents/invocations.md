@@ -352,7 +352,10 @@ Codex and Claude Code often run outside the app: on a laptop, in CI, or on an ev
 ```ts
 import { readFile } from 'node:fs/promises'
 import { importAgentSession, readCodexSession } from '@vite-hub/agent/sessions'
+import { createLibsqlAgentInvocationStore } from '@vite-hub/agent/invocations'
 
+const rolloutPath = './rollout.jsonl'
+const store = createLibsqlAgentInvocationStore({ url: 'file:./agent-journal.sqlite' })
 const session = readCodexSession(await readFile(rolloutPath, 'utf8'))
 const { id } = await importAgentSession(store, session, { agentName: 'coder', runId: 'eval-42', title: 'Add a health route' })
 ```

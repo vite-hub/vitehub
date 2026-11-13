@@ -8,6 +8,7 @@
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentInvocationId } from "./invocations.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationStore, AgentInvocationStoreCreateInput } from "./invocations.ts"
 
@@ -541,7 +542,7 @@ export function readClaudeCodeSession(text: string): AgentSession {
 export function readAgentSession(provider: AgentSessionProvider, text: string): AgentSession {
   if (provider === "codex") return readCodexSession(text)
   if (provider === "claude-code") return readClaudeCodeSession(text)
-  throw new TypeError(`[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use "codex" or "claude-code".`)
+  throw agentDiagnostics.AGENT_R1040({ provider })
 }
 
 // Invocation
@@ -563,7 +564,7 @@ function durationMs(from: string, to: string): number | undefined {
  */
 export async function agentSessionInvocation(session: AgentSession, options: AgentSessionImportOptions): Promise<AgentInvocationStoreCreateInput> {
   const { agentName, runId } = options
-  if (!agentName?.trim() || !runId?.trim()) throw new TypeError("[vitehub] importAgentSession() needs agentName and runId.")
+  if (!agentName?.trim() || !runId?.trim()) throw agentDiagnostics.AGENT_R1041()
   const id = await agentInvocationId(runId, agentName)
   const traceId = await sha256(JSON.stringify(["trace", agentName, runId]))
   const startedAt = session.startedAt ?? new Date().toISOString()
@@ -710,9 +711,9 @@ export async function importAgentSession(store: AgentInvocationStore, session: A
   await store.open?.()
   const existing = await store.getSummary(record.id)
   if (existing) {
-    if (!store.delete) throw new TypeError("[vitehub] importAgentSession() replaces an earlier import, and this store cannot delete records.")
+    if (!store.delete) throw agentDiagnostics.AGENT_R1042()
     const outcome = await store.delete(record.id)
-    if (outcome === "not-terminal") throw new TypeError(`[vitehub] importAgentSession() cannot replace Invocation ${record.id}: it is still pending or running.`)
+    if (outcome === "not-terminal") throw agentDiagnostics.AGENT_R1043({ id: record.id })
   }
   const { created } = await store.create(record)
   return { id: record.id, created, replaced: Boolean(existing) }

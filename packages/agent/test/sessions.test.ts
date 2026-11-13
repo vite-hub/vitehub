@@ -173,6 +173,23 @@ describe("importAgentSession", () => {
     await expect(agentSessionInvocation(readCodexSession(codex), { agentName: " ", runId: "x" })).rejects.toThrow(/needs agentName and runId/)
   })
 
+  it("reports unsupported replacement stores without losing the earlier import", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const first = await importAgentSession(store, readCodexSession(codex), options)
+    await expect(importAgentSession({ ...store, delete: undefined }, readClaudeCodeSession(claude), options))
+      .rejects.toMatchObject({ code: "AGENT_R1042" })
+    expect((await store.get(first.id))?.status).toBe("completed")
+  })
+
+  it("reports a running Invocation without replacing it", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const record = await agentSessionInvocation(readCodexSession(codex), options)
+    await store.create({ ...record, status: "running", completedAt: undefined })
+    await expect(importAgentSession(store, readClaudeCodeSession(claude), options))
+      .rejects.toMatchObject({ code: "AGENT_R1043" })
+    expect((await store.get(record.id))?.status).toBe("running")
+  })
+
   it("writes the record and replaces it on a second import", async () => {
     const store = createMemoryAgentInvocationStore()
     const first = await importAgentSession(store, readCodexSession(codex), options)
