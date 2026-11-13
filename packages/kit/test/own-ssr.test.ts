@@ -2,6 +2,7 @@ import { createSSRApp, h, type VNode } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 
+import { AspectRatio } from "@vite-hub/kit/aspect-ratio";
 import {
   Editable,
   EditableArea,
@@ -13,6 +14,17 @@ import {
 } from "@vite-hub/kit/editable";
 import { Field, FieldControl, FieldError } from "@vite-hub/kit/field";
 import { Form } from "@vite-hub/kit/form";
+import {
+  Stepper,
+  StepperDescription,
+  StepperIndicator,
+  StepperItem,
+  StepperNext,
+  StepperPrevious,
+  StepperSeparator,
+  StepperTitle,
+  StepperTrigger,
+} from "@vite-hub/kit/stepper";
 import { TagGroup, TagGroupItem, TagGroupItemRemove } from "@vite-hub/kit/tag-group";
 import {
   TagsInput,
@@ -22,6 +34,7 @@ import {
   TagsInputItemDelete,
   TagsInputItemText,
 } from "@vite-hub/kit/tags-input";
+import { VisuallyHidden } from "@vite-hub/kit/visually-hidden";
 
 const render = (tree: () => VNode) => renderToString(createSSRApp({ render: tree }));
 
@@ -84,5 +97,33 @@ describe("server rendering of the kit's own components", () => {
     expect(html.match(/role="row" tabindex="0"/g)).toHaveLength(1);
     expect(html).toContain('<div data-slot="tag-group-item" role="row" tabindex="-1" aria-selected="true" data-selected>');
     expect(html.match(/<div role="gridcell" data-slot="tag-group-item-cell">/g)).toHaveLength(2);
+  });
+
+  it("renders Stepper with one tab stop, on the current step", async () => {
+    const html = await render(() =>
+      h(Stepper, { defaultValue: 2 }, () => [
+        ...[1, 2, 3].map((step) =>
+          h(StepperItem, { value: step }, () => [
+            h(StepperTrigger, null, () => h(StepperIndicator, null, () => String(step))),
+            h(StepperTitle, null, () => `Step ${step}`),
+            h(StepperDescription),
+            h(StepperSeparator),
+          ]),
+        ),
+        h(StepperPrevious),
+        h(StepperNext),
+      ]),
+    );
+    expect(html).toMatch(/^<div data-slot="stepper" role="group" data-orientation="horizontal" data-linear>/);
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html).toMatch(/<button data-slot="stepper-trigger" type="button" tabindex="0" aria-current="step"/);
+    expect(html).toContain('<div data-slot="stepper-item" data-current data-orientation="horizontal">');
+    expect(html).toContain('data-slot="stepper-separator" aria-hidden="true"');
+  });
+
+  it("renders AspectRatio and VisuallyHidden with their styles", async () => {
+    const html = await render(() => h("div", [h(AspectRatio, { ratio: 2 }), h(VisuallyHidden, null, () => "Close")]));
+    expect(html).toContain('<div data-slot="aspect-ratio" style="aspect-ratio:2;--aspect-ratio:2;"></div>');
+    expect(html).toMatch(/<span data-slot="visually-hidden" style="position:absolute;[^"]*clip-path:inset\(50%\);[^"]*">Close<\/span>/);
   });
 });

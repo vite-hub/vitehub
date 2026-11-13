@@ -1,5 +1,6 @@
 /** The entries the kit adds to ui-sdk's, with the parts each one exports. The Nuxt module registers them. */
 export const ownEntries: Record<string, readonly string[]> = {
+  "aspect-ratio": ["AspectRatio"],
   editable: [
     "Editable",
     "EditableArea",
@@ -10,6 +11,17 @@ export const ownEntries: Record<string, readonly string[]> = {
     "EditableSubmitTrigger",
   ],
   form: ["Form"],
+  stepper: [
+    "Stepper",
+    "StepperDescription",
+    "StepperIndicator",
+    "StepperItem",
+    "StepperNext",
+    "StepperPrevious",
+    "StepperSeparator",
+    "StepperTitle",
+    "StepperTrigger",
+  ],
   "tag-group": ["TagGroup", "TagGroupItem", "TagGroupItemRemove"],
   "tags-input": [
     "TagsInput",
@@ -19,4 +31,5 @@ export const ownEntries: Record<string, readonly string[]> = {
     "TagsInputItemDelete",
     "TagsInputItemText",
   ],
+  "visually-hidden": ["VisuallyHidden"],
 };

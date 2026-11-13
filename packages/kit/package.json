@@ -43,6 +43,11 @@
       "import": "./dist/alert-dialog.js",
       "default": "./dist/alert-dialog.js"
     },
+    "./aspect-ratio": {
+      "types": "./dist/aspect-ratio.d.ts",
+      "import": "./dist/aspect-ratio.js",
+      "default": "./dist/aspect-ratio.js"
+    },
     "./async-options": {
       "types": "./dist/async-options.d.ts",
       "import": "./dist/async-options.js",
@@ -313,6 +318,11 @@
       "import": "./dist/slider.js",
       "default": "./dist/slider.js"
     },
+    "./stepper": {
+      "types": "./dist/stepper.d.ts",
+      "import": "./dist/stepper.js",
+      "default": "./dist/stepper.js"
+    },
     "./switch": {
       "types": "./dist/switch.d.ts",
       "import": "./dist/switch.js",
@@ -387,6 +397,11 @@
       "types": "./dist/trigger-menu.d.ts",
       "import": "./dist/trigger-menu.js",
       "default": "./dist/trigger-menu.js"
+    },
+    "./visually-hidden": {
+      "types": "./dist/visually-hidden.d.ts",
+      "import": "./dist/visually-hidden.js",
+      "default": "./dist/visually-hidden.js"
     },
     "./waterfall": {
       "types": "./dist/waterfall.d.ts",

@@ -17,7 +17,7 @@ Import each part from its own entry, so an app loads only the parts it uses. The
 | Import | Contents |
 | --- | --- |
 | `@vite-hub/kit/<name>` | The parts and helpers of `@ui-sdk/vue/<name>`, for example `@vite-hub/kit/dialog`, `@vite-hub/kit/tabs`, and `@vite-hub/kit/date-picker`. Every entry of `@ui-sdk/vue` has one. |
-| `@vite-hub/kit/form`, `editable`, `tags-input`, `tag-group` | The components that the kit adds. See [Components we add](#components-we-add). |
+| `@vite-hub/kit/form`, `editable`, `tags-input`, `tag-group`, `stepper`, `aspect-ratio`, `visually-hidden` | The components that the kit adds. See [Components we add](#components-we-add). |
 | `@vite-hub/kit/nuxt` | The Nuxt module |
 
 ```vue
@@ -48,6 +48,9 @@ ui-sdk does not have some components that Reka UI has. The kit adds them, built 
 | `@vite-hub/kit/form` | `Form` | A `<form>` that ties its fields to one submission. `@form-submit` gets the values by name after the browser's validation passes. `v-model:errors` shows errors from your code, such as a server's, in the `Field` of the control with the same `name`, until the person edits that control. Without an `action`, the form stays on the page. |
 | `@vite-hub/kit/editable` | `Editable`, `EditableArea`, `EditablePreview`, `EditableInput`, `EditableSubmitTrigger`, `EditableCancelTrigger`, `EditableEditTrigger` | Text that turns into an input in place. Focus or a double click starts editing (`activation-mode`), and so do Enter and F2. Enter or leaving saves (`submit-mode`), and Escape cancels. Focus goes back to where editing started. |
 | `@vite-hub/kit/tags-input` | `TagsInput`, `TagsInputItem`, `TagsInputItemText`, `TagsInputItemDelete`, `TagsInputInput`, `TagsInputClear` | Free text as tags. Enter or the `delimiter` adds a tag. Backspace in an empty input removes the last tag. The arrow keys move a highlight between tags, and Backspace or Delete removes the highlighted tag. With `name`, a form submits each tag. |
+| `@vite-hub/kit/stepper` | `Stepper`, `StepperItem`, `StepperTrigger`, `StepperIndicator`, `StepperTitle`, `StepperDescription`, `StepperSeparator`, `StepperPrevious`, `StepperNext` | The steps of a process, such as a checkout. `v-model` binds the current step, a number. Each step shows `data-complete`, `data-current`, or `data-upcoming`. The triggers have one tab stop, on the current step, and the arrow keys move between them. With `linear`, the default, a person can only go back or one step ahead. |
+| `@vite-hub/kit/aspect-ratio` | `AspectRatio` | Keeps its width and height in a `ratio`, such as `16 / 9`, with CSS `aspect-ratio`. |
+| `@vite-hub/kit/visually-hidden` | `VisuallyHidden` | Content that screen readers read and people do not see. `feature="fully-hidden"` also hides it from screen readers. |
 | `@vite-hub/kit/tag-group` | `TagGroup`, `TagGroupItem`, `TagGroupItemRemove` | A list of tags that a person can select and remove, as in React Aria. It is a grid with one tab stop. The arrow keys, Home, and End move focus, Space or Enter selects (`selection-mode`), and Delete or Backspace sends `@remove` for a tag that has a remove button. |
 
 ```vue
@@ -74,6 +77,9 @@ Differences from Reka UI:
 - `Editable` saves on Enter and on blur by default (`submit-mode="both"`). Reka saves only on blur.
 - `TagsInput` keeps each tag once. It has no `duplicate` prop.
 - `TagGroup` keeps the selection in an array, also with `selection-mode="single"`.
+- `StepperItem` takes the step number as `value`, not `step`. `StepperPrevious` and `StepperNext` are extra parts.
+- `AspectRatio` renders one element with CSS `aspect-ratio`, not a wrapper with padding.
+- There is no `Direction` part. ui-sdk reads the CSS direction of each element.
 
 ## Nuxt
 

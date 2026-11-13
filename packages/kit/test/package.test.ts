@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { ownEntries as ownParts } from "../src/parts/own-entries.ts";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
 import { kitEntries, ownEntries, uiSdkEntries } from "./entries.ts";
 
@@ -17,6 +18,15 @@ describe("@vite-hub/kit package contract", () => {
 
   it("has one entry for each entry of @ui-sdk/vue, and one for each component it adds", () => {
     expect(kitEntries.toSorted()).toEqual([...uiSdkEntries, ...ownEntries].toSorted());
+  });
+
+  it("lists every part of its own components for the Nuxt module", async () => {
+    for (const entry of ownEntries) {
+      const module: Record<string, unknown> = await import(/* @vite-ignore */ `@vite-hub/kit/${entry}`);
+      const parts = Object.keys(module).filter((name) => /^[A-Z]/.test(name));
+      expect(parts.toSorted(), entry).toEqual([...(ownParts[entry] ?? [])].toSorted());
+    }
+    expect(Object.keys(ownParts).toSorted()).toEqual(ownEntries.toSorted());
   });
 
   it("loads each entry from the built package", async () => {
