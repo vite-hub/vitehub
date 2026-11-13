@@ -101,12 +101,14 @@ Set `uriTemplate` for a family of resources, such as the files of each skill. `{
 ```ts [server/mcp/resources/skill_file.ts]
 import { defineMcpResource } from 'vite-hub/mcp'
 
+const files: Record<string, string> = { 'drop/SKILL.md': '# Drop', 'drop/references/api.md': '# API' }
+
 export default defineMcpResource({
   uriTemplate: 'skill://{name}/{+path}',
   description: 'A file of a skill.',
   mimeType: 'text/markdown',
-  list: () => [{ uri: 'skill://drop/SKILL.md', title: 'Drop skill' }],
-  handler: (uri, { variables }) => readSkillFile(variables.name, variables.path),
+  list: () => Object.keys(files).map(file => ({ uri: `skill://${file}` })),
+  handler: (uri, { variables }) => files[`${variables.name}/${variables.path}`],
 })
 ```
 
