@@ -1,6 +1,7 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
-import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { constants, createReadStream } from "node:fs"
+import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
@@ -170,6 +171,12 @@ function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex")
 }
 
+async function sha256File(path: string) {
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest("hex")
+}
+
 function metadataKey(metadata: FsBlobMetadata) {
   const custom = Object.entries(metadata.customMetadata || {}).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
   return JSON.stringify([metadata.contentType ?? null, custom])
@@ -276,13 +283,17 @@ async function readMetadata(root: string, pathname: string, stats: BigIntStats, 
   }
 }
 
-async function writeAtomic(root: string, path: string, bytes: Uint8Array | string, beforePublish?: (temporary: string) => Promise<void>) {
+/** Writes `content` to a new file. A function writes the new file itself, for example with `copyFile()`. */
+type AtomicContent = Uint8Array | string | ((temporary: string) => Promise<void>)
+
+async function writeAtomic(root: string, path: string, content: AtomicContent, beforePublish?: (temporary: string) => Promise<void>) {
   // Keep incomplete bytes outside user listings, then publish one complete file.
   const temporary = resolve(root, ".vitehub", "blob-writes", randomUUID())
   await assertNoSymlinkPath(root, temporary)
   await mkdir(dirname(temporary), { recursive: true })
   try {
-    await writeFile(temporary, bytes, { flag: "wx" })
+    if (typeof content === "function") await content(temporary)
+    else await writeFile(temporary, content, { flag: "wx" })
     await beforePublish?.(temporary)
     await assertNoSymlinkPath(root, path)
     await rename(temporary, path)
@@ -680,27 +691,43 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       await assertNoSymlinkPath(root, path)
       await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
       const bytes = await bodyToBytes(body)
-      await assertNoSymlinkPath(root, path)
-      await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
-      await mkdir(dirname(path), { recursive: true })
-      await writeAtomic(root, path, bytes, async (temporary) => {
-        const stats = await stat(temporary, { bigint: true })
-        const metadataPath = generationMetaPath(root, pathname, stats)
-        await assertNoSymlinkPath(root, metadataPath)
-        await mkdir(dirname(metadataPath), { recursive: true })
-        // Prepare immutable metadata before the only visible publication step:
-        // renaming the payload. Readers select metadata by that payload's inode.
-        await writeAtomic(root, metadataPath, JSON.stringify({
-          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
-          customMetadata: putOptions.customMetadata,
-          contentHash: sha256(bytes),
-          mtimeNs: String(stats.mtimeNs),
-          size: Number(stats.size),
-        }))
-      })
-      const entry = await readEntry(root, pathname)
-      return toBlobObject(entry!)
+      return publish(pathname, bytes, {
+        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
+        customMetadata: putOptions.customMetadata,
+      }, async () => sha256(bytes))
     },
+    // Copies the file, then writes the metadata of the source for the new file.
+    async copy(from, to) {
+      const source = await readEntry(root, from)
+      if (!source) return null
+      const sourcePath = resolveBlobPath(root, from)
+      await assertNoSymlinkPath(root, sourcePath)
+      return publish(to, temporary => copyFile(sourcePath, temporary, constants.COPYFILE_EXCL), source.meta, sha256File)
+    },
+  }
+
+  async function publish(pathname: string, content: AtomicContent, meta: FsBlobMetadata, contentHash: (temporary: string) => Promise<string>): Promise<BlobObject> {
+    const path = resolveBlobPath(root, pathname)
+    await assertNoSymlinkPath(root, path)
+    await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
+    await mkdir(dirname(path), { recursive: true })
+    await writeAtomic(root, path, content, async (temporary) => {
+      const stats = await stat(temporary, { bigint: true })
+      const metadataPath = generationMetaPath(root, pathname, stats)
+      await assertNoSymlinkPath(root, metadataPath)
+      await mkdir(dirname(metadataPath), { recursive: true })
+      // Prepare immutable metadata before the only visible publication step:
+      // renaming the payload. Readers select metadata by that payload's inode.
+      await writeAtomic(root, metadataPath, JSON.stringify({
+        contentType: meta.contentType,
+        customMetadata: meta.customMetadata,
+        contentHash: await contentHash(temporary),
+        mtimeNs: String(stats.mtimeNs),
+        size: Number(stats.size),
+      }))
+    })
+    const entry = await readEntry(root, pathname)
+    return toBlobObject(entry!)
   }
   return driver
 }
