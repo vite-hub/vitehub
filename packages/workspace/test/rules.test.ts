@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { defineWorkspace } from "../src/core/define.ts"
 import { resolveWorkspaceAutoCommit } from "../src/core/rules.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import type { WorkspaceRules } from "../src/core/types.ts"
 
 describe("workspace rules", () => {
   it("keeps ordinary direct Workspace braces compatible in memory stores", async () => {
@@ -121,6 +123,83 @@ describe("workspace rules", () => {
     expect(seen).toEqual([{ gitMode: "120000" }])
     await expect(workspace.stat("script.sh")).resolves.toMatchObject({
       metadata: { gitMode: "100755" },
+    })
+  })
+
+  describe("policy", () => {
+    it("rejects a read rule, because Workspace rules do not limit reads", () => {
+      const rules: WorkspaceRules = {
+        "secrets/**": {
+          // @ts-expect-error `read` is not a Workspace rule.
+          read: false,
+        },
+      }
+      expect(() => defineWorkspace({ rules })).toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
+      expect(() => createWorkspace({ name: "secrets", rules, store: { provider: "memory" } }))
+        .toThrow("Workspace rule \"secrets/**\" sets read. Workspace rules do not limit reads.")
+      expect(() => createWorkspace({ name: "plugin-secrets", plugins: [{ id: "guard", rules }], store: { provider: "memory" } }))
+        .toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
+    })
+
+    it("keeps a broader write: false when a more specific rule does not set write", async () => {
+      const workspace = createWorkspace({
+        name: "locked",
+        rules: { "**": { write: false }, "docs/**": { maxBytes: 100 } },
+        store: { provider: "memory" },
+      })
+
+      await expect(workspace.writeFile("docs/page.md", "page")).rejects.toThrow("Workspace rule \"**\" does not allow writeFile")
+      await expect(workspace.exists("docs/page.md")).resolves.toBe(false)
+    })
+
+    it("lets a more specific rule allow writes with an explicit write: true", async () => {
+      const workspace = createWorkspace({
+        name: "carve-out",
+        rules: { "**": { maxBytes: 4, write: false }, "docs/**": { write: true } },
+        store: { provider: "memory" },
+      })
+
+      await expect(workspace.writeFile("docs/page.md", "page")).resolves.toBe("docs/page.md")
+      await expect(workspace.writeFile("docs/large.md", "large")).rejects.toThrow("Workspace rule \"**\" limits writes to 4 bytes")
+      await expect(workspace.writeFile("other.md", "x")).rejects.toThrow("does not allow writeFile")
+    })
+
+    it("runs the validators of every matching rule", async () => {
+      const workspace = createWorkspace({
+        name: "validators",
+        rules: { "**": { validate: () => false }, "docs/**": { write: true } },
+        store: { provider: "memory" },
+      })
+
+      await expect(workspace.writeFile("docs/page.md", "page")).rejects.toThrow("validator rejected")
+    })
+
+    it("keeps plugin rule fields when the app rule on the same pattern sets other fields", async () => {
+      const validate = vi.fn(() => false)
+      const workspace = createWorkspace({
+        name: "plugin-merge",
+        plugins: [{ id: "guard", rules: { "secrets/**": { write: false }, "posts/**": { validate } } }],
+        rules: { "secrets/**": { maxBytes: 100 }, "posts/**": { maxBytes: 100 } },
+        store: { provider: "memory" },
+      })
+
+      await expect(workspace.writeFile("secrets/token.txt", "x")).rejects.toThrow("does not allow writeFile")
+      await expect(workspace.writeFile("posts/a.md", "x")).rejects.toThrow("validator rejected")
+      expect(validate).toHaveBeenCalledOnce()
+    })
+
+    it("checks mediaType from the path when the write passes no media type", async () => {
+      const workspace = createWorkspace({
+        name: "media",
+        rules: { "**": { mediaType: "text/markdown" } },
+        store: { provider: "memory" },
+      })
+
+      await expect(workspace.writeFile("page.html", "<script>alert(1)</script>")).rejects.toThrow("does not allow media type text/html: page.html")
+      await expect(workspace.writeFile("no-extension", "x")).rejects.toThrow("does not allow media type application/octet-stream")
+      await expect(workspace.writeFile("page.md", "# Page\n")).resolves.toBe("page.md")
+      await expect(workspace.stat("page.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
+      await expect(workspace.mkdir("folder", { recursive: true })).resolves.toBeUndefined()
     })
   })
 })
