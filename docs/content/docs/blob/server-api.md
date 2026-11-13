@@ -231,6 +231,10 @@ It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
 
+`event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
+`Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
+the event.
+
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
 import { blob } from 'vite-hub/blob'
