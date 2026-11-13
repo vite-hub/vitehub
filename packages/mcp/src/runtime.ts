@@ -2,6 +2,8 @@ import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { standardJsonSchema } from "@vite-hub/internal/standard-schema"
 
+import { mcpErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { McpContentBlock, McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 import type { McpToolCaller, McpToolContext, McpToolDefinition } from "./index.ts"
@@ -13,6 +15,8 @@ export type McpVerifyResult = readonly [{ code: string, message: string }, undef
 export interface McpHandlerOptions {
   /** The route of the server, such as `/mcp`. */
   route: string
+  /** The route that serves the tools with `public: true`. Without it, a tool that sets `public` is an error. */
+  publicRoute?: string
   /** The name that clients show, such as the app name. */
   name: string
   /** The tools by name, from the files in `server/mcp/tools/`. */
@@ -124,6 +128,12 @@ function unauthorized(request: Request, route: string, error: { code: string, me
  * request without a valid access token gets a `401` that names the protected resource metadata.
  */
 export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) => Promise<Response> {
+  if (!options.publicRoute) {
+    const named = Object.entries(options.tools).filter(([, definition]) => definition.public !== undefined).map(([name]) => name)
+    if (named.length) {
+      throw mcpErrorDiagnostics.MCP_R0001({ message: `[vitehub] The MCP tools ${named.map(name => JSON.stringify(name)).join(", ")} set public, but the MCP server at ${JSON.stringify(options.route)} has no publicRoute.` })
+    }
+  }
   const serverInfo = { name: options.name, title: options.name, version: "1" }
   const tools = Object.entries(options.tools).map(([name, definition]) => ({ definition, listed: listedTool(name, definition) }))
   return async (event) => {
