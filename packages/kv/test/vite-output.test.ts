@@ -327,6 +327,45 @@ describe("KV Vite output", () => {
     expect(output).toContain("KV_CUSTOM")
   })
 
+  it("exports driver lookup from the generated Cloudflare runtime without opening a binding", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKV }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, 'export { getKVStoreDriver } from "@vite-hub/kv"\n')
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: { output: { entryFileNames: "worker.js" } },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubKV({ stores: {
+        default: { driver: "cloudflare-kv-binding", namespaceId: "default-id" },
+        sessions: { driver: "cloudflare-kv-binding", namespaceId: "sessions-id" },
+      } })],
+      root: rootDir,
+    })
+
+    // SAFETY: The fixture re-exports this public API from the generated runtime.
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
+      getKVStoreDriver: (name?: string) => Promise<string>
+    }
+    await expect(worker.getKVStoreDriver()).resolves.toBe("cloudflare-kv-binding")
+    await expect(worker.getKVStoreDriver("sessions")).resolves.toBe("cloudflare-kv-binding")
+    for (const name of ["missing", "constructor"]) {
+      await expect(worker.getKVStoreDriver(name)).rejects.toMatchObject({
+        code: "KV_STORE_NOT_FOUND",
+        message: `The KV store "${name}" is not configured.`,
+      })
+    }
+  })
+
   it("rejects inherited store names in the generated Cloudflare runtime", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")

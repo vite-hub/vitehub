@@ -76,7 +76,7 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
   },
   rateLimit: {
     cloudflare: { options: { rateLimit: { comment: "On Cloudflare, a binding keeps counts", value: "true" } } },
-    node: { options: { rateLimit: { comment: "On Node, counts stay in memory", value: "true" } } },
+    node: { options: { rateLimit: { comment: "On Node, counts stay in memory. Turn on shared KV to share them.", value: "true" } } },
   },
   // realtime/configure.md, "Choose a room authority": `auto` selects Durable Objects, or Redis or Postgres on Node.
   realtime: {
