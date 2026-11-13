@@ -9,108 +9,110 @@ icon: i-lucide-gauge
 ---
 
 ::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
-  :::code-tree{feature="rateLimit"}
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
+  :hero-figure{name="rate-limit"}
+::
+
+::code-tree{feature="rateLimit"}
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    // On Node, counts stay in memory
+    rateLimit: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
       host: 'node',
       // On Node, counts stay in memory
       rateLimit: true,
-    },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      // On Node, counts stay in memory
+      rateLimit: true,
+    }),
+  ],
+})
+```
+:::
+
+```ts [server/api/upload.post.ts]
+import { defineEventHandler } from 'h3'
+import { requireRateLimit } from 'vite-hub/rate-limit'
+
+// 2 requests a minute for each client.
+// The third gets a 429 error.
+export default defineEventHandler(async (event) => {
+  await requireRateLimit(event, 'image-upload', {
+    limit: 2,
+    window: '1m',
   })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
+  return { ok: true }
+})
+```
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        host: 'node',
-        // On Node, counts stay in memory
-        rateLimit: true,
-      }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+```ts [server/api/messages.post.ts]
+import { defineEventHandler, type H3Event } from 'h3'
+import { withAuth } from 'vite-hub/auth/server'
+import { requireRateLimit } from 'vite-hub/rate-limit'
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        host: 'node',
-        // On Node, counts stay in memory
-        rateLimit: true,
-      }),
-    ],
-  })
-  ```
-  ::::
-
-  ```ts [server/api/upload.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { requireRateLimit } from 'vite-hub/rate-limit'
-
-  // 2 requests a minute for each client.
-  // The third gets a 429 error.
-  export default defineEventHandler(async (event) => {
-    await requireRateLimit(event, 'image-upload', {
-      limit: 2,
+// Count per signed-in user, not per address
+export default defineEventHandler(
+  withAuth(async (event: H3Event, { user }) => {
+    await requireRateLimit(event, 'send-message', {
+      key: user.id,
+      limit: 10,
       window: '1m',
     })
     return { ok: true }
-  })
-  ```
+  }),
+)
+```
 
-  ```ts [server/api/messages.post.ts]
-  import { defineEventHandler, type H3Event } from 'h3'
-  import { withAuth } from 'vite-hub/auth/server'
-  import { requireRateLimit } from 'vite-hub/rate-limit'
+```ts [server/api/search.get.ts]
+import { defineEventHandler } from 'h3'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import {
+  memoryRateLimitDriver,
+} from 'vite-hub/rate-limit/drivers/memory'
 
-  // Count per signed-in user, not per address
-  export default defineEventHandler(
-    withAuth(async (event: H3Event, { user }) => {
-      await requireRateLimit(event, 'send-message', {
-        key: user.id,
-        limit: 10,
-        window: '1m',
-      })
-      return { ok: true }
-    }),
-  )
-  ```
+const limiter = createRateLimiter({
+  driver: memoryRateLimitDriver(),
+  limit: 30,
+  window: '1m',
+})
 
-  ```ts [server/api/search.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { createRateLimiter } from 'vite-hub/rate-limit'
-  import {
-    memoryRateLimitDriver,
-  } from 'vite-hub/rate-limit/drivers/memory'
-
-  const limiter = createRateLimiter({
-    driver: memoryRateLimitDriver(),
-    limit: 30,
-    window: '1m',
-  })
-
-  // Read the result and answer your own way
-  export default defineEventHandler(async () => {
-    const result = await limiter.consume({ key: 'all' })
-    if (!result.allowed) return { busy: true }
-    return { results: [] }
-  })
-  ```
-  :::
+// Read the result and answer your own way
+export default defineEventHandler(async () => {
+  const result = await limiter.consume({ key: 'all' })
+  if (!result.allowed) return { busy: true }
+  return { results: [] }
+})
+```
 ::
 
 ::product-features
