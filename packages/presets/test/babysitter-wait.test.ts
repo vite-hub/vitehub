@@ -266,6 +266,8 @@ describe("Babysitter review push budget", () => {
     const open = await parked(s => { s.checks = {}; s.threads = [thread]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
     expect(wakeReasons(open, "pending", policy)).toEqual(["unresolved-thread"]);
     expect(wakeReasons(open, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual([]);
+    // A held P0 or P1 decline waits for a person.
+    expect(wakeReasons(open, "pending", { ...policy, heldThreads: new Set(["T2"]) })).toEqual([]);
     const person = await parked(s => { s.checks = {}; s.threads = [{ ...thread, comments: [...thread.comments, { id: 23, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
     expect(wakeReasons(person, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual(["unresolved-thread"]);
   });

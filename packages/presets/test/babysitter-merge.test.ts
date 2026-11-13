@@ -80,6 +80,9 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", policy)).toEqual({ ready: true, head });
     expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1"]) })).toEqual({ ready: false, reason: "a person to resolve a review thread the worker declined although the reviewer labeled it P0 or P1" });
     expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1", "T2"]) })).toEqual({ ready: false, reason: "a person to resolve 2 review threads the worker declined although the reviewer labeled them P0 or P1" });
+    // Without ignoreAssessedBotThreads, an open bot thread blocks as open work, but a held one waits for a person.
+    expect(directMergeReadiness(s, "passed", { heldThreads: new Set(["T1"]) })).toEqual({ ready: false, reason: "unresolved review threads" });
+    expect(directMergeReadiness(s, "passed", { heldThreads: new Set(["T1", "T2"]) })).toMatchObject({ ready: false, reason: expect.stringMatching(/^a person to resolve 2/) });
     s.threads[0]!.isResolved = true;
     expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1"]) })).toEqual({ ready: true, head });
   });

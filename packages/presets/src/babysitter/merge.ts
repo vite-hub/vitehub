@@ -315,10 +315,12 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
-  const held = snapshot.threads.filter(thread => thread.isResolved !== true && assessment.heldThreads?.has(String(thread.node_id ?? thread.id))).length;
-  if (held) return no(`a person to resolve ${held === 1 ? "a review thread" : `${held} review threads`} the worker declined although the reviewer labeled ${held === 1 ? "it" : "them"} P0 or P1`);
+  const held = (thread: GitHubReviewThread) => assessment.heldThreads?.has(String(thread.node_id ?? thread.id)) === true;
   const botThreadsSettled = settled || assessment.ignoreAssessedBotThreads === true;
-  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && !held(thread) && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  // Checked last, so a pass still runs for any other open work.
+  const waiting = snapshot.threads.filter(thread => thread.isResolved !== true && held(thread)).length;
+  if (waiting) return no(`a person to resolve ${waiting === 1 ? "a review thread" : `${waiting} review threads`} the worker declined although the reviewer labeled ${waiting === 1 ? "it" : "them"} P0 or P1`);
   return { ready: true, head };
 }
 

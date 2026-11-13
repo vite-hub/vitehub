@@ -51,6 +51,8 @@ export interface BabysitterWaitPolicy {
   reviewPushBudget?: number;
   /** Unresolved review threads with only bot comments never wake a wait. New bot comments still change the feedback. */
   ignoreAssessedBotThreads?: boolean;
+  /** Threads a worker declined while their reviewer labeled them P0 or P1. They wait for a person, so being open wakes nothing. */
+  heldThreads?: ReadonlySet<string>;
 }
 
 /**
@@ -309,7 +311,8 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   if (wait.kind === "external" || wait.wake) return reasons;
   if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
   const botThreadsSettled = policy.ignoreAssessedBotThreads === true || reviewPushBudgetSpent(s, policy);
-  if (s.threads.some(thread => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
+  if (s.threads.some(thread => thread.isResolved !== true && !policy.heldThreads?.has(String(thread.node_id ?? thread.id))
+    && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
   if (actionableFailureKeys(s, policy).some(key => !known.has(key))) reasons.push("new-failure");
   if (reasons.length) return reasons;
   // The same failures are not new repair work. A later green result wakes below.
