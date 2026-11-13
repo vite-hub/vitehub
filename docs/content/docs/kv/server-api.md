@@ -107,7 +107,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `database` | Atomic. One `INSERT ... ON CONFLICT` statement that also replaces an expired key. Expiry uses the clock of the Database. |
 | `upstash` | Atomic. One `SET NX` command, with `EX` when you pass `ttl`. |
 | `deno-kv` | Atomic. One commit that checks the key is missing. Deno KV deletes expired keys some time after the TTL, so a key can stay longer than `ttl`. |
-| `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys. |
+| `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. A key with `ttl` expires on time, and a later call can claim it. |
 | `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
 `increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
