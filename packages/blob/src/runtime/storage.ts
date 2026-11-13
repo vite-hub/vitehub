@@ -1,7 +1,7 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
-import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
+import { createUploadHandler, handleBlobMultipartUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
 import { resolveRuntimeBlobSecrets, resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
@@ -192,7 +192,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
-    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    handleUpload: createUploadHandler(() => storage),
     async resumeMultipartUpload(pathname, uploadId) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]

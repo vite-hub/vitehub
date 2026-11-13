@@ -96,7 +96,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0022: withFix("Run `vitehub provision run --provider vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
     BLOB_R0023: withFix("Remove `blob: false` from the Vite config, or remove the `blob` calls from server code."),
     BLOB_R0024: withFix("Pass `expiresIn` in seconds as a positive integer, for example `blob.sign(pathname, { method: \"GET\", expiresIn: 300 })`."),
-    BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare-r2` binds `createOnly`, `fs` binds `maxSize`, and drivers such as `s3` bind neither. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
+    BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare-r2` binds `createOnly`, `fs` binds `maxSize`, `vercel-blob` binds both, and drivers such as `s3` bind neither. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
     BLOB_R0026: withFix("Call `store()` on the `blob` export, for example `blob.store(\"media\")`, not on a handle that `blob.store()` returned."),
     BLOB_R0028: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_R0029: withFix("Change the command as the message says. `vitehub blob <command> --help` lists the arguments and options."),
@@ -115,5 +115,6 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0042: withFix("Sign a new link with `blob.sign()`. Pass a larger `expiresIn` when the client needs more time."),
     BLOB_R0043: withFix("Send a smaller body, or sign the link with a larger `maxSize`."),
     BLOB_R0044: withFix("Set the env variable that the message names in the server environment, with the same value as at build time. The Blob config read it from `process.env` at build time, and ViteHub reads it again at runtime."),
+    BLOB_R0045: withFix("Remove `put.access`, `put.contentLength`, and `put.customMetadata` from `handleUpload({ direct: true })`. A signed `PUT` cannot carry them. Set access on the store, or store the metadata in your own record in `onCompleted`."),
   },
 })

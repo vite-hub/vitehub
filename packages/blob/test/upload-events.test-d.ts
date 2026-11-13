@@ -1,7 +1,9 @@
 import { H3Event } from "h3"
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { BlobMultipartEvent, BlobUploadEvent } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobDirectUploadStep, BlobErrorCode, BlobMultipartEvent, BlobObject, BlobStorage, BlobUploadEvent } from "../src/types.ts"
 
 // The `RequestEvent` of `nuxt/server` (Nuxt 5), copied from `nuxt/schema`. It has no `~standard`.
 interface NuxtServerRequestEvent {
@@ -25,5 +27,13 @@ describe("upload events", () => {
   it("accepts an H3 event and a nuxt/server event in handleMultipartUpload", () => {
     expectTypeOf<H3Event>().toExtend<BlobMultipartEvent>()
     expectTypeOf<NuxtServerRequestEvent>().toExtend<BlobMultipartEvent>()
+  })
+
+  it("returns direct upload steps only with direct: true", () => {
+    const blob = {} as BlobStorage
+    const request = new Request("http://localhost/api/files")
+    expectTypeOf(blob.handleUpload(request)).resolves.toEqualTypeOf<Result<BlobObject[], BlobErrorCode>>()
+    expectTypeOf(blob.handleUpload(request, { multiple: false })).resolves.toEqualTypeOf<Result<BlobObject[], BlobErrorCode>>()
+    expectTypeOf(blob.handleUpload(request, { direct: true })).resolves.toEqualTypeOf<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>()
   })
 })
