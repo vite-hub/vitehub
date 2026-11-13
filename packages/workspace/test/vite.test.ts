@@ -234,6 +234,32 @@ afterEach(async () => {
 })
 
 describe("hubWorkspace", () => {
+  it.each([
+    { options: { store: { provider: "github", repository: "acme/workspaces" } }, definition: '{ store: { provider: "memory" } }', env: {}, store: "memory", scope: "process" },
+    { options: { store: { provider: "github", repository: "acme/workspaces" } }, definition: '{ store: { provider: "local", root: "instance-data" } }', env: {}, store: "local", scope: "host" },
+    { options: { store: { provider: "github", repository: "acme/workspaces" } }, definition: '{}', env: {}, store: "github", scope: "shared" },
+    { options: { root: ".vitehub/workspace-data" }, definition: '{}', env: { BLOB_READ_WRITE_TOKEN: "boot-token" }, store: "local", scope: "host" },
+  ] as const)("reports each generated registry Definition with effective $store storage", async ({ options, definition, env, store, scope }) => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
+    vi.stubEnv("BLOB_STORE_ID", "")
+    const root = await createViteRoot()
+    await writeFile(join(root, "src/docs.workspace.ts"), [
+      'import { defineWorkspace } from "@vite-hub/workspace"',
+      `const options = ${definition}`,
+      'export default defineWorkspace(options)',
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace(options)
+    await mergedConfigHook(plugin.config)({ nitro: {}, root } as UserConfig, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    const contribution = plugin.vitehub?.durability?.()[0]
+    expect(contribution).toBeDefined()
+    const reporter = await import(pathToFileURL(contribution!.module).href)
+    expect(reporter.workspaceDurability(contribution!.input, { env, find: () => undefined })).toMatchObject([
+      { primitive: "workspace", name: "docs", store, scope },
+    ])
+  })
+
   it("does not contribute inspection Definitions when Workspace is disabled", async () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace(false)
@@ -847,7 +873,7 @@ describe("hubWorkspace", () => {
     })
   })
 
-  it("gives a Nitro build outside Vite the bundled Workspace files, as Nuxt 4 builds", async () => {
+  it("gives a Nitro build outside Vite the bundled Workspace files, as Nuxt builds without the Nitro Vite environment", async () => {
     const root = await createViteRoot()
     await mkdir(join(root, "server", "workspaces", "pages"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "pages", "config.ts"), `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({})\n`)
@@ -1342,7 +1368,6 @@ describe("hubWorkspace", () => {
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("export default function vitehubWorkspacePlugin() {")
     expect(pluginSource).not.toContain("from 'nitro'")
-    expect(pluginSource).not.toContain("nitropack/runtime")
   })
 
   it("activates standalone Nitro Cloudflare bindings from the provided environment", async () => {

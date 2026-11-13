@@ -888,6 +888,8 @@ Review bots often post on every push, even with no findings. List those body pre
 
 The Workspace (the Agent's files) gets the PR checkout at `pullRequest.workspace.mount`. Without `workspace`, the mount is `portal`. `workspace: true` and `workspace: {}` mount at the root. `workspace: false` turns it off.
 
+With the Workspace, the Channel also adds the `vitehub-resolving-merge-conflicts` Skill at `.agents/skills/vitehub-resolving-merge-conflicts/SKILL.md`, and the prompt tells the Agent to use it for merge and rebase conflicts. Without the Workspace, the prompt gives the same steps in one line.
+
 The checkout uses the exact head SHA, so the PR loads before the Invocation starts. If that fails, the delivery fails with `AGENT_R0370` and the GitHub error, such as a connection reset, 401, or 404. With `workspace: false`, PR details are best effort: a failure leaves them out and sets `pullRequest.metadata.unavailable`.
 
 ::warning
@@ -902,7 +904,7 @@ A github() Channel with `app` gives its Agent forge access (GitHub repository ac
 
 Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'

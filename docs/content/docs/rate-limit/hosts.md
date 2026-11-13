@@ -80,7 +80,7 @@ KV selects its driver at build time: `database` with a Postgres Default Database
 [vitehub] Rate Limit counts in the memory of this process, because the KV store "default" uses fs-lite, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.
 ```
 
-A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. `provider: 'kv'` works with the `node` preset only, and other presets fail with `VITE_HUB_R0142`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
+A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. `provider: 'kv'` works with the `node` preset only, and other presets fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
 
 ## Deploy to Cloudflare
 

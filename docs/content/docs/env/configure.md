@@ -388,7 +388,7 @@ VITEHUB_API_TOKEN=
 
 This example gives `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so prepare and build do not need a deployment-only secret.
 
-It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
+It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions. To move an app from that module, run the [`nuxt-safe-runtime-config` codemod](/docs/codemods/nuxt-modules#nuxt-safe-runtime-config).
 
 The [schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) builds a browser bundle and a Node server from one schema. Its production test checks types, startup failures, redaction, browser output, and server values that change between restarts. Public Env values are fixed at build.
 

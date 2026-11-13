@@ -187,8 +187,9 @@ function hasPageConditions(request: Request): boolean {
   return pageConditions.some(name => request.headers.has(name))
 }
 
-function withoutPageConditions(request: Request): Request {
-  if (request.method !== "GET" && request.method !== "HEAD") return request
+/** Whether a request is a page navigation with validators, which must reach the app without them. */
+function revalidatesPage(request: Request): boolean {
+  if (request.method !== "GET" && request.method !== "HEAD") return false
   // Browser navigations explicitly accept HTML. Resource requests with other or wildcard Accept values must
   // retain their validators: their paths alone cannot tell us whether the response will be transformed.
   const acceptsHtml = request.headers.get("accept")?.split(",").some((range) => {
@@ -197,11 +198,38 @@ function withoutPageConditions(request: Request): Request {
     const quality = parameters.find(part => /^q\s*=/i.test(part))?.split("=")[1]?.trim()
     return quality === undefined || (Number(quality) > 0 && Number(quality) <= 1)
   })
-  if (!acceptsHtml) return request
-  if (!pageConditions.some(name => request.headers.has(name))) return request
-  const headers = new Headers(request.headers)
-  for (const name of pageConditions) headers.delete(name)
-  return new Request(request, { headers })
+  return acceptsHtml === true && hasPageConditions(request)
+}
+
+/** The headers of the Node.js request that srvx keeps under `runtime.node.req`, when there is one. */
+function nodeRequestHeaders(request: Request): Record<string, unknown> | undefined {
+  const runtime: unknown = Reflect.get(request, "runtime")
+  if (typeof runtime !== "object" || runtime === null) return undefined
+  const node: unknown = Reflect.get(runtime, "node")
+  if (typeof node !== "object" || node === null) return undefined
+  const req: unknown = Reflect.get(node, "req")
+  if (typeof req !== "object" || req === null) return undefined
+  const headers: unknown = Reflect.get(req, "headers")
+  // SAFETY: IncomingMessage headers are a plain object of header names.
+  return typeof headers === "object" && headers !== null ? headers as Record<string, unknown> : undefined
+}
+
+function withoutPageConditions(request: Request): Request {
+  try {
+    // In place: on Node.js, srvx passes its own request class, which `new Request()` cannot copy, and which carries
+    // fields that a copy would lose, such as `ip` and `waitUntil`.
+    for (const name of pageConditions) request.headers.delete(name)
+    // srvx keeps a separate header store on the Node request, and Nitro's Node-format routes read that one.
+    const nodeHeaders = nodeRequestHeaders(request)
+    if (nodeHeaders) for (const name of pageConditions) delete nodeHeaders[name]
+    return request
+  }
+  catch {
+    // The headers of an incoming request on Cloudflare Workers cannot change, and that request is a native one.
+    const headers = new Headers(request.headers)
+    for (const name of pageConditions) headers.delete(name)
+    return new Request(request, { headers })
+  }
 }
 
 function htmlCharset(type: string): string | undefined {
@@ -228,41 +256,9 @@ function transformPage(response: Response, tag: () => string, personal: boolean)
   return new Response(response.body.pipeThrough(pageToolsHtmlTransform(tag())), { headers, status: response.status, statusText: response.statusText })
 }
 
-/** The parts of an H3 1 event that the Nitro 2 hooks read. */
-interface Nitro2Event {
-  web?: { request?: Request }
-  node?: {
-    req?: { url?: string, originalUrl?: string, method?: string, headers?: Record<string, string> }
-    res?: { statusCode?: number, removeHeader?: (name: string) => void, setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
-  }
-}
-
-/** The Web request of an H3 1 event. Only the path, query, and headers matter to the hint. */
-function nitro2Request(event: Nitro2Event): Request | undefined {
-  const node = event.node?.req
-  // H3 strips the application base from `url` and keeps the public path in `originalUrl`.
-  const path = node?.originalUrl || node?.url
-  return event.web?.request ?? (path ? new Request(new URL(path, "http://localhost"), { headers: node?.headers }) : undefined)
-}
-
-/**
- * The app base of an H3 1 event, such as `/portal` for Nuxt `app.baseURL: "/portal/"`. Nitro 2 serves its routes below
- * its `baseURL`, and H3 1 removes that part from `url` and keeps the full path in `originalUrl`. It follows a base that
- * the server gets at runtime, such as `NUXT_APP_BASE_URL`.
- */
-function nitro2Base(event: Nitro2Event): string {
-  const original = event.node?.req?.originalUrl?.split("?")[0]
-  const current = event.node?.req?.url?.split("?")[0]
-  if (!original || !current || original === current || !original.endsWith(current)) return ""
-  return viteHubBasePath(original.slice(0, original.length - current.length))
-}
-
 /** How the app installs the page tools. */
 export interface ViteHubPageToolsInstallOptions {
-  /**
-   * The app base, such as `/portal/` from the Vite `base`. The loader tag of Nitro 3 pages uses it. Nitro 2 reads the
-   * base of each request instead. Default: the root.
-   */
+  /** The app base, such as `/portal/` from the Vite `base`. The loader tag uses it. Default: the root. */
   base?: string
 }
 
@@ -273,11 +269,7 @@ export interface ViteHubPageToolsInstallOptions {
  * bootstrap is in prerendered pages too, so a host that serves them as static files, such as Cloudflare Workers
  * static assets, still shows the pill. Call it from each owner's Nitro plugin: it installs once per app, whatever the
  * number of calls. It reads that app's registry and configured base on each request, so plugin order does not matter.
- * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset and the prerenderer call. The tag uses
- *   `options.base`.
- * - Nitro 2 with Nuxt: it hooks `render:html` for rendered and prerendered pages. It also hooks `beforeResponse`
- *   for pages that a route returns as a `Response`, string, or uncompressed byte buffer
- *   explicitly declared as UTF-8, including prerendered files. The tag uses the base of the request.
+ * It wraps `nitroApp.fetch`, the Web entry that every preset and the prerenderer call. The tag uses `options.base`.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
@@ -295,7 +287,7 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
       // answers with an HTML page, so JSON and other responses skip parsing the request URL.
       const conditional = request instanceof Request && hasPageConditions(request)
       const early = conditional ? pageAddition(nitroApp, request, base) : undefined
-      if (early) request = withoutPageConditions(request)
+      if (early && revalidatesPage(request)) request = withoutPageConditions(request)
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
@@ -306,67 +298,4 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     })
     return
   }
-  const hooks: unknown = Reflect.get(nitroApp, "hooks")
-  const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
-  if (!(hook instanceof Function)) return
-  Reflect.apply(hook, hooks, ["request", (event: Nitro2Event) => {
-    const request = nitro2Request(event)
-    const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
-    if (!request || !pageAddition(nitroApp, request, base)) return
-    const method = event.web?.request?.method ?? event.node?.req?.method?.toUpperCase() ?? "GET"
-    if (method !== "GET" && method !== "HEAD") return
-    const unconditional = withoutPageConditions(request)
-    if (unconditional === request) return
-    if (event.web?.request) event.web.request = unconditional
-    const headers = event.node?.req?.headers
-    if (headers) for (const name of pageConditions) delete headers[name]
-  }])
-  Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
-    const request = nitro2Request(context.event)
-    const base = nitro2Base(context.event) || state().bases.get(nitroApp) || ""
-    const addition = request && pageAddition(nitroApp, request, base)
-    if (!addition) return
-    const res = context.event.node?.res
-    const policy = res?.getHeader?.("content-security-policy")
-    const nonce = typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined
-    if (addition === "bootstrap") {
-      html.bodyAppend.push(viteHubPageToolsInlineScript(base, nonce))
-      return
-    }
-    html.bodyAppend.push(loaderTag(base, nonce))
-    // As on the fetch path: a page with the loader must never reach a shared cache.
-    res?.setHeader?.("cache-control", "private, no-store")
-  }])
-  Reflect.apply(hook, hooks, ["beforeResponse", async (event: Nitro2Event, response: { body?: unknown }) => {
-    const request = nitro2Request(event)
-    const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
-    const addition = request && pageAddition(nitroApp, request, base)
-    if (!addition) return
-    if (response.body instanceof Response) {
-      // H3 preserves Node response headers unless the returned Response replaces them.
-      const headers = new Headers(response.body.headers)
-      const policy = event.node?.res?.getHeader?.("content-security-policy")
-      if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
-      const transformed = addition === "loader" ? injectPageToolsLoader(response.body, base, headers) : injectPageToolsBootstrap(response.body, base, headers)
-      if (transformed !== response.body) for (const name of pageBodyHeaders) event.node?.res?.removeHeader?.(name)
-      response.body = transformed
-      return
-    }
-    const res = event.node?.res
-    const type = res?.getHeader?.("content-type")
-    if (typeof type !== "string" || !type.toLowerCase().startsWith("text/html")) return
-    if (res?.getHeader?.("content-encoding") || (res?.statusCode ?? 200) !== 200) return
-    const body = response.body
-    if (typeof body !== "string" && !(body instanceof Uint8Array)) return
-    // Without an HTTP charset, HTML may select a legacy encoding from its metadata or fallback sniffing.
-    const charset = htmlCharset(type)
-    if (body instanceof Uint8Array && !/^utf-?8$/i.test(charset ?? "")) return
-    const html = typeof body === "string" ? body : new TextDecoder().decode(body)
-    const policy = res?.getHeader?.("content-security-policy")
-    const nonce = typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined
-    const tag = addition === "loader" ? loaderTag(base, nonce) : viteHubPageToolsInlineScript(base, nonce)
-    response.body = await new Response(new Blob([html]).stream().pipeThrough(pageToolsHtmlTransform(tag))).text()
-    for (const name of pageBodyHeaders) res?.removeHeader?.(name)
-    if (addition === "loader") res?.setHeader?.("cache-control", "private, no-store")
-  }])
 }

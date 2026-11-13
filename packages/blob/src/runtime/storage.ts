@@ -1,6 +1,6 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
-import { blobResult } from "../errors.ts"
+import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
@@ -23,23 +23,13 @@ class UnknownBlobStoreError extends Diagnostic {
 }
 
 const driverModules = {
-  akamai: "akamai",
   azure: "azure",
-  box: "box",
   "cloudflare-r2": "cloudflare",
-  "digitalocean-spaces": "digitalocean-spaces",
-  dropbox: "dropbox",
   fs: "fs",
   gcs: "gcs",
-  "google-drive": "google-drive",
-  hetzner: "hetzner",
   minio: "minio",
   "netlify-blobs": "netlify-blobs",
-  onedrive: "onedrive",
   s3: "s3",
-  storj: "storj",
-  supabase: "supabase",
-  uploadthing: "uploadthing",
   "vercel-blob": "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
@@ -77,7 +67,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       head: async pathname => (await activeDriver()).head(pathname),
       list: async options => (await activeDriver()).list(options),
       put: async (pathname, body, options) => (await activeDriver()).put(pathname, body, options),
-      sign: (pathname, options) => nativeDriver.sign!(pathname, options),
+      sign: (pathname, options, context) => nativeDriver.sign!(pathname, options, context),
     } satisfies BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>
   }
 
@@ -149,7 +139,7 @@ function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, nam
   if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
   const stores = config.stores || { default: config.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  if (!store) throw new UnknownBlobStoreError(unknownBlobStoreMessage(name, stores))
   return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
 }
 
