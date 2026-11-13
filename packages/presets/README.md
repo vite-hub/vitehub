@@ -234,7 +234,11 @@ headings. Explicit `driver.instructions` replaces that slot. Use
 A discovered Agent that imports the preset runs without more wiring on the Node
 server preset. ViteHub generates a Nitro plugin that starts a process host for
 it: a SQLite PR inbox in Agent State, bounded GitHub discovery of
-`filter.repository.allow`, claims, repair passes, and wake handling. Signed
+`filter.repository.allow` (or, without it, of every repository the GitHub App
+installations can access, except archived ones and `filter.repository.deny`),
+claims, repair passes, and wake handling. Installing the App on a repository
+enrolls it; `installation` and `installation_repositories` webhooks update the
+list at once, and the host lists the installations again every 10 minutes. Signed
 GitHub deliveries to `/api/_vitehub/agents/<name>/webhooks/github` feed the
 inbox; they never start the Agent directly. `GET /api/_vitehub/host/drain`
 reports drain status, and `GET /api/_vitehub/host/health` reports each host's
