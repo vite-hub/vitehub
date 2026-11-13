@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/server.ts"
+import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const provider = vi.hoisted(() => ({

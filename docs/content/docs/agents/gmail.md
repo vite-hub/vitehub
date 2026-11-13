@@ -432,7 +432,7 @@ See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `
 ```ts [server/api/old-promotions.get.ts]
 import { defineEventHandler } from 'h3'
 import { gmailClient } from 'vite-hub/agent/channels'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import { inbox } from '../lib/inbox'
 
 export default defineEventHandler(async (event) => {

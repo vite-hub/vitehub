@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createProcessReconciler } from "../src/node.ts"
-import type { ProcessReconciler } from "../src/node.ts"
+import { createProcessReconciler } from "../src/internal/node.ts"
+import type { ProcessReconciler } from "../src/internal/node.ts"
 
 afterEach(() => {
   vi.useRealTimers()

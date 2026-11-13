@@ -5,7 +5,7 @@ vi.mock("#vitehub/auth/definition", () => ({
 }))
 
 import { authForRequest } from "../src/runtime/console.ts"
-import { assertAuthOrigin, resetAuth, useAuth } from "../src/server.ts"
+import { assertAuthOrigin, resetAuth, useAuth } from "../src/internal/server.ts"
 
 describe("static Auth public URL request helpers", () => {
   afterEach(() => {

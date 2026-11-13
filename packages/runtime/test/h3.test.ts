@@ -1,9 +1,9 @@
 import { H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
-import { getRuntimeContext, getStandardContext, installStandardContext } from "../src/h3.ts"
+import { getRuntimeContext, getStandardContext, installStandardContext } from "../src/internal/h3.ts"
 
-describe("@vite-hub/runtime/h3", () => {
+describe("@vite-hub/runtime/internal/h3", () => {
   it("reads the Cloudflare env and lifetime from an H3 event", () => {
     const env = { BUCKET: "request bucket" }
     const waitUntil = vi.fn()

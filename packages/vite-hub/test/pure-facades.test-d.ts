@@ -2,11 +2,11 @@ import { describe, expectTypeOf, it } from "vitest"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { useDatabase as useOwnerDatabase } from "@vite-hub/database"
-import { getRuntimeContext as getOwnerRuntimeContext } from "@vite-hub/runtime/h3"
+import { getRuntimeContext as getOwnerRuntimeContext, getStandardContext as getOwnerStandardContext } from "@vite-hub/runtime/internal/h3"
 import { table as ownerTable } from "@vite-hub/source/drizzle"
 import { cachedSource as ownerCachedSource } from "@vite-hub/source/server"
 import { useDatabase } from "vite-hub/database"
-import { getRuntimeContext } from "vite-hub/runtime/h3"
+import { getRuntimeContext, getStandardContext } from "vite-hub/runtime"
 import { table } from "vite-hub/source/drizzle"
 import { cachedSource } from "vite-hub/source/server"
 
@@ -27,6 +27,7 @@ describe("vite-hub facades", () => {
     expectTypeOf(useOwnerDatabase("facadeRegistry").schema).toEqualTypeOf<typeof facadeSchema>()
     expectTypeOf(useDatabase("facadeRegistry").schema).toEqualTypeOf<typeof facadeSchema>()
     expectTypeOf(getRuntimeContext).toEqualTypeOf(getOwnerRuntimeContext)
+    expectTypeOf(getStandardContext).toEqualTypeOf(getOwnerStandardContext)
     expectTypeOf(table).toEqualTypeOf(ownerTable)
     expectTypeOf(cachedSource).toEqualTypeOf(ownerCachedSource)
   })

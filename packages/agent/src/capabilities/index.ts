@@ -120,6 +120,9 @@ export {
 export {
   diagnostics,
 } from "./diagnostics.ts"
+/** The Node inspector for `diagnostics({ resources })`. It reads the process, the host, and Linux cgroup v2. */
+export { nodeRuntimeResources } from "@vite-hub/runtime/internal/node"
+export type { NodeRuntimeResourceInspectorOptions } from "@vite-hub/runtime/internal/node"
 export type {
   DiagnosticsCapabilityOptions,
 } from "./diagnostics.ts"

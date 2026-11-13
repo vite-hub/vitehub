@@ -127,12 +127,12 @@ export function installRequestStandardContext(request: Request, standard?: ViteH
  * Return the Standard Context of a web Request or of a request event. In a Fetchable server entry, pass the
  * Request: `getStandardContext(request)`. In a ViteHub app, Nitro sets `~standard` on each event and on its
  * Request, so ViteHub keeps the response headers that primitives set. Throws `RUNTIME_R0015` for an event without
- * Standard Context. For an H3 app without the ViteHub Vite plugin, use `vite-hub/runtime/h3`.
+ * Standard Context.
  */
 export function getStandardContext(value: Request | ViteHubContext): ViteHubStandardProps {
   if (isObjectLike(value) && "~standard" in value) return (value as ViteHubContext)["~standard"]
   if (isHostRequest(value)) return installRequestStandardContext(value)
-  throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The value is not a Request and has no `~standard`. Pass the Request of a Fetchable handler, or import `getStandardContext` from `vite-hub/runtime/h3` for an H3 event." })
+  throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The value is not a Request and has no `~standard`. Pass the Request of a Fetchable handler or the event of a route in a ViteHub app." })
 }
 
 function detectRuntime(cloudflare: boolean): RuntimeName {

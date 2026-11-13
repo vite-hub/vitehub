@@ -14,7 +14,7 @@ import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorksp
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
-import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
+import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/internal/node";
 import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
 import {

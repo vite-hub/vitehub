@@ -33,7 +33,7 @@ export {
 } from "./lease.ts"
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
-export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
+export { consoleInvocationUrl, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
 export {
   formatRuntimeDiagnosticError,
@@ -1544,7 +1544,7 @@ export async function resolveCapabilityPolicy(
 }
 
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
-export { getRuntimeContext, getStandardContext, installRequestStandardContext, type RequestRuntimeContext, type RuntimeContextOptions, type RuntimeName } from "./request-context.ts"
+export { getRuntimeContext, getStandardContext, type RequestRuntimeContext, type RuntimeContextOptions, type RuntimeName } from "./request-context.ts"
 
 export {
   deserializeResponse,

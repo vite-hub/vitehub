@@ -1,7 +1,7 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { describe, expect, it } from "vitest"
 import { defineAuth } from "../src/index.ts"
-import { createAuth, getAuthForDefinition, handleAuthRequest } from "../src/server.ts"
+import { createAuth, getAuthForDefinition, handleAuthRequest } from "../src/internal/server.ts"
 import { authSessionMarkerCookie } from "../src/session-marker.ts"
 
 import type { AuthDefinition } from "../src/index.ts"

@@ -5,7 +5,7 @@ import { admin, emailOTP, jwt, phoneNumber, username } from "better-auth/plugins
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
 import { createDatabaseAuthEventStore, defineAuth } from "../src/index.ts";
-import { createBetterAuthOptions, getAuthForDefinition } from "../src/server.ts";
+import { createBetterAuthOptions, getAuthForDefinition } from "../src/internal/server.ts";
 import { eventDatabase } from "./event-helpers.ts";
 
 const origin = "http://localhost:5173";

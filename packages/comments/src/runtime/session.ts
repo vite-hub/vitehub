@@ -1,5 +1,5 @@
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { normalizeCommentPage } from "../page.ts"
 
