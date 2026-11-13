@@ -28,7 +28,7 @@ icon: i-lucide-circle-alert
 ## Collections
 
 - Collections need a Workspace Store that keeps history, such as the Blob + Database Store. Other Stores fail on first use with `CONTENT_R0007`.
-- The `cms` preset's [GitHub store](/docs/cms/configure#github-store) keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0016`). With `publish: 'pr'`, `publish()` returns a pending result with a `pullRequest`, and documents stay pending until it merges. Digests are Git blob shas. Every read and write uses the GitHub API, so rate limits apply.
+- The `cms` preset's [GitHub store](/docs/cms/configure#github-store) keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0016`). With `publish: 'pr'`, `publish()` returns a pending result with a `pullRequest`, and documents stay pending until it merges. Digests are Git blob shas. Reads and writes use the GitHub API, so rate limits apply. Enable KV so new server instances share what they read ([Reads on serverless hosts](/docs/cms/configure#reads-on-serverless-hosts)).
 - Content owns its Workspace's `draft`, `published`, and `schedules` refs. Other writers can commit to them, and the validation hook checks their files, but `revisions()` credits only commits made through Content.
 - Only the draft accepts fields that fail validation. `status()` reads each draft file once per digest to count issues.
 - Validation starts when `server/content.ts` loads, so an earlier writer, for example in a fresh server instance, is not checked. `publish()` validates every file, so invalid files never reach `published`.

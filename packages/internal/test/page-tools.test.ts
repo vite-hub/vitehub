@@ -1,11 +1,14 @@
 import { brotliCompressSync, gzipSync } from "node:zlib"
 
 import { H3 } from "h3"
+import { NodeRequest } from "srvx/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
 import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler } from "../src/runtime/page-tools.ts"
 import { viteHubPageToolsInlineScript } from "../src/runtime/page-tools-shared.ts"
+
+import type { IncomingMessage } from "node:http"
 
 import type { ViteHubPageTool } from "../src/runtime/page-tools.ts"
 
@@ -318,7 +321,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(page.headers.has("last-modified")).toBe(false)
     expect(page.headers.has("content-length")).toBe(false)
     expect(page.headers.get("cache-control")).toBe(search ? "private, no-store" : "public, max-age=60")
-    expect(request.headers.get("if-none-match")).toBe('"page"')
+    expect(request.headers.has("if-none-match") || request.headers.has("if-modified-since")).toBe(false)
   })
 
   it.each([undefined, "*/*", "text/css,*/*;q=0.1", "application/rss+xml", "application/rss+xml, text/html;q=0", "text/html; Q=0.000, */*;q=1"])("keeps conditional requests for non-HTML resources on ordinary paths with Accept %s", async (accept) => {
@@ -332,6 +335,50 @@ describe("installViteHubPageTools on Nitro 3", () => {
     registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     expect(await app.fetch(new Request("http://site.test/feed", { headers }))).toBe(original)
+  })
+
+  /** A Nitro 3 app that answers 304 to a request with validators, and keeps the requests that it gets. */
+  function conditionalApp() {
+    const app = {
+      requests: [] as Request[],
+      fetch(request: Request): Response {
+        app.requests.push(request)
+        if (request.headers.has("if-none-match") || request.headers.has("if-modified-since")) return new Response(null, { status: 304 })
+        return new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8", etag: '"page"' } })
+      },
+    }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    return app
+  }
+
+  it("removes validators from the Node.js request of srvx and passes that same request on", async () => {
+    const headers = { host: "site.test", accept: "text/html", "if-none-match": '"page"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" }
+    // SAFETY: srvx reads only these fields of a Node.js request that has no body.
+    const request = new NodeRequest({ req: { method: "GET", url: "/guide/", headers, rawHeaders: Object.entries(headers).flat() } as unknown as IncomingMessage })
+    const app = conditionalApp()
+    const page = await app.fetch(request)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toBe(`<body>Page${bootstrap}</body>`)
+    expect(app.requests).toHaveLength(1)
+    expect(app.requests[0]).toBe(request)
+    // Nitro's Node-format routes read the Node.js headers, which srvx stores apart from the Fetch headers.
+    expect(headers).not.toHaveProperty("if-none-match")
+    expect(headers).not.toHaveProperty("if-modified-since")
+  })
+
+  it("copies a request whose headers cannot change, as on Cloudflare Workers", async () => {
+    const request = new Request("http://site.test/guide/", { headers: { accept: "text/html", "if-none-match": '"page"' } })
+    vi.spyOn(request.headers, "delete").mockImplementation(() => {
+      throw new TypeError("Can't modify immutable headers.")
+    })
+    const app = conditionalApp()
+    const page = await app.fetch(request)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toBe(`<body>Page${bootstrap}</body>`)
+    expect(app.requests[0]).not.toBe(request)
+    expect(app.requests[0]!.url).toBe(request.url)
+    expect(request.headers.get("if-none-match")).toBe('"page"')
   })
 
   it.each(["/api/page", "/_vitehub", "/outside"])("keeps conditional requests outside the page paths on %s", async (path) => {

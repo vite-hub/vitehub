@@ -23,6 +23,7 @@ import {
 } from "../github/index.ts";
 import type { GitHubHost } from "../github/index.ts";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
+import { matchesBabysitterPullRequestFilter } from "./pull-request-filter.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
 import { hydrateSnapshot, reconcileOneSnapshot, readForgePullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
@@ -74,6 +75,10 @@ export type {
 
 declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
+/** The first and the longest wait before a reviewed head's merge gates are checked again. */
+const mergeRetryMinMs = 2 * 60_000;
+const mergeRetryMaxMs = 30 * 60_000;
+
 export interface BabysitterRuntimeOptions {
   agent: AgentInput;
   /** Discovered Agent name for per-Agent public URLs. Defaults to the definition name. */
@@ -103,6 +108,10 @@ export interface BabysitterRuntimeOptions {
   admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
 }
 
+/** How long an external blocker waits before another pass. */
+const externalRetryMs = 2 * 60 * 60_000;
+/** How long a head may wait for GitHub to compute its mergeability before its pass runs anyway. */
+const unknownMergeabilityLimitMs = 10 * 60_000;
 /** How long a pending GitHub merge request is polled before the Babysitter stops waiting for it. */
 const pendingMergeDeadlineMs = 30 * 60_000;
 /** How long a stopped merge request keeps its head from a new request. */
@@ -169,6 +178,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
+  const minorReviewRounds = presetOptions.minorReviewRounds ?? false;
+  const reviewConvergencePushes = presetOptions.reviewConvergencePushes ?? false;
   const repairStackChildren = merge.mode === "direct" && presetOptions.repairStackChildren === true;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
@@ -177,6 +188,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     activityAuthors,
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
+      ...reviewPushBudget === false || minorReviewRounds === false ? {} : { minorReviewRounds },
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
     claimStackChildren: repairStackChildren,
     // One invalid row must not stop the claim loop or the health endpoint.
@@ -221,6 +233,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     wakeWhenReady: merge.mode === "direct",
     noFindingsReviews: baseAgent.noFindingsReviews ?? presetOptions.noFindingsReviews ?? [],
     ...reviewPushBudget === false ? {} : { reviewPushBudget },
+    ignoreAssessedBotThreads: presetOptions.ignoreAssessedBotThreads === true,
   };
   const schedulerEvent = (name: string, properties: Record<string, unknown> = {}) =>
     options.event?.(name, properties);
@@ -304,6 +317,43 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     rest: (path, signal, key) => readRest(path, key ? `.${key}[]` : ".[]", signal),
     page: readOnePage,
   };
+
+  /**
+   * Marks a reviewed draft ready for review when `merge.markDraftsReady` lists its author and its head
+   * branch is in the repository. GitHub's live PR must still be that draft at the reviewed head.
+   */
+  async function markDraftReady(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
+    const authors = merge.mode === "direct" ? merge.markDraftsReady : undefined;
+    if (!authors) return false;
+    const { repository, number } = snapshot;
+    const allowed = (pr: unknown): pr is Record<string, unknown> => {
+      if (!isRuntimeRecord(pr) || pr.draft !== true || !isRuntimeRecord(pr.user) || !isRuntimeRecord(pr.head) || !isRuntimeRecord(pr.head.repo)) return false;
+      return pr.head.sha === snapshot.pr?.head?.sha && hasRuntimeType(pr.user.login, "string") && authors.has(pr.user.login.toLowerCase())
+        && String(pr.head.repo.full_name).toLowerCase() === repository.toLowerCase();
+    };
+    if (!allowed(snapshot.pr)) return false;
+    let failure: string | undefined;
+    try {
+      const live = await readPull(repository, number, signal);
+      if (!allowed(live) || !hasRuntimeType(live.node_id, "string")) return false;
+      // forges has no ready-for-review operation, and GitHub's REST API cannot clear the draft flag.
+      const { provider } = await forge(repository, signal);
+      const query = "mutation BabysitterMarkDraftReady($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}";
+      const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMarkDraftReady", variables: { id: live.node_id } }, signal })).data;
+      if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length > 0) {
+        failure = response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error)).join("; ");
+      }
+    } catch (error) {
+      await noteForgeQuota(error, "draft-ready");
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    if (failure !== undefined) {
+      schedulerEvent("babysitter.draft.ready_failed", { ...owner, reason: failure.slice(0, 200) });
+      return false;
+    }
+    schedulerEvent("babysitter.draft.ready", { ...owner, head_sha: snapshot.pr?.head?.sha });
+    return true;
+  }
 
   /**
    * Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses.
@@ -632,6 +682,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return "merged";
   }
 
+  /**
+   * When to check the merge gates of a reviewed head again. Webhooks and change detection already wake
+   * the PR on new checks, reviews, and pushes, so this timer only covers gates that no event reports.
+   * Each retry on the same head doubles the delay: a fixed two minutes cost 30 passes and their GitHub
+   * requests an hour for every PR that waits on CI or a person.
+   */
+  async function mergeRetryAt(snapshot: Snapshot): Promise<number> {
+    const key = `merge-retry:${snapshot.repository}#${snapshot.number}`;
+    const head = snapshot.pr?.head?.sha;
+    const previous = await pullRequestInbox.meta(key);
+    const delayMs = isRuntimeRecord(previous) && previous.head === head && hasRuntimeType(previous.delayMs, "number")
+      ? Math.min(previous.delayMs * 2, mergeRetryMaxMs)
+      : mergeRetryMinMs;
+    await pullRequestInbox.setMeta(key, { head, delayMs });
+    return Date.now() + delayMs;
+  }
+
   const postPushGraceMs = options.postPushGraceMs ?? 3 * 60_000;
 
   /** The push receipt of a pass. `reviewDriven` comes from the claimed snapshot, never from the model. */
@@ -692,7 +759,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   /** A GitHub rate limit stops every forge request until it resets. Returns whether the error was one. */
   async function noteForgeQuota(error: unknown, operation: string): Promise<boolean> {
     if (!(error instanceof RateLimitedError)) return false;
-    const until = await forgeQuota.block();
+    const until = await forgeQuota.block(error.resetAt?.getTime());
     schedulerEvent("babysitter.forge.quota.blocked", { operation, blocked_until: new Date(until).toISOString(),
       reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
     return true;
@@ -735,7 +802,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!deferWhilePending) return undefined;
     const pr = snapshot.pr;
     if (!pr || pr.mergeable === false || pr.mergeable_state === "dirty") return undefined;
-    if (checksStillRunning(snapshot)) return reviewCheckRunning(snapshot, waitPolicy) ? "review checks" : "running checks";
+    if (checksStillRunning(snapshot, Date.now(), waitPolicy)) return reviewCheckRunning(snapshot, waitPolicy) ? "review checks" : "running checks";
     if (failureKeys(snapshot).length) return undefined;
     if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
     const evaluation = await requiredCheckEvaluation(snapshot);
@@ -819,13 +886,26 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const { provider, repo } = await forge(wake.repository);
     return checksDependencyEvidence(await provider.checks.list(repo, wake.headSha));
   }
+  /**
+   * Only a wait for another pull request ends by itself, when it merges or closes. Every other external
+   * blocker gets a fresh pass after two hours: on 2026-10-19 about 45 PRs sat in external waits for
+   * 13 hours or more, 30 of them on an install error the host had already fixed, and one waited on the
+   * checks of a main commit 90 commits back, which never change. A host defect is the exception: only a
+   * new worker release fixes it, and that release wakes the wait.
+   */
   async function externalWait(observed: Snapshot, wake: PullRequestWake | undefined, reason: string) {
-    if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
-    if (!wake) return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
+    const retryAt = Date.now() + externalRetryMs;
+    if (!wake) {
+      await statusRecovery.recordWorkerBlocker(observed, reason);
+      const wait = { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
+      return isWorkerBlocker({ lastResult: observed.lastResult, wait: { ...wait, headSha: observed.pr?.head?.sha ?? "" } }) ? wait : { ...wait, retryAt };
+    }
     if (!options.repositories.includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
     const evidence = await dependencyEvidence(wake);
     await pullRequestInbox.setMeta(`dependency:${observed.repository}#${observed.number}`, evidence);
-    return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake };
+    const otherPullRequest = wake.kind === "pull-request"
+      && !(wake.repository.toLowerCase() === observed.repository.toLowerCase() && wake.number === observed.number);
+    return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake, ...otherPullRequest ? {} : { retryAt } };
   }
 
   async function recoverFailedCiWaits() {
@@ -833,6 +913,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (snapshot.generation > snapshot.handled || isWorkerBlocker(snapshot) || !hasFailedActions(snapshot)) continue;
       const head = snapshot.pr?.head?.sha;
       if (!head) continue;
+      // A spent same-head budget refuses model work until its cooldown retry, so a recovery pass would only
+      // park again. On 2026-10-31 three PRs did that every ten minutes.
+      if (snapshot.progressBudget?.exhausted && snapshot.progressBudget.head === head && (snapshot.wait?.retryAt ?? 0) > Date.now()) continue;
       const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
       if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
       await pullRequestInbox.setMeta(recoveryKey, Date.now() + 10 * 60_000);
@@ -842,12 +925,35 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
   }
 
+  /**
+   * A parked PR on another PR's branch gets no event when that parent merges, so read its parents every
+   * ten minutes. On 2026-10-31 a child sat parked on its parent's branch two days after the parent merged.
+   */
+  async function stackParentMerged(snapshot: Snapshot): Promise<boolean> {
+    const target = snapshot.pr && !snapshot.wait?.wake ? nonDefaultBase(snapshot.pr) : undefined;
+    if (!snapshot.pr || !target) return false;
+    const nextReadKey = `stack-parent-next:${snapshot.repository}#${snapshot.number}`;
+    if (((await pullRequestInbox.metaNumber(nextReadKey)) ?? 0) > Date.now()) return false;
+    await pullRequestInbox.setMeta(nextReadKey, Date.now() + 10 * 60_000);
+    try {
+      const parents = await readPulls(snapshot.repository, { state: "all", head: `${target.owner}:${target.base}`, limit: 10 });
+      return stackRetargetBase(snapshot.pr, parents) !== undefined;
+    } catch (error) {
+      await noteForgeQuota(error, "stack-parent");
+      return false;
+    }
+  }
+
   /** Wakes a parked PR only when its new events need a model pass or a direct merge. */
   async function evaluateWaits() {
-    for (const snapshot of await pullRequestInbox.waitsToEvaluate(true)) {
-      if (snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
+    // Idle waits too: a parked stack child has no event, wake or retryAt that would list it.
+    for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, true)) {
+      const parentMerged = await stackParentMerged(snapshot);
+      if (!parentMerged && snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
       const checks = await requiredCheckState(snapshot);
       let reasons = wakeReasons(snapshot, checks, waitPolicy);
+      if (parentMerged) reasons.push("stack-parent-merged");
+      if (snapshot.wait?.reason === "non-default-base" && snapshot.pr && !nonDefaultBase(snapshot.pr)) reasons.push("base-retargeted");
       if (reasons.includes("ready-to-merge") && !(await directMergeWakeAllowed(snapshot, checks))) {
         reasons = reasons.filter(reason => reason !== "ready-to-merge");
       }
@@ -1153,9 +1259,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           modelWorkParked = true;
           outcome = "waiting";
           const pushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+          const minorHeads = inboxClaim.snapshot.reviewPushBudget?.minorHeads?.length ?? 0;
           const checks = waitPolicy.pendingReviewChecks.size ? `failed ${[...waitPolicy.pendingReviewChecks].join(", ")} checks` : "failed review checks";
+          const spent = minorReviewRounds !== false && minorHeads >= minorReviewRounds
+            ? `Automated review settled: ${minorHeads} heads in a row had no finding above P2 (minorReviewRounds ${minorReviewRounds})`
+            : `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget})`;
           await pullRequestInbox.finish(inboxClaim, {
-            text: `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget}). Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
+            text: `${spent}. Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
             wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "review-push-budget" },
           });
           schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "review-push-budget" });
@@ -1268,9 +1378,36 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 await parkOnStackParent(stackParent, `Waiting for open parent PR #${stackParent} to merge; this child has nothing left to repair.`);
                 return;
               }
+              // A reviewed draft never merges. Marking it ready sends ready_for_review, which wakes the PR
+              // and starts workflows that skip drafts.
+              if (inboxClaim.snapshot.pr?.draft === true && await requiredCheckState(inboxClaim.snapshot) !== "failed"
+                && await markDraftReady(inboxClaim.snapshot, owner, passSignal)) {
+                await pullRequestInbox.finish(inboxClaim, {
+                  text: "Marked the reviewed draft ready for review so it can merge.",
+                  wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
+                });
+                return;
+              }
+              // A direct merge lands only on the default branch, and never merges a draft, so retrying either
+              // every two minutes changes nothing. On 2026-10-31 a PR on a branch without a parent PR retried
+              // for two days, and on 2026-11-01 a draft reached generation 1929. Retargeting the PR or marking
+              // it ready for review wakes it.
+              const lockedBase = inboxClaim.snapshot.pr ? nonDefaultBase(inboxClaim.snapshot.pr) : undefined;
+              const draft = inboxClaim.snapshot.pr?.draft === true;
+              if ((lockedBase || draft) && await requiredCheckState(inboxClaim.snapshot) !== "failed") {
+                const reason = lockedBase ? "non-default-base" : "draft";
+                await pullRequestInbox.finish(inboxClaim, {
+                  text: lockedBase
+                    ? `Ready, but its base ${lockedBase.base} is not the default branch and no pull request merges it there. The Babysitter merges only into the default branch: merge this PR by hand or retarget it.`
+                    : inboxClaim.snapshot.lastResult || "Reviewed, but the pull request is a draft. It merges once it is marked ready for review.",
+                  wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason },
+                });
+                schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason });
+                return;
+              }
               await pullRequestInbox.finish(inboxClaim, {
                 text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
-                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
+                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: await mergeRetryAt(inboxClaim.snapshot) },
               });
               schedulerEvent("babysitter.wait.kept", {
                 ...owner,
@@ -1326,7 +1463,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
             outcome = "waiting";
             const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-            if (merge.mode === "direct") wait.retryAt = Date.now() + 120_000;
+            if (merge.mode === "direct") wait.retryAt = await mergeRetryAt(inboxClaim.snapshot);
             await pullRequestInbox.finish(inboxClaim, { text: "Recovered CI is healthy; waiting for merge gate evaluation.", wait });
             return;
           }
@@ -1362,11 +1499,24 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             return;
           }
           if (inboxClaim.snapshot.pr?.mergeable === null || inboxClaim.snapshot.pr?.mergeable_state === "unknown") {
-            const reason = "GitHub is still calculating mergeability for this PR head.";
-            await pullRequestInbox.finish(inboxClaim, { text: reason,
-              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason, retryAt: Date.now() + 30_000 } });
-            schedulerEvent("babysitter.mergeability.waiting", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha });
-            return;
+            // GitHub sometimes never finishes: on 2026-10-21 15 stack PRs stayed unknown for hours although each
+            // merged cleanly. Wait at most 10 minutes per head, then run the pass; a merge re-reads mergeability.
+            // Every recheck re-reads the snapshot, so a 30-second recheck on those PRs spent the GitHub App's
+            // hourly quota in five minutes.
+            const head = inboxClaim.snapshot.pr?.head?.sha;
+            const unknownKey = `mergeability-unknown:${repository}#${number}`;
+            const saved = await pullRequestInbox.meta(unknownKey);
+            const recorded = isRuntimeRecord(saved) && saved.head === head && hasRuntimeType(saved.at, "number") ? saved.at : undefined;
+            const since = recorded ?? Date.now();
+            if (recorded === undefined) await pullRequestInbox.setMeta(unknownKey, { head, at: since });
+            if (Date.now() - since < unknownMergeabilityLimitMs) {
+              const reason = "GitHub is still calculating mergeability for this PR head.";
+              await pullRequestInbox.finish(inboxClaim, { text: reason,
+                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason, retryAt: Date.now() + 120_000 } });
+              schedulerEvent("babysitter.mergeability.waiting", { ...owner, head_sha: head });
+              return;
+            }
+            schedulerEvent("babysitter.mergeability.unknown_proceeding", { ...owner, head_sha: head, since });
           }
           if (await parkBlockedModelWork()) return;
           if (ciRecovery?.state === "blocked" && ciRecovery.permission) {
@@ -1430,12 +1580,18 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               };
               let observePendingPush: ((current: Snapshot) => void) | undefined;
               const pendingInboxHeads = new Set([pullRequest.headRefOid]);
-              const assertLease = async () => {
+              // Reads need only the lease: new evidence cannot make a log or feedback read unsafe.
+              const readOperation = new AsyncLocalStorage<boolean>();
+              const assertLeaseHeld = async () => {
                 abortSignal.throwIfAborted();
                 const current = await pullRequestInbox.get(repository, number);
                 if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
                 }
+                return current;
+              };
+              const assertLease = async () => {
+                const current = await assertLeaseHeld();
                 observePendingPush?.(current);
                 for (const [id, reopens] of ownedResolutions) {
                   if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
@@ -1455,7 +1611,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 const selfHead = observedHead !== pullRequest.headRefOid && verifiedPushHeads.has(observedHead ?? "");
                 if (current.generation !== inboxClaim.generation
                   && !((selfHead || repairOperation.getStore()) && repairEvidenceKey(current) === repairEvidenceKey(inboxClaim.snapshot, current))) {
-                  throw new DOMException("Pull request evidence changed.", "AbortError");
+                  // Every later write would be refused too, so end the pass and let the claim requeue.
+                  const changed = new DOMException("Pull request evidence changed.", "AbortError");
+                  schedulerEvent("babysitter.pass.evidence_changed", { ...owner, head_sha: pullRequest.headRefOid, observed_head: observedHead });
+                  passController.abort(changed);
+                  throw changed;
                 }
                 return current;
               };
@@ -1520,7 +1680,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // Operations ask for a provider before each request group, so every group checks the lease.
               const operationHost: Pick<GitHubHost, "forge"> = {
                 forge: async (input) => {
-                  await assertLease();
+                  await (readOperation.getStore() ? assertLeaseHeld() : assertLease());
                   return await github.forge(input);
                 },
               };
@@ -1633,6 +1793,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   }
                 },
               });
+              const { readCheckLogs, readBaseCheckEvidence, readBaseCheckLogs } = operations;
+              operations.readCheckLogs = runId => readOperation.run(true, () => readCheckLogs(runId));
+              operations.readBaseCheckEvidence = () => readOperation.run(true, () => readBaseCheckEvidence());
+              operations.readBaseCheckLogs = runId => readOperation.run(true, () => readBaseCheckLogs(runId));
               const resolveThread = operations.resolveThread;
               operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
@@ -1693,7 +1857,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   dependencyRefreshes++;
                   return () => { dependencyRefreshes--; };
                 },
-                readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
+                readFeedback: async input => readBabysitterFeedback(await assertLeaseHeld(), input),
                 readState: async () => {
                   let current = await assertLease();
                   const directory = providerDirectory ?? checkout;
@@ -1742,7 +1906,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // exposing their forge access to provider credential resolution.
               const workerChannel = withoutForgeAccess(github.channel({
                 activity: activityEnabled,
-                pullRequest: { filter, workspace: false },
+                // The Channel filter would require both author rules and compare logins exactly.
+                pullRequest: { filter: { ...filter, author: undefined, authorAssociation: undefined, actor: undefined }, when: context => matchesBabysitterPullRequestFilter(context, filter), workspace: false },
               }));
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
@@ -1824,7 +1989,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);
               const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, then finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a dependency such as a pkg.pr.new build keeps no integrity and the frozen install fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
-              const userMessage = `${prompt}\n\n${snapshotContext}${installContext}`;
+              const settled = reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy);
+              const reviewPushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+              const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
+              const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
+              const userMessage = `${prompt}\n\n${snapshotContext}${installContext}${severityContext}${convergenceContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
@@ -1883,6 +2052,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // SAFETY: The configured worker output schema guarantees this
               // shape before runAgent resolves.
               passResult = result as BabysitterPassResult;
+              if (passResult.automatedReview) inboxClaim.automatedReview = passResult.automatedReview;
               if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
               disposition = passResult.disposition;
               resultText = passResult.text;
@@ -1895,7 +2065,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const current = await pullRequestInbox.get(repository, number);
           // Checks and bot reviews often arrive during a pass and move the claim revision. A review of the
           // unchanged head stays valid: its evidence key comes from the claim, so newer evidence still needs a pass.
-          const assessed = passResult?.wait?.kind !== "external" && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
+          // With direct merges, a reviewed head stays assessed when the pass parks on an external reason such as
+          // a failing approval check: on 2026-10-19 one PR reported no P0 or P1 three times and never merged.
+          // Required checks, conflicts and the merge gate still decide the merge.
+          const assessed = (passResult?.wait?.kind !== "external" || merge.mode === "direct") && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
             && current?.pr?.head?.sha === pullRequest.headRefOid && await pullRequestInbox.holdsClaimedHead(inboxClaim);
           if (assessed) await recordAssessment(inboxClaim.snapshot, { head: pullRequest.headRefOid, evidenceKey: mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy) });
           // A push alone proves nothing, but a pass that reports its own pushed head as reviewed inspected the
@@ -1909,7 +2082,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           } else if (pushedHead) {
             outcome = "waiting";
             recorded = await parkOnPushedHead(inboxClaim, resultText, pushedHead, [...verifiedPushHeads], passResult?.wait, reviewDrivenPush());
-          } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && passResult?.wait?.kind === "external") {
+          } else if (!assessed && disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && passResult?.wait?.kind === "external") {
             outcome = "waiting";
             await pullRequestInbox.setMeta(`review-assessment:${repository}#${number}`, null);
             // A blocker named without a push is not progress. New bot feedback can wake
@@ -1923,10 +2096,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // Preserve the declared head across check progress. Wait evaluation
             // still wakes new failures or feedback from the observed snapshot.
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" },
-              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : undefined) } });
+              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: await mergeRetryAt(inboxClaim.snapshot) } : undefined) } });
           } else if (assessed) {
             outcome = "waiting";
-            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
+            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: await mergeRetryAt(inboxClaim.snapshot) } : {}) } });
           } else {
             if (disposition === "park") schedulerEvent("babysitter.result.unqualified_park", { ...owner, head_sha: pullRequest.headRefOid });
             // A park that names no external gate still consumed a pass without progress.

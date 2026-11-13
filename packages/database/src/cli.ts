@@ -14,7 +14,8 @@ import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
-import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
+import { localPgliteDir, resolveLocalSqlitePath } from "./runtime/local-path.ts"
+import { runsOnPglite } from "./runtime/postgres-env.ts"
 
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
 type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
@@ -324,8 +325,10 @@ async function runDrizzleKit(
   const usesD1Http = (database: ResolvedDrizzleDatabaseConfig | undefined): database is ResolvedDrizzleDatabaseConfig =>
     feature === "migrate" && database?.dialect === "sqlite" && !!database.cloudflare?.http && database.cloudflare.databaseId !== undefined
   // Postgres uses ViteHub's migrator, the one that a server runs on start, so both hold the same advisory lock.
+  // PGlite has one local process and no server to lock, so Drizzle Kit migrates it like the generated config says.
+  const env = context.env ?? process.env
   const usesPostgres = (database: ResolvedDrizzleDatabaseConfig | undefined): database is ResolvedDrizzleDatabaseConfig =>
-    feature === "migrate" && database?.dialect === "postgresql"
+    feature === "migrate" && database?.dialect === "postgresql" && !runsOnPglite(database.driver, resolveConfigValue(database.connection?.url, env), env)
   // A project with only D1 HTTP and Postgres databases can migrate without Drizzle Kit. Prefer the Database root because the
   // generated config and working directory belong to it. Fall back to the invoking Vite root for external Database roots.
   const drizzleKitBin = runs.every(run => usesD1Http(run.database) || usesPostgres(run.database)) ? "" : resolveDrizzleKitBin([projectRoot, context.rootDir])
@@ -354,7 +357,7 @@ async function runDrizzleKit(
       writeMigrationPlan(plan, context)
       continue
     }
-    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, projectRoot, context)
+    if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
     const foldersBefore = schemaSnapshot && migrationsDir ? await listMigrationFolders(migrationsDir) : []
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
@@ -561,10 +564,17 @@ async function migratePostgresDatabases(databases: ResolvedDrizzleDatabaseConfig
   return 0
 }
 
-/** libSQL does not create parent directories, so the first `database migrate` needs the local data directory to exist. */
-async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext) {
+/** libSQL and PGlite do not create parent directories, so the first `database migrate` needs the local data directory to exist. */
+async function ensureLocalDatabaseDirectory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext) {
+  const env = context.env ?? process.env
+  if (database.dialect === "postgresql") {
+    if (runsOnPglite(database.driver, resolveConfigValue(database.connection?.url, env), env)) {
+      await mkdir(dirname(resolve(projectRoot, localPgliteDir(database.name))), { recursive: true })
+    }
+    return
+  }
   if (database.cloudflare?.http && database.cloudflare.databaseId) return
-  const url = resolveConfigValue(database.connection?.url, context.env ?? process.env)
+  const url = resolveConfigValue(database.connection?.url, env)
   if (!url || url === ":memory:" || /^(?:libsql:|https?:|wss?:)/i.test(url)) return
   const path = resolveLocalSqlitePath(url)
   if (!path || path === ":memory:") return

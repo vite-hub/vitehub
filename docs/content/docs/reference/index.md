@@ -26,7 +26,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/auth` | Auth Definitions, Better Auth server setup, generated Auth routes | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, the default Blob Store, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
 | `@vite-hub/browser` | Browser Definitions, per-invocation sessions, controllers, providers, live handoff, Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
-| `@vite-hub/bundle` | Bundle reports of production builds: client and server size, startup size, groups, and import chains, for Vite and Nuxt 5 with Nitro 3. The `vitehub bundle` commands. | `@vite-hub/bundle`, `@vite-hub/bundle/cli`, `@vite-hub/bundle/vite` |
+| `@vite-hub/bundle` | [Bundle reports](/docs/bundle) of production builds: client and server size, startup size, groups, and import chains, for Vite and Nuxt 5 with Nitro 3. The `vitehub bundle` commands. | `@vite-hub/bundle`, `@vite-hub/bundle/cli`, `@vite-hub/bundle/vite` |
 | `@vite-hub/decisions` | [Decisions](/docs/decisions): `defineChoices()` turns text into choices from your options, for filters, search facets, and command palettes. Uses a gateway with `ask()`. No Vite or Nitro code. | `@vite-hub/decisions`, `@vite-hub/decisions/vue` |
 | `@vite-hub/forms` | Forms that visitors send to the site owner: `defineForm()` with a spam guard, Standard Schema validation, a submissions table, and email. `submitForm()` on the client. | `@vite-hub/forms`, `@vite-hub/forms/client`, `@vite-hub/forms/database`, `@vite-hub/forms/vue` |
 | `@vite-hub/sandbox` | Sandbox Definitions, execution sessions on any provider, Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
@@ -52,7 +52,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/shell` | Shell execution providers and Workspace shell helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Loaders for file, glob, markdown, GitHub, custom, and MCP resources | `@vite-hub/source`, `@vite-hub/source/*` |
 | `@vite-hub/ui` | AI SDK Vue and Nuxt components, headless message scrolling, shadcn/ui parts, Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/<name>`, `@vite-hub/ui/headless`, `@vite-hub/ui/vite` |
-| `@vite-hub/web-container` | WebContainer lifecycle, app commands, preview status, snapshots, isolation headers, connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
+| `@vite-hub/web-container` | [WebContainer](/docs/web-container): WebContainer lifecycle, app commands, preview status, snapshots, isolation headers, connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, steps, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Stores, history contracts, Source Bindings, runtime facades, extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 
@@ -61,7 +61,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads the Vite config and runs each package's CLI commands. |
-| `@vite-hub/codemods` | Public CLI package | Migrates apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
+| `@vite-hub/codemods` | Public CLI package | [Codemods](/docs/codemods) that migrate apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
 | `@vite-hub/console` | Private app, not published | Console server with sign-in, linked projects, and a forward to each project's Operations endpoint. The Console page is in progress. |
 | `@vite-hub/icons` | Internal package | The ViteHub icon set (`i-vitehub-*`). `@vite-hub/ui` and the Console bundle it. Not published. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
