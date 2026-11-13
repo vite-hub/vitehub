@@ -9,6 +9,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1041",
   "AGENT_R1042",
   "AGENT_R1043",
+  "AGENT_R1044",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -1544,6 +1545,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1043: {
       why: ({ id }: { id: string }) => `[vitehub] importAgentSession() cannot replace Invocation ${id}: it is still pending or running.`,
       fix: "Wait for the existing Invocation to finish, or choose a different runId for the import.",
+    },
+    AGENT_R1044: {
+      why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" does not verify requests, and it does not opt out of verification.`,
+      fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
