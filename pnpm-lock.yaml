@@ -485,8 +485,8 @@ catalogs:
       specifier: ^3.6.0
       version: 3.6.0
     sh-syntax:
-      specifier: 0.8.3
-      version: 0.8.3
+      specifier: 0.8.4
+      version: 0.8.4
   storage:
     '@aws-sdk/client-s3':
       specifier: ^3.1146.0
@@ -3294,7 +3294,7 @@ importers:
         version: 1.3.0
       sh-syntax:
         specifier: catalog:shell
-        version: 0.8.3
+        version: 0.8.4
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
@@ -17597,8 +17597,8 @@ packages:
   setprototypeof@1.2.0:
     resolution: {integrity: sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==}
 
-  sh-syntax@0.8.3:
-    resolution: {integrity: sha512-hB9A5RRaY3+YDgMnzdMXiouAadurCwI9/j/wDHz/7gvHBPyK8SilHKpjousnj9zHshloYJADhtdIPxA3nknp3Q==}
+  sh-syntax@0.8.4:
+    resolution: {integrity: sha512-BI2cAN1oIyfxMw/W10wFx4QfvOG5GGFZfgPO7KSomspXxM2IOL/S9QLE6yDG7mTo2LHyndOC53epFD0uv3nSFw==}
     engines: {node: '>=18.0.0'}
 
   sha.js@2.4.12:
@@ -38092,7 +38092,7 @@ snapshots:
 
   setprototypeof@1.2.0: {}
 
-  sh-syntax@0.8.3: {}
+  sh-syntax@0.8.4: {}
 
   sha.js@2.4.12:
     dependencies:

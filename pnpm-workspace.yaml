@@ -158,7 +158,7 @@ catalogs:
     "@vercel/sandbox": ^3.9.1
   shell:
     just-bash: ^3.6.0
-    sh-syntax: 0.8.3
+    sh-syntax: 0.8.4
   storage:
     "@aws-sdk/client-s3": ^3.1146.0
     "@aws-sdk/lib-storage": ^3.1146.0
@@ -271,3 +271,5 @@ patchedDependencies:
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch
+minimumReleaseAgeExclude:
+  - sh-syntax@0.8.4
