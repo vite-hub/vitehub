@@ -327,7 +327,7 @@ export default defineNuxtConfig({
 
 ## Client-side Auth
 
-Vue apps can use ViteHub's Better Auth client and normalized session composable directly. `useUserSession()` exposes the current `user` and `session`, sign-in and sign-out actions, and `loggedIn`, `pending`, and `ready` computed refs.
+Vue apps can use ViteHub's Better Auth client and normalized session composable directly. `useUserSession()` exposes the current `user` and `session`, sign-in and sign-out actions, `loggedIn`, `pending`, and `ready` computed refs, and the Better Auth `client`.
 
 ```ts
 // lib/auth-client.ts
@@ -336,7 +336,11 @@ import { useUserSession } from "@vite-hub/auth/vue";
 export const session = useUserSession();
 ```
 
-That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client, below the app base path.
+`session.signOut()` calls Better Auth's `signOut()` and sets `user` and `session` to `null` at once, in every component that reads the session. It does not wait for Better Auth to read the session again. `signOut({ redirectTo: "/" })` then opens that page: a plain Vue app loads it with `location.assign()`, and Nuxt opens it with `navigateTo()`. Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns Better Auth's result. When the sign-out fails, the session and the page stay. When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page.
+
+That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path.
+
+In Nuxt, the default client also uses the Auth Definition's `basePath`. With `basePath: "/auth"` below `app.baseURL` `/app/`, `useUserSession()`, `useSession()`, and the page guard all call `/app/auth`. They share one Better Auth client. In the browser, the client uses the `app.baseURL` of the page, so a `NUXT_APP_BASE_URL` that a deployment sets at runtime also applies. On the server, Nuxt reads the session from the Nitro route, below the base path of the build.
 
 ```ts
 // server/auth.ts
@@ -348,6 +352,8 @@ export default defineAuth({
 });
 ```
 
+Outside Nuxt, pass the same path to the Better Auth client, below the app base path:
+
 ```ts
 // lib/auth-client.ts
 import { createAuthClient, useUserSession } from "@vite-hub/auth/vue";
@@ -358,9 +364,28 @@ export const authClient = createAuthClient({
 export const userSession = useUserSession(authClient);
 ```
 
-The exported `createAuthClient` keeps Better Auth's option and plugin inference for custom base paths and client plugins. The zero-config composables use ViteHub's shared default client. Its type is `RegisteredAuthClient`: `hubAuth()` writes the type of the Auth Definition to `.vitehub/types/auth.d.ts`, so `user` and `session` have the fields that `additionalFields`, server plugins such as `admin()`, and `customSession()` add. The client imports only this type, not server code. A client from `createAuthClient()` needs Better Auth's client plugins, such as `customSessionClient<RegisteredAuth>()`, and `inferAdditionalFields<RegisteredAuth>()` for the same fields. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
+To add Better Auth client plugins to the default client, export its options from `auth.client.ts` in the Vite root, which is `app/auth.client.ts` in a Nuxt app. `hubAuth()` finds the file. The default client loads it together with `better-auth/vue` on first use, and `useUserSession()`, `useAuthClient()`, and the Nuxt page guard share that one client. The generated `.vitehub/types/auth.d.ts` registers the type of the file, so `client.admin` is typed. Restart the dev server after you add or remove the file.
 
-The client loads `better-auth/vue` the first time you use it, not when you create it. An app can create its client in a plugin, and only the pages that sign in or read the session download Better Auth. Calls such as `signIn.social()` wait for the load. `useSession()` and `useUserSession()` return their refs at once: they are pending until the client loads in the browser. In Nuxt, a call in a component starts with the session that the server read for the request, so it is settled during server rendering and hydration. For a member that is not a call or a hook, such as `$store`, get Better Auth's own client with `loadAuthClient()`:
+```ts
+// app/auth.client.ts
+import { adminClient } from "better-auth/client/plugins";
+import { defineAuthClient } from "@vite-hub/auth/vue";
+
+export default defineAuthClient({
+  plugins: [adminClient()],
+});
+```
+
+```ts fragment
+import { useUserSession } from "@vite-hub/auth/vue";
+
+const { client } = useUserSession();
+const { data } = await client.admin.listUsers({ query: { limit: 10 } });
+```
+
+The exported `createAuthClient` keeps Better Auth's option and plugin inference for a second client with its own base path or plugins. The zero-config composables use ViteHub's shared default client. Its type is `RegisteredAuthClient`: `hubAuth()` writes the type of the Auth Definition to `.vitehub/types/auth.d.ts`, so `user` and `session` have the fields that `additionalFields`, server plugins such as `admin()`, and `customSession()` add. The client imports only this type, not server code. A client from `createAuthClient()` needs Better Auth's client plugins, such as `customSessionClient<RegisteredAuth>()`, and `inferAdditionalFields<RegisteredAuth>()` for the same fields. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
+
+The client loads `better-auth/vue` the first time you use it, not when you create it. An app can create its client in a plugin, and only the pages that sign in or read the session download Better Auth. Calls such as `signIn.social()` wait for the load. `useSession()` and `useUserSession()` return their refs at once: they are pending until the client loads in the browser. In Nuxt, a call in a component starts with the session that the server read for the request, so it is settled during server rendering and hydration. The browser then does not load Better Auth or read the session again until the session can change: a call such as `signOut()`, `refresh()`, the tab shows again, the network comes back, another tab signs out or updates the user, Better Auth's `refetchInterval` passes, or the session expires. Like Better Auth, it waits while the browser is offline. Better Auth then starts with the server's session, so a read that fails does not sign the page out. So without a page guard, a page that only shows the user reads the session once, on the server. When the server's session is unknown, such as on a prerendered page, the browser loads Better Auth at once. For a member that is not a call or a hook, such as `$store`, get Better Auth's own client with `loadAuthClient()`:
 
 ```ts fragment
 import { loadAuthClient } from "@vite-hub/auth/vue";
@@ -368,6 +393,16 @@ import { authClient } from "./auth-client";
 
 const client = await loadAuthClient(authClient);
 client.$store.listen("$sessionSignal", () => {});
+```
+
+All calls of `useSession()` and `useUserSession()` for one client share one session state: one for each page in the browser, and one for each request on the server. A list of 100 components that call `useUserSession()` makes one Better Auth subscription, not 100. `refresh()` reads the session again, updates every component, and returns the session, or `null` without one. Calls at the same time share one read. On the server, `refresh()` returns the session that the server read for the request, and does not load Better Auth. `ready` is `true` after the first read. It stays `true` while a later read runs, and after a read that failed.
+
+```ts fragment
+import { useUserSession } from "@vite-hub/auth/vue";
+
+const { refresh } = useUserSession();
+const session = await refresh();
+if (!session) console.log("Signed out");
 ```
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-started/concepts/client) for framework entrypoints and session helpers.
@@ -405,7 +440,21 @@ In Nuxt, the server reads the session only for a page that needs it: a page with
 
 The browser downloads Better Auth's client only when the page uses it. Nuxt does not prefetch it on other pages.
 
-The server session lookup and page guard use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
+The server session lookup, the page guard, and the auto-imported composables use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
+
+During server rendering, a client call such as `listSessions()` or a plugin endpoint such as `organization.list()` calls the app in-process with the visitor's cookie. Call it in `<script setup>` or in `useAsyncData()`, and the page renders its data on the server. When Better Auth refreshes the session cookie, the page response sets it. A client with its own `baseURL` or `fetchOptions.customFetchImpl` keeps them, so its server calls do not carry the visitor's cookie. Better Auth's origin check refuses a `POST` call during server rendering with `403`, so make calls that change data in the browser. A prerendered or cached page renders without the visitor's cookie, so its calls answer as signed out.
+
+```vue
+<!-- app/pages/sessions.vue -->
+<script setup lang="ts">
+import { useAuthClient } from "vite-hub/auth/vue";
+
+const { data: sessions } = await useAsyncData("sessions", async () => {
+  const { data } = await useAuthClient().listSessions();
+  return data ?? [];
+});
+</script>
+```
 
 `definePageMeta({ auth })` guards a page on the server and on client navigation:
 
@@ -433,6 +482,10 @@ export default defineNuxtConfig({
   vitehub: { auth: { routes: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } } },
 })
 ```
+
+On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
+
+The guard runs when the route changes. A sign-out does not change the route, so `signOut()` of `useUserSession()` does the guard's work: on a `'user'` page, it sends the visitor to the login page of that page, with `?redirect=<the page>`. `redirectTo` takes priority. Other pages stay open.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`. Read [Protect pages in Nuxt](https://vitehub.dev/docs/auth/protect-pages) for the full task.
 
