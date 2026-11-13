@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { gzipSync } from "node:zlib"
 import { H3 } from "h3"
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
@@ -53,6 +54,28 @@ it("parses each page once for concurrent page and search requests", async () => 
   await search()
   expect(getItem).toHaveBeenCalledTimes(files.length)
   expect(parsed).toHaveBeenCalledTimes(files.length)
+})
+
+it.each([undefined, "docs-1"])("reads packed production pages from %s through Content without Nitro server assets", async (source) => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const original = page.source
+  page.source = source
+  onTestFinished(() => { page.source = original })
+  const markdown = "# Packed page\n\nOnly in the production bundle.\n"
+  const bytes = Buffer.from(markdown)
+  vi.doMock("#docs/files", () => ({ default: {
+    index: { [source ?? "docs"]: { [page.file]: [0, bytes.length] } },
+    packed: gzipSync(bytes).toString("base64"),
+  } }))
+  onTestFinished(() => { vi.doMock("#docs/files", () => ({ default: null })) })
+  getItem.mockResolvedValue(null)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+  expect(response.status).toBe(200)
+  expect(JSON.stringify(await response.json())).toContain("Only in the production bundle.")
+  expect(useKV).not.toHaveBeenCalled()
 })
 
 it("retries a page after storage or parsing fails", async () => {
