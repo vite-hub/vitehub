@@ -2813,6 +2813,73 @@
     }
   }
 
+  /* The sm size, for a thread in a small floating card: 14px text on a 1.5 line, tighter rows, and a shorter box. */
+  [data-slot="comment-thread"][data-size="sm"] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  [data-slot="comment-thread"][data-size="sm"] [data-slot="comment-thread-quote"] {
+    margin-top: 0.5rem;
+  }
+
+  [data-slot="comment-reply"][data-size="sm"] {
+    padding: 0.5rem 0.75rem;
+    position: relative;
+
+    /* The 14px name and the 12px time share a baseline. The avatar stays centered on the name's line. */
+    & [data-slot="comment-reply-header"] {
+      align-items: baseline;
+    }
+
+    & [data-slot="comment-reply-header"] > [data-slot="avatar-stack"] {
+      align-self: center;
+    }
+
+    & [data-slot="comment-reply-author"] {
+      font-size: 0.875rem;
+      line-height: 1.5rem;
+    }
+
+    & [data-slot="comment-reply-body"] {
+      --vh-typeset-leading: 1.5;
+      font-size: 0.875rem;
+    }
+  }
+
+  /* With a mouse, Edit and Delete show over the end of the name's row on hover, so the text uses the full width of a
+     narrow card. A touch screen always shows them, so they keep their own column there. */
+  @media not (any-pointer: coarse) {
+    [data-slot="comment-reply"][data-size="sm"] [data-slot="comment-reply-actions"] {
+      background: var(--vh-bg);
+      border-radius: var(--vh-radius);
+      position: absolute;
+      right: 0.5rem;
+      top: 0.375rem;
+    }
+  }
+
+  [data-slot="comment-composer"][data-size="sm"] [data-slot="prompt-input-textarea"] {
+    min-height: 2rem;
+    padding: 0.375rem 0.625rem 0;
+  }
+
+  [data-slot="comment-composer"][data-size="sm"][data-layout="row"] {
+    & [data-slot="prompt-input-group"] {
+      border-radius: calc(0.875rem + 0.125rem + 1px);
+    }
+
+    & [data-slot="prompt-input-textarea"] {
+      min-height: 1.75rem;
+      padding: 0.125rem 0.25rem;
+    }
+
+    & [data-slot="prompt-input-toolbar"] > button {
+      height: 1.75rem;
+      min-width: 1.75rem;
+    }
+  }
+
   /* The page box and the reply box sit at the bottom, so their mention menus open upward. */
   [data-slot="comment-panel-composer"] [data-slot="comment-composer-mentions"],
   [data-slot="comment-thread"] > [data-slot="comment-composer"] [data-slot="comment-composer-mentions"] {
