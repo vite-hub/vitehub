@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createProject(routes: string[], database: string | null = "'memory'"): Promise<string> {
+async function createProject(routes: string[], database: string | null = "'memory'", route = true): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-cached-"))
   tempDirs.push(root)
   await mkdir(join(root, "server"), { recursive: true })
@@ -21,6 +21,7 @@ async function createProject(routes: string[], database: string | null = "'memor
     "import { defineAuth } from '@vite-hub/auth'",
     "export default defineAuth({",
     `  access: { routes: [${routes.join(", ")}] },`,
+    ...(route ? [] : ["  route: false,"]),
     ...(database ? [`  database: ${database},`] : []),
     "})",
     "",
@@ -220,4 +221,30 @@ describe("Auth memory store in a build", () => {
     const root = await createProject(["'/dashboard/**'"])
     await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), {})).resolves.toBeUndefined()
   })
+})
+
+describe("Auth memory store with manually mounted handlers", () => {
+  for (const integration of ["nitro", "vite"] as const) {
+    it.each([
+      { database: null, dev: false, rejects: true },
+      { database: null, dev: true, rejects: false },
+      { database: "'memory'", dev: false, rejects: false },
+    ])(`${integration}: validates storage with $database and dev=$dev`, async ({ database, dev, rejects }) => {
+      const root = await createProject([], database, false)
+      const plugin = hubAuth()
+      let nitro: Record<string, unknown>
+      if (integration === "nitro") {
+        nitro = createAuthNitroConfig(plugin, { nitro: { dev }, projectRoot: root })
+      }
+      else {
+        const config: { root: string, nitro?: Record<string, unknown> } = { root }
+        const hook = plugin.config as (config: { root: string, nitro?: Record<string, unknown> }, env: { command: string }) => unknown
+        hook(config, { command: dev ? "serve" : "build" })
+        nitro = config.nitro ?? {}
+      }
+      const build = buildNitro(nitro, {})
+      if (rejects) await expect(build).rejects.toMatchObject({ code: "AUTH_C0063" })
+      else await expect(build).resolves.toBeUndefined()
+    })
+  }
 })

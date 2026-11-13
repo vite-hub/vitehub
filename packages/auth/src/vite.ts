@@ -316,8 +316,6 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
         }]
       : []),
   ]
-  if (!authHandlers.length) return nitro
-
   for (const handler of authHandlers) kit.addHandler(handler)
   // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
   const merged = kit.config as NitroConfig
@@ -411,7 +409,8 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig, dev)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
-      if (hasNitroHandlers || applicationBaseURL) {
+      const hasMemoryDatabaseGuard = Boolean(authConfig?.implicitMemory && !dev)
+      if (hasNitroHandlers || applicationBaseURL || hasMemoryDatabaseGuard) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
       }
