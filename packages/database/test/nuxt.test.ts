@@ -243,7 +243,7 @@ describe("Database Nuxt integration", () => {
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty(Object.create({ INHERITED: "inherited-binding" }), "DB", { value: "native-binding" })
       const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
       const request = (env?: Record<string, unknown>) => ({ "~standard": { runtime: env ? { cloudflare: { env } } : {} } })
-      middleware(request({ DB: "event-binding", EVENT: "event", SHARED: "event" }))
+      middleware(request({ DB: "event-binding", EVENT: "event", SHARED: "event" }), () => undefined)
 
       expect(cloudflareBridgeState.activeEnv).toEqual({
         DB: "event-binding",
@@ -257,7 +257,7 @@ describe("Database Nuxt integration", () => {
       })
       expect(response).toBe("next-response")
       expect(cloudflareBridgeState.scopedEnv).toBeUndefined()
-      middleware(request())
+      middleware(request(), () => undefined)
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "DB")).toBe(true)
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "INHERITED")).toBe(false)
@@ -462,9 +462,9 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  // The first test also imports nitropack, which can take longer than the default timeout.
+  // The first test also imports the Nitro builder, which can take longer than the default timeout.
   describe("a D1 binding that the project's wrangler.json also declares", { timeout: 30_000 }, () => {
-    /** Runs the Database module, then Nitro 2's real Cloudflare preset, which merges the project file into its output. */
+    /** Runs the Database module, then Nitro's real Cloudflare preset, which merges the project file into its output. */
     async function writeWrangler(project: Record<string, unknown>, wrangler: Record<string, unknown> = {}, database: Record<string, unknown> = {}) {
       const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-wrangler-"))
       const definition = join(rootDir, "server/databases/default.ts")
@@ -480,7 +480,7 @@ describe("Database Nuxt integration", () => {
       await hubDb({ driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database })(undefined, nuxt)
       const nitroConfig: { cloudflare?: { wrangler?: Record<string, unknown> }, modules?: NitroModule[] } = { cloudflare: { wrangler } }
       await callHook(hooks, "nitro:config", nitroConfig)
-      const { createNitro } = await import("nitropack")
+      const { createNitro } = await import("nitro/builder")
       const nitro = await createNitro({
         cloudflare: { deployConfig: true, wrangler: nitroConfig.cloudflare!.wrangler },
         compatibilityDate: "2026-10-01",
@@ -504,7 +504,7 @@ describe("Database Nuxt integration", () => {
       }
     }
     type NitroModule = Exclude<NonNullable<NitroConfig["modules"]>[number], string>
-    type NitroConfig = NonNullable<Parameters<typeof import("nitropack")["createNitro"]>[0]>
+    type NitroConfig = NonNullable<Parameters<typeof import("nitro/builder")["createNitro"]>[0]>
 
     const generated = { binding: "DB", database_id: "content-id", database_name: "content-db", migrations_dir: ".vitehub/database/migrations/DB" }
 
@@ -1119,9 +1119,11 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
 
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
+      // Development can run the Database on PGlite, so its module awaits PGlite when it has no server.
+      expect(code).toMatch(/import \{ createDevPostgresDatabase \} from "file:.+\/runtime\/pglite\.js"/)
+      expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
       expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
-      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

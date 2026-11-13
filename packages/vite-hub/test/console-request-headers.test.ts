@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 
+import { H3Event } from "h3"
+
 import { installStandardContext } from "../src/runtime/h3.ts"
 import { consoleRequest } from "../src/console/runtime/server/access.ts"
 import { consoleRequestURL } from "../src/console/runtime/server/request.ts"
@@ -22,14 +24,10 @@ describe("Console request URL", () => {
     expect(consoleRequestURL(event("http://internal.example/_vitehub/console")).toString()).toBe("http://internal.example/_vitehub/console")
   })
 
-  it("keeps the mounted base of an H3 1 request", () => {
-    const h3V1 = {
-      node: {
-        req: { headers: { host: "console.example" }, method: "GET", originalUrl: "/portal/_vitehub/console", url: "/_vitehub/console" },
-        res: {},
-      },
-    }
-    installStandardContext(h3V1)
-    expect(consoleRequestURL(h3V1).toString()).toBe("http://console.example/portal/_vitehub/console")
+  it("keeps the mounted base of an H3 2 request", () => {
+    const h3 = new H3Event(new Request("http://console.example/portal/_vitehub/console"))
+    h3.url = new URL("http://console.example/_vitehub/console")
+    installStandardContext(h3)
+    expect(consoleRequestURL(h3).toString()).toBe("http://console.example/portal/_vitehub/console")
   })
 })

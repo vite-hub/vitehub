@@ -347,6 +347,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/markdown": {
+      "types": "./dist/content/markdown.d.ts",
+      "import": "./dist/content/markdown.js",
+      "default": "./dist/content/markdown.js"
+    },
     "./content/preview": {
       "types": "./dist/content/preview.d.ts",
       "import": "./dist/content/preview.js",
@@ -582,6 +587,11 @@
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
+    "./runtime/durability": {
+      "types": "./dist/runtime/durability.d.ts",
+      "import": "./dist/runtime/durability.js",
+      "default": "./dist/runtime/durability.js"
+    },
     "./runtime/h3": {
       "types": "./dist/runtime/h3.d.ts",
       "import": "./dist/runtime/h3.js",
@@ -676,6 +686,11 @@
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js",
       "default": "./dist/ui.js"
+    },
+    "./ui/agent-session": {
+      "types": "./dist/ui/agent-session.d.ts",
+      "import": "./dist/ui/agent-session.js",
+      "default": "./dist/ui/agent-session.js"
     },
     "./ui/attachment": {
       "types": "./dist/ui/attachment.d.ts",
@@ -1080,7 +1095,6 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
     "katex": "^0.19.1",
     "miniflare": "4.20260730.0",

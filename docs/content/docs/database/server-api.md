@@ -178,4 +178,4 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 
 `calls: 9`, `maxConcurrent: 1`, and a high `ms` mean the calls ran one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
 
-It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.
+It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres, also on local PGlite. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.

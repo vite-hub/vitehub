@@ -2,6 +2,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { compileDocumentsPath, parseDocumentFile, renderDocumentFile } from "./documents.ts"
+import { contentSourceHeadsRuntime } from "./source-heads.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type {
@@ -17,10 +18,12 @@ import type {
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
 import type { ContentScheduleStatus } from "./schedules.ts"
+import type { ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
 import type {
   ContentDevCollection,
   ContentDevCollectionsResult,
   ContentDevDiffResult,
+  ContentDevHeadResult,
   ContentDevListResult,
   ContentDevPublishResult,
   ContentDevRemoveResult,
@@ -74,6 +77,11 @@ const errorStatus = new Map([
   ["CONTENT_R0009", 400],
   ["CONTENT_R0011", 400],
   ["CONTENT_R0013", 409],
+  // A commit that fails validation, a Source without a head, and a failing KV store. Below 500, so every surface shows the fix.
+  ["CONTENT_R0019", 422],
+  ["CONTENT_R0020", 409],
+  ["CONTENT_R0021", 409],
+  ["CONTENT_R0022", 424],
   ["WORKSPACE_CONFLICT", 409],
 ])
 
@@ -770,5 +778,83 @@ const sitemap = defineOperation({
   section: "content",
 })
 
+/** `content.sources` of the runtime. A runtime from before `sources` has no head to show. */
+function sourceHeads(content: ContentOperationsRuntime): ContentSourceHeads {
+  const heads: unknown = Reflect.get(Object(content), "sources")
+  const runtime = typeof heads === "object" && heads !== null ? contentSourceHeadsRuntime(heads) : undefined
+  if (!runtime) throw invalid("This Content runtime has no Source heads. Update @vite-hub/content.")
+  return runtime.api
+}
+
+/** The names of the `github()` Sources. */
+function headNames(heads: ContentSourceHeads): string[] {
+  return contentSourceHeadsRuntime(heads)?.names() ?? []
+}
+
+/** The Source that a call names. Without a name, the only `github()` Source. A call that moves a head names one of many. */
+function headSource(heads: ContentSourceHeads, source: string | undefined): string | undefined {
+  if (source !== undefined) return source
+  const names = headNames(heads)
+  if (names.length > 1) throw invalid(`This app has ${names.length} github() Sources: ${names.join(", ")}. Name the Source, such as \`vitehub content advance ${names[0]}\`.`)
+  return names[0]
+}
+
+const sourceName = v.optional(text)
+
+// Heads belong to read-only Sources, which `defineContent({ authorize })` does not cover. The `content` section of the
+// Console access is the grant: `content:read` shows heads, and the whole section moves them.
+const head = defineOperation({
+  cli: { command: "head", positional: ["source"] },
+  description: "Show the commit that each github() Source serves, the rejected commit, the last webhook delivery, and what holds the head back.",
+  input: v.strictObject({ source: sourceName }),
+  kind: "read",
+  name: "content.head",
+  run: async (input): Promise<ContentDevHeadResult> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    const names = input.source === undefined ? headNames(heads) : [input.source]
+    return { heads: await Promise.all(names.map(name => heads.head(name))) }
+  }),
+  section: "content",
+})
+
+const advance = defineOperation({
+  cli: { command: "advance", positional: ["source"] },
+  description: "Move the head of a github() Source to the latest commit of its branch when every document parses. A pinned head does not move.",
+  input: v.strictObject({ source: sourceName }),
+  kind: "write",
+  name: "content.advance",
+  run: async (input): Promise<ContentSourceHead> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    return await heads.advance(headSource(heads, input.source))
+  }),
+  section: "content",
+})
+
+const pin = defineOperation({
+  cli: { command: "pin", positional: ["sha", "source"] },
+  description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse.",
+  input: v.strictObject({ sha: text, source: sourceName }),
+  kind: "destructive",
+  name: "content.pin",
+  run: async (input): Promise<ContentSourceHead> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    return await heads.pin(input.sha, headSource(heads, input.source))
+  }),
+  section: "content",
+})
+
+const unpin = defineOperation({
+  cli: { command: "unpin", positional: ["source"] },
+  description: "Remove the pin of a github() Source and move its head to the latest valid commit of its branch.",
+  input: v.strictObject({ source: sourceName }),
+  kind: "destructive",
+  name: "content.unpin",
+  run: async (input): Promise<ContentSourceHead> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    return await heads.unpin(headSource(heads, input.source))
+  }),
+  section: "content",
+})
+
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, head, advance, pin, unpin]

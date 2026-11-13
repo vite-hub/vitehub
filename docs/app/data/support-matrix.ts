@@ -289,11 +289,11 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "package",
-            "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent add package-owned support.",
+            "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace have Cloudflare providers. Browser and Agent add package-owned support.",
           ),
           vercel: cell(
             "package",
-            "Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have separate package output.",
+            "Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace have Vercel providers. Agent routes have separate package output.",
           ),
           netlify: cell(
             "package",
@@ -324,11 +324,11 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "package",
-            "Pull requests build Cloudflare output and run the primitive playground locally. Browser has output contract tests.",
+            "CI on main builds Cloudflare output and runs the primitive playground locally. Browser has output contract tests.",
           ),
           vercel: cell(
             "package",
-            "Pull requests build Vercel output and run the primitive playground against local service adapters.",
+            "CI on main builds Vercel output and runs the primitive playground against local service adapters.",
           ),
           netlify: cell("package", "CI runs the real-project fixture through Netlify CLI."),
           deno: cell(

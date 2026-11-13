@@ -6001,6 +6001,47 @@ cli_auth_credentials_store = "keyring"
     }) as never)
   })
 
+  it.each(["current", "advanced", "unavailable"])("records the materialized Workspace revision with %s optional history", async (history) => {
+    const threadId = `thread-workspace-revision-${history}`
+    let materialized = false
+    const runContext = context(threadId, {
+      workspace: {
+        fs: {},
+        history: { head: vi.fn(async () => {
+          expect(materialized).toBe(true)
+          if (history === "unavailable") throw new Error("history provider unavailable")
+          return { id: history === "advanced" ? "later" : "prepared", ref: "run-1" }
+        }) },
+        materializeSources: vi.fn(async () => {
+          materialized = true
+          return { sources: [] }
+        }),
+        startSession: vi.fn(async () => ({
+          revision: "prepared",
+          close: vi.fn(async () => undefined),
+          exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+          readFile: vi.fn(async () => new Uint8Array()),
+        })),
+        tools: {},
+      },
+      workspaceDefinition: { name: "docs" },
+      workspaceMode: "read",
+    })
+    await setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "codex" },
+      runtime: { name: "vite" },
+      workspace: { mode: "read", name: "docs" },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(getAgentTelemetryConfiguration(runContext.context)?.value.workspace).toEqual({
+          mode: "read", name: "docs", revision: "prepared", ...(history === "current" ? { ref: "run-1" } : {}),
+        })
+      },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+  })
+
   it("writes successful workspace sessions back before cleanup", async () => {
     const threadId = "thread-workspace"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
