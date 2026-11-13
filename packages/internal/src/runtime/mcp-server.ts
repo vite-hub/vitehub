@@ -132,6 +132,7 @@ export interface McpResource {
 }
 
 /** An error that a prompt or resource throws to answer with this JSON-RPC error. */
+// Internal invariant: `serveMcp()` catches it and answers with its JSON-RPC error, so it never reaches the app.
 export class McpMethodError extends Error {
   constructor(readonly code: number, message: string, readonly data?: unknown) {
     super(message)

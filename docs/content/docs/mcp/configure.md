@@ -22,6 +22,22 @@ A `route` that is not a path, such as one with a query or `//`, fails the build 
 
 MCP clients show the `serverInfo` of the server, and Agents read its `instructions` when they connect. Use the instructions to tell the Agent what the server is for and which tool to call first:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    mcp: {
+      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
+      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
@@ -31,18 +47,29 @@ export default defineConfig({
   plugins: [vitehub({
     mcp: {
       instructions: 'Drop stores docs for review. Call list_folders before you publish.',
-      serverInfo: {
-        name: 'drop',
-        title: 'Drop',
-        version: '0.1.0',
-        description: 'Publish docs for review.',
-        websiteUrl: '/',
-        icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
-      },
+      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
     },
   }), nitro()],
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    mcp: {
+      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
+      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+    },
+  })],
+})
+```
+:::
+::
 
 An icon `src` or a `websiteUrl` that starts with `/` is a path on the origin of the request, so one build serves the right URL on each domain. Include the application base in the path when the app has one.
 
