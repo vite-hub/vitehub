@@ -323,7 +323,8 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         await (await files()).copy(from, to)
       }
       catch (error) {
-        if (isNotFound(error)) return null
+        // Providers report a missing source in different ways. Azure wraps the source 404 in `CannotVerifyCopySource`.
+        if (isNotFound(error) || !await driver.head(from)) return null
         throw error
       }
       return await driver.head(to)

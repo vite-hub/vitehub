@@ -177,6 +177,16 @@ describe("blob.copy() on S3 through files-sdk", () => {
     copy.mockRejectedValueOnce(Object.assign(new Error("Object not found"), { code: "NotFound" }))
     const [missing] = await storage.copy("gone.txt", "c.txt")
     expect(missing?.code).toBe("BLOB_NOT_FOUND")
+
+    // Azure reports a missing source as a copy conflict, with the 404 nested inside.
+    copy.mockRejectedValueOnce(Object.assign(new Error("CannotVerifyCopySource"), { code: "Conflict" }))
+    const [wrapped] = await storage.copy("gone.txt", "c.txt")
+    expect(wrapped?.code).toBe("BLOB_NOT_FOUND")
+
+    const failure = Object.assign(new Error("Service unavailable"), { code: "Provider" })
+    copy.mockRejectedValueOnce(failure)
+    const [failed] = await storage.copy("src.txt", "c.txt")
+    expect(failed).toMatchObject({ cause: failure, code: "BLOB_OPERATION_FAILED" })
   })
 })
 
