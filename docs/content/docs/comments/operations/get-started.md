@@ -30,7 +30,7 @@ Add the Console to the ViteHub options of your app:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', console: { auth: false } },
+  vitehub: { host: 'node', console: { auth: false } },
 })
 ```
 ::::
@@ -42,7 +42,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+  plugins: [vitehub({ host: 'node', console: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -53,7 +53,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } })],
+  plugins: [vitehub({ host: 'node', console: { auth: false } })],
 })
 ```
 ::::

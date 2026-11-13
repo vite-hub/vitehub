@@ -120,11 +120,6 @@ export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean
   const reqRuntime = ownObject(ownValue(req, "runtime"))
   const reqCloudflare = ownObject(ownValue(reqRuntime, "cloudflare"))
   const reqCloudflareContext = ownObject(ownValue(reqCloudflare, "context"))
-  const node = ownObject(ownValue(target, "node"))
-  const nodeReq = ownObject(ownValue(node, "req"))
-  const nodeRuntime = ownObject(ownValue(nodeReq, "runtime"))
-  const nodeCloudflare = ownObject(ownValue(nodeRuntime, "cloudflare"))
-  const nodeCloudflareContext = ownObject(ownValue(nodeCloudflare, "context"))
   const hosts = [
     context,
     cloudflare,
@@ -134,9 +129,6 @@ export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean
     req,
     reqCloudflare,
     reqCloudflareContext,
-    nodeReq,
-    nodeCloudflare,
-    nodeCloudflareContext,
   ]
   const owners = options.preferHost ? [...hosts, target] : [target, ...hosts]
   for (const owner of owners) {

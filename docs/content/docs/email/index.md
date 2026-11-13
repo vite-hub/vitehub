@@ -44,7 +44,7 @@ icon: i-lucide-mail
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // Resend sends the email
       email: {
         driver: 'resend',
@@ -69,7 +69,7 @@ icon: i-lucide-mail
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       // Resend sends the email
       email: {
         driver: 'resend',
@@ -93,7 +93,7 @@ icon: i-lucide-mail
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       // Resend sends the email
       email: {
         driver: 'resend',

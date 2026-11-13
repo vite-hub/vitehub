@@ -79,6 +79,14 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+`filter.authorAssociation` selects authors by their GitHub `author_association`,
+such as `{ allow: ["OWNER", "MEMBER", "COLLABORATOR"] }`. A pull request passes
+when its author matches `filter.author.allow` or `filter.authorAssociation.allow`,
+and a match on either deny list excludes it. Bots usually report `NONE`, so list
+them in `filter.author`. Logins match without case and in either bot spelling,
+so `renovate[bot]` also matches the GraphQL login `renovate`; this also applies
+to `filter.actor` and `ignoreFeedbackAuthors`.
+
 `driver` selects the provider Driver that repairs each checkout: `"codex"` (the
 default) or `"claude-code"`. Set its model and other provider settings with the
 ordinary `driver` field. Model and custom run Drivers cannot repair a checkout.
@@ -123,7 +131,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, and an optional `ready` hook. |
+| `{ strategy: "direct", method, ready, markDraftsReady }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, and optional draft authors. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -141,6 +149,13 @@ or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
 after checking that the head did not move.
+
+`markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
+drafts should merge. Off by default. When a pass has reviewed a draft's head, no
+required check failed, and the head branch is in the repository itself, the host
+marks the draft ready for review. The `ready_for_review` event wakes the PR and
+starts workflows that skip drafts. A fork's draft and an unlisted author's draft
+stay drafts.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
@@ -170,7 +185,13 @@ merge conflict and without a failing check outside `reviewChecks`. After that
 many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
 person's feedback, another failing check, a conflict or a head that someone else
 pushed still do. The PR then merges on its required checks or parks with the
-reason, which health lists under `queue.parked`. `dailyPassBudget` (default
+reason, which health lists under `queue.parked`. `minorReviewRounds` (default
+`false`) spends that budget once that many heads in a row had no automated
+finding above P2; each pass reports the class in `automatedReview`.
+`reviewConvergencePushes` (default `false`) asks each pass from that many
+review-driven pushes on to fix a recurring finding class at its root.
+`ignoreAssessedBotThreads` (default `false`) stops assessed bot-only review
+threads from blocking a direct merge or waking the PR. `dailyPassBudget` (default
 `16`, `false` disables it) limits the model passes per PR in a rolling 24
 hours. A PR that reached it parks until its oldest pass is 24 hours old, and
 health lists it with `resumeAt`. A person's new feedback, the first failing
@@ -213,7 +234,11 @@ headings. Explicit `driver.instructions` replaces that slot. Use
 A discovered Agent that imports the preset runs without more wiring on the Node
 server preset. ViteHub generates a Nitro plugin that starts a process host for
 it: a SQLite PR inbox in Agent State, bounded GitHub discovery of
-`filter.repository.allow`, claims, repair passes, and wake handling. Signed
+`filter.repository.allow` (or, without it, of every repository the GitHub App
+installations can access, except archived ones and `filter.repository.deny`),
+claims, repair passes, and wake handling. Installing the App on a repository
+enrolls it; `installation` and `installation_repositories` webhooks update the
+list at once, and the host lists the installations again every 10 minutes. Signed
 GitHub deliveries to `/api/_vitehub/agents/<name>/webhooks/github` feed the
 inbox; they never start the Agent directly. `GET /api/_vitehub/host/drain`
 reports drain status, and `GET /api/_vitehub/host/health` reports each host's

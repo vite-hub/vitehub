@@ -16,6 +16,8 @@ import { VITEHUB_FEATURES, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { supportsHostedDatabaseRuntime } from "../src/internal/vite-build.ts"
+import { checkDurability } from "@vite-hub/runtime/durability"
+import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -103,6 +105,43 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
+  it("reports evaluated Definition connection and Cloudflare overrides", async () => {
+    const rootDir = await createTempProject()
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    for (const [name, options] of Object.entries({
+      default: '{ connection: { url: "file:instance.db" }, schema: {} }',
+      remote: '{ connection: { url: { kind: "env-variable", source: { kind: "env", name: "REMOTE_URL" }, default: remoteDefault } }, schema: {} }',
+      edge: '{ cloudflare, schema: {} }',
+    })) {
+      await writeFile(join(rootDir, `server/databases/${name}.ts`), [
+        'import { defineDatabase } from "@vite-hub/database"',
+        'const remoteDefault = "libsql://shared.example?authToken=secret"',
+        'const cloudflare = { databaseId: "d1-id", http: true }',
+        `const options = ${options.replace("{", `{ name: ${JSON.stringify(name)},`)}`,
+        `export default defineDatabase(${name === "default" ? "options" : options.replace("{", `{ name: ${JSON.stringify(name)},`)})`,
+      ].join("\n"))
+    }
+    const plugin = hubDb({ connection: { url: "libsql://integration.example?authToken=secret" } })
+    await resolveConfigResolved(plugin)({ command: "build", root: rootDir })
+    const contribution = plugin.vitehub?.durability?.()[0]
+    expect(contribution).toBeDefined()
+    const server = await createViteServer({ configFile: false, logLevel: "silent", root: rootDir, server: { middlewareMode: true, watch: null } })
+    try {
+      const module = await server.ssrLoadModule(contribution!.module) as { databaseDurability: (input: unknown, context: DurabilityContext) => Durability[] }
+      const reports = module.databaseDurability(contribution!.input, { env: {}, find: () => undefined })
+      expect(reports).toEqual(expect.arrayContaining([
+        expect.objectContaining({ primitive: "database", store: "sqlite", scope: "host" }),
+        expect.objectContaining({ name: "remote", store: "libsql", scope: "shared" }),
+        expect.objectContaining({ name: "edge", store: "d1", scope: "shared" }),
+      ]))
+      expect(() => checkDurability(reports, { instances: 2, log: false })).toThrow(expect.objectContaining({ name: "RUNTIME_R0017" }))
+      expect(() => checkDurability(reports.filter(report => report.name), { instances: 2, log: false })).not.toThrow()
+      expect(JSON.stringify({ contribution, reports })).not.toContain("secret")
+    }
+    finally { await server.close() }
+  })
+
   it("filters resolveId, load, and transform to the ids Database owns", () => {
     const plugin = hubDb()
     const filter = (hook: unknown) => (hook as { filter: { id: RegExp } }).filter.id
@@ -215,7 +254,7 @@ describe("hubDb", () => {
   it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options when Vite builds for Cloudflare", async (name) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`)
-    // `vitehub({ preset: "cloudflare", database: true })` passes this to the Database plugin.
+    // `vitehub({ host: "cloudflare", database: true })` passes this to the Database plugin.
     const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
 
     expect(buildStart).toThrow(expect.objectContaining({
@@ -421,8 +460,8 @@ describe("hubDb", () => {
     const statsHandler = join(rootDir, ".vitehub/nitro/database/request-stats.mjs")
     // The stats middleware comes first, so it also counts the calls of later middleware.
     expect(options.handlers).toEqual([{ handler: statsHandler, middleware: true }, { handler, middleware: true }])
-    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next?: () => unknown) => unknown
-    const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next: () => unknown) => unknown
+    const { getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
     const request = (bindings: Record<string, unknown>) => ({ "~standard": { req: new Request("https://app.example/"), res: { headers: new Headers() }, runtime: { cloudflare: { env: bindings } }, vendor: "test" } })
     const scopes = [
@@ -431,11 +470,6 @@ describe("hubDb", () => {
     ]
     expect(scopes[0]).toBeDefined()
     expect(scopes[0]).not.toBe(scopes[1])
-
-    const nitro2Env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/nitro2" } }
-    middleware(request(nitro2Env), undefined)
-    expect(getActiveCloudflareEnv()).toBe(nitro2Env)
-    expect(getActiveCloudflareRequestScope()).toBeDefined()
   })
 
   it("installs request scope middleware for D1 read replication without Postgres", async () => {

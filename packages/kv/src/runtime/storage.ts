@@ -38,7 +38,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING")
+  const explicit = readEnv(env, "VITEHUB_HOST")
   if (explicit) {
     return explicit
   }

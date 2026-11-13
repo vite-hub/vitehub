@@ -4,7 +4,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import { AgentInvocationInspector } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { channelIcon } from "../../src/console/runtime/components/invocation/internal/channel-icon.ts";
-import { invocationBrand, invocationModelMaker } from "../../src/console/runtime/components/invocation/internal/invocation-brand.ts";
+import { invocationBrand, invocationModelMaker, invocationModelName } from "../../src/console/runtime/components/invocation/internal/invocation-brand.ts";
 import { invocation } from "./fixtures.ts";
 
 const icon = (origin: string) => mount({ render: () => channelIcon(origin) });
@@ -28,6 +28,18 @@ describe("Brand marks", () => {
   ])("renders the %s channel with the %s mark", (origin, label, mark) => {
     expect(icon(origin).attributes("aria-label")).toBe(label);
     expect(icon(origin).get("svg").html()).toBe(icon(mark).get("svg").html());
+  });
+
+  it.each([
+    ["claude-haiku-5-5", "Claude Haiku 5.5"],
+    ["claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"],
+    ["anthropic/claude-3-5-sonnet", "Claude 3.5 Sonnet"],
+    ["gpt-6-luna", "GPT 6 Luna"],
+    ["gpt-5.6", "GPT 5.6"],
+    ["llama-3-1-70b", "Llama 3.1 70B"],
+    ["gpt-4-1106-preview", "GPT 4 1106 Preview"],
+  ])("names the model %s as %s", (id, name) => {
+    expect(invocationModelName(id)).toBe(name);
   });
 
   it("recognizes model makers and providers", () => {

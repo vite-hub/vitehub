@@ -32,14 +32,14 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Deploy to Cloudflare
 
-With the `cloudflare` preset, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
+With the `cloudflare` host, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true },
+  vitehub: { host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true },
 })
 ```
 :::
@@ -52,7 +52,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true }),
+    vitehub({ host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true }),
     nitro(),
   ],
 })
@@ -65,7 +65,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true })],
+  plugins: [vitehub({ host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true })],
 })
 ```
 :::

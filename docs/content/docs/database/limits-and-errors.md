@@ -56,12 +56,12 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
 | `DATABASE_NAME_REQUIRED`, `DATABASE_NOT_FOUND` | By `useDatabase()`, when the name does not select one Database |
-| `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND` | When code first uses the database |
+| `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND`, `DATABASE_PGLITE_NOT_INSTALLED` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
-| `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
+| `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
 ## D1 limits
@@ -74,7 +74,7 @@ Before a query reaches D1, through the binding or D1 HTTP, ViteHub checks these 
 | SQL statement length, in UTF-8 bytes | 100,000 bytes | `DATABASE_D1_STATEMENT_TOO_LONG` |
 | One bound string or BLOB | 2,000,000 bytes | `DATABASE_D1_VALUE_TOO_LARGE` |
 
-Without a D1 binding, `vite dev` uses local SQLite, which accepts more than D1. So when the build targets Cloudflare (`vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset), the dev server runs the same checks for each database with D1 options. A query that D1 rejects then fails in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
+Without a D1 binding, `vite dev` uses local SQLite, which accepts more than D1. So when the build targets Cloudflare (`vitehub({ host: 'cloudflare' })` or the Cloudflare Nitro preset), the dev server runs the same checks for each database with D1 options. A query that D1 rejects then fails in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
 
 D1 also limits a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations from `vitehub database migrate` are not checked.
 
@@ -134,6 +134,10 @@ The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseI
 
 `useDatabaseBinding(name)` found no Cloudflare D1 binding for the database. The database runs on local SQLite, libSQL, D1 HTTP, or Postgres here. Call it only where the database runs on a D1 binding, such as a Cloudflare Worker. Elsewhere, query the database with `useDatabase(name).db`.
 
+### DATABASE_PGLITE_NOT_INSTALLED
+
+A Postgres Database runs on PGlite in development, and the app cannot load `@electric-sql/pglite`. It runs on PGlite when the Definition sets `driver: "pglite"`, or when it has no `connection.url` and no PG* variables. Install PGlite with `pnpm add -D @electric-sql/pglite`, or set `connection.url` to a Postgres server. See [Run Postgres locally with PGlite](/docs/database/configure#run-postgres-locally-with-pglite).
+
 ### DATABASE_NOT_FOUND
 
 `useDatabase(name)`, `agentDb.database(name)`, or `useDatabaseBinding(name)` received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
@@ -170,7 +174,7 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
-`migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node preset and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment.
+`migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node host and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment.
 
 ## Export errors
 
@@ -187,6 +191,10 @@ The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the databas
 ### DATABASE_INVALID_DIALECT
 
 `dialect` is not `sqlite` or `postgresql`. The build reads it from the source, so write a string literal.
+
+### DATABASE_INVALID_DRIVER
+
+`driver` of a Postgres Definition is not `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with `connection.url`.
 
 ### DATABASE_INVALID_NAME
 
@@ -248,7 +256,7 @@ Two Nuxt layers declare the same table in one database. Rename one, or declare t
 
 ### DATABASE_LEGACY_CONFIG_FILE
 
-A Database Definition still uses `config.ts`. The Database `<name>` is now `server/databases/<name>.ts` or `server/databases/<name>/index.ts`, and its migrations are in `server/databases/<name>/migrations/`. The former `server/databases/config.ts` is the `default` Database: move it to `server/databases/default/index.ts` with the files beside it, and move `server/databases/migrations/` to `server/databases/default/migrations/`. Run `npx @vite-hub/codemods define-forms` to do these moves and update the imports.
+A Database Definition still uses `config.ts`. The Database `<name>` is now `server/databases/<name>.ts` or `server/databases/<name>/index.ts`, and its migrations are in `server/databases/<name>/migrations/`. The former `server/databases/config.ts` is the `default` Database: move it to `server/databases/default/index.ts` with the files beside it, and move `server/databases/migrations/` to `server/databases/default/migrations/`. Run `npx @vite-hub/codemods define-forms` to do these moves and update the imports. See [define-forms](/docs/codemods/upgrade-vitehub#define-forms).
 
 ### DATABASE_MISSING_D1_RESOURCE
 
@@ -265,6 +273,10 @@ The `name` in a Definition does not match its file path. Fix it, or remove it.
 ### DATABASE_OPAQUE_CLOUDFLARE_CONFIG
 
 ViteHub reads the `cloudflare` object from the source to write the D1 binding. Write it as an object literal, or use D1 HTTP or a remote libSQL connection.
+
+### DATABASE_PGLITE_IN_BUILD
+
+A production build includes a Postgres Definition with `driver: "pglite"`. PGlite keeps its data in a local folder that one process opens, so production output does not include it. Remove `driver: "pglite"` and set `connection.url`, for example to `process.env.DATABASE_URL`. In development, a Postgres Database without a URL still runs on PGlite.
 
 ### DATABASE_PROVISION_FAILED
 

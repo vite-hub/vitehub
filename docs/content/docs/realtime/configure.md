@@ -16,12 +16,12 @@ Every client of a document must reach the same authority. Set it with
 
 | Authority | Use |
 | --- | --- |
-| `auto` | Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `preset: 'cloudflare'`. Other production builds fail until you pick an authority. On the dev server, rooms run in memory. |
+| `auto` | Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ host: 'cloudflare' })`. Other production builds fail until you pick an authority. On the dev server, rooms run in memory. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
 | `memory` | Keeps rooms in one process, for local development or a single-process Node deploy. Room state is lost when the process stops. |
 
-ViteHub rejects the memory authority on distributed host presets, and a
-Cloudflare authority with another deploy preset.
+ViteHub rejects the memory authority on distributed hosts, and a
+Cloudflare authority with another deploy host.
 
 ## Develop locally
 
