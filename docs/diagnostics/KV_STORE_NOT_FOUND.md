@@ -18,7 +18,7 @@ The `vitehub kv` commands and the Console report the same code for `--store <nam
 ```diff [vite.config.ts]
  export default defineConfig({
    plugins: [vitehub({
-     preset: 'node',
+     host: 'node',
      kv: {
        stores: {
          default: { driver: 'fs-lite' },

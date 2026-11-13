@@ -1,4 +1,4 @@
-nuxt-cron: moved 2 cron jobs from server/cron to server/schedules, deployment preset "node".
+nuxt-cron: moved 2 cron jobs from server/cron to server/schedules, host "node".
 Dry run: no files were written.
 
 Files to change (6):

@@ -1,6 +1,6 @@
 ---
 title: Content SEO
-description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap and robots.txt.
+description: Give documents public URLs, per-document SEO fields, head tags for any framework, a generated sitemap and robots.txt, and Markdown files for agents.
 navigation.title: SEO
 navigation.order: 12
 icon: i-lucide-search-check
@@ -14,6 +14,7 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`seo()`](#seo-fields) | Per-document title, description, social image, canonical URL, and `noindex`. |
 | [`contentHead()`](#head-tags) | Head tags from a document, its `seo()` values, and site defaults. |
 | [`defineContent({ seo })`](#sitemap-and-robotstxt) | Generated `/sitemap.xml` and `/robots.txt`. |
+| [`seo: { markdown, llms }`](#markdown-for-agents) | Markdown copies of each page, `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
 
 ## Document URLs
@@ -171,7 +172,7 @@ The sitemap lists:
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
-Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
+Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every host. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
 
 Check the output from code:
 
@@ -185,6 +186,54 @@ export async function checkSeo() {
 ```
 
 In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
+
+## Markdown for agents
+
+Agents read Markdown better than HTML. Two `seo` options serve your published Markdown documents as Markdown:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), description: z.string().optional() } }),
+  },
+  seo: { site: 'https://example.com', llms: { title: 'Example', description: 'Notes about examples.' } },
+})
+```
+
+| `seo` option | Description |
+| --- | --- |
+| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. |
+| `llms` | `true`, or `{ title, description }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. |
+
+The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
+
+- `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description, a link to `/llms-full.txt`, then one section per collection, named by its `label`, with a link to the `.md` copy of each page and its description.
+- `/llms-full.txt` joins the copy of every page, home page first.
+- `/sitemap.md` lists every page, grouped by the first segment of its URL.
+
+They list the same pages as the sitemap, but only from Markdown collections: published documents with a URL, without `seo.noindex` or a `seo.canonical` that points elsewhere. Drafts, JSON and YAML documents, and Sources are not listed.
+
+Responses that can be Markdown carry `Vary: Accept`, so a cache keeps the HTML and the Markdown apart. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+
+Check the output from code:
+
+```ts [server/utils/agent-check.ts]
+import content from '../content'
+
+export async function checkAgentFiles() {
+  await content.llms()                           // llms.txt
+  await content.llms({ file: 'llms-full.txt' })
+  await content.llms({ file: 'sitemap.md' })
+  await content.markdown('/blog/hello.md')       // the copy, or null
+}
+```
+
+ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
 
 ## Console
 

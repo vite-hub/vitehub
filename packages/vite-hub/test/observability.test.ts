@@ -33,7 +33,7 @@ describe("vitehub({ observability })", () => {
     try {
       const apiKey = env({ optional: true, secret: true, source: env.source("POSTHOG_API_KEY") })
       const options: Parameters<typeof vitehub>[0] = {
-        preset: "node",
+        host: "node",
         agent: true,
         console: { auth: false, authorize: hostManagedAuthorize },
         observability: { service: "support", environment: "production", posthog: { apiKey, host: "https://eu.i.posthog.com" }, evlog: { pretty: false, env: { service: "other", environment: "staging", version: "1.2.3" } }, papercuts: { eventPrefix: "acme.papercut" } },
@@ -66,7 +66,7 @@ describe("vitehub({ observability })", () => {
   it("registers only evlog without a service", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-observability-plain-"))
     try {
-      const options: Parameters<typeof vitehub>[0] = { preset: "node", observability: true }
+      const options: Parameters<typeof vitehub>[0] = { host: "node", observability: true }
       const names = vitehub(options).flatMap(plugin => plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [])
       expect(names).toContain("vite-hub/observability")
       expect(names).not.toContain("vite-hub/error-log")
@@ -85,7 +85,7 @@ describe("vitehub({ observability })", () => {
     vi.stubEnv("NODE_ENV", "production")
     const root = await mkdtemp(join(tmpdir(), "vitehub-observability-tags-"))
     try {
-      const plugin = observabilityPlugin({ preset: "node", observability: { service: " support ", environment: "  " } })
+      const plugin = observabilityPlugin({ host: "node", observability: { service: " support ", environment: "  " } })
       const config: ObservabilityConfig = { root }
       const hook = plugin.config as (config: ObservabilityConfig) => Promise<void>
       await hook(config)
@@ -103,7 +103,7 @@ describe("vitehub({ observability })", () => {
       await mkdir(appRoot)
       await writeFile(join(root, "package.json"), "{}")
       await writeFile(join(appRoot, "package.json"), "{}")
-      const plugin = observabilityPlugin({ preset: "node", observability: { service: "support" } })
+      const plugin = observabilityPlugin({ host: "node", observability: { service: "support" } })
       const config: ObservabilityConfig = { root: appRoot, __vitehubProjectRoot: root }
       const hook = plugin.config as (config: ObservabilityConfig) => Promise<void>
       await hook(config)
@@ -116,8 +116,8 @@ describe("vitehub({ observability })", () => {
   })
 
   it.each([
-    { preset: "netlify" as const, agent: { invocations: false as const } },
-    { preset: "node" as const, agent: { invocations: false as const, runtime: "deno" as const } },
+    { host: "netlify" as const, agent: { invocations: false as const } },
+    { host: "node" as const, agent: { invocations: false as const, runtime: "deno" as const } },
   ])("rejects standalone Agent output: %j", (target) => {
     const plugin = observabilityPlugin({ ...target, observability: { service: "support" } })
     // SAFETY: The hook reads only the hosting and Agent config supplied through vitehub().
@@ -126,17 +126,17 @@ describe("vitehub({ observability })", () => {
   })
 
   it("rejects a final config override to standalone Agents", () => {
-    const plugin = observabilityPlugin({ preset: "node", agent: true, observability: { service: "support" } })
+    const plugin = observabilityPlugin({ host: "node", agent: true, observability: { service: "support" } })
     // SAFETY: The hook only reads the Nitro config key.
     const hook = plugin.configResolved as (config: { nitro?: { preset: string } }) => void
     expect(() => hook({ nitro: { preset: "netlify" } })).toThrow("Nitro-hosted Agents")
   })
 
   it("rejects options it cannot honor", () => {
-    expect(() => vitehub({ preset: "node", observability: { service: " " } })).toThrow("non-empty service name")
-    expect(() => vitehub({ preset: "node", agent: true, observability: { service: "support", papercuts: true } })).toThrow("Enable agent and console")
-    expect(() => vitehub({ preset: "node", env: false, observability: { service: "support", posthog: { apiKey: "key" } } })).toThrow("Remove env: false")
-    expect(() => vitehub({ preset: "node", observability: { posthog: { apiKey: "key" } } })).toThrow("require observability.service")
-    expect(() => vitehub({ preset: "node", observability: { service: "support", posthog: { apiKey: "key" } }, env: { server: { observability: env() } } })).toThrow("reserved for vitehub({ observability })")
+    expect(() => vitehub({ host: "node", observability: { service: " " } })).toThrow("non-empty service name")
+    expect(() => vitehub({ host: "node", agent: true, observability: { service: "support", papercuts: true } })).toThrow("Enable agent and console")
+    expect(() => vitehub({ host: "node", env: false, observability: { service: "support", posthog: { apiKey: "key" } } })).toThrow("Remove env: false")
+    expect(() => vitehub({ host: "node", observability: { posthog: { apiKey: "key" } } })).toThrow("require observability.service")
+    expect(() => vitehub({ host: "node", observability: { service: "support", posthog: { apiKey: "key" } }, env: { server: { observability: env() } } })).toThrow("reserved for vitehub({ observability })")
   })
 })

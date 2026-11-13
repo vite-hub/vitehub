@@ -65,7 +65,7 @@ async function buildCloudflareAgentApp({ driver, runtime }: { driver: string[], 
     "})",
     "",
   ].join("\n"))
-  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "cloudflare", agent: true })], root })
+  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare", agent: true })], root })
   await builder.buildApp()
 
   const server = join(root, ".output/server")

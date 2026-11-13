@@ -1,4 +1,6 @@
 import type { AgentProviderCredentialContext } from "../src/types.ts"
+import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
+import { decodeColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { forgeAccessKey } from "../src/internal/forge-access.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
@@ -79,7 +81,7 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -562,6 +564,28 @@ describe("Provider Agent Driver", () => {
       GITHUB_TOKEN: "installation-token",
       GIT_CONFIG_COUNT: "2",
       GIT_CONFIG_KEY_0: "http.https://github.com/acme/portal.git.extraheader",
+    })
+  })
+
+  it("gives the Driver the forge access commit identity before its own environment", async () => {
+    const threadId = "thread-github-identity"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const access = vi.fn(async () => ({ token: "installation-token", identity: { login: "bot[bot]", email: "1+bot[bot]@users.noreply.github.com" } }))
+    const base = context(threadId)
+    base.context.set("pullRequest", {
+      pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    await createProviderAgentAdapter({
+      env: { GIT_AUTHOR_EMAIL: "user@example.com" },
+      provider: "codex",
+    }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
+
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GIT_AUTHOR_NAME: "bot[bot]",
+      GIT_AUTHOR_EMAIL: "user@example.com",
+      GIT_COMMITTER_NAME: "bot[bot]",
+      GIT_COMMITTER_EMAIL: "1+bot[bot]@users.noreply.github.com",
     })
   })
 
@@ -2912,6 +2936,43 @@ cli_auth_credentials_store = "keyring"
     const session = provider.startSession.mock.calls[0]?.[0]
     if (permissions === "allow-edits-unattended") expect(session).toHaveProperty("approvalPolicy", "never")
     else expect(session).not.toHaveProperty("approvalPolicy")
+  })
+
+  it("gives Codex edit sandboxes the network and package caches that driver.workspaceWrite grants", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-write-"))
+    const store = join(home, "store")
+    try {
+      for (const [permissions, expected] of [["allow-edits-unattended", true], ["allow-edits", true], ["allow-all", false], ["ask", false]] as const) {
+        const threadId = `thread-workspace-write-${permissions}`
+        const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+        await createProviderAgentAdapter({
+          provider: "codex",
+          permissions,
+          env: { HOME: home, npm_config_store_dir: store },
+          workspaceWrite: { network: true, packageCaches: true },
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        }).generate(context(threadId) as never)
+        const session = provider.startSession.mock.calls[0]?.[0]
+        if (!expected) {
+          expect(session).not.toHaveProperty("sandboxPolicy")
+          continue
+        }
+        expect(session).toHaveProperty("sandboxPolicy", {
+          type: "workspaceWrite",
+          networkAccess: true,
+          writableRoots: [store, join(home, ".local/share/pnpm"), join(home, ".cache/pnpm"), join(home, ".cache/node/corepack"), join(home, ".npm")],
+        })
+        await expect(stat(join(home, ".cache/node/corepack"))).resolves.toMatchObject({})
+      }
+      const threadId = "thread-workspace-write-network-only"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex", permissions: "allow-edits-unattended", workspaceWrite: { network: true } }).generate(context(threadId) as never)
+      expect(provider.startSession.mock.calls[0]?.[0]).toHaveProperty("sandboxPolicy", { type: "workspaceWrite", networkAccess: true, writableRoots: [] })
+    }
+    finally {
+      await rm(home, { recursive: true, force: true })
+    }
   })
 
   it("preauthorizes only assigned host tools for unattended Codex edits", async () => {
@@ -5687,6 +5748,30 @@ cli_auth_credentials_store = "keyring"
     expect(launchedCodexDeveloperInstructions()).toBe("Repair one \"PR\" with `git` and $HOME.\nThen stop.")
   })
 
+  it.each([
+    { provider: "codex" as const, driver: codexDriver },
+    { provider: "claude-code" as const, driver: claudeCodeDriver },
+  ])("gives $provider the instructions that a child extend function returns", async ({ provider, driver }) => {
+    const threadId = `thread-${provider}-extended-instructions`
+    let prompt: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        if (provider === "codex") return
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        prompt = await readFile(args.split("--append-system-prompt-file ")[1]!.replace(/^['"]|['"]$/g, ""), "utf8")
+      },
+    })
+    const base = defineAgent({ workspace: {}, driver: driver({ instructions: ["Base rules.", () => "Answer {{{ context.customInstructions }}}"] }) })
+    const child = defineAgent({ extends: base, driver: { instructions: { extend: inherited => `${inherited}\n\nChild rules.` } } })
+    const invocation = context(threadId)
+    invocation.context.set("customInstructions", "in English.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ instructions: child.__vitehubWorkspaceAgentOptions.driver.instructions, provider }).generate(invocation as never)
+    const expected = "Base rules.\n\nAnswer in English.\n\nChild rules."
+    if (provider === "codex") expect(launchedCodexDeveloperInstructions()).toBe(expected)
+    else expect(prompt).toBe(expected)
+  })
+
   it("resumes a Codex session only with the developer instructions it started with", async () => {
     const threadId = `thread-codex-developer-resume-${crypto.randomUUID()}`
     const path = `.vitehub/${threadId}.sqlite`
@@ -5922,6 +6007,47 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     }) as never)
+  })
+
+  it.each(["current", "advanced", "unavailable"])("records the materialized Workspace revision with %s optional history", async (history) => {
+    const threadId = `thread-workspace-revision-${history}`
+    let materialized = false
+    const runContext = context(threadId, {
+      workspace: {
+        fs: {},
+        history: { head: vi.fn(async () => {
+          expect(materialized).toBe(true)
+          if (history === "unavailable") throw new Error("history provider unavailable")
+          return { id: history === "advanced" ? "later" : "prepared", ref: "run-1" }
+        }) },
+        materializeSources: vi.fn(async () => {
+          materialized = true
+          return { sources: [] }
+        }),
+        startSession: vi.fn(async () => ({
+          revision: "prepared",
+          close: vi.fn(async () => undefined),
+          exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+          readFile: vi.fn(async () => new Uint8Array()),
+        })),
+        tools: {},
+      },
+      workspaceDefinition: { name: "docs" },
+      workspaceMode: "read",
+    })
+    await setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "codex" },
+      runtime: { name: "vite" },
+      workspace: { mode: "read", name: "docs" },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(getAgentTelemetryConfiguration(runContext.context)?.value.workspace).toEqual({
+          mode: "read", name: "docs", revision: "prepared", ...(history === "current" ? { ref: "run-1" } : {}),
+        })
+      },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
   })
 
   it("writes successful workspace sessions back before cleanup", async () => {
@@ -6203,13 +6329,19 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).toBe("native instructions after rematerialization")
   })
 
-  it("keeps colocated Skills readable and out of the Workspace", async () => {
-    const threadId = "thread-workspace-colocated-skills"
+  it.each(["codex", "claude-code"] as const)("keeps discovered Skills readable and out of the Workspace for %s with root documentation", async (provider) => {
+    const threadId = `thread-workspace-colocated-skills-${provider}`
     let root = ""
     let skillRoots: readonly string[] | undefined
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       async onStartSession(input) {
-        skillRoots = input.skillRoots
+        if (provider === "codex") skillRoots = input.skillRoots
+        else {
+          const launchArgs = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs ?? "")
+          const [, directory] = /--add-dir "([^"]+)"/.exec(launchArgs) ?? []
+          expect(directory).toBeDefined()
+          skillRoots = [join(directory!, ".claude/skills")]
+        }
         expect(skillRoots).toHaveLength(1)
         await expect(readFile(join(skillRoots![0]!, "review/SKILL.md"), "utf8")).resolves.toBe("# Review\n")
         await expect(readFile(join(skillRoots![0]!, "review/references/checklist.md"), "utf8")).resolves.toBe("- tests\n")
@@ -6237,13 +6369,20 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     })
-    runContext.context.set("agent.colocatedSkills", {
-      review: { content: "# Review\n", workspacePath: ".agents/skills/review/SKILL.md" },
-      checklist: { content: "- tests\n", workspacePath: ".agents/skills/review/references/checklist.md" },
-    })
+    const agentRoot = await mkdtemp(join(tmpdir(), "vitehub-discovered-skills-"))
+    try {
+      await mkdir(join(agentRoot, "skills/review/references"), { recursive: true })
+      await writeFile(join(agentRoot, "agent.ts"), "export default {}")
+      await writeFile(join(agentRoot, "skills/README.md"), "Skill documentation")
+      await writeFile(join(agentRoot, "skills/review/SKILL.md"), "# Review\n")
+      await writeFile(join(agentRoot, "skills/review/references/checklist.md"), "- tests\n")
+      runContext.context.set("agent.colocatedSkills", decodeColocatedAgentSkills(readColocatedAgentSkills(join(agentRoot, "agent.ts"))))
 
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider }).generate(runContext as never)
+    } finally {
+      await rm(agentRoot, { force: true, recursive: true })
+    }
 
     expect(session.diff).toHaveBeenCalledOnce()
     expect(session.commit).not.toHaveBeenCalled()

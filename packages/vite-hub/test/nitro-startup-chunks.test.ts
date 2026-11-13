@@ -45,7 +45,7 @@ it("keeps a package that loads on demand out of the startup chunks when it share
     await writeFile(join(root, "server/plugins/shared.ts"), "import { shared } from \"../../vendor/node_modules/shared/index.js\"\nexport default () => { globalThis.sharedAtStartup = shared }\n")
     await writeFile(join(root, "server/routes/lazy.ts"), "export default async () => (await import(\"../../vendor/node_modules/@adapter/lazy/index.js\")).lazy\n")
 
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "node" })], root })
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "node" })], root })
     await builder.buildApp()
 
     const entry = join(root, ".output/server/index.mjs")
@@ -96,7 +96,7 @@ it("keeps a package that loads on demand out of another lazy chunk when both imp
     await writeFile(join(root, "server/routes/chat.ts"), "import { shared } from \"../../vendor/node_modules/shared/index.js\"\nexport default () => shared\n")
     await writeFile(join(root, "server/routes/adapter.ts"), "export default async () => (await import(\"../../vendor/node_modules/@adapter/lazy/index.js\")).lazy\n")
 
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "node" })], root })
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "node" })], root })
     await builder.buildApp()
 
     const chat = await startupSource(join(root, ".output/server/_routes/chat.mjs"))

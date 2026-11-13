@@ -41,7 +41,7 @@ import { addProviderSandboxSkills, hasSafeProviderPath, materializeProviderSkill
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
-import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { getAgentTelemetryConfiguration, observeAgentWorkspaceRevision, updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
@@ -86,6 +86,7 @@ import type {
   AgentRunCallbackContext,
   CodexReasoningEffort,
   CodexReasoningSummary,
+  CodexWorkspaceWriteAccess,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
@@ -99,6 +100,7 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
+import { codexWorkspaceWritePolicy } from "./internal/codex-workspace-write.ts"
 import { sandboxSharesHostNetwork, setActiveProviderSandbox, openProviderSandbox, providerSandboxEnvironment, startProviderSandboxRelay } from "./internal/provider-box.ts"
 import type { ProviderSandboxRelay, ProviderSandboxSession } from "./internal/provider-box.ts"
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
@@ -133,6 +135,8 @@ export interface ProviderAgentAdapterOptions<
   sessionStorePath?: string
   /** Provision project-pinned Node.js and a package manager for the provider and its commands. */
   toolchain?: SandboxToolchain
+  /** Network and package cache access for Codex's `workspace-write` sandbox. */
+  workspaceWrite?: CodexWorkspaceWriteAccess
 }
 
 interface GeneratedProviderFile {
@@ -2024,7 +2028,7 @@ async function prepareWorkspace(
   root: string,
   inPlace: boolean,
   path: readonly string[],
-): Promise<{ projectRoot?: string, provenance: ProviderSourceProvenance[], pullRequestRoot: boolean, session?: WorkspaceSession } | undefined> {
+): Promise<{ projectRoot?: string, provenance: ProviderSourceProvenance[], pullRequestRoot: boolean, pullRequestCheckout?: boolean, session?: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
@@ -2080,6 +2084,7 @@ async function prepareWorkspace(
     ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
     provenance,
     pullRequestRoot: Boolean(checkoutPullRequest && pullRequest?.mount === ""),
+    pullRequestCheckout: checkoutPullRequest,
     session,
   }
 }
@@ -3391,7 +3396,12 @@ async function* runProvider<
     }
     const inspectedTools = inspectAgentTools(context.tools)
     if (!isAuxiliaryAgentAdapterContext(context)) {
+      const workspace = getAgentTelemetryConfiguration(context.context)?.source.workspace
+      // An in-place cwd or a managed PR checkout is not the retained Workspace tree.
+      const revision = preparedWorkspace?.pullRequestCheckout ? undefined : workspaceSession?.revision
+      const head = revision && context.workspace ? await observeAgentWorkspaceRevision(context.workspace) : undefined
       await updateAgentTelemetryConfiguration(context.context, {
+        ...(workspace && revision ? { workspace: { ...workspace, revision, ...(head?.id === revision ? { ref: head.ref } : {}) } } : {}),
         driver: {
           ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
           provider: options.provider,
@@ -3584,6 +3594,13 @@ async function* runProvider<
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     effectiveSignal?.throwIfAborted()
+    const permissions = options.permissions ?? defaultAgentProviderPermissions
+    const sandboxPolicy = options.provider === "codex" && (permissions === "allow-edits" || permissions === "allow-edits-unattended")
+      ? await codexWorkspaceWritePolicy(options.workspaceWrite, providerSandbox
+        ? { sandbox: providerSandbox.session, signal: effectiveSignal }
+        : { environment: providerRuntimeEnvironment })
+      : undefined
+    effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: providerCwd,
       // ChatGPT's launcher consumes the private thread configuration and restores
@@ -3596,10 +3613,11 @@ async function* runProvider<
       } : undefined) : nativeUnattendedTools ? undefined : toolServer?.mcp,
       model: options.model,
       resumeCursor,
-      runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
+      runtimeMode: providerRuntimeMode[permissions],
       ...(providerSkillDirectory && options.provider === "codex" ? { skillRoots: [providerSkillDirectory] } : {}),
       // Deny native permission escalation without removing the edit-mode boundary.
-      ...(options.permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
+      ...(permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
+      ...(sandboxPolicy ? { sandboxPolicy } : {}),
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor

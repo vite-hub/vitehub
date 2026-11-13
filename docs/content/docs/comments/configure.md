@@ -29,7 +29,7 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -46,7 +46,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -64,7 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -512,11 +512,12 @@ By default, a person may be mentioned only in a thread they may read: `authorize
 
 ```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
+import { foldName } from 'vite-hub/comments/client'
 import { team } from './utils/team'
 
 export const comments = defineComments({
   people: {
-    search: query => team.filter(person => person.name.toLowerCase().includes(query.toLowerCase())),
+    search: query => team.filter(person => foldName(person.name).includes(foldName(query))),
     byIds: ids => team.filter(person => ids.includes(person.id)),
   },
   // Only people of the same team, whatever they may read.
@@ -525,6 +526,8 @@ export const comments = defineComments({
 ```
 
 `people.search` gets the text after `@` and returns at most 20 people. Return full records for `canMention` and `authorize`; the browser gets only `id`, `name`, and `image`. A message keeps at most 20 mentions, as ids.
+
+Suggestions keep a person whose name holds the text after `@` when accents and case do not count, so `@jose` keeps José. `foldName()` removes accents and case in the same way. Auth users and earlier authors are found with a database search that does not remove accents, so there `@jose` finds only names written without them. Give `people` to find them all.
 
 ## Notify mentioned people
 

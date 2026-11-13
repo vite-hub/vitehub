@@ -81,9 +81,11 @@ export async function selectProviderSkills(input: {
     const path = posix.normalize(source.workspacePath)
     const skillRoot = skillRoots.find(root => path.startsWith(`${root}/`))
     const [name, ...rest] = skillRoot ? path.slice(skillRoot.length + 1).split("/") : []
-    if (!name || name === ".." || !rest.length || rest.includes("..")) {
+    if (!name || name === ".." || rest.includes("..")) {
       throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside a provider skill root." })
     }
+    // Discovery includes root documentation, which does not belong to a Skill.
+    if (!rest.length) continue
     const files = owned.get(name) ?? new Map<string, string | Uint8Array>()
     files.set(rest.join("/"), source.content)
     owned.set(name, files)

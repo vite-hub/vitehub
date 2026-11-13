@@ -30,7 +30,7 @@ describe("vitehub-options transform", () => {
       "  },",
       "  plugins: [",
       "    vitehub({",
-      "      preset: 'node',",
+      "      host: 'node',",
       "      contentImportBase: 'vite-hub/content',",
       "      logs: { source: './server/logs.ts', evlog: { pretty: true } },",
       "      observability: { service: 'shop' },",
@@ -47,7 +47,7 @@ describe("vitehub-options transform", () => {
       "export default defineConfig({",
       "  plugins: [",
       "    vitehub({",
-      "      preset: 'node',",
+      "      host: 'node',",
       "      observability: {",
       "        service: 'shop',",
       "        evlog: { pretty: true },",
@@ -67,9 +67,9 @@ describe("vitehub-options transform", () => {
   })
 
   it("renames logs in place when observability is not set", () => {
-    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'node', logs: true })] }\n"
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'node', logs: true })] }\n"
     expect(migrateViteHubOptions("vite.config.ts", input).code)
-      .toBe("import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'node', observability: { logs: true } })] }\n")
+      .toBe("import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'node', observability: { logs: true } })] }\n")
   })
 
   it.each(["", ", observability: false", ", observability: true", ", observability: { service: 'app' }"])("preserves disabled Logs with observability %s", (observability) => {
@@ -224,7 +224,7 @@ describe("vitehub-options transform", () => {
   })
 
   it.each([
-    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'cloudflare' })], sandboxTask: { provider: 'cloudflare' } }\n"],
+    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'cloudflare' })], sandboxTask: { provider: 'cloudflare' } }\n"],
     ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub()], sandboxTask: { provider: 'cloudflare' } }\n"],
     ["nuxt.config.ts", "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {}, vite: { sandboxTask: { provider: 'cloudflare' } } })\n"],
     ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', {}]], vite: { sandboxTask: taskOptions } })\n"],
@@ -252,7 +252,7 @@ describe("vitehub-options transform", () => {
   it("moves vite.env into the vite-hub/nuxt options", () => {
     const input = lines(
       "export default defineNuxtConfig({",
-      "  modules: [['vite-hub/nuxt', { auth: true, preset: 'cloudflare' }]],",
+      "  modules: [['vite-hub/nuxt', { auth: true, host: 'cloudflare' }]],",
       "  vite: {",
       "    env: {",
       "      server: { auth: { secret: env({ secret: true }) } },",
@@ -264,7 +264,7 @@ describe("vitehub-options transform", () => {
       "export default defineNuxtConfig({",
       "  modules: [['vite-hub/nuxt', {",
       "    auth: true,",
-      "    preset: 'cloudflare',",
+      "    host: 'cloudflare',",
       "    env: {",
       "      server: { auth: { secret: env({ secret: true }) } },",
       "    },",
