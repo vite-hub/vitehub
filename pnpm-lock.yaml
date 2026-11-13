@@ -2918,6 +2918,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
@@ -2927,6 +2930,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       publint:
         specifier: catalog:tooling
         version: 0.3.25

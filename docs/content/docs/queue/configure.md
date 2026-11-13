@@ -44,7 +44,43 @@ export default defineConfig({
 :::
 ::
 
-With `vitehub()`, the host sets `provider`, and on Cloudflare the app name sets `namePrefix`. To set other options, such as `region`, pass an object to `queue`. An option that you set wins over the host:
+With `vitehub()`, the host sets `provider`, and on Cloudflare the app name sets `namePrefix`. On `host: 'node'`, ViteHub picks `postgres` when the app has a Postgres Default Database, else `local`. To pick it yourself, set `queue: { provider: 'postgres' }` or `queue: { provider: 'local' }`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', queue: { provider: 'postgres' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'node', queue: { provider: 'postgres' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'node', queue: { provider: 'postgres' } })],
+})
+```
+:::
+::
+
+Set other Queue options directly in `vitehub({ queue: { ... } })` or the Nuxt `vitehub.queue` object. An option that you set wins over the host:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -84,7 +120,7 @@ With `@vite-hub/queue` alone, pass the same options to `hubQueue()` from `@vite-
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, `local` on a Node server (`host: 'node'` or Nitro `node-server`), and Vercel for other production builds. On Netlify, set `provider` or turn Queue off. |
+| `provider` | `'cloudflare' \| 'vercel' \| 'local' \| 'postgres'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, and Vercel for other production builds. On a Node server (`host: 'node'` or Nitro `node-server`), `postgres` with a Postgres Default Database, else `local`. On Netlify, set `provider` or turn Queue off. |
 | `cache` | `boolean` | `true` | Reuses named QueueClients where the provider allows it. Cloudflare clients still read the request's binding on each request. |
 | `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. Works with one Queue Definition only. |
 | `namePrefix` | `string` | none | Cloudflare only. Prefix of generated queue names: `<namePrefix>queue--<hex-name>`. |
@@ -101,9 +137,10 @@ Turns Queue off. The server then has no Queue runtime, so `sendQueue()` throws `
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
 | Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
+| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host without a Postgres Database. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
+| Postgres | `queue: { provider: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node host with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit provider without a Postgres Database needs it. Every instance runs jobs. Supports `delaySeconds` and `idempotencyKey`. Install `postgres`. |
 
-ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
+ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. For more than one Node server, use the postgres provider: see [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery). Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 
 ### Cloudflare names
 
