@@ -22,8 +22,7 @@ import { pgliteDatabases, renderPostgresDatabaseExpression, usesPostgres } from 
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
-import { collectDatabaseContributions, describeDatabaseContribution, resolveDefaultDatabase } from "./contributions.ts"
-import { nuxthubDatabaseHooks, nuxthubDatabaseHooksPluginName } from "./internal/nuxthub-hooks.ts"
+import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
@@ -31,9 +30,9 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDatabase as hubDatabaseVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
-import type { CollectedDatabaseContribution, CollectedDatabaseContributions, DatabaseContributionContext } from "./contributions.ts"
+import type { CollectedDatabaseContribution, CollectedDatabaseContributions } from "./contributions.ts"
 import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
-import type { DatabaseDialect, DatabaseNuxtIntegrationOptions, DatabaseOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DatabaseNuxtIntegrationOptions, DatabaseOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -68,7 +67,6 @@ type DatabaseNuxtModule = {
 }
 
 type NuxtLike = {
-  callHook?: (name: string, ...args: unknown[]) => unknown
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "prepare:types", callback: (context: NuxtPrepareTypesContext) => void): void
@@ -168,17 +166,6 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
       setResolvedFeatureOptions(viteConfig, "database", { ...configuredDatabase, ...viteOptions })
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
-    const callHook = (nuxt as NuxtLike).callHook
-    if (typeof callHook === "function") {
-      // Modules written for NuxtHub add tables and migrations with its `hub:db:*` hooks. The bridge calls them each
-      // time ViteHub collects contributions, so it sees the hooks of every module that ran after this one.
-      viteConfig.plugins = [...Array.isArray(viteConfig.plugins) ? viteConfig.plugins : [], nuxthubDatabaseHooks({
-        callHook: (name, ...args) => Reflect.apply(callHook, nuxt, [name, ...args]),
-        resolveDialect: context => resolveNuxtHubHooksDialect(runtimeOptions, root, provisionRoot, serverDirs, context),
-        rootDir: root,
-        warn: message => console.warn(message),
-      })]
-    }
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
       hook("prepare:types", (context) => {
@@ -697,24 +684,6 @@ function resolveDatabaseNuxtD1Options(
     ...(projection.unresolved ? { unresolved: projection.unresolved } : {}),
     viteOptions: resolveDatabaseViteOptions(options) ?? {},
   }
-}
-
-/**
- * The dialect that the NuxtHub hooks get: the one of the default or only Database, with the contributions of the other
- * plugins, else SQLite.
- */
-async function resolveNuxtHubHooksDialect(
-  options: ResolvedDatabaseNuxtIntegrationOptions,
-  root: string,
-  provisionRoot: string,
-  serverDirs: string[] | undefined,
-  context: DatabaseContributionContext,
-): Promise<DatabaseDialect> {
-  const plugins = context.plugins?.filter(plugin => !isRecord(plugin) || plugin.name !== nuxthubDatabaseHooksPluginName)
-  const contributions = await collectDatabaseContributions(plugins, { ...context, plugins })
-  const config = resolveDBViteConfig(options, root, { contributions, implicitDefault: true, provisionRoot, serverDirs })
-  const resolution = resolveDefaultDatabase(config?.databaseNames ?? [])
-  return resolution.status === "resolved" ? config!.databases[resolution.name]!.dialect : "sqlite"
 }
 
 function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]) {

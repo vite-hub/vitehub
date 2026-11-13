@@ -38,11 +38,10 @@ function spawn(command: string, args: string[], options: { cwd?: string, env?: N
   })
 }
 
-// A Nuxt 5 app with a local module written for NuxtHub. It adds a schema file and a folder of SQL migrations with the
-// `hub:db:*` hooks, and the app config adds a post-migration query.
+// A Nuxt 5 app with a local module that contributes tables and a folder of SQL migrations through `vitehub.databases`.
 async function createApp() {
   // Inside the package, so the app resolves drizzle-kit, drizzle-orm, and @libsql/client like a real project.
-  const root = await mkdtemp(join(packageRoot, "test/.nuxthub-hooks-"))
+  const root = await mkdtemp(join(packageRoot, "test/.nuxt-contributed-migrations-"))
   tempDirs.push(root)
   await mkdir(join(root, "node_modules"), { recursive: true })
   await symlink(dirname(nuxtPackage), join(root, "node_modules/nuxt"), "dir")
@@ -52,9 +51,6 @@ async function createApp() {
     "export default defineNuxtConfig({",
     "  devtools: { enabled: false }, telemetry: false,",
     "  modules: [hubDatabase(), './modules/feedback'],",
-    "  hooks: {",
-    "    'hub:db:queries:paths': (queries) => { queries.push('server/db/queries/seed.sql') },",
-    "  },",
     "})",
   ])
   await write(join(root, "server/databases/default.ts"), [
@@ -69,16 +65,23 @@ async function createApp() {
     "  meta: { name: 'feedback' },",
     "  setup(_options, nuxt) {",
     "    const { resolve } = createResolver(import.meta.url)",
-    "    nuxt.hook('hub:db:schema:extend', ({ dialect, paths }) => { paths.push(resolve(`./schema.${dialect}.ts`)) })",
-    "    nuxt.hook('hub:db:migrations:dirs', (dirs) => { dirs.push(resolve('./migrations')) })",
+    "    nuxt.options.vite.plugins ||= []",
+    "    nuxt.options.vite.plugins.push({",
+    "      name: 'feedback/vite',",
+    "      vitehub: {",
+    "        databases: () => [",
+    "          { name: 'feedback', definition: { module: resolve('./schema.ts'), export: 'feedbackSchema' }, reason: 'Stores feedback.' },",
+    "          { name: 'votes', migrations: resolve('./migrations'), reason: 'Stores votes with its own SQL.' },",
+    "        ],",
+    "      },",
+    "    })",
     "  },",
     "})",
   ])
-  await write(join(root, "modules/feedback/schema.sqlite.ts"), [
+  await write(join(root, "modules/feedback/schema.ts"), [
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
-    "export const feedback = sqliteTable('feedback', { id: integer('id').primaryKey(), body: text('body').notNull() })",
+    "export const feedbackSchema = { feedback: sqliteTable('feedback', { id: integer('id').primaryKey(), body: text('body').notNull() }) }",
   ])
-  await write(join(root, "modules/feedback/schema.postgresql.ts"), ["throw new Error('ViteHub must skip the schema of another dialect.')"])
   await write(join(root, "modules/feedback/migrations/0001_votes.sql"), [
     "CREATE TABLE votes (id integer PRIMARY KEY, feedback_id integer NOT NULL);",
     "CREATE INDEX votes_feedback_id ON votes (feedback_id);",
@@ -106,12 +109,9 @@ async function loadApp(root: string) {
   }
 }
 
-it("adds the tables and migrations of NuxtHub database hooks to the default Database", async () => {
+it("adds the contributed tables and SQL migrations of a Nuxt module to the default Database", async () => {
   const root = await createApp()
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   const { config, plugins, serverDirs } = await loadApp(root)
-  expect(warn).toHaveBeenCalledWith(expect.stringContaining("`hub:db:queries:paths` added server/db/queries/seed.sql. ViteHub does not run post-migration queries"))
-  warn.mockRestore()
 
   await writeGeneratedDatabaseArtifacts(config)
   const stdout = { write: vi.fn() }
@@ -122,7 +122,7 @@ it("adds the tables and migrations of NuxtHub database hooks to the default Data
 
   const migrationsDir = join(root, "server/databases/default/migrations")
   const folders = (await readdir(migrationsDir)).sort()
-  expect(folders).toEqual([expect.stringMatching(/^\d{14}_\w+$/), expect.stringMatching(/^\d{14}_nuxthub_modules_feedback_migrations_0001_votes$/)])
+  expect(folders).toEqual([expect.stringMatching(/^\d{14}_\w+$/), expect.stringMatching(/^\d{14}_votes_0001_votes$/)])
   const generated = await readFile(join(migrationsDir, folders[0]!, "migration.sql"), "utf8")
   expect(generated).toContain("CREATE TABLE `users`")
   expect(generated).toContain("CREATE TABLE `feedback`")
@@ -150,7 +150,7 @@ it("adds the tables and migrations of NuxtHub database hooks to the default Data
 
   const [definition] = await inspectDatabaseDefinitions({ plugins, projectRoot: root, rootDir: root, serverDirs })
   expect(definition!.fields).toEqual(expect.arrayContaining([
-    { label: "Contributed tables", value: `feedback from "nuxthub:modules/feedback/schema.sqlite.ts" (${join(root, ".vitehub/database/nuxthub/nuxthub-modules-feedback-schema-sqlite-ts.ts")} from plugin "@vite-hub/database/nuxthub-hooks"). Schema file from the NuxtHub hook \`hub:db:schema:extend\`.` },
-    { label: "Contributed migrations", value: "modules/feedback/migrations from \"nuxthub:modules/feedback/migrations\" (from plugin \"@vite-hub/database/nuxthub-hooks\"): 1 added" },
+    { label: "Contributed tables", value: `feedback from "feedback" (${join(root, "modules/feedback/schema.ts")}#feedbackSchema from plugin "feedback/vite"). Stores feedback.` },
+    { label: "Contributed migrations", value: "modules/feedback/migrations from \"votes\" (from plugin \"feedback/vite\"): 1 added" },
   ]))
 }, 120_000)

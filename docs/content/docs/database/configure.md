@@ -487,18 +487,6 @@ vitehub: {
 - ViteHub puts a `--> statement-breakpoint` between statements, at the semicolons outside quotes and comments. A file that already has breakpoints is copied as written. Use breakpoints when a statement has its own semicolons, such as a trigger.
 - `vitehub inspect definitions` shows a `Contributed migrations` field with how many files are added and how many still need `vitehub database generate`.
 
-### Modules written for NuxtHub
-
-The Nuxt module of Database calls NuxtHub's database hooks with NuxtHub's arguments, so a module written for NuxtHub keeps its tables:
-
-| Hook | What ViteHub does |
-| --- | --- |
-| `hub:db:schema:extend({ dialect, paths })` | Each schema file becomes contributed tables for the default or only database. A file for another dialect, such as `schema.postgresql.ts` on SQLite, is skipped. |
-| `hub:db:migrations:dirs(dirs)` | Each folder becomes a contribution with `migrations`. |
-| `hub:db:queries:paths(queries, dialect)` | Not run. ViteHub prints a warning with the paths. |
-
-`dialect` is the dialect of the default or only database, else `sqlite`. The plugin `@vite-hub/database/nuxthub-hooks` owns these contributions, so inspection and errors name it. A hook in `nuxt.config.ts` `hooks` works too. New packages should use `vitehub.databases`.
-
 ### Contribute a Database
 
 A package that owns a named database can add a whole Definition. For the default database, read [Need the default Database](#need-the-default-database). Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`. Here `definition` is the absolute module path, not a `{ module, export }` object:
