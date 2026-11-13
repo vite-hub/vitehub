@@ -318,6 +318,8 @@ describe("vitehub database sql and drop on PGlite", () => {
       CREATE TABLE kept_table(id int, mood mood);
       INSERT INTO kept_table VALUES (1, 'ok');
       CREATE VIEW kept_view AS SELECT * FROM parent;
+      -- A view reads its tables with the privileges of its owner, so the check below needs this grant.
+      GRANT SELECT ON parent TO other_owner;
       ALTER ${dependency === "view" ? "VIEW kept_view" : "TABLE kept_table"} OWNER TO other_owner;
     `)
     await seed.close()
