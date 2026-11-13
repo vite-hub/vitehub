@@ -1,6 +1,6 @@
 {
   "component": "dialog",
-  "engine": "kit",
+  "engine": "ui-sdk",
   "steps": [
     {
       "step": "load",

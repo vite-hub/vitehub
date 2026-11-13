@@ -20,44 +20,30 @@ async function loadApp(options: { prefix?: string }) {
 }
 
 describe("@vite-hub/kit Nuxt module", () => {
-  it("auto-imports the parts and helpers from @vite-hub/kit, with the prefix", async () => {
+  it("auto-imports the kit's own parts from @vite-hub/kit, with the prefix", async () => {
     const nuxt = await loadApp({ prefix: "Ui" });
     try {
-      expect(nuxt.options._installedModules.map((module) => module.meta?.name)).toEqual(
-        expect.arrayContaining(["@vite-hub/kit", "@ui-sdk/vue"]),
-      );
-
       const components: Array<{ export?: string; filePath: string; pascalName?: string }> = [];
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(expect.arrayContaining([
-        expect.objectContaining({ export: "Dialog", filePath: "@vite-hub/kit/dialog", pascalName: "UiDialog" }),
-        expect.objectContaining({ export: "TabsTab", filePath: "@vite-hub/kit/tabs", pascalName: "UiTabsTab" }),
-        expect.objectContaining({ export: "OTPInput", filePath: "@vite-hub/kit/otp-input", pascalName: "UiOTPInput" }),
         expect.objectContaining({ export: "Form", filePath: "@vite-hub/kit/form", pascalName: "UiForm" }),
         expect.objectContaining({ export: "TagsInputItem", filePath: "@vite-hub/kit/tags-input", pascalName: "UiTagsInputItem" }),
       ]));
-      expect(components.filter((component) => component.filePath.startsWith("@ui-sdk/"))).toEqual([]);
-
-      const sources: Array<{ from?: string; imports: unknown[] }> = [];
-      await nuxt.callHook("imports:sources", sources as never);
-      expect(sources).toEqual(expect.arrayContaining([
-        expect.objectContaining({ from: "@vite-hub/kit/dialog", imports: expect.arrayContaining(["createDialogController"]) }),
-        expect.objectContaining({ from: "@vite-hub/kit/number", imports: expect.arrayContaining(["formatNumber"]) }),
-      ]));
-      expect(sources.filter((source) => source.from?.startsWith("@ui-sdk/"))).toEqual([]);
     } finally {
       await nuxt.close();
     }
   });
 
-  it("registers the ui-sdk names without a prefix by default", async () => {
+  it("leaves ui-sdk's parts to @ui-sdk/vue/nuxt", async () => {
     const nuxt = await loadApp({});
     try {
+      expect(nuxt.options._installedModules.map((module) => module.meta?.name)).not.toContain("@ui-sdk/vue");
       const components: Array<{ filePath: string; pascalName?: string }> = [];
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(expect.arrayContaining([
-        expect.objectContaining({ filePath: "@vite-hub/kit/dialog", pascalName: "DialogTrigger" }),
+        expect.objectContaining({ filePath: "@vite-hub/kit/tags-input", pascalName: "TagsInput" }),
       ]));
+      expect(components.filter((component) => component.filePath.startsWith("@ui-sdk/"))).toEqual([]);
     } finally {
       await nuxt.close();
     }

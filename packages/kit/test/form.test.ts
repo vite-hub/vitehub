@@ -2,7 +2,7 @@
 import { h, ref, type Ref } from "vue";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Field, FieldControl, FieldError, FieldLabel } from "@vite-hub/kit/field";
+import { Field, FieldControl, FieldError, FieldLabel } from "@ui-sdk/vue/field";
 import { Form, type FormErrors, type FormValues } from "@vite-hub/kit/form";
 
 import { mount, one, settle, type } from "./dom.ts";

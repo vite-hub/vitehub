@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@vite-hub/kit/dialog";
+import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@ui-sdk/vue/dialog";
 </script>
 
 <template>

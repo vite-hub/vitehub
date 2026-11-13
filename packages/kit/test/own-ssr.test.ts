@@ -2,7 +2,7 @@ import { createSSRApp, h, type VNode } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 
-import { Field, FieldControl, FieldError } from "@vite-hub/kit/field";
+import { Field, FieldControl, FieldError } from "@ui-sdk/vue/field";
 import { Form } from "@vite-hub/kit/form";
 import {
   TagsInput,

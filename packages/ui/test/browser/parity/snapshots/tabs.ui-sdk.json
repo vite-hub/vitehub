@@ -1,6 +1,6 @@
 {
   "component": "tabs",
-  "engine": "kit",
+  "engine": "ui-sdk",
   "steps": [
     {
       "step": "load",

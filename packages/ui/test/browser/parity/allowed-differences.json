@@ -1,511 +1,511 @@
 [
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "load",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Before",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to the trigger",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Space closes",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab skips the closed content",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Shift+Tab back to the trigger",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "collapsible",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Click closes",
     "field": "relations",
     "reason": "Closed, the ui-sdk trigger has no aria-controls, since the panel is not in the DOM. Reka keeps aria-controls: before the first open it points to a missing element, and after a close it points to an empty hidden element."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Enter opens",
     "field": "tree",
     "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Save",
     "field": "tree",
     "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Close",
     "field": "tree",
     "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab wraps to the first field",
     "field": "tree",
     "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Shift+Tab wraps to Close",
     "field": "tree",
     "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Click opens",
     "field": "tree",
     "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Space opens",
     "field": "focus",
     "reason": "ui-sdk 0.1.0-beta.2 bug. An outside press on a modal dialog arms a click swallow at pointerdown. The dialog and its backdrop are gone before pointerup, so Chromium sends no click, and the swallow takes the next click: the one Space makes on the trigger. The dialog stays closed. A second Space opens it."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Space opens",
     "field": "tree",
     "reason": "ui-sdk 0.1.0-beta.2 bug. An outside press on a modal dialog arms a click swallow at pointerdown. The dialog and its backdrop are gone before pointerup, so Chromium sends no click, and the swallow takes the next click: the one Space makes on the trigger. The dialog stays closed. A second Space opens it."
   },
   {
     "component": "dialog",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Space opens",
     "field": "relations",
     "reason": "ui-sdk 0.1.0-beta.2 bug. An outside press on a modal dialog arms a click swallow at pointerdown. The dialog and its backdrop are gone before pointerup, so Chromium sends no click, and the swallow takes the next click: the one Space makes on the trigger. The dialog stays closed. A second Space opens it."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "load",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Before",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab into the tablist",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "ArrowRight to Terminal",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "ArrowRight to Preview",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "ArrowRight wraps to Files",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "ArrowLeft wraps to Preview",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Home",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "End",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab into the panel",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to After",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Shift+Tab to the panel",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Shift+Tab to the selected tab",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "tabs",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Click Terminal",
     "field": "relations",
     "reason": "ui-sdk sets aria-controls only on the selected tab, since it does not render the other panels. Reka sets it on every tab, and the other tabs point to empty hidden panels."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "load",
     "field": "tree",
     "reason": "The ui-sdk region is a landmark only while it has toasts, and ui-sdk adds two live regions for the whole page (status and alert) at the end of the body. Reka keeps the region \"Notifications (F8)\" at all times."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "load",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Show toast",
     "field": "tree",
     "reason": "The ui-sdk region is a landmark only while it has toasts, and ui-sdk adds two live regions for the whole page (status and alert) at the end of the body. Reka keeps the region \"Notifications (F8)\" at all times."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Show toast",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "F8 focuses the region",
     "field": "focus",
     "reason": "At F8, ui-sdk focuses the front toast. Reka focuses the list, and one more Tab reaches the toast. The script presses that Tab only when focus is not on the toast yet."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "F8 focuses the region",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "F8 focuses the region",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "F8 focuses the region",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to the toast",
     "field": "focus",
     "reason": "Same element. ui-sdk names the toast by its title."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to the toast",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to the toast",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to the toast",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Undo",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Undo",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Undo",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Dismiss",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Dismiss",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Tab to Dismiss",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Enter dismisses",
     "field": "focus",
     "reason": "When the toast that holds focus closes, ui-sdk moves focus back to where it was before, here \"Show toast\". Reka moves it to the list after Enter, and to the body after a click or Escape."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Enter dismisses",
     "field": "tree",
     "reason": "The ui-sdk region is a landmark only while it has toasts, and ui-sdk adds two live regions for the whole page (status and alert) at the end of the body. Reka keeps the region \"Notifications (F8)\" at all times."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Enter dismisses",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show again",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show again",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show again",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Click Dismiss",
     "field": "focus",
     "reason": "When the toast that holds focus closes, ui-sdk moves focus back to where it was before, here \"Show toast\". Reka moves it to the list after Enter, and to the body after a click or Escape."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Click Dismiss",
     "field": "tree",
     "reason": "The ui-sdk region is a landmark only while it has toasts, and ui-sdk adds two live regions for the whole page (status and alert) at the end of the body. Reka keeps the region \"Notifications (F8)\" at all times."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Click Dismiss",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show for Escape",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show for Escape",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show for Escape",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Escape in the toast closes",
     "field": "focus",
     "reason": "When the toast that holds focus closes, ui-sdk moves focus back to where it was before, here \"Show toast\". Reka moves it to the list after Enter, and to the body after a click or Escape."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Escape in the toast closes",
     "field": "tree",
     "reason": "The ui-sdk region is a landmark only while it has toasts, and ui-sdk adds two live regions for the whole page (status and alert) at the end of the body. Reka keeps the region \"Notifications (F8)\" at all times."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Escape in the toast closes",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show for swipe",
     "field": "tree",
     "reason": "ui-sdk names the region \"Notifications\" and puts F8 in aria-keyshortcuts, where Reka adds \"(F8)\" to the name. ui-sdk names the toast by its title, and its two live regions for the whole page show at the end of the body."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show for swipe",
     "field": "live",
     "reason": "ui-sdk announces the title once in a polite status region for the whole page, which keeps the last text after the toast closes. Reka renders an assertive alert with the region label, the title and the action alt text while the toast is open."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Show for swipe",
     "field": "relations",
     "reason": "ui-sdk labels each toast by its title with aria-labelledby. Reka gives the toast no name."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Swipe right closes",
     "field": "focus",
     "reason": "ui-sdk does not swipe when a mouse drag starts on text: the drag selects the title, and the toast stays open. The script starts the drag on the title. A drag that starts on the toast padding closes it in ui-sdk."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Swipe right closes",
     "field": "tree",
     "reason": "ui-sdk does not swipe when a mouse drag starts on text: the drag selects the title, and the toast stays open. The script starts the drag on the title. A drag that starts on the toast padding closes it in ui-sdk."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Swipe right closes",
     "field": "live",
     "reason": "ui-sdk does not swipe when a mouse drag starts on text: the drag selects the title, and the toast stays open. The script starts the drag on the title. A drag that starts on the toast padding closes it in ui-sdk."
   },
   {
     "component": "toast",
-    "engine": "kit",
+    "engine": "ui-sdk",
     "step": "Swipe right closes",
     "field": "relations",
     "reason": "ui-sdk does not swipe when a mouse drag starts on text: the drag selects the title, and the toast stays open. The script starts the drag on the title. A drag that starts on the toast padding closes it in ui-sdk."
