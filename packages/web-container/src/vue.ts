@@ -61,6 +61,8 @@ export interface UseWebContainerOptions {
   start?: WebContainerCommand | false;
   /** The port that the dev server listens on, such as `3000` for `vite --port 3000`. Other servers do not become the preview. */
   port?: number;
+  /** JavaScript that runs first in every HTML page of the preview. See `bootWebContainer({ previewScript })`. */
+  previewScript?: string;
   /** Environment variables for the install and start processes, such as `connectEnv(connect, credentials)`. Read again on each run. */
   env?: MaybeRefOrGetter<Record<string, string> | undefined>;
   /**
@@ -313,6 +315,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
           files: written,
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
+          previewScript: options.previewScript,
           onStatus(next) {
             if (disposed) return;
             if (next.stage === "error") {

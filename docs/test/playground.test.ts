@@ -21,10 +21,10 @@ async function templates() {
 describe("playground", () => {
   it("reads each template from its fixture, so the code has one source", async () => {
     const built = await templates();
-    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels"]);
+    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels", "ui"]);
     // The editor and the preview open a file and a route of the template.
     for (const template of built) expect(template.files[template.open], template.id).toBeDefined();
-    for (const template of built) expect(template.preview, template.id).toMatch(/^\/api\//);
+    for (const template of built.filter(item => item.id !== "ui")) expect(template.preview, template.id).toMatch(/^\/api\//);
     const kv = built.find(template => template.id === "kv")!;
     expect(kv.files["server/api/settings.post.ts"]).toBe(await readFile(resolve(fixturesDir, "server-primitives/server/api/settings.post.ts"), "utf8"));
     expect(kv.files["vite.config.ts"]).toContain("kv:");
@@ -36,6 +36,11 @@ describe("playground", () => {
     expect(channels.files["vite.config.ts"]).toContain("channels: { simulate: true }");
     expect(channels.preview).toBe("/api/_vitehub/agents/support/webhooks/slack");
     for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
+    // The ViteHub UI template is a Vue app on the headless parts of @vite-hub/kit, and its preview is the app page.
+    const ui = built.find(template => template.id === "ui")!;
+    expect(ui.preview).toBe("/");
+    expect(ui.files["src/App.vue"]).toContain("@vite-hub/kit/dialog");
+    expect(JSON.parse(ui.files["package.json"]!).dependencies["@vite-hub/kit"]).toMatch(/^\^\d/);
   });
 
   it("reuses tutorial snapshots only for matching dependencies", async () => {
@@ -49,6 +54,7 @@ describe("playground", () => {
       "rate-limit": "playground-rate-limit",
       "agent": "first-agent",
       "channels": "first-agent",
+      "ui": "playground-ui",
     });
     // Each distinct feature install needs its own snapshot.
     expect(snapshotSources(runnableTutorials, built)).toEqual([
@@ -57,6 +63,7 @@ describe("playground", () => {
       { slug: "playground-queue", page: "/playground", fixture: "playground-queue" },
       { slug: "playground-cache", page: "/playground", fixture: "playground-cache" },
       { slug: "playground-rate-limit", page: "/playground", fixture: "playground-rate-limit" },
+      { slug: "playground-ui", page: "/playground", fixture: "playground-ui" },
     ]);
     expect(snapshotSources(runnableTutorials, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
   });

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { h, nextTick } from "vue";
 import { BrowserSupportNotice, detectUnsupportedBrowser } from "../src/workspace/browser-support-notice.ts";
 import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace.ts";
-import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
+import { WorkspacePreview, workspacePreviewScript } from "../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
 import { WorkspaceTerminal } from "../src/workspace/workspace-terminal.ts";
 
@@ -264,5 +264,60 @@ describe("WorkspacePreview", () => {
 
     await wrapper.get("[aria-label='Reload preview']").trigger("click");
     expect(wrapper.get("iframe").element).not.toBe(frame.element);
+  });
+
+  it("follows the page address and goes Back and Forward through the preview script", async () => {
+    const wrapper = mount(WorkspacePreview, { props: { path: "/", url: "https://abc.webcontainer.io" }, attachTo: document.body });
+    expect(wrapper.get("[aria-label='Go back']").attributes()).toHaveProperty("disabled");
+    const frame = wrapper.get("iframe").element as HTMLIFrameElement;
+    // happy-dom loads no frames. The preview origin wraps the app in a frame of its own, so the app is a frame inside.
+    const outer = { parent: window };
+    Object.defineProperty(frame, "contentWindow", { value: outer });
+    const inner = { parent: outer } as unknown as Window;
+    const { port1: app, port2 } = new MessageChannel();
+    const sent: unknown[] = [];
+    app.onmessage = ({ data }) => { sent.push(data); };
+    // A message from a window outside the frame is ignored.
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "vitehub:preview" }, source: window, ports: [new MessageChannel().port2] }));
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "vitehub:preview" }, source: inner, ports: [port2] }));
+    app.postMessage({ type: "location", path: "/about?tab=2", back: true, forward: false });
+    await vi.waitFor(() => expect(wrapper.get("a[aria-label='Open preview in a new tab']").attributes("href")).toBe("https://abc.webcontainer.io/about?tab=2"));
+    await vi.waitFor(() => expect(wrapper.find("input").exists()).toBe(true), { timeout: 5_000 });
+    expect((wrapper.get("input").element as HTMLInputElement).value).toBe("/about?tab=2");
+    expect(wrapper.get("[aria-label='Go forward']").attributes()).toHaveProperty("disabled");
+
+    await wrapper.get("[aria-label='Go back']").trigger("click");
+    await wrapper.get("[aria-label='Reload preview']").trigger("click");
+    await vi.waitFor(() => expect(sent).toEqual(["back", "reload"]));
+    // The script reloads the page where it is, so the frame stays.
+    expect(wrapper.get("iframe").element).toBe(frame);
+    app.close();
+    wrapper.unmount();
+  });
+
+  it("shows the page at a device width and keeps the choice", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const wrapper = mount(WorkspacePreview, { props: { url: "https://abc.webcontainer.io" } });
+    const frame = wrapper.get("iframe").element;
+    expect(wrapper.get("[aria-label='Desktop']").attributes("aria-pressed")).toBe("true");
+    expect(wrapper.find(".vh-device-frame[data-on]").exists()).toBe(false);
+
+    await wrapper.get("[aria-label='Phone']").trigger("click");
+    expect(wrapper.get(".vh-device-frame__page").attributes("style")).toContain("width: 390px");
+    expect(wrapper.find("[role='toolbar']").exists()).toBe(false);
+    expect(wrapper.get("iframe").element).toBe(frame);
+    expect(wrapper.emitted("update:device")).toEqual([["phone"]]);
+    expect(localStorage.getItem("vitehub:workspace-preview:device")).toBe("phone");
+    wrapper.unmount();
+
+    const next = mount(WorkspacePreview, { props: { url: "https://abc.webcontainer.io" } });
+    expect(next.get("[aria-label='Phone']").attributes("aria-pressed")).toBe("true");
+    await next.setProps({ device: "tablet" });
+    expect(next.get(".vh-device-frame__page").attributes("style")).toContain("width: 768px");
+    next.unmount();
+  });
+
+  it("ships a preview script that parses", () => {
+    expect(() => new Function(workspacePreviewScript)).not.toThrow();
   });
 });

@@ -1,0 +1,112 @@
+/*
+ * A small stylesheet for the parts of @vite-hub/kit. Each part has a data-slot attribute, and its state shows in
+ * attributes such as data-open, data-selected, and data-highlighted.
+ *
+ * The ViteHub style family will ship as @vite-hub/kit/styles/default.css. Until then, this file is the whole look.
+ */
+:root {
+  --bg: #fff;
+  --surface: #fafafa;
+  --text: #171717;
+  --muted: #737373;
+  --border: #e5e5e5;
+  --accent: #171717;
+  --on-accent: #fff;
+  --radius: 6px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.08);
+  color-scheme: light;
+  font: 14px/1.5 system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 40rem; margin: 0 auto; padding: 2rem 1.25rem; }
+header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem; }
+h1 { flex: 1; margin: 0; font-size: 1.25rem; font-weight: 600; }
+code { font-size: 0.8125rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.25rem; }
+ul { margin: 0; padding-left: 1.25rem; }
+svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Buttons: every trigger and close part is a button, and data-variant picks its look. */
+button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem;
+  height: 2rem; padding: 0 0.75rem; border: 1px solid transparent; border-radius: var(--radius);
+  background: none; color: inherit; font: inherit; font-weight: 500; cursor: pointer;
+}
+button[data-variant="solid"] { background: var(--accent); color: var(--on-accent); }
+button[data-variant="outline"] { border-color: var(--border); }
+button[data-variant="ghost"] { padding: 0 0.5rem; color: var(--muted); }
+button:hover:not([data-variant="solid"]) { background: var(--surface); color: var(--text); }
+button[data-variant="solid"]:hover { opacity: 0.88; }
+button:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+[data-slot="row"] { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* Tabs */
+[data-slot="tabs-list"] { position: relative; display: flex; gap: 1rem; border-bottom: 1px solid var(--border); }
+[data-slot="tabs-tab"] { height: 2.25rem; padding: 0; border-radius: 0; color: var(--muted); }
+[data-slot="tabs-tab"]:hover { background: none; }
+[data-slot="tabs-tab"][data-selected] { color: var(--text); }
+[data-slot="tabs-indicator"] {
+  position: absolute; bottom: -1px; left: 0; translate: var(--active-tab-left) 0; width: var(--active-tab-width);
+  height: 2px; background: var(--accent); transition: translate 200ms ease-out, width 200ms ease-out;
+}
+[data-slot="tabs-panel"] { display: grid; gap: 1rem; padding-top: 1rem; }
+[data-slot="tabs-panel"] p { margin: 0; color: var(--muted); }
+
+/* Dialog */
+[data-slot="dialog-backdrop"] { position: fixed; inset: 0; background: rgb(0 0 0 / 0.3); transition: opacity 150ms; }
+[data-slot="dialog-backdrop"]:is([data-starting-style], [data-ending-style]) { opacity: 0; }
+[data-slot="dialog-content"] {
+  position: fixed; inset: 0; margin: auto; width: min(24rem, calc(100vw - 2rem)); height: fit-content;
+  padding: 1.25rem; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); box-shadow: var(--shadow);
+  transition: opacity 150ms, scale 150ms ease-out;
+}
+[data-slot="dialog-content"]:is([data-starting-style], [data-ending-style]) { opacity: 0; scale: 0.97; }
+[data-slot="dialog-content"]::backdrop { background: transparent; }
+[data-slot="dialog-title"] { margin: 0; font-size: 1rem; font-weight: 600; }
+[data-slot="dialog-description"] { margin: 0.25rem 0 0; color: var(--muted); }
+[data-slot="dialog-content"] form { display: grid; gap: 1rem; margin-top: 1rem; }
+[data-slot="dialog-content"] form [data-slot="row"] { justify-content: flex-end; }
+
+/* Field and input */
+[data-slot="field"] { display: grid; gap: 0.375rem; }
+[data-slot="field-label"] { font-weight: 500; }
+[data-slot="input"] {
+  height: 2.25rem; padding: 0 0.625rem; border: 1px solid var(--border); border-radius: var(--radius);
+  font: inherit; font-size: 16px; color: inherit; background: var(--bg);
+}
+
+/* Menu and tooltip: popups that the parts place next to their trigger. */
+[data-slot="menu-content"] {
+  min-width: 10rem; padding: 0.25rem; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); box-shadow: var(--shadow); outline: none;
+}
+[data-slot="menu-item"] { display: flex; align-items: center; height: 2rem; padding: 0 0.5rem; border-radius: 4px; cursor: default; outline: none; }
+[data-slot="menu-item"][data-highlighted] { background: var(--surface); }
+[data-slot="menu-separator"] { height: 1px; margin: 0.25rem -0.25rem; background: var(--border); }
+[data-slot="tooltip-content"] {
+  padding: 0.25rem 0.5rem; border-radius: var(--radius); background: var(--accent); color: var(--on-accent); font-size: 0.75rem;
+}
+
+/* Toasts: a stack in the bottom right corner. */
+[data-slot="toast-region"] { position: fixed; right: 1rem; bottom: 1rem; width: min(22rem, calc(100vw - 2rem)); height: var(--toast-front-height); }
+[data-slot="toast"] {
+  position: absolute; inset-inline: 0; bottom: 0; display: grid; grid-template-columns: 1fr auto; column-gap: 0.5rem;
+  height: var(--toast-height); padding: 0.75rem 0.5rem 0.75rem 1rem; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: var(--shadow);
+  z-index: calc(100 - var(--toast-index)); translate: 0 calc(var(--toast-index) * -8px); scale: calc(1 - var(--toast-index) * 0.04);
+  transition: translate 300ms ease-out, scale 300ms ease-out, opacity 200ms; user-select: none;
+}
+[data-slot="toast"]:not([data-front]) { height: var(--toast-front-height); }
+[data-slot="toast"][data-starting-style][data-front] { translate: 0 100%; opacity: 0; }
+[data-slot="toast"][data-ending-style] { opacity: 0; }
+[data-slot="toast-title"] { grid-column: 1; font-weight: 600; }
+[data-slot="toast-description"] { grid-column: 1; color: var(--muted); }
+[data-slot="toast-close"] { grid-column: 2; grid-row: 1 / span 2; height: 1.75rem; padding: 0 0.5rem; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0s !important; }
+}

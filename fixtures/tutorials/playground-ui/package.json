@@ -1,0 +1,16 @@
+{
+  "name": "vitehub-playground-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --port 3000"
+  },
+  "dependencies": {
+    "@vite-hub/kit": "workspace:*",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "vite": "catalog:vite",
+    "vue": "catalog:ui"
+  }
+}
