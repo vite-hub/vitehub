@@ -34,6 +34,8 @@ describe("@vite-hub/kit Nuxt module", () => {
         expect.objectContaining({ export: "Dialog", filePath: "@vite-hub/kit/dialog", pascalName: "UiDialog" }),
         expect.objectContaining({ export: "TabsTab", filePath: "@vite-hub/kit/tabs", pascalName: "UiTabsTab" }),
         expect.objectContaining({ export: "OTPInput", filePath: "@vite-hub/kit/otp-input", pascalName: "UiOTPInput" }),
+        expect.objectContaining({ export: "Form", filePath: "@vite-hub/kit/form", pascalName: "UiForm" }),
+        expect.objectContaining({ export: "TagsInputItem", filePath: "@vite-hub/kit/tags-input", pascalName: "UiTagsInputItem" }),
       ]));
       expect(components.filter((component) => component.filePath.startsWith("@ui-sdk/"))).toEqual([]);
 
