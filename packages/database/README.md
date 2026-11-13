@@ -272,6 +272,8 @@ Run `vitehub provision run --provider cloudflare` once to create or resolve the 
 
 A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `vitehub.database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
 
+Off Cloudflare, a production build gives Nuxt Content the default Database when the app sets no `content.database`: Postgres with `connection.url` becomes `{ type: "postgresql" }`, and a remote or env libSQL URL becomes `{ type: "libsql" }`. Env values stay empty in the build, and a generated Nitro plugin reads them when the server starts. See [Nuxt Content](https://vitehub.dev/docs/database/hosts#nuxt-content).
+
 `@vite-hub/database/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 
 Built on [Drizzle ORM](https://orm.drizzle.team/), [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview), [libSQL](https://www.npmjs.com/package/%40libsql/client), [postgres.js](https://github.com/porsager/postgres), and Cloudflare [D1](https://developers.cloudflare.com/d1/) and [Hyperdrive](https://developers.cloudflare.com/hyperdrive/) bindings when deployed to Cloudflare.

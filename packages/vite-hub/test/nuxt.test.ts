@@ -744,6 +744,17 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it.each([["node", true], ["cloudflare", false]] as const)("gives Nuxt Content the Postgres Database on %s: %s", async (host, mapped) => {
+    const rootDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-content-"))
+    onTestFinished(() => rm(rootDir, { force: true, recursive: true }))
+    await mkdir(resolve(rootDir, "server/databases"), { recursive: true })
+    await writeFile(resolve(rootDir, "package.json"), '{"private":true,"type":"module"}')
+    await writeFile(resolve(rootDir, "server/databases/default.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
+    const nuxt = { options: { dev: false, modules: ["@nuxt/content"], rootDir, vitehub: { database: true, host } } }
+    const dependencies = await viteHubNuxtModule.getModuleDependencies(nuxt)
+    expect(dependencies["@nuxt/content"]).toEqual(mapped ? { defaults: { database: { type: "postgresql", url: "" } } } : undefined)
+  })
+
   it.each([false, true])("gives the vite-hub/ui parts their Nuxt runtime, icons, and auto-imports when Nuxt UI installs later: %s", async (later) => {
     const { componentsExtendHooks, nuxt, runIconHook, runModulesDoneHook } = createNuxt()
     if (!later) nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })

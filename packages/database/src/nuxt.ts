@@ -19,6 +19,7 @@ import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { pgliteDatabases, renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
+import { renderNuxtContentDatabasePlugin, resolveNuxtContentDatabase, type NuxtContentDatabase } from "./internal/nuxt-content.ts"
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
@@ -39,6 +40,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-stats.ts"
+const generatedNitroContentDatabasePlugin = ".vitehub/nitro/database/content-database.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroShippedMigrations = "database/migrations.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
@@ -166,6 +168,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
       setResolvedFeatureOptions(viteConfig, "database", { ...configuredDatabase, ...viteOptions })
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
+    const contentDatabase = d1 ? undefined : resolveNuxtContentDatabaseForBuild(nuxtOptions, runtimeOptions, root, provisionRoot, serverDirs)
+    if (contentDatabase) ensureRecord(nuxtOptions, "content").database = structuredClone(contentDatabase.database)
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
       hook("prepare:types", (context) => {
@@ -282,6 +286,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
           localNitroConfig = config
           await refreshLocalRuntime()
         }
+        if (contentDatabase) await installNitroContentDatabase(config, root, contentDatabase)
         if (d1) {
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
@@ -591,9 +596,14 @@ function resolveNuxtContentModuleDependencies(options: DatabaseNuxtIntegrationOp
 
   const root = resolveViteHubProjectRoot(resolve(nuxtOptions.rootDir || process.cwd()), resolvedOptions)
   const serverDirs = resolvedOptions.projectRoot ? [resolve(root, "server")] : resolveNuxtServerDirs(nuxtOptions)
-  if (usesDefinitionResources(resolvedOptions, resolveDBViteConfig(resolvedOptions, root, { serverDirs }))) return {}
-  const d1 = resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
-  if (!d1) return {}
+  const d1 = usesDefinitionResources(resolvedOptions, resolveDBViteConfig(resolvedOptions, root, { serverDirs }))
+    ? undefined
+    : resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
+  if (!d1) {
+    // Nuxt resolves every module dependency before it sets up a module, so Content gets this default in any module order.
+    const content = resolveNuxtContentDatabaseForBuild(nuxtOptions, resolvedOptions, root, resolve(nuxtOptions.rootDir || process.cwd(), nuxtOptions.vite?.root ?? "."), serverDirs)
+    return content ? { "@nuxt/content": { defaults: { database: structuredClone(content.database) } } } : {}
+  }
 
   return {
     "@nuxt/content": {
@@ -696,6 +706,38 @@ function installVitePlugin(viteConfig: Record<string, unknown>, options: Resolve
 function mergeNuxtContentConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {
   const content = ensureRecord(config, "content")
   content.database = d1.contentDatabase
+}
+
+/**
+ * Maps the default Database to Nuxt Content for a production build that sets no `content.database`. Development is
+ * left alone, because Content then queries its local SQLite file. Cloudflare keeps Content's D1 rule: Content holds one
+ * database client for the whole Worker, and a Worker cannot reuse a socket across requests.
+ */
+function resolveNuxtContentDatabaseForBuild(
+  nuxtOptions: NuxtLike["options"],
+  options: ResolvedDatabaseNuxtIntegrationOptions,
+  root: string,
+  provisionRoot: string,
+  serverDirs: string[] | undefined,
+) {
+  if (nuxtOptions.dev || !hasNuxtContentModule(nuxtOptions.modules)) return
+  if (resolveHost({ nitro: nuxtOptions.nitro }) === "cloudflare") return
+  const content = resolveNuxtContentDatabase(resolveDBViteConfig(options, root, { provisionRoot, serverDirs }))
+  const configured = isRecord(nuxtOptions.content) ? nuxtOptions.content.database : undefined
+  // The module dependency default may already have set this same value.
+  if (configured !== undefined && JSON.stringify(configured) !== JSON.stringify(content?.database)) return
+  return content
+}
+
+async function installNitroContentDatabase(config: Record<string, unknown>, root: string, content: NuxtContentDatabase) {
+  ensureRecord(ensureRecord(config, "runtimeConfig"), "content").database = structuredClone(content.database)
+  const plugin = renderNuxtContentDatabasePlugin(content.runtimeValues)
+  if (!plugin) return
+  const file = resolve(root, generatedNitroContentDatabasePlugin)
+  await writeFileIfChanged(file, plugin)
+  const kit = createNitroServerKit(config)
+  kit.addPlugin(file)
+  config.plugins = kit.config.plugins
 }
 
 function mergeNitroRuntimeContentConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {
