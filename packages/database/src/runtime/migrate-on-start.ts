@@ -27,8 +27,17 @@ export interface StartMigrationDatabase {
   name: string
 }
 
+/** `migrateOnStart.backup` as the build resolves it. */
+export interface MigrationBackup {
+  /** Relative to the working directory. Unset, the copies go to `backups` beside the database file. */
+  dir?: string
+  keep: number
+}
+
 export interface MigrateOnStartOptions {
   allowDataLoss?: boolean
+  /** Copy each SQLite file before its pending migrations. */
+  backup?: MigrationBackup
   log?: (message: string) => void
 }
 
@@ -43,6 +52,8 @@ interface LibsqlMigrationClient {
 interface StartMigrationPlan {
   client: LibsqlMigrationClient
   databases: StartMigrationDatabase[]
+  /** The path of the main database file. Empty for an in-memory database. */
+  file: string
   /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
   upgrade: LibsqlStatement[]
   pending: Array<{ migration: StartMigration, name: string }>
@@ -160,6 +171,10 @@ function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfil
  */
 export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
   const log = options.log ?? (message => console.info(message))
+  const postgresDatabase = databases.find(database => database.dialect === "postgresql")
+  if (options.backup && postgresDatabase) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: postgresDatabase.name, problem: "It is a Postgres database." })
+  }
   const sqlitePlans = await planSqlite(databases.filter(database => database.dialect === "sqlite"), options)
   const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
     const client: unknown = Reflect.get(Object(database.db), "$client")
@@ -169,12 +184,13 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     return { client, database }
   })
   // The SQLite files change only after every Postgres database passed its check under the lock.
-  await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, log), log })
+  await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, options.backup, log), log })
 }
 
 /** The migrations that a server build ships, by Database name. The build writes them, so the server needs no migrations folder. */
 export interface ShippedMigrations {
   allowDataLoss: boolean
+  backup?: MigrationBackup
   /** A Database without migrations is not listed. `problem` says why the build could not read its migrations. */
   databases: Record<string, Pick<StartMigrationDatabase, "dialect" | "migrations"> | { problem: string }>
   /** Why this build cannot apply migrations in the server process. */
@@ -215,7 +231,7 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
         if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
         if (!database?.migrations.length || (test && database.dialect === "sqlite")) return []
         return [{ db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
-      }), { allowDataLoss: shipped.allowDataLoss })
+      }), { allowDataLoss: shipped.allowDataLoss, backup: shipped.backup })
     })
     for (const name of missing) runs.set(name, run)
     lastRun = run.catch(() => {
@@ -236,9 +252,12 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
     // Separate clients and URL spellings can open the same file. SQLite reports the actual main database path.
     const files = await client.execute("PRAGMA database_list")
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
+    if (options.backup && (typeof file !== "string" || !file)) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: database.name, problem: "It is in memory." })
+    }
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: [], upgrade: [] }
+    const plan = plans.get(target) ?? { client, databases: [], file: typeof file === "string" ? file : "", pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
@@ -256,7 +275,9 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
   return [...plans.values()]
 }
 
-async function applySqlite(plans: StartMigrationPlan[], log: (message: string) => void) {
+async function applySqlite(plans: StartMigrationPlan[], backup: MigrationBackup | undefined, log: (message: string) => void) {
+  // Copy every file before the first one changes, so a failed copy leaves all of them as they were.
+  if (backup) for (const plan of plans) if (plan.pending.length) await backupSqlite(plan, backup, log)
   for (const { client, pending, upgrade } of plans) {
     if (!pending.length && !upgrade.length) continue
     await client.migrate([
@@ -269,6 +290,44 @@ async function applySqlite(plans: StartMigrationPlan[], log: (message: string) =
     ])
     for (const { migration, name } of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   }
+}
+
+/**
+ * Copies a SQLite file with `VACUUM INTO`, which writes a consistent copy while other connections can read, then
+ * deletes the oldest copies of that file beyond `keep`. An empty database has nothing to keep, so it gets no copy.
+ * Copies are `<file name>-<UTC time>-before-<last pending migration><extension>`, so they sort by time.
+ */
+async function backupSqlite({ client, databases, file, pending }: StartMigrationPlan, backup: MigrationBackup, log: (message: string) => void) {
+  const objects = await client.execute("SELECT count(*) AS count FROM sqlite_master")
+  if (!Number(objects.rows[0]?.[0])) return
+  // Hosted builds bundle this module without Node's file system, so it reads the built-ins only when a copy is due.
+  const { mkdir, readdir, rm } = process.getBuiltinModule("fs/promises")
+  const { basename, dirname, extname, join, resolve } = process.getBuiltinModule("path")
+  const dir = backup.dir ? resolve(backup.dir) : join(dirname(file), "backups")
+  const extension = extname(file) || ".db"
+  const stem = basename(file, extname(file))
+  const time = new Date().toISOString().replaceAll(":", "-").replace(".", "-")
+  const target = join(dir, `${stem}-${time}-before-${pending.at(-1)!.migration.name}${extension}`)
+  const copy = new RegExp(`^${escapeRegExp(stem)}-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-before-.+${escapeRegExp(extension)}$`)
+  try {
+    await mkdir(dir, { recursive: true })
+    await client.execute({ args: [target], sql: "VACUUM INTO ?" })
+    const copies = (await readdir(dir)).filter(name => copy.test(name)).sort()
+    for (const name of copies.slice(0, -backup.keep)) await rm(join(dir, name))
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_FAILED({
+      cause: error,
+      database: databases[0]!.name,
+      problem: error instanceof Error ? error.message : String(error),
+      target,
+    })
+  }
+  log(`[vitehub] Database "${databases[0]!.name}": copied ${file} to ${target} before ${pending.length} migration(s).`)
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 /** The part of a postgres.js client, or of one of its transactions, that migrations use. */

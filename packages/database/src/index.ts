@@ -23,6 +23,7 @@ export type {
   DatabaseOptions,
   DiscoveredDatabaseDefinition,
   MergeDatabaseRelations,
+  MigrationBackupOptions,
   PostgresConnectionConfig,
   PostgresDatabaseDefinition,
   PostgresDatabaseDefinitionOptions,

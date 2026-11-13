@@ -60,6 +60,13 @@ export interface DatabaseRuntimeD1Options {
   readReplication?: boolean
 }
 
+export interface MigrationBackupOptions {
+  /** The folder of the copies. A relative path starts at the server's working directory. Defaults to `backups` beside the database file. */
+  dir?: string
+  /** The number of copies to keep for each database file, including the new one. Defaults to 3. */
+  keep?: number
+}
+
 export interface DatabaseIntegrationOptions {
   cli?: false | {
     export?: false
@@ -78,6 +85,13 @@ export interface DatabaseIntegrationOptions {
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */
     allowDataLoss?: boolean
+    /**
+     * Copies each local SQLite file with `VACUUM INTO` before the server applies its pending migrations. A start with no
+     * pending migration, or an empty database, makes no copy. A failed copy stops the start before any migration.
+     * Postgres and remote libSQL fail with `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`. `true` keeps the 3 newest copies in
+     * a `backups` folder beside the database file.
+     */
+    backup?: boolean | MigrationBackupOptions
   }
   projectRoot?: string
 }

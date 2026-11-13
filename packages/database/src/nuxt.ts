@@ -556,7 +556,7 @@ async function installNitroLocalDatabaseRuntime(
     "  },",
   ].join("\n"))
   // `ensureMigrations()` and the start plugin apply the migrations that this module ships.
-  await writeFileIfChanged(migrationsFile, renderShippedMigrationsModule(runtime, { allowDataLoss: resolveMigrateOnStart(options)?.allowDataLoss ?? false }))
+  await writeFileIfChanged(migrationsFile, renderShippedMigrationsModule(runtime, resolveMigrateOnStart(options)))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
