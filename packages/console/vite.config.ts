@@ -36,6 +36,9 @@ export default defineConfig({
     vitehub({
       auth: true,
       database: database(),
+      // The ViteHub MCP. /mcp serves the docs tools to anyone. /mcp/account adds the tools of the person's team, after
+      // OAuth sign-in with the Console account (mcpOAuth() in server/auth.ts).
+      mcp: { publicRoute: "/mcp", route: "/mcp/account" },
       env: {
         server: {
           auth: {

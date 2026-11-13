@@ -1850,6 +1850,9 @@ importers:
 
   packages/console:
     dependencies:
+      '@better-auth/oauth-provider':
+        specifier: catalog:auth
+        version: 1.7.15(8bc10dab2cbe2c2e0f8a85e38f645593)
       '@better-auth/passkey':
         specifier: catalog:auth
         version: 1.7.15(68e42bbadfba7e3cfdec38cd8e450a1a)
@@ -1859,6 +1862,9 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1874,6 +1880,9 @@ importers:
       vite-hub:
         specifier: workspace:*
         version: link:../vite-hub
+      zod:
+        specifier: catalog:runtime
+        version: 4.6.7
     devDependencies:
       '@libsql/client':
         specifier: catalog:database

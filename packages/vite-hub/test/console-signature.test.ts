@@ -2,13 +2,14 @@ import { once } from "node:events"
 import { createServer, request as httpRequest } from "node:http"
 
 import { consoleCallerHeader, consoleSignatureHeader } from "@vite-hub/internal/console-signature"
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { callOperation, defineOperation, installedOperationSectionResolver } from "@vite-hub/internal/operations"
 import { defineHandler, H3, toNodeHandler } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { forwardProjectRequest } from "../../console/src/forward.ts"
-import { consoleCallerOf } from "../../console/src/caller.ts"
+import { consoleCallerOf, consoleCallerUser } from "../../console/src/caller.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
@@ -36,9 +37,37 @@ const whoami = defineOperation<Record<string, never>, { surface: OperationContex
   section: false,
 })
 
+// The operations of the MCP tests: one that MCP clients may not call, one that deletes, and one with a large input.
+const hidden = defineOperation<Record<string, never>, string>({
+  description: "Only for the Console page.",
+  input: v.object({}),
+  kind: "write",
+  name: "test.hidden",
+  run: async () => "ran",
+  section: false,
+  mcp: false,
+})
+const drop = defineOperation<{ key: string }, { dropped: string }>({
+  description: "Delete one key.",
+  input: v.object({ key: v.string() }),
+  kind: "destructive",
+  name: "test.drop",
+  run: async ({ key }) => ({ dropped: key }),
+  section: false,
+})
+const store = defineOperation<{ text: string }, { bytes: number }>({
+  description: "Store a large text.",
+  input: v.object({ text: v.string() }),
+  kind: "write",
+  maxRequestBytes: 1024 * 1024,
+  name: "test.store",
+  run: async ({ text }) => ({ bytes: text.length }),
+  section: false,
+})
+
 function install(authorize?: ConsoleAuthorize): void {
   installConsoleAccess({ mode: "token", ...(authorize ? { authorize } : {}) })
-  installConsoleOperations([{ operations: [whoami], plugin: "test" }])
+  installConsoleOperations([{ operations: [whoami, hidden, drop, store], plugin: "test" }])
 }
 
 function send(request: Request): Promise<Response> {
@@ -240,7 +269,7 @@ describe("signed callers", () => {
     stubKeys(link.env)
     install()
     const caller = consoleCallerOf({
-      authorization: { user: { email: "ada@example.com", id: "user-1", name: "a".repeat(length) } },
+      user: consoleCallerUser({ email: "ada@example.com", id: "user-1", name: "a".repeat(length) }),
       roles: ["owner"], teamId: "team-1",
     })
     const page = new Request("https://console.vitehub.dev/p/1/_vitehub/rpc", {
@@ -296,5 +325,68 @@ describe("signed callers", () => {
     await expect(callOperation({ env: { VITEHUB_CONSOLE_PRIVATE_KEY_CI: "not-a-key" }, fetch, url: app }, "test.whoami", {})).resolves.toMatchObject({ message: expect.stringContaining("VITEHUB_CONSOLE_PRIVATE_KEY_CI must be the 43-character private key"), ok: false })
     await expect(callOperation({ env: { VITEHUB_CONSOLE_PRIVATE_KEY_A: ci.key.privateKey, VITEHUB_CONSOLE_PRIVATE_KEY_B: link.key.privateKey }, fetch, url: app }, "test.whoami", {})).resolves.toMatchObject({ message: expect.stringContaining("Set one VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> variable"), ok: false })
     expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe("calls of the ViteHub MCP in the Console", () => {
+  const mcpCaller = (confirmed = false): ConsoleCaller => ({ ...person, surface: "mcp", ...(confirmed ? { confirmed: true } : {}) })
+
+  /** One operation call as the Console MCP sends it: birpc framing, then the Console forwarder signs it. */
+  async function callAsMcp(name: string, input: unknown, caller: ConsoleCaller = mcpCaller()) {
+    return callOperationRpc(name, input, async (body) => {
+      const call = new Request("https://console.invalid/", { body, headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })
+      const response = await forwardProjectRequest(call, { caller, key: link.key, url: app }, operationRpcPath, (url, init) => send(new Request(url, init)))
+      return { body: await response.json().catch(() => undefined), response }
+    })
+  }
+
+  it("runs operations with the mcp surface and tells authorize", async () => {
+    stubKeys(link.env)
+    const seen: ConsoleAuthorizeContext[] = []
+    install((context) => {
+      seen.push(context)
+      return true
+    })
+    await expect(callAsMcp("test.whoami", {})).resolves.toMatchObject({ ok: true, value: { surface: "mcp", user: { id: "user-1" } } })
+    expect(seen[0]).toMatchObject({ surface: "mcp", via: "console" })
+  })
+
+  it("refuses an operation with mcp: false, and project.get does not list it", async () => {
+    stubKeys(link.env)
+    install()
+    const refused = await callAsMcp("test.hidden", {})
+    expect(refused).toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("test.hidden is not open to MCP clients"), status: 403 }, ok: false })
+    const project = await callAsMcp("project.get", {})
+    expect(project.ok && Reflect.get(Object(project.value), "operations")).toEqual(expect.arrayContaining(["test.whoami", "test.drop"]))
+    expect(project.ok && Reflect.get(Object(project.value), "operations")).not.toContain("test.hidden")
+    // The Console page still runs it.
+    await expect(callAsMcp("test.hidden", {}, person)).resolves.toMatchObject({ ok: true, value: "ran" })
+  })
+
+  it("refuses a destructive call until the signed caller says that the person confirmed it", async () => {
+    stubKeys(link.env)
+    install()
+    await expect(callAsMcp("test.drop", { key: "a" })).resolves.toMatchObject({ error: { code: "INTERNAL_R0026", status: 409 }, ok: false })
+    await expect(callAsMcp("test.drop", { key: "a" }, mcpCaller(true))).resolves.toMatchObject({ ok: true, value: { dropped: "a" } })
+  })
+
+  it("does not take the confirmation from an unsigned header or a changed caller", async () => {
+    stubKeys(link.env)
+    install()
+    const signed = await signedRpcRequest({ caller: mcpCaller(), input: { key: "a" }, key: link.key, operation: "test.drop" })
+    const headers = new Headers(signed.headers)
+    headers.set("x-vitehub-confirmation", "confirmed")
+    const response = await send(new Request(signed.url, { body: await signed.text(), headers, method: "POST" }))
+    expect(response.status).toBe(409)
+    headers.set(consoleCallerHeader, Buffer.from(JSON.stringify(mcpCaller(true))).toString("base64url"))
+    const forged = await send(new Request(signed.url, { body: operationRpcBody("test.drop", { key: "a" }), headers, method: "POST" }))
+    expect(forged.status).toBe(401)
+  })
+
+  it("sends a call larger than 64 KiB through birpc and the signed forwarder", async () => {
+    stubKeys(link.env)
+    install()
+    const text = "x".repeat(512 * 1024)
+    await expect(callAsMcp("test.store", { text })).resolves.toMatchObject({ ok: true, value: { bytes: text.length } })
   })
 })
