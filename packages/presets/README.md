@@ -195,8 +195,13 @@ threads from blocking a direct merge or waking the PR. `dailyPassBudget` (defaul
 `16`, `false` disables it) limits the model passes per PR in a rolling 24
 hours. A PR that reached it parks until its oldest pass is 24 hours old, and
 health lists it with `resumeAt`. A person's new feedback, the first failing
-required check on a head and a conflict on an otherwise ready PR still start a
-pass. `install` (default `true`) installs
+required check on a head, any conflict and a head whose required checks pass
+still start a pass. `dailyPushBudget` (default `false`) limits repair pushes per
+PR in a rolling 24 hours; past it, only a conflict repair pushes, and a PR whose
+required checks fail pushes once every two hours. `priorityLabels` (default none)
+put a labelled PR first in the queue and exempt it from both daily budgets.
+`mainRepairBranchPrefix` (default none) puts PRs from those head branches before
+every other PR and exempts them from `noProgressBudget`. `install` (default `true`) installs
 dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in
@@ -211,13 +216,13 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 `install: { cache: { directory, entries } }` configures the cache on any filesystem, and
 `cache: false` disables it. At startup, the built-in host removes pass
 workspaces from an earlier process when its temporary directory is inside the
-service directory. Claims take reviewed heads first, then heads whose checks all
-passed, then stack parents. A restart releases the claims of the previous process.
+service directory. Claims take main repairs and priority-labelled PRs first, then reviewed heads,
+then heads whose checks all passed, then stack parents. A restart releases the claims of the previous process.
 A stacked PR whose parent merged into the default branch is retargeted to the
 default branch; until then the child waits. With `merge: "direct"`,
 `repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
 and feedback alongside its open parent. The child never merges into the parent's
-branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried three times; after that, model
+branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.

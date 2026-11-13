@@ -90,6 +90,9 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A GitHub Actions check counts as stuck after 24 hours in the queue or 8 hours running. Other checks count as stuck after 30 minutes. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
+| `dailyPushBudget` | `false` | Repair pushes per PR in a rolling 24 hours ([Limit pushes per pull request](#limit-pushes-per-pull-request)). `false` turns it off. |
+| `priorityLabels` | `[]` | Labels that put a PR first in the queue, after main repairs, and exempt it from `dailyPassBudget` and `dailyPushBudget`. Matched case-insensitively. |
+| `mainRepairBranchPrefix` | None | Head branch prefix of PRs that repair the base branch, such as `'repair-main-'`. These PRs go first in the queue, and `noProgressBudget` never stops them. |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
 | `minorReviewRounds` | `false` | Heads in a row whose automated review has no valid finding above P2. Then automated review settles as if `reviewPushBudget` were spent ([Stop review ping-pong](#stop-review-ping-pong)). Needs `reviewPushBudget`. |
 | `reviewConvergencePushes` | `false` | Review-driven pushes after which each pass is asked to fix a recurring class of finding at its root instead of one more case. |
@@ -101,6 +104,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `mentionAllowlist` | `[]` | Exact GitHub logins that the worker can notify with `mentionOnPullRequest`, only for verified blockers that need one person to act. |
 | `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, also uses this limit. |
 | `modelConcurrency` | `concurrency` | Model passes at the same time. Match what your provider accounts can serve. |
+| `providerRetries` | `3` | Retries of a provider rate limit before the cooldown starts. Use `0` when the provider already retries, as Codex does. |
 | `providerCooldownMs` | `300000` | First cooldown after a pass uses all its provider rate-limit retries ([Provider rate limits](#provider-rate-limits)). |
 | `admission` | `{}` | Token budgets, a free-space check, and custom checks that stop model passes ([Limit model passes](#limit-model-passes)). |
 | `status` | `{ comment: true, checkRun: true }` | Where the PR shows the Babysitter's state: the activity comment and a `babysitter` check run on the head ([Status on the pull request](#status-on-the-pull-request)). |
@@ -213,14 +217,15 @@ Health shows the decision in `admission`, and token use, limits, and the `check`
 
 ## Provider rate limits
 
-On a provider rate limit (HTTP 429), a pass retries three times, 10 seconds apart. Then the host starts a cooldown:
+On a provider rate limit (HTTP 429), a pass retries `providerRetries` times (default `3`), 10 seconds apart. Then the host starts a cooldown:
 
 - Model passes stop until it ends. Host work continues: ready pull requests still merge directly and stacks still retarget. Pull requests that need a pass stay queued, unchanged.
 - The pass that ran out of retries waits for the cooldown. It is not reported as failed and does not count against `noProgressBudget`, and neither does a pass cancelled after a rate limit.
 - The first cooldown lasts `providerCooldownMs`. Each next one doubles, up to one hour, and halves the passes that can start, never below two. Passes that fail together count as one.
 - A successful pass removes one step only when it ends at least 30 minutes after the last cooldown, so capacity comes back slowly.
+- A pass that the provider fails with a rate limit or a dropped stream within 10 minutes of its start does not count against `dailyPassBudget`, and gives back the exemption it used.
 
-A GitHub rate limit uses a separate breaker that stops every GitHub request of the host, including merges, for one hour.
+A GitHub rate limit uses a separate breaker that stops every GitHub request of the host, including merges. The error does not say when the limit resets, and a secondary limit lifts within minutes. So the first stop lasts five minutes, and each stop that starts within two hours of the previous one doubles, up to one hour.
 
 ## Bound local verification
 
@@ -397,7 +402,7 @@ The install in each pass workspace gets only the `PATH`, `HOME`, locale, package
 
 Two pull requests that change the same file can both pass checks and still break the base together. Before a direct merge, the host compares the changed files with files changed on the base since the checks ran. On overlap, or when the tested base is unknown, it updates the branch through GitHub and waits for checks on the new head instead. A head that already contains the base tip needs no update. A base that requires up-to-date branches gets the same update when the pull request is only behind it. When GitHub refuses the update, as it does for some stacked pull requests, the host merges the base into a head branch in the same repository through the merges API, after checking that the head did not move. Failed checks from an older base get one update and retest every six hours, when the current base tip has no failing check. Neither step starts a model pass.
 
-The queue claims, in order: a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
+The queue claims, in order: pull requests whose head branch starts with `mainRepairBranchPrefix`, pull requests with one of `priorityLabels`, a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
 
 While GitHub still computes mergeability, the host rereads the pull request for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
 
@@ -429,8 +434,24 @@ When the budget is spent, the host parks the pull request before the next pass u
 - a person's comment or review that no pass saw yet
 - the first failing required check on a head
 - a merge conflict on a pull request with no failing check and no open review thread, once per head and base commit
+- any other merge conflict, once per head
+- a head whose required checks pass, once per head, so a failing optional check cannot hold its merge for a day
+- with `dailyPushBudget`, a head whose required checks fail, once for each time the push budget allows a push again
+- a pull request with one of `priorityLabels`, which the budget never holds
 
 The inbox stores the `dailyPassBudget` record `{ passes, human, exemptions }`, which the inbox summary also returns. `passes` holds the start time of each pass in the last 24 hours.
+
+### Limit pushes per pull request
+
+`dailyPushBudget` (default `false`) limits repair pushes per pull request in a rolling 24 hours, so review loops cannot add dozens of commits to one pull request. When it is spent:
+
+- `pushRepair` refuses the push and tells the model when the next push is allowed. The model then answers the review threads and reports the current head as reviewed.
+- A pass that resolves a merge conflict still pushes, and so does a pull request with one of `priorityLabels`.
+- A pull request whose required checks fail may still push once every two hours, so a validated CI repair does not wait a day. Between those pushes, the host parks it without a pass. Health lists it under `queue.parked` with `budget: "daily-push-budget"` and `resumeAt`. A person's comment or review or a merge conflict still starts a pass.
+- The prompt says whether the pass can push. When required checks fail, it also asks the model to fix them before review findings.
+- With `merge: 'direct'`, a reviewed head with failing required checks waits only while the budget refuses its push, and then gets the pass that repairs it.
+
+The inbox keeps the push times in the `repair-pushes:<repository>#<number>` meta entry.
 
 ### Dependency installation
 

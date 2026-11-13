@@ -1931,19 +1931,24 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       expect(f.passes).toHaveLength(1);
-      const [first] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
       await botReview(301);
       await f.reconcile();
-      expect(f.passes).toHaveLength(1);
+      // The head's required checks pass, so it gets one assessment pass past the budget.
+      expect(f.passes).toHaveLength(2);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.exempt", expect.objectContaining({ exemption: `assessment:${f.pr().head.sha}` }));
+      const [, second] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
+      await botReview(304);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
       const parked = (await f.runtime.inbox.get("acme/app", 12))!;
-      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: first! + 24 * 60 * 60_000 });
-      expect(parked.lastResult).toMatch(/1 model pass in the last 24 hours.*next pass can start at/);
+      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: second! + 24 * 60 * 60_000 });
+      expect(parked.lastResult).toMatch(/2 model passes in the last 24 hours.*next pass can start at/);
       expect(f.events).toHaveBeenCalledWith("babysitter.wait.kept", expect.objectContaining({ reason: "daily-pass-budget", avoided_invocation: true }));
       // A person's comment is exempt and still starts a pass.
       await f.runtime.inbox.ingest("human-comment", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
         comment: { id: 302, body: "Please look again.", user: { login: "developer", type: "User" } } });
       await f.reconcile();
-      expect(f.passes).toHaveLength(2);
+      expect(f.passes).toHaveLength(3);
       // Bot feedback runs again once the window frees a pass.
       const db = new DatabaseSync(inboxPath);
       try {
@@ -1954,8 +1959,89 @@ describe("Babysitter preset runtime", () => {
       } finally { db.close(); }
       await botReview(303);
       await f.reconcile();
-      expect(f.passes).toHaveLength(3);
+      expect(f.passes).toHaveLength(4);
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("lifts the daily pass budget for a PR with a priority label", async () => {
+    const f = await fixture(false, false, { options: { dailyPassBudget: 1, noProgressBudget: false, priorityLabels: ["Urgent"] } });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      const labelled = { ...f.pr(), labels: [{ name: "repair" }, { name: "urgent" }] };
+      await f.runtime.inbox.ingest("labelled", "pull_request", { repository: { full_name: "acme/app" }, action: "labeled", pull_request: labelled });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: labelled,
+        review: { id: 301, body: "Finding", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.exempt", expect.objectContaining({ exemption: "priority-label" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("records each repair push under the daily push budget and refuses one past it", async () => {
+    const recordingPush = (f: Awaited<ReturnType<typeof fixture>>) => {
+      const push = f.push.getMockImplementation()!;
+      f.push.mockImplementation(async (target, options) => {
+        await options?.beforePush?.();
+        const head = await push(target, options);
+        await options?.afterPush?.(head);
+        return head;
+      });
+    };
+    const allowed = await fixture(false, false, { options: { dailyPushBudget: 1 } });
+    allowed.choose("pushRepair");
+    recordingPush(allowed);
+    try {
+      await allowed.reconcile();
+      expect(allowed.pr().head.sha).toBe("b".repeat(40));
+      expect(await allowed.runtime.inbox.meta("repair-pushes:acme/app#12")).toEqual([expect.any(Number)]);
+    } finally { await allowed.runtime.inbox.close(); }
+    const refused = await fixture(false, false, { options: { dailyPushBudget: 1 }, expectedOperationErrorAt: 0 });
+    refused.choose("pushRepair");
+    recordingPush(refused);
+    const earlier = Date.now() - 60_000;
+    await refused.runtime.inbox.setMeta("repair-pushes:acme/app#12", [earlier]);
+    try {
+      await refused.reconcile();
+      expect(JSON.stringify(refused.operationResults[0])).toContain("Daily push budget spent");
+      expect(refused.pr().head.sha).toBe("a".repeat(40));
+      expect(await refused.runtime.inbox.meta("repair-pushes:acme/app#12")).toEqual([earlier]);
+    } finally { await refused.runtime.inbox.close(); }
+  });
+
+  it("parks a failing PR without a pass while the daily push budget refuses its repair", async () => {
+    const f = await fixture(false, false, { options: { dailyPushBudget: 1, ciRecovery: false } });
+    f.reportCheckRun({ id: 9, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+    const lastPush = Date.now() - 60_000;
+    await f.runtime.inbox.setMeta("repair-pushes:acme/app#12", [lastPush]);
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      // A failing PR may push again two hours after its last push.
+      expect(parked.wait).toMatchObject({ reason: "daily-push-budget", retryAt: lastPush + 2 * 60 * 60_000 + 60_000 });
+      expect(parked.lastResult).toMatch(/1 repair pushes in the last 24 hours/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("gives a reviewed head with failing required checks its repair pass while the daily push budget allows a push", async () => {
+    const passesAfterRetry = async (options: Record<string, unknown>) => {
+      const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, options: { ciRecovery: false, ...options },
+        result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+      f.reportCheckRun({ id: 9, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+      try {
+        await f.reconcile();
+        const retryAt = (await f.runtime.inbox.get("acme/app", 12))?.wait?.retryAt;
+        expect(retryAt).toBeTypeOf("number");
+        const now = vi.spyOn(Date, "now").mockReturnValue(retryAt! + 1);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        return f.passes.length;
+      } finally { await f.runtime.inbox.close(); }
+    };
+    expect(await passesAfterRetry({})).toBe(1);
+    expect(await passesAfterRetry({ dailyPushBudget: 1 })).toBe(2);
   });
 
   it("retries a pass after a network error instead of failing it", async () => {
@@ -2454,6 +2540,25 @@ describe("Babysitter preset runtime", () => {
       expect(state.status).toBe("waiting");
       expect(state.wait?.headSha).toBe("b".repeat(40));
       expect(state.lease).toBeNull();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("opens the provider cooldown on the first rate limit with providerRetries 0 and gives back the daily pass", async () => {
+    const f = await fixture(false, false, { providerRetryDelayMs: 1, options: { providerRetries: 0 } });
+    const provider = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async (...args: unknown[]) => {
+      const runtime = await provider(...args);
+      return { ...runtime, sendTurn: async () => ({ turnId: "quota-turn" }), events: { async *[Symbol.asyncIterator]() {
+        yield { type: "turn.completed", turnId: "quota-turn", payload: { state: "failed", errorMessage: "429 Too Many Requests" } };
+      } } };
+    });
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalledOnce();
+      expect(await f.runtime.inbox.metaNumber("provider-quota-blocked-until")).toBeGreaterThan(Date.now());
+      // The provider failed the pass before it did any work, so it does not count against the daily budget.
+      expect((await f.runtime.inbox.get("acme/app", 12))?.dailyPassBudget?.passes).toEqual([]);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.released", expect.objectContaining({ reason: expect.stringContaining("429") }));
     } finally { await f.runtime.inbox.close(); }
   });
 

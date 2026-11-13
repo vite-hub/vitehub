@@ -222,17 +222,28 @@ export const humanFeedbackExemption = "human-feedback";
 /**
  * The exemption that lets a pass run after the PR spent its daily pass budget, or undefined. A
  * person's feedback that no pass saw yet, a merge conflict on a PR without failing checks or open
- * threads (once per head and base), and the first failing required check on a head are exempt.
+ * threads (once per head and base), any other merge conflict (once per head), the first failing
+ * required check on a head, one pass per open push window on a failing head, and one assessment of a
+ * head whose required checks pass are exempt. `openPushWindow` is the time of the PR's last repair
+ * push while `dailyPushBudget` lets it push again, so a pass that does not push gets no second one.
  */
-export function dailyPassExemption(s: Snapshot, requiredChecks: GitHubRequiredCheckState, budget: DailyPassBudget | undefined): string | undefined {
+export function dailyPassExemption(s: Snapshot, requiredChecks: GitHubRequiredCheckState, budget: DailyPassBudget | undefined, openPushWindow?: number): string | undefined {
   if ((s.humanFeedbackGeneration ?? 0) > (budget?.human ?? 0)) return humanFeedbackExemption;
   const head = s.pr?.head?.sha;
   if (!head) return undefined;
   const used = new Set(budget?.exemptions ?? []);
   const conflict = `conflict:${head}:${s.pr?.base?.sha ?? ""}`;
   if (conflicted(s) && requiredChecks !== "failed" && !failureKeys(s).length && s.threads.every(thread => thread.isResolved === true) && !used.has(conflict)) return conflict;
+  // A conflict cannot clear without a pass, whatever else fails.
+  const anyConflict = `conflict:${head}`;
+  if (conflicted(s) && !used.has(anyConflict) && !used.has(conflict)) return anyConflict;
   const failure = `required-failure:${head}`;
-  return requiredChecks === "failed" && !used.has(failure) ? failure : undefined;
+  if (requiredChecks === "failed" && !used.has(failure)) return failure;
+  const ciRepair = `ci-repair:${head}:${openPushWindow}`;
+  if (requiredChecks === "failed" && openPushWindow !== undefined && !used.has(ciRepair)) return ciRepair;
+  // A green head needs one assessment pass to merge past a failing optional check.
+  const assessment = `assessment:${head}`;
+  return requiredChecks === "passed" && !conflicted(s) && !used.has(assessment) ? assessment : undefined;
 }
 
 /** The wait that a pass parks on: feedback the model saw and failures it already knew. */
