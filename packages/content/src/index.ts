@@ -34,6 +34,8 @@ import { createContentPreview, createRequestScope } from "./preview.ts"
 import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentLlmsFile } from "./llms.ts"
+import type { ContentLlmsOptions } from "./llms.ts"
 import type {
   AnyContentCollection,
   ContentCollection,
@@ -96,9 +98,10 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
-export { registerContentKV } from "./source-heads.ts"
+export { registerContentKV } from "./kv.ts"
+export type { ContentKV } from "./kv.ts"
 export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
+export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
 export type { ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
@@ -138,7 +141,11 @@ export type {
   ContentHeadSite,
 } from "./head.ts"
 export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
-export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentLlmsOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export { renderContentLlms, renderContentSitemapMarkdown } from "./llms.ts"
+export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsSection, ContentSitemapMarkdownPage } from "./llms.ts"
+export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNotFound } from "./markdown-negotiation.ts"
+export type { ContentMarkdownErrorLink, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
 export type {
   ContentCollectionDefinition,
   ContentDocumentUrl,
@@ -195,8 +202,6 @@ export interface ContentHandler {
   fetch(request: Request): Promise<Response>
 }
 
-/** H3 middleware: it returns nothing to pass the request on to the next handler. */
-export type ContentMiddleware = (event: { req: Request }) => Promise<Response | undefined>
 
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
 type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
@@ -287,7 +292,9 @@ export type DefineContentOptions<
   /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
-   * Markdown document of those collections at its URL plus `.md`. ViteHub generates the routes when this call sets them.
+   * Markdown document of those collections at its URL plus `.md`, and at its URL for `Accept: text/markdown`;
+   * `llms: true` serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. ViteHub generates the routes when this call
+   * sets them.
    */
   seo?: DefineContentSeoOptions
   /**
@@ -376,6 +383,11 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * Markdown document has that URL.
    */
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
+  /**
+   * A file for agents from the published Markdown documents with a URL, as `defineContent({ seo: { llms } })` serves
+   * it: `llms.txt` (default), `llms-full.txt` with every page, or `sitemap.md`. Links point at the `.md` copies.
+   */
+  llms(options?: ContentLlmsOptions): Promise<string>
 }
 
 /**
@@ -637,6 +649,15 @@ export function defineContent<
       await contentSitemapEntries(documentsRuntime ? [...documentsRuntime.collections.values()] : [], siteFor(sitemapOptions), routedSources),
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
+    llms: async (llmsOptions: ContentLlmsOptions = {}) => {
+      const llms = seo?.llms
+      return await contentLlmsFile(
+        documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+        typeof llms === "object" ? llms : {},
+        siteFor(llmsOptions),
+        llmsOptions.file ?? "llms.txt",
+      )
+    },
     robots: (sitemapOptions?: ContentSitemapOptions) => {
       const robots = seo?.robots
       return renderContentRobots({
@@ -864,7 +885,7 @@ export function defineContentHandler(
   }
 }
 
-type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "seo" | "sitemap">
+type SeoRuntime = Pick<ContentDocumentsRuntime, "llms" | "markdown" | "robots" | "seo" | "sitemap">
 
 /**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
@@ -899,22 +920,21 @@ export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler 
 }
 
 /**
- * Serve `<url>.md` from `content.markdown()` as H3 middleware, not as a Fetchable route: Nitro routes cannot match a
- * suffix, so a request for any other path, or for a page without a published Markdown document, returns nothing and
- * passes through. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
+ * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from `content.llms()`. The last path segment of the request
+ * picks the file. ViteHub generates the three routes when `defineContent({ seo: { llms: true } })`.
  */
-export function defineContentMarkdownHandler(content: SeoRuntime): ContentMiddleware {
-  return async (event) => {
-    if (content.seo?.markdown !== true) return
-    const request = event.req
-    if (request.method !== "GET" && request.method !== "HEAD") return
-    const url = new URL(request.url)
-    if (!url.pathname.endsWith(".md")) return
-    const markdown = await content.markdown(url.pathname, { site: content.seo.site ?? url.origin })
-    if (markdown === null) return
-    return new Response(request.method === "HEAD" ? null : markdown, {
-      headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-    })
+export function defineContentLlmsHandler(content: SeoRuntime): ContentHandler {
+  return {
+    async fetch(request) {
+      const llms = content.seo?.llms
+      const url = new URL(request.url)
+      const file = (["llms.txt", "llms-full.txt", "sitemap.md"] as const).find(name => url.pathname.endsWith(`/${name}`))
+      if (llms === undefined || llms === false || !file) return new Response("Not Found", { status: 404 })
+      const text = await content.llms({ site: content.seo?.site ?? url.origin, file })
+      return new Response(request.method === "HEAD" ? null : text, {
+        headers: { "content-type": file === "sitemap.md" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
+      })
+    },
   }
 }
 

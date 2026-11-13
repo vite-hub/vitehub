@@ -287,6 +287,20 @@ describe("vitehub database migrate", () => {
     expect(result.stdout).not.toContain("no pending migrations")
   }, 120_000)
 
+  it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await mkdir(project.database.migrationsDir, { recursive: true })
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+
+    // No URL and no PG* variables: the generated Kit config uses PGlite in .vitehub/data/database/pglite.
+    await expect(project.run("migrate", [], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0]).toEqual(expect.arrayContaining([expect.arrayContaining(["migrate"])]))
+    expect(existsSync(join(project.rootDir, ".vitehub/data/database"))).toBe(true)
+  })
+
   it("fails without a resolved Database config instead of skipping the check", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const stderr = { write: vi.fn() }

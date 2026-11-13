@@ -1,7 +1,7 @@
-import { consoleDateTime, consoleDuration, consoleNumber } from "../../client/format.ts";
+import { consoleDateTime, consoleDuration } from "../../client/format.ts";
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
-import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
+import { invocationBrand, invocationBrandMark, invocationModelMaker, invocationModelName } from "./internal/invocation-brand.ts";
 import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, useId, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
@@ -82,20 +82,6 @@ function driverLabel(configuration: AgentInvocationConfiguration): string | unde
     model?.provider ?? driver?.provider,
     model?.id,
   ].filter(Boolean).join(" · ") || undefined;
-}
-
-function invocationModelName(value: string): string {
-  const slug = value.split("/").at(-1) ?? "";
-  return slug
-    .split("-")
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLocaleLowerCase();
-      if (/^(ai|gpt|glm|llm|vlm)$/.test(lower)) return lower.toLocaleUpperCase();
-      if (/^\d+[a-z]$/i.test(part)) return part.toLocaleUpperCase();
-      return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
-    })
-    .join(" ") || "Configured model";
 }
 
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {
@@ -1088,6 +1074,96 @@ function renderActivityGroup(
   ]);
 }
 
+const tokenFormat = new Intl.NumberFormat("en");
+
+/** A USD amount with cents. Below ten cents it keeps two significant digits, so a small run does not read as $0.00. */
+function formatUsd(usd: string): string {
+  const value = Number(usd);
+  const small = value > 0 && value < 0.1;
+  return new Intl.NumberFormat("en", {
+    currency: "USD",
+    maximumFractionDigits: small ? Math.min(6, 1 - Math.floor(Math.log10(value))) : 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
+/**
+ * Tokens and cost of the session. The cost shows only when the run recorded one. An estimate says so in its label, and
+ * its tooltip names where the prices come from, such as models.dev. Token types without tokens are left out.
+ */
+function inspectorUsage(
+  usage: AgentInvocationView["usage"],
+  partition: AgentInvocationView["usage"],
+  totalTokens: number | undefined,
+) {
+  const cost = usage?.cost;
+  const usd = cost?.usd !== undefined && Number.isFinite(Number(cost.usd)) ? cost.usd : undefined;
+  // A record without a decimal amount can still carry the text that its runtime formatted, such as "~$0.02".
+  const costText = usd === undefined ? cost?.display || undefined : formatUsd(usd);
+  const rows = ([
+    ["Input", partition?.inputTokens],
+    ["Cached input", partition?.cachedInputTokens],
+    ["Cache writes", partition?.cacheWriteTokens],
+    ["Output", partition?.outputTokens],
+    ["Reasoning", partition?.reasoningTokens],
+  ] as const).flatMap(([label, value]) => !value ? [] : [h("div", [h("dt", label), h("dd", tokenFormat.format(value))])]);
+  if (costText === undefined && totalTokens === undefined && !rows.length) return null;
+  const estimated = cost?.estimated === true;
+  const costNote = estimated
+    ? cost.source && cost.source !== "provider" ? `Estimated from ${cost.source}` : "Estimated"
+    : cost?.estimated === false ? "Reported by the provider" : undefined;
+  const costTitle = [usd === undefined ? undefined : `$${usd}`, costNote].filter(Boolean).join(", ") || undefined;
+  return inspectorSection("Usage", h("div", { class: "vh-invocation-inspector__usage", "data-slot": "invocation-usage" }, [
+    h("dl", { class: "vh-invocation-inspector__metrics" }, [
+      costText === undefined ? null : h("div", { title: costTitle }, [
+        h("dt", estimated ? "Estimated cost" : "Cost"),
+        h("dd", costText),
+      ]),
+      totalTokens === undefined ? null : h("div", [
+        h("dt", "Tokens"),
+        h("dd", tokenFormat.format(totalTokens)),
+      ]),
+    ]),
+    rows.length ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-inspector__list--numbers" }, rows) : null,
+  ]));
+}
+
+/** Skills that the harness offered the Agent, one chip each. The description and source are in the tooltip. */
+function inspectorSkills(skills: readonly { description?: string; name: string; source?: string }[]) {
+  const list = h("ul", { class: "vh-invocation-inspector__chips" }, skills.map(skill => h("li", {
+    key: skill.name,
+    title: [skill.description, skill.source ? `Source: ${skill.source}` : undefined].filter(Boolean).join("\n") || undefined,
+  }, skill.name)));
+  return skills.length > 12
+    ? inspectorDisclosure("Skills", String(skills.length), list)
+    : h("div", { class: "vh-invocation-inspector__group" }, [
+        h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Skills"), h("small", skills.length)]),
+        list,
+      ]);
+}
+
+/** MCP servers that the harness connected. A dot shows the status it recorded. */
+function inspectorMcpServers(servers: readonly { name: string; status?: string }[]) {
+  return h("div", { class: "vh-invocation-inspector__group" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "MCP servers"), h("small", servers.length)]),
+    h("ul", { class: "vh-invocation-inspector__chips" }, servers.map(server => h("li", {
+      key: server.name,
+      title: server.status ? `${server.name}: ${server.status}` : undefined,
+    }, [
+      server.status ? h("span", { "aria-hidden": "true", class: "vh-invocation-inspector__dot", "data-status": server.status }) : null,
+      server.name,
+      server.status ? h("span", { class: "vh-visually-hidden" }, `, ${server.status}`) : null,
+    ]))),
+  ]);
+}
+
+/** Recorded entries with a string `name`. The configuration is untrusted JSON. */
+function namedEntries<T extends { name: string }>(value: unknown): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is T => entry instanceof Object && typeof Reflect.get(entry, "name") === "string" && Reflect.get(entry, "name") !== "");
+}
+
 function inspectorSection(title: string, body: ReturnType<typeof h>) {
   return h("section", [h("h4", title), body]);
 }
@@ -1191,6 +1267,12 @@ function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocation
     && typeof channel.kind === "string";
 }
 
+/** Runtime names that mean nothing to a reader on their own. */
+const runtimeLabels: Readonly<Record<string, { label: string; title: string }>> = {
+  import: { label: "Imported session", title: "This session ran outside ViteHub. Its session file was imported." },
+};
+
+/** Model, provider, and runtime as rows. The provider row shows only when it is not the company that made the model. */
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -1198,22 +1280,26 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const provider = invocationBrand(model?.provider ?? configuration.driver?.provider);
   const runtime = configuration.runtime?.name;
   if (!modelId && !provider && (!runtime || runtime === "unknown")) return null;
-  return h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model")]),
-    h("div", { class: "vh-invocation-execution" }, [
-      modelId || provider ? h("div", { class: "vh-invocation-execution__model" }, [
+  const runtimeLabel = runtime && Object.hasOwn(runtimeLabels, runtime) ? runtimeLabels[runtime] : undefined;
+  return h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution" }, [
+    modelId ? h("div", [
+      h("dt", "Model"),
+      h("dd", { class: "vh-invocation-execution__model", title: maker ? `${modelId} by ${maker.label}` : modelId }, [
         invocationBrandMark(maker ?? provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
-        h("div", { class: "vh-invocation-execution__details" }, [
-          h("strong", modelId ? invocationModelName(modelId) : provider?.label),
-          modelId && provider ? h("span", { class: "vh-invocation-execution__provider" }, [
-            invocationBrandMark(provider, "vh-invocation-execution__provider-icon"), provider.label,
-          ]) : null,
-        ]),
-      ]) : null,
-      runtime && runtime !== "unknown" ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution__runtime" }, [
-        inspectorRow("Runtime", runtime),
-      ]) : null,
-    ]),
+        h("span", invocationModelName(modelId)),
+      ]),
+    ]) : null,
+    provider && provider.id !== maker?.id ? h("div", [
+      h("dt", "Provider"),
+      h("dd", { class: "vh-invocation-execution__provider" }, [
+        invocationBrandMark(provider, "vh-invocation-execution__provider-icon"),
+        h("span", provider.label),
+      ]),
+    ]) : null,
+    runtime && runtime !== "unknown" ? h("div", [
+      h("dt", "Runtime"),
+      h("dd", { title: runtimeLabel?.title }, runtimeLabel?.label ?? runtime),
+    ]) : null,
   ]);
 }
 
@@ -1274,6 +1360,8 @@ function renderConfiguration(
     truncated: configuration.truncated || tools.length !== recordedTools.length || channelsCatalogMalformed
       || channels.length !== recordedChannels.length,
   };
+  const skills = namedEntries<{ description?: string; name: string; source?: string }>(configuration.skills);
+  const mcpServers = namedEntries<{ name: string; status?: string }>(configuration.mcpServers);
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -1329,6 +1417,8 @@ function renderConfiguration(
     configuration.tools?.some(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
       ? inspectorTools(configuration.tools.filter(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation), selectTool)
       : null,
+    skills.length ? inspectorSkills(skills) : null,
+    mcpServers.length ? inspectorMcpServers(mcpServers) : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
           "Instructions",
@@ -1860,7 +1950,7 @@ const agentInvocationInspector = defineComponent({
               agentName
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
                     h("span", "Agent"),
-                    h("code", agentName),
+                    h("strong", agentName),
                     configuration?.agent?.version
                       ? h("small", `v${configuration.agent.version}`)
                       : null,
@@ -1878,25 +1968,9 @@ const agentInvocationInspector = defineComponent({
                 metrics.value.changes
                   ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
                   : null,
-                inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
-                  ? "Unknown"
-                  : consoleNumber((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
-                inspectorRow(
-                  usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
-                  usage?.cost?.display || "Unknown",
-                ),
-                ...([
-                  ["Input", partition?.inputTokens],
-                  ["Output", partition?.outputTokens],
-                  ["Cached", partition?.cachedInputTokens],
-                  ["Cache writes", partition?.cacheWriteTokens],
-                  ["Reasoning", partition?.reasoningTokens],
-                ] as const).flatMap(([label, value]) => value === undefined
-                  ? []
-                  : [inspectorRow(label, consoleNumber(value))]),
               ]),
             ),
+            inspectorUsage(usage, partition, usage?.totalTokens ?? metrics.value.tokens),
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,

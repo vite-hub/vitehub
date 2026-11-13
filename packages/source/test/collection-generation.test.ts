@@ -210,6 +210,30 @@ it.each([
   }
 })
 
+it("keeps preview interception and LLMs routes together, then removes both artifacts", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    const entry = join(projectRoot, "server/content.ts")
+    await writeFile(entry, 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ previews: true, seo: { llms: true } })')
+    const handlers = await prepareSourceGeneration({ projectRoot })
+    const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
+    const llms = join(projectRoot, ".vitehub/content/llms.mjs")
+    expect(mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers).plugins![0]).toBe(plugin)
+    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/llms-full.txt", "/llms.txt", "/sitemap.md"])
+    expect(handlers.some(handler => handler.handler === join(projectRoot, ".vitehub/content/markdown.mjs"))).toBe(true)
+    await access(plugin)
+    await access(llms)
+    await rm(entry)
+    await prepareSourceGeneration({ projectRoot })
+    await expect(access(plugin)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(access(llms)).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it("adds no GitHub push webhook route without a github() Source", async () => {
   const generated = await generatedRoutes({
     "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,

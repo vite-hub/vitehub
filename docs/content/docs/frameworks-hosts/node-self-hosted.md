@@ -251,16 +251,63 @@ host address as `ip`. Behind a trusted proxy, configure
 [`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
 Do not import a generated Nitro route.
 
+## Durability and instances
+
+When the server starts, it prints one line for each enabled primitive. The
+line shows the store and where its state lives.
+
+```txt [Terminal]
+[vitehub] Durability (1 instance. Set VITEHUB_INSTANCES when you run more):
+  kv          fs-lite  host     Files in .vitehub/data/kv on this host.
+  rate-limit  memory   process  Counters live in the memory of this process. Each instance counts on its own.
+```
+
+| Scope | Meaning |
+| --- | --- |
+| `shared` | All instances read and write the same store, such as Postgres or Upstash Redis. |
+| `host` | Files on this host. They survive a restart, but another host or container does not see them. |
+| `process` | Memory of this process. A restart loses it, and other processes do not see it. |
+
+Each primitive reports the driver that it uses in this server, so a driver
+that an environment variable or the Default Database selects at boot shows
+correctly. Agent state, the Agent Invocation journal, and Workspace files
+report too. Run
+`vitehub durability list` to read the same report from the dev server. It is
+the `durability.list` [operation](/docs/development/operations). On a
+deployment, `--url` works when the app enables the Console, with credentials
+for the `durability` section. Server code can read the report with
+`getDurabilityReport()` from `vite-hub/runtime/durability`.
+
+Tell the server how many instances run this build. Set `VITEHUB_INSTANCES`
+where you start the server, or set `node.instances` in `vitehub()`.
+`VITEHUB_INSTANCES` wins. The default is 1.
+
+```bash [Terminal]
+VITEHUB_INSTANCES=3 node .output/server/index.mjs
+```
+
+When the count is greater than 1 and a primitive is `host` or `process`
+scoped, the server does not start. The error (`RUNTIME_R0017`) lists each
+primitive and how to make it shared. For example, the default `fs-lite` KV store
+fails with 3 instances. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` at build
+time to use Upstash Redis.
+
 ## Production notes
 
 Local files and memory belong to one process on one host. Replicas do not
 share them. Use a persistent volume for `dataDir`, or remote stores when you
-run more than one process.
+run more than one process. Set `VITEHUB_INSTANCES` so the server checks this
+at boot.
 The [table above](#defaults-on-the-node-preset) shows which features have a
 remote store today.
 
-Keep runtime secrets in [Server Env](/docs/env). Check the deployed app by
-starting the built server, not only by typechecking.
+The Schedule Process Runtime runs each occurrence on one server when the app has
+a Postgres or remote libSQL Default Database. The servers claim each occurrence in the
+`vitehub_leases` table. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server).
+
+Keep runtime secrets in [Server Env](/docs/env). Verify the
+deployed application by starting the built server, not only by typechecking
+package code.
 
 ## Next steps
 

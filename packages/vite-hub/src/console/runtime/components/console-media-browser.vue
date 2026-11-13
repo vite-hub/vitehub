@@ -60,6 +60,8 @@ const emit = defineEmits<{
   info: [info: { access: ConsoleMediaAccess, served: string | null, store: string }];
   /** Open the details of a file, on the Media page. */
   open: [file: ConsoleMediaFile | undefined];
+  /** A double click on a file of a page. */
+  activate: [file: ConsoleMediaFile];
   /** Files changed: uploaded, moved, or deleted. */
   changed: [];
 }>();
@@ -242,6 +244,11 @@ function click(file: ConsoleMediaFile, event: MouseEvent): void {
 }
 
 function activate(file: ConsoleMediaFile): void {
+  // On a page, a double click opens the file itself. A single click shows its details.
+  if (props.mode === "page") {
+    emit("activate", file);
+    return;
+  }
   if (props.mode !== "picker" || !pickable(file)) return;
   if (!selectedSet.value.has(file.pathname)) {
     if (props.multiple) selected.value = [...selected.value, file.pathname];

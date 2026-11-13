@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
+import { Response as ForeignResponse } from "@whatwg-node/node-fetch"
 
 import { hostReadableStream, isResponse } from "../src/internal/response.ts"
 

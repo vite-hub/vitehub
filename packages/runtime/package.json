@@ -32,6 +32,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./h3": {
       "types": "./dist/h3.d.ts",
       "import": "./dist/h3.js",
