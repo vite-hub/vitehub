@@ -22,7 +22,7 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/kit", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
@@ -634,6 +634,7 @@ async function addOptionalPeers(appDir: string) {
     "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
     "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
     "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
+    "@nuxt/kit": await installedVersion(join(repoRoot, "packages/kit/node_modules/@nuxt/kit/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
     ...Object.fromEntries(markdownEditorTiptapPeers.map(name => [name, tiptapVersion])),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),

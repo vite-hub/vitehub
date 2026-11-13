@@ -42,6 +42,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/env` | Env Declarations, Public, Server, and Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/bridge`, `@vite-hub/env/database`, `@vite-hub/env/seal` |
 | `@vite-hub/gateways` | [AI Gateways](/docs/gateways): Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` and its question builders for TypeSafe Jev. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
 | `@vite-hub/i18n` | [i18n](/docs/i18n): messages in the source language with no keys, PO catalogs, message IDs at build time, and one locale for each request on Nitro 3 | `@vite-hub/i18n`, `@vite-hub/i18n/vue`, `@vite-hub/i18n/vite`, `@vite-hub/i18n/nuxt` |
+| `@vite-hub/kit` | Headless Vue parts from [ui-sdk](https://ui-sdk.dev), one entry for each part, and a Nuxt module that auto-imports them. Installs only `@ui-sdk/vue` and `@ui-sdk/core`. | `@vite-hub/kit/<name>`, such as `@vite-hub/kit/dialog`, and `@vite-hub/kit/nuxt` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/mcp` | [MCP server](/docs/mcp): app MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |

@@ -273,3 +273,7 @@ patchedDependencies:
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch
+# @vite-hub/kit pins ui-sdk 0.1.0-beta.2, published on 2026-11-13. Remove these after 2026-11-14T13:05Z, when the release age passes.
+minimumReleaseAgeExclude:
+  - "@ui-sdk/core@0.1.0-beta.2"
+  - "@ui-sdk/vue@0.1.0-beta.2"
