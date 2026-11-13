@@ -88,6 +88,21 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 token. Content serves a `github()` Source from a validated head commit only when
 it does.
 
+`history(key, { sha, page, perPage })` lists the commits that changed one file,
+newest first, from the commit `sha` back. It reads GitHub's commits endpoint with
+`path`, so it does not follow renames. Each commit has `sha`, `date`, `author`,
+the first line of `message`, and `url`. `content.history()` uses it.
+
+`latest(keys, { sha })` returns the latest commit of many files at once, as a
+`Map` from key to commit. It sends one GitHub GraphQL request per 150 files, 4
+at a time, so 2,600 files cost 18 requests. When GitHub stops a request after 10
+seconds (502), it asks again with half the files. `changes(base, head)` returns
+the keys that a commit from one commit to a later one changed, with a file that
+one commit edits and a later one reverts. It sends one compare request, plus one
+commit request per commit when there is more than one. It returns undefined when
+GitHub cannot list them all or more than 20 commits lie between them. The Content sitemap and RSS feed
+use both to date Source pages.
+
 `resolveRef()` returns the commit that a ref of the repository points to now:
 `{ sha }` for `{ sha }` or `{ branch }`, and `{ sha, pull }` for `{ pull: 12 }`.
 `pull` has the state, the head and base branches, `fork`, and the label names. A

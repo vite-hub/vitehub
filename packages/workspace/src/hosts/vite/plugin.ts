@@ -278,7 +278,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
       env: options.env || process.env,
-      hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
+      hosting: options.hosting ?? process.env.VITEHUB_HOST,
       rootDir: workspace.rootDir || rootDir,
     })
     if (config && isHostedWorkspaceStore(config.store)) options.storeUsage?.add(config.store.provider)

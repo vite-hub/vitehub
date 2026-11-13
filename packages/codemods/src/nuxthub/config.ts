@@ -1,12 +1,12 @@
 import { end, findProperty, indentAt, keyName, line, quoteString, start } from "@vite-hub/internal/ast"
 
-import { addViteHubOptions, ConfigEditor, createLineResolver, planPreset, useViteHubModule } from "../shared/config-editor.ts"
+import { addViteHubOptions, ConfigEditor, createLineResolver, planHost, useViteHubModule } from "../shared/config-editor.ts"
 import { findModuleEntry, literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { CodemodError } from "../types.ts"
 
 import type { ObjectExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
-import type { DefaultPreset } from "../shared/config-editor.ts"
+import type { DefaultHost } from "../shared/config-editor.ts"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { FollowUp } from "../types.ts"
 import type { CloudflareResourceOptions } from "./wrangler.ts"
@@ -43,7 +43,7 @@ const featureKeys = ["kv", "blob", "cache"] as const
 
 const droppedKeys: Record<string, string> = {
   dir: "hub.dir set the local data folder. ViteHub keeps local data in .vitehub/data/. Set dataDir under vitehub to keep another folder.",
-  hosting: "hub.hosting chose the host. ViteHub reads vitehub.preset instead.",
+  hosting: "hub.hosting chose the host. ViteHub reads vitehub.host instead.",
 }
 
 function optionText(config: NuxtConfigFile, node: Node): string {
@@ -108,7 +108,7 @@ export function readHub(config: NuxtConfigFile): HubPlan {
         }
       }
       if (literal !== true) {
-        notes.push({ path: [feature], message: `hub.${feature} was ${optionText(config, property.value)}. The codemod set ${feature}: true, which uses the default driver of the preset. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "getting-started/migrate-from-nuxthub#keep-the-cache" : feature}.` })
+        notes.push({ path: [feature], message: `hub.${feature} was ${optionText(config, property.value)}. The codemod set ${feature}: true, which uses the default driver of the host. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "getting-started/migrate-from-nuxthub#keep-the-cache" : feature}.` })
       }
       continue
     }
@@ -117,14 +117,14 @@ export function readHub(config: NuxtConfigFile): HubPlan {
   return { features, notes, bindings }
 }
 
-/** Chooses the deployment preset: nitro.preset, then a Wrangler config, then Node. */
-function choosePreset(config: NuxtConfigFile, wranglerFile: string | undefined): { add?: string, note?: string, preset?: string } {
-  return planPreset(config, wranglerFile ? { preset: "cloudflare" } : undefined)
+/** Chooses the deployment host: nitro.preset, then a Wrangler config, then Node. */
+function chooseHost(config: NuxtConfigFile, wranglerFile: string | undefined): { add?: string, note?: string, host?: string } {
+  return planHost(config, wranglerFile ? { host: "cloudflare" } : undefined)
 }
 
 export interface ConfigEditResult {
   code: string
-  preset?: string
+  host?: string
   followUps: FollowUp[]
   /** The Cloudflare resources that the new options keep. */
   written: CloudflareResourceOptions
@@ -141,14 +141,14 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
   const rootEntries = useViteHubModule(editor, config, moduleName)
   const hubProperty = findProperty(config.root, "hub")
   const { features } = plan
-  const presetChoice = choosePreset(config, wranglerFile)
+  const hostChoice = chooseHost(config, wranglerFile)
   // On Cloudflare, keep the namespaces and the bucket that the Wrangler config names. The IDs are not secrets.
   const written: CloudflareResourceOptions = {}
   const options: Array<[string, string]> = []
   if (features.database) options.push(["database", "true"])
   for (const feature of featureKeys) {
     if (!features[feature]) continue
-    const resource = presetChoice.preset === "cloudflare" ? resources[feature] : undefined
+    const resource = hostChoice.host === "cloudflare" ? resources[feature] : undefined
     if (resource) written[feature] = resource
     options.push([feature, resource ? `{ ${Object.entries(resource).map(([key, value]) => `${key}: ${quoteString(value, style)}`).join(", ")} }` : "true"])
   }
@@ -158,14 +158,14 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
   const hub = hubProperty ? unwrapExpression(hubProperty.value) : undefined
   if (hubProperty && hub?.type === "ObjectExpression" && !existingViteHub) {
     // Rename hub to vitehub in place, so the options keep their place in the file.
-    const entries = [...(presetChoice.add ? [["preset", quoteString(presetChoice.add, style)]] : []), ...options]
+    const entries = [...(hostChoice.add ? [["host", quoteString(hostChoice.add, style)]] : []), ...options]
     const outer = indentAt(config.code, start(hubProperty))
     const inner = hub.properties[0] && config.code.slice(start(hub), start(hub.properties[0])).includes("\n") ? indentAt(config.code, start(hub.properties[0])) : `${outer}${style.indent}`
     const last = hub.properties.at(-1)
     const trailingComma = last ? /^\s*,/.test(config.code.slice(end(last), end(hub) - 1)) : true
     const body = entries.map(([key, value], index) => `${inner}${key}: ${value}${index < entries.length - 1 || trailingComma ? "," : ""}`).join("\n")
     editor.output.overwrite(start(hubProperty), end(hubProperty), entries.length ? `vitehub: {\n${body}\n${outer}}` : "vitehub: {}")
-    if (presetChoice.note) followUps.push({ path: ["preset"], message: presetChoice.note })
+    if (hostChoice.note) followUps.push({ path: ["host"], message: hostChoice.note })
     if (rootEntries.length) editor.insertProperties(config.root, rootEntries, new Set())
   }
   else {
@@ -174,20 +174,20 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
       editor.removeItem(hubProperty)
       removed.add(hubProperty)
     }
-    const defaultPreset: DefaultPreset | undefined = presetChoice.add ? { preset: presetChoice.add, note: presetChoice.note } : undefined
+    const defaultHost: DefaultHost | undefined = hostChoice.add ? { host: hostChoice.add, note: hostChoice.note } : undefined
     const result = addViteHubOptions(editor, config, {
       options: options.map(([key, value]) => ({ key, value: () => value, label: `the ${key} option` })),
       rootEntries,
       removedRootProperties: removed,
-      defaultPreset,
+      defaultHost,
     })
-    if (result.presetNote) followUps.push({ path: ["preset"], message: result.presetNote })
+    if (result.hostNote) followUps.push({ path: ["host"], message: result.hostNote })
   }
   const code = editor.output.toString()
   const lineOf = createLineResolver(code)
   return {
     code,
-    preset: presetChoice.preset,
+    host: hostChoice.host,
     written,
     followUps: followUps.map(note => ({ file: config.fileName, line: lineOf(["vitehub", ...note.path]) ?? (hubProperty ? line(hubProperty) : undefined), message: note.message })),
   }

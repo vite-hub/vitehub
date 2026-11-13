@@ -24,7 +24,7 @@ export const diagnosticSections: Record<string, string> = {
   "internal": "development",
   "kv": "kv",
   "markdown-template": "agents",
-  "mcp": "development",
+  "mcp": "mcp",
   "presets": "agents",
   "queue": "queue",
   "rate-limit": "rate-limit",

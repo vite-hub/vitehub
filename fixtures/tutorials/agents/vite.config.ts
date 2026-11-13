@@ -6,7 +6,7 @@ export default defineConfig({
   // Nitro scans server/ for api routes only when serverDir is set.
   nitro: { serverDir: "server" },
   plugins: [vitehub({
-    preset: "node",
+    host: "node",
     agent: true,
     blob: false,
     env: false,

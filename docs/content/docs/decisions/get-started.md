@@ -193,7 +193,7 @@ In Vite, add the Vue plugin. Nuxt includes Vue:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: "node" },
+  vitehub: { host: "node" },
 })
 ```
 ::::
@@ -206,7 +206,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vue(), vitehub({ preset: "node" }), nitro()],
+  plugins: [vue(), vitehub({ host: "node" }), nitro()],
 })
 ```
 ::::
@@ -218,7 +218,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vue(), vitehub({ preset: "node" })],
+  plugins: [vue(), vitehub({ host: "node" })],
 })
 ```
 ::::

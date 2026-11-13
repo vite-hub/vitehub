@@ -50,7 +50,7 @@ const cloudflare = {
 }
 
 async function cloudflareProject(files: Record<string, string> = {}): Promise<string> {
-  return await createProject({ ".gitignore": "node_modules\n", "package.json": JSON.stringify({ name: "@acme/My App", type: "module" }), "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`), ...files })
+  return await createProject({ ".gitignore": "node_modules\n", "package.json": JSON.stringify({ name: "@acme/My App", type: "module" }), "vite.config.ts": viteConfig(`{ host: "cloudflare" }`), ...files })
 }
 
 async function readLink(root: string): Promise<SetupLink> {
@@ -74,7 +74,7 @@ function wranglerLogin(accounts: readonly { id: string, name: string }[]): { run
 
 describe("vitehub link", () => {
   it("links an existing Cloudflare Worker and writes no secret", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "My App" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "My App" }`) })
     const api = hostApi({ [cloudflare.worker]: { fixture: "cloudflare-worker.json" } })
 
     const { exitCode, json, loadConfig, stderr, stdout } = await runSetup<SetupLinkResult>(["link", "--json"], root, { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
@@ -115,7 +115,7 @@ describe("vitehub link", () => {
   })
 
   it("asks for the account when the Cloudflare token has more than one", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({ [cloudflare.accounts]: { fixture: "cloudflare-accounts-two.json" } })
 
     const { exitCode, json } = await runSetup<{ error: SetupError, missing: SetupMissing[], rerun: string }>(["link", "--json"], root, { CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
@@ -133,7 +133,7 @@ describe("vitehub link", () => {
   })
 
   it("names the one account that the token lists", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({ [cloudflare.accounts]: { fixture: "cloudflare-accounts-one.json" }, [cloudflare.worker]: { fixture: "cloudflare-worker.json" } })
 
     const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, { CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
@@ -143,7 +143,7 @@ describe("vitehub link", () => {
   })
 
   it("creates a Worker in the env token's account when Wrangler uses another account", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({
       [cloudflare.accounts]: { fixture: "cloudflare-accounts-one.json" },
       [cloudflare.create]: { fixture: "cloudflare-worker-created.json" },
@@ -161,7 +161,7 @@ describe("vitehub link", () => {
   })
 
   it("exits 3 for a missing project and creates it with --create", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const env = { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }
     const missing = hostApi({ [cloudflare.worker]: { fixture: "cloudflare-not-found.json", status: 404 } })
 
@@ -179,7 +179,7 @@ describe("vitehub link", () => {
   })
 
   it("links and creates a Vercel project in the team", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "vercel", name: "my-app" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "vercel", name: "my-app" }`) })
     const env = { VERCEL_TEAM_ID: "team_a1b2c3d4e5f6g7h8i9j0", VERCEL_TOKEN: TOKEN }
     const found = hostApi({ "GET https://api.vercel.com/v9/projects/my-app": { fixture: "vercel-project.json" } })
 
@@ -202,7 +202,7 @@ describe("vitehub link", () => {
   })
 
   it("links a Netlify site by its exact name", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "netlify", name: "my-app" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "netlify", name: "my-app" }`) })
     const api = hostApi({ "GET https://api.netlify.com/api/v1/sites": { fixture: "netlify-sites.json" } })
 
     const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, { NETLIFY_AUTH_TOKEN: TOKEN }, { fetch: api.fetch })
@@ -222,7 +222,7 @@ describe("vitehub link", () => {
   })
 
   it.each([undefined, "demo-team"])("finds an exact Netlify match on a later page (account: %s)", async (account) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "netlify", name: "my-app" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "netlify", name: "my-app" }`) })
     const requests: URL[] = []
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = new URL(String(input))
@@ -243,7 +243,7 @@ describe("vitehub link", () => {
   })
 
   it("exhausts Netlify pages before creating a missing site", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "netlify", name: "my-new-app" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "netlify", name: "my-new-app" }`) })
     const requests: string[] = []
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = new URL(String(input))
@@ -261,7 +261,7 @@ describe("vitehub link", () => {
   })
 
   it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno", name: "my-app" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`) })
 
     const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, env)
 
@@ -287,7 +287,7 @@ describe("vitehub link", () => {
     expect(nodeRun.exitCode).toBe(3)
     expect(nodeRun.json.error.code).toBe("SETUP_LINK_HOST_UNSUPPORTED")
 
-    const dynamic = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: process.env.APP }`) })
+    const dynamic = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare", name: process.env.APP }`) })
     const dynamicRun = await runSetup<{ error: SetupError, rerun: string }>(["link", "--json"], dynamic, { CLOUDFLARE_API_TOKEN: TOKEN })
     expect(dynamicRun.exitCode).toBe(2)
     expect(dynamicRun.json).toMatchObject({ error: { code: "SETUP_LINK_NAME_REQUIRED" }, rerun: "vitehub link --project <name>" })
@@ -298,7 +298,7 @@ describe("vitehub link", () => {
   })
 
   it("never prints the token, also when the host API fails", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({ [cloudflare.worker]: { fixture: "cloudflare-not-found.json", status: 403 } })
 
     const json = await runSetup(["link", "--json"], root, { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
@@ -311,7 +311,7 @@ describe("vitehub link", () => {
   })
 
   it("keeps a .gitignore that already ignores .vitehub", async () => {
-    const root = await cloudflareProject({ ".gitignore": "dist\n/.vitehub/\n", "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ ".gitignore": "dist\n/.vitehub/\n", "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({ [cloudflare.worker]: { fixture: "cloudflare-worker.json" } })
 
     const { json } = await runSetup<SetupLinkResult>(["link", "--json"], root, { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
@@ -323,7 +323,7 @@ describe("vitehub link", () => {
 
 describe("vitehub unlink", () => {
   it("removes the link file and is safe to run twice", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({ [cloudflare.worker]: { fixture: "cloudflare-worker.json" } })
     await runSetup(["link", "--json"], root, { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
     expect(await readLink(root)).toMatchObject({ host: "cloudflare" })
@@ -338,7 +338,7 @@ describe("vitehub unlink", () => {
 
 describe("vitehub status with a link", () => {
   it("shows the link and the credential source, never the token", async () => {
-    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const env = { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }
 
     const before = await runSetup<SetupStatus & SetupLinkStatus>(["status", "--json"], root, env)
@@ -367,7 +367,7 @@ describe("vitehub status with a link", () => {
     const node = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ kv: true }") })
     expect((await runSetup<SetupLinkStatus>(["status", "--json"], node)).json).toMatchObject({ credentials: null, link: null })
 
-    const vercel = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "vercel" }`) })
+    const vercel = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "vercel" }`) })
     expect((await runSetup<SetupLinkStatus>(["status", "--json"], vercel)).json.credentials).toMatchObject({ host: "vercel", missing: ["VERCEL_TOKEN"], ok: false })
   })
 })

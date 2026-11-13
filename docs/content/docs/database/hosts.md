@@ -236,7 +236,7 @@ Put D1 bindings, hosted libSQL URLs, and Nuxt host resources in Database config 
 
 Run `vitehub inspect definitions --kind database` to list the Definitions that ViteHub found.
 
-A Vite app with the Nitro Vite plugin and a Cloudflare preset gets each Definition's `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`, so you do not repeat it in Nitro config. The Definition's binding replaces one with the same name there. Other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied next to the generated Wrangler config.
+A Vite app with the Nitro Vite plugin and a Cloudflare host gets each Definition's `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`, so you do not repeat it in Nitro config. The Definition's binding replaces one with the same name there. Other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied next to the generated Wrangler config.
 
 Cloudflare Nuxt output also copies D1 migration SQL next to the Wrangler config, so `.output/server` can apply migrations without the sources.
 
@@ -256,7 +256,7 @@ The simplest setup removes the binding from the project file.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: {
       driver: 'd1',
       databaseName: 'app-content',
@@ -275,7 +275,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: {
         driver: 'd1',
         databaseName: 'app-content',
@@ -295,7 +295,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: {
         driver: 'd1',
         databaseName: 'app-content',

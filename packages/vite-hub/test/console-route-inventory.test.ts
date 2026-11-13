@@ -53,7 +53,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       console: consoleOptions,
       database: true,
       kv: true,
-      preset: "node",
+      host: "node",
       schedule: { providerOutput: false },
       workflow: true,
     }),

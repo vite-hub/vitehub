@@ -67,7 +67,7 @@ Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, T
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+  vitehub: { host: 'node', agent: { channels: { simulate: true } } },
 })
 ```
 :::
@@ -79,7 +79,7 @@ import { vitehub } from 'vite-hub'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } }), nitro()],
 })
 ```
 :::
@@ -90,7 +90,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } })],
 })
 ```
 :::
@@ -332,7 +332,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -352,7 +352,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -371,7 +371,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -931,7 +931,7 @@ export default defineAgent({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 :::
@@ -944,7 +944,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
     nitro(),
   ],
 })
@@ -958,7 +958,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
   ],
 })
 ```

@@ -6,12 +6,12 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-cloudflare
 ---
 
-The `cloudflare` preset deploys your app as a Cloudflare Worker. A production
+The `cloudflare` host deploys your app as a Cloudflare Worker. A production
 build writes the Worker and its `wrangler.json`, with the bindings your
 features need, under `.output/server`. Definitions and Runtime Helpers stay
 host-neutral. Cloudflare details stay in the config and generated output.
 
-| Feature | Default on the `cloudflare` preset |
+| Feature | Default on the `cloudflare` host |
 | --- | --- |
 | Blob | R2 bucket named after the app |
 | KV | Workers KV binding `KV` |
@@ -21,7 +21,7 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Sandbox | Cloudflare Sandbox |
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
-| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this preset. |
+| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
 
 The app name comes from `vitehub({ name })`, then `WRANGLER_CI_OVERRIDE_NAME`
 in Workers Builds, then the `package.json` name. It is also the Worker name
@@ -37,9 +37,9 @@ unless `nitro.cloudflare.wrangler.name` is set.
 | Runtime context | Runtime Host Context from the host integration, not global app state. |
 | Agent state | Agent state provider configuration when you select Cloudflare state. |
 
-## Configure the preset
+## Configure the host
 
-Select the `cloudflare` preset and turn on the features you use.
+Select the `cloudflare` host and turn on the features you use.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -47,7 +47,7 @@ Select the `cloudflare` preset and turn on the features you use.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: true,
     queue: true,
   },
@@ -64,7 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: true,
       queue: true,
     }),
@@ -82,7 +82,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: true,
       queue: true,
     }),
@@ -125,7 +125,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 `.output/server` can hold Worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package runtime imports.
 
-In Nuxt, the preset turns on Nitro's `cloudflare.deployConfig` by default, so a
+In Nuxt, the host turns on Nitro's `cloudflare.deployConfig` by default, so a
 local production build writes `.output/server/wrangler.json`.
 `nitro.cloudflare.deployConfig: false` turns that file off.
 
@@ -192,7 +192,7 @@ A new Worker has no secrets yet, so `wrangler secret put` cannot set the values 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     cloudflare: { secretsFile: '.env' },
   },
 })
@@ -208,7 +208,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       cloudflare: { secretsFile: '.env' },
     }),
     nitro(),
@@ -225,7 +225,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       cloudflare: { secretsFile: '.env' },
     }),
   ],
@@ -248,7 +248,7 @@ Do not build with a local secrets file and deploy that `.output` from another ma
 
 ### Rate Limiting bindings
 
-With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
+With `vitehub({ host: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
 To use the Rate Limit integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider, and Nitro writes the bindings to `wrangler.json`.
 
@@ -282,7 +282,7 @@ Workspace adds an Artifacts binding when its Store selects Cloudflare Artifacts:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     workspace: {
       store: {
         provider: 'cloudflare-artifacts',
@@ -304,7 +304,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -327,7 +327,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -354,7 +354,7 @@ Register the Browser integration when trusted server code needs Browser Run sess
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: true,
   },
 })
@@ -370,7 +370,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: true,
     }),
     nitro(),
@@ -387,7 +387,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: true,
     }),
   ],

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PlaygroundContainer, type PlaygroundContainerTemplate, type PlaygroundContext } from "@vite-hub/ui/playground-container";
+import { PlaygroundContainer, type PlaygroundContainerTemplate, type PlaygroundContext } from "@vite-hub/ui/workspace";
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import { parseCurl, requestScript } from "~/utils/runnable-tutorial";

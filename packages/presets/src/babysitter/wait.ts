@@ -7,6 +7,7 @@ import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "../github/index.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -117,7 +118,7 @@ function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
   const signals = new Map<string, GitHubEvidence>();
   for (const check of Object.values(s.checks)) {
     // Suites and workflow runs have no producing app; check runs do.
-    if (!head || check.head_sha !== head || check.deleted || !check.name || !check.app) continue;
+    if (!head || check.head_sha !== head || check.deleted || !check.name || !check.app || isBabysitterCheckRun(check)) continue;
     signals.set(`check:${String(check.id)}`, check);
   }
   for (const status of Object.values(s.statuses)) {
@@ -221,17 +222,28 @@ export const humanFeedbackExemption = "human-feedback";
 /**
  * The exemption that lets a pass run after the PR spent its daily pass budget, or undefined. A
  * person's feedback that no pass saw yet, a merge conflict on a PR without failing checks or open
- * threads (once per head and base), and the first failing required check on a head are exempt.
+ * threads (once per head and base), any other merge conflict (once per head), the first failing
+ * required check on a head, one pass per open push window on a failing head, and one assessment of a
+ * head whose required checks pass are exempt. `openPushWindow` is the time of the PR's last repair
+ * push while `dailyPushBudget` lets it push again, so a pass that does not push gets no second one.
  */
-export function dailyPassExemption(s: Snapshot, requiredChecks: GitHubRequiredCheckState, budget: DailyPassBudget | undefined): string | undefined {
+export function dailyPassExemption(s: Snapshot, requiredChecks: GitHubRequiredCheckState, budget: DailyPassBudget | undefined, openPushWindow?: number): string | undefined {
   if ((s.humanFeedbackGeneration ?? 0) > (budget?.human ?? 0)) return humanFeedbackExemption;
   const head = s.pr?.head?.sha;
   if (!head) return undefined;
   const used = new Set(budget?.exemptions ?? []);
   const conflict = `conflict:${head}:${s.pr?.base?.sha ?? ""}`;
   if (conflicted(s) && requiredChecks !== "failed" && !failureKeys(s).length && s.threads.every(thread => thread.isResolved === true) && !used.has(conflict)) return conflict;
+  // A conflict cannot clear without a pass, whatever else fails.
+  const anyConflict = `conflict:${head}`;
+  if (conflicted(s) && !used.has(anyConflict) && !used.has(conflict)) return anyConflict;
   const failure = `required-failure:${head}`;
-  return requiredChecks === "failed" && !used.has(failure) ? failure : undefined;
+  if (requiredChecks === "failed" && !used.has(failure)) return failure;
+  const ciRepair = `ci-repair:${head}:${openPushWindow}`;
+  if (requiredChecks === "failed" && openPushWindow !== undefined && !used.has(ciRepair)) return ciRepair;
+  // A green head needs one assessment pass to merge past a failing optional check.
+  const assessment = `assessment:${head}`;
+  return requiredChecks === "passed" && !conflicted(s) && !used.has(assessment) ? assessment : undefined;
 }
 
 /** The wait that a pass parks on: feedback the model saw and failures it already knew. */
@@ -294,7 +306,7 @@ export function checksDependencyEvidence(checks: Page<Check>): string {
   const records = (type: Check["ref"]["type"]) => checks.items.filter(check => check.ref.type === type).map(check => {
     if (!isRuntimeRecord(check.raw)) throw new Error("Invalid dependency check evidence.");
     return check.raw;
-  });
+  }).filter(check => !isBabysitterCheckRun(check));
   return hash({
     checks: records("check_run").map(check => JSON.stringify([check.id, check.status, check.conclusion])).sort(),
     statuses: records("status").map(status => JSON.stringify([status.id, status.context, status.state])).sort(),

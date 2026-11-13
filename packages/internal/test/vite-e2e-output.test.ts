@@ -169,7 +169,7 @@ describe("unified vite e2e hosted outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-provision-")
     const env = readLiveSmokeStepEnv("Provision Cloudflare resources")
 
-    expect(env.VITEHUB_HOSTING).toBe("cloudflare")
+    expect(env.VITEHUB_HOST).toBe("cloudflare")
     expect(env.VITEHUB_VITE_MODE).toBe("e2e")
 
     await withEnv(env, async () => {
@@ -198,7 +198,7 @@ describe("unified vite e2e hosted outputs", () => {
         VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
         VITEHUB_D1_DATABASE_ID: "primary-d1-id",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOSTING: "cloudflare",
+        VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
       maxBuffer: execMaxBuffer,
@@ -275,7 +275,7 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOSTING: "cloudflare",
+        VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
       maxBuffer: execMaxBuffer,
@@ -305,7 +305,7 @@ describe("unified vite e2e hosted outputs", () => {
       VITEHUB_CLOUDFLARE_WORKFLOW_NAME: `${prefix}-welcome`,
       VITEHUB_D1_ANALYTICS_DATABASE_NAME: `${prefix}-analytics`,
       VITEHUB_D1_DATABASE_NAME: `${prefix}-db`,
-      VITEHUB_HOSTING: "cloudflare",
+      VITEHUB_HOST: "cloudflare",
       VITEHUB_KV_NAMESPACE_NAME: `${prefix}-kv`,
       VITEHUB_QUEUE_NAME_PREFIX: `${prefix}-`,
       VITEHUB_VITE_MODE: "e2e",
@@ -362,7 +362,7 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_AUTH_TOKEN: "token",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-        VITEHUB_HOSTING: "vercel",
+        VITEHUB_HOST: "vercel",
         VITEHUB_VITE_MODE: "e2e",
         VITE_SANDBOX_PROJECT_ID: "project-id",
         VITE_SANDBOX_TEAM_ID: "team-id",
@@ -449,7 +449,7 @@ describe("unified vite e2e hosted outputs", () => {
       cwd: rootDir,
       env: {
         ...process.env,
-        VITEHUB_HOSTING: "netlify",
+        VITEHUB_HOST: "netlify",
         VITEHUB_VITE_MODE: "chat",
       },
       maxBuffer: execMaxBuffer,
