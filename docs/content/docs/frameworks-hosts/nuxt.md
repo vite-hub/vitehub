@@ -31,8 +31,21 @@ export default defineNuxtConfig({
 })
 ```
 
-It also reads the top-level `vitehub` key in `nuxt.config.ts`. Inline module
-options win.
+It also reads the top-level `vitehub` key in `nuxt.config.ts`, from the app
+and from each layer. ViteHub merges the two forms one option at a time. Where
+both set the same option, the inline value wins. An array replaces the other
+array. `true` turns a feature on and keeps the options that the other form
+sets:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: [
+    ["vite-hub/nuxt", { host: "node", kv: true }],
+  ],
+  // KV uses Redis: `kv: true` does not remove these options.
+  vitehub: { kv: { driver: "redis" } },
+})
+```
 
 ## Build the application
 

@@ -889,6 +889,30 @@ function assertSupportedNuxt(version: string | undefined): void {
   })
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+/**
+ * Merges the inline options of a `modules` entry into the `vitehub` key of nuxt.config.ts, one leaf at a time. The
+ * inline value wins where both set the same leaf, as in `defineNuxtModule`. Arrays and other values are replaced, not
+ * concatenated. `true` turns a feature on with its defaults, so it keeps the options object that the other form gives.
+ */
+function mergeNuxtModuleOptions(inline: unknown, config: unknown): Record<string, unknown> {
+  const merged: Record<string, unknown> = isPlainObject(config) ? { ...config } : {}
+  if (!isPlainObject(inline)) return merged
+  for (const [key, value] of Object.entries(inline)) {
+    if (value === undefined) continue
+    const current = merged[key]
+    if (isPlainObject(value) && isPlainObject(current)) merged[key] = mergeNuxtModuleOptions(value, current)
+    else if (value === true && isPlainObject(current)) continue
+    else merged[key] = value
+  }
+  return merged
+}
+
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
   if (!nuxtInstance) return
   // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
@@ -903,10 +927,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   await installViteHubUIRuntime(nuxt)
 
-  const configuredModuleOptions = {
-    ...nuxt.options.vitehub,
-    ...inlineOptions,
-  } as ViteHubNuxtOptions
+  const configuredModuleOptions = mergeNuxtModuleOptions(inlineOptions, nuxt.options.vitehub) as ViteHubNuxtOptions
   assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
   const moduleOptions = { ...configuredModuleOptions, host: configuredModuleOptions.host ?? detectHost() ?? "node" }
   const rootDir = nuxt.options.rootDir || process.cwd()

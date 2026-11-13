@@ -4346,6 +4346,36 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
   })
 
+  it("merges inline module options into the vitehub key per leaf", async () => {
+    const { nuxt } = createNuxt()
+    // A layer or the app sets the vitehub key, and a modules tuple sets inline options.
+    Object.assign(nuxt.options, {
+      vitehub: {
+        kv: { driver: "redis", url: "env:REDIS_URL" },
+        queue: { namePrefix: "app" },
+        cache: true,
+        realtime: true,
+        i18n: { locales: ["en", "es"], workspace: "translations" },
+      },
+    })
+    await viteHubNuxtModule({
+      env: false,
+      host: "node",
+      kv: true,
+      queue: false,
+      cache: { driver: "fs-lite", base: "cache" },
+      i18n: { locales: ["en", "fr"] },
+    }, nuxt)
+
+    expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({
+      kv: { driver: "redis", url: "env:REDIS_URL" },
+      queue: false,
+      cache: { driver: "fs-lite", base: "cache" },
+      realtime: true,
+      i18n: { locales: ["en", "fr"], workspace: "translations" },
+    })
+  })
+
   it("reads feature switches from the Nuxt module options", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { vitehub: { kv: {}, rateLimit: {} } })
