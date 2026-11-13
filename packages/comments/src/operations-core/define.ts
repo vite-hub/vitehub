@@ -201,7 +201,27 @@ export interface CommentsPolicyGate {
    * Operations endpoint, the CLI, and the Console MCP tools. The overlay API never sets it.
    */
   console?: boolean
+  /**
+   * The person holds a page pass that the Console made: a member of the Console team, or a guest that a member
+   * invited, with the grants they picked, such as `comments.write`. The grants decide on their own; `authorize` does
+   * not run. See `passAllows()`.
+   */
+  pass?: { grants: readonly string[] }
 }
+
+/** Whether the grants of a page pass allow an action: `comments.<action>`, and `read` with any other Comments grant. */
+export function passAllows(grants: readonly string[], action: CommentAction): boolean {
+  if (grants.includes(`comments.${action}`)) return true
+  return action === "read" && grants.some(grant => grant === "comments.write" || grant === "comments.resolve" || grant === "comments.delete")
+}
+
+/** The grants that Comments declares for page passes. The Console offers them when someone invites a guest. */
+export const commentsPassGrants: readonly { id: string, label: string, description: string }[] = [
+  { id: "comments.read", label: "Read comments", description: "See the comments on every page." },
+  { id: "comments.write", label: "Write comments", description: "Start threads and reply." },
+  { id: "comments.resolve", label: "Resolve threads", description: "Resolve and reopen threads." },
+  { id: "comments.delete", label: "Delete comments", description: "Delete threads and messages." },
+]
 
 /**
  * The policy without `authorize`, for every action. On the development server, everyone may, anonymous people as

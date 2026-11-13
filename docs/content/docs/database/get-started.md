@@ -108,7 +108,7 @@ Create `server/api/notes.post.ts`. This file is the route `POST /api/notes`. It 
 
 ```ts [server/api/notes.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ title?: unknown }>(event)
@@ -135,7 +135,7 @@ Create `server/api/notes.get.ts`. This route reads all notes, in ID order.
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')

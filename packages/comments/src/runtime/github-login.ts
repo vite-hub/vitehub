@@ -51,7 +51,7 @@ function serverEnv(name: string): string | undefined {
  * production.
  */
 function sessionSecret(): string | undefined {
-  const root = readViteHubSecret({ VITEHUB_SECRET: serverEnv("VITEHUB_SECRET"), NUXT_APP_SECRET: serverEnv("NUXT_APP_SECRET") })
+  const root = readViteHubSecret({ VITEHUB_SECRET: serverEnv("VITEHUB_SECRET") })
   if (!root) return
   if (root.length < viteHubSecretMinimumLength) {
     throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`)

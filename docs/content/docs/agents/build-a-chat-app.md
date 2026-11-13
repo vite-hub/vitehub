@@ -85,7 +85,7 @@ The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the 
 - `workflow: false` runs each short reply (an Invocation) inside the request.
 - Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
 - `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
-- `buildDir: ".nuxt"` keeps generated TypeScript in the project. This Nuxt version builds under `node_modules` by default, where the pinned Nitro skips TypeScript transforms.
+- `buildDir: ".nuxt"` keeps generated TypeScript in the project.
 - The Shiki aliases inline its WebAssembly for the Nuxt 5 server build.
 
 ```ts [nuxt.config.ts]

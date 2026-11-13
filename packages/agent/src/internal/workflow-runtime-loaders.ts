@@ -4,7 +4,7 @@ const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 // Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
 // and then `vite dev` resolves the import eagerly and fails when the app disables Blob or Database.
 const blobSpecifier = "@vite-hub/blob"
-const databaseSpecifier = "@vite-hub/database/drizzle"
+const databaseSpecifier = "@vite-hub/database/runtime/registry"
 
 type WorkflowModule = typeof import("@vite-hub/workflow")
 type WorkflowRuntimeStateModule = typeof import("@vite-hub/workflow/runtime/state")

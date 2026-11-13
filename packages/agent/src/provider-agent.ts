@@ -20,7 +20,7 @@ import { preparePullRequestCheckout, pullRequestCheckoutPlan, type PullRequestCh
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, cp, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path"
@@ -37,6 +37,7 @@ import { appendLatestFinalText, streamAgentOutputToEvents } from "./agent-output
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
+import { addProviderSandboxSkills, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
@@ -146,8 +147,6 @@ interface GeneratedProviderFile {
   existed: boolean
   link?: string
   mode?: number
-  ownedLink?: string
-  copiedBridgeSource?: string
   path: string
 }
 
@@ -191,134 +190,9 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   }
 }
 
-const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
-
-async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
-  let current = root
-  const rootEntry = await lstat(root).catch(() => undefined)
-  if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return false
-  for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
-    current = join(current, segment)
-    const entry = await lstat(current).catch(() => undefined)
-    if (!entry?.isDirectory() || entry.isSymbolicLink()) return false
-  }
-  return true
-}
-
-async function providerSkillDirectories(root: string, skillRoot: string): Promise<string[]> {
-  const directory = join(root, skillRoot)
-  if (!await hasSafeProviderPath(root, directory)) return []
-  const entry = await lstat(directory).catch(() => undefined)
-  if (!entry || !entry.isDirectory() || entry.isSymbolicLink()) return []
-  const children = await readdir(directory, { withFileTypes: true })
-  const skills: string[] = []
-  for (const child of children) {
-    if (!child.isDirectory() || child.isSymbolicLink()) continue
-    const manifest = await lstat(join(directory, child.name, "SKILL.md")).catch(() => undefined)
-    if (manifest?.isFile() && !manifest.isSymbolicLink()) skills.push(child.name)
-  }
-  return skills
-}
-
-async function materializeProviderSkillLink(root: string, source: string, target: string): Promise<GeneratedProviderFile | undefined> {
-  const targetEntry = await lstat(target).catch(() => undefined)
-  if (targetEntry) return
-  let parent = root
-  const directories: string[] = []
-  for (const segment of relative(root, dirname(target)).split(/[\\/]/).filter(Boolean)) {
-    parent = join(parent, segment)
-    const parentEntry = await lstat(parent).catch(() => undefined)
-    if (parentEntry?.isSymbolicLink()) return
-    if (parentEntry && !parentEntry.isDirectory()) return
-    if (!parentEntry) {
-      await mkdir(parent)
-      directories.push(parent)
-    }
-  }
-  const link = relative(dirname(target), source)
-  try {
-    await symlink(link, target, "dir")
-    return { root, directories, existed: false, ownedLink: link, path: target }
-  }
-  catch (error) {
-    // Windows may deny directory symlinks without Developer Mode or elevation.
-    // Copy the skill tree as a safe, self-contained compatibility bridge.
-    if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
-      try {
-        await cp(source, target, { recursive: true })
-        return { root, directories, existed: false, path: target, copiedBridgeSource: source }
-      }
-      catch (copyError) {
-        for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
-        throw copyError
-      }
-    }
-    for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
-    throw error
-  }
-}
-
-async function materializeProviderSkillCompatibility(root: string): Promise<GeneratedProviderFile[]> {
-  const skills = new Map<string, string>()
-  for (const skillRoot of providerSkillRoots) {
-    for (const name of await providerSkillDirectories(root, skillRoot)) {
-      if (!skills.has(name)) skills.set(name, join(root, skillRoot, name))
-    }
-  }
-  const generated: GeneratedProviderFile[] = []
-  try {
-    for (const [name, source] of skills) {
-      for (const skillRoot of providerSkillRoots) {
-        const link = await materializeProviderSkillLink(root, source, join(root, skillRoot, name))
-        if (link) generated.push(link)
-      }
-    }
-    return generated
-  }
-  catch (error) {
-    for (const entry of generated.reverse()) await restoreGeneratedProviderFile(entry)
-    throw error
-  }
-}
-
-/**
- * A nested provider checkout has its own root, while Workspace-backed Skills
- * are materialized in the outer session root. Bridge those Skills into the
- * checkout before the provider starts, preserving any files already present
- * in the checkout.
- */
-async function materializeNestedProviderSkills(sourceRoot: string, providerRoot: string): Promise<GeneratedProviderFile[]> {
-  const checkoutSkills = new Set<string>()
-  for (const skillRoot of providerSkillRoots) {
-    for (const name of await providerSkillDirectories(providerRoot, skillRoot)) checkoutSkills.add(name)
-  }
-  const skills = new Map<string, string>()
-  for (const skillRoot of providerSkillRoots) {
-    for (const name of await providerSkillDirectories(sourceRoot, skillRoot)) {
-      if (!checkoutSkills.has(name) && !skills.has(name)) skills.set(name, join(sourceRoot, skillRoot, name))
-    }
-  }
-  const generated: GeneratedProviderFile[] = []
-  try {
-    for (const [name, source] of skills) {
-      for (const skillRoot of providerSkillRoots) {
-        const link = await materializeProviderSkillLink(providerRoot, source, join(providerRoot, skillRoot, name))
-        if (link) generated.push(link)
-      }
-    }
-    return generated
-  }
-  catch (error) {
-    for (const entry of generated.reverse()) await restoreGeneratedProviderFile(entry)
-    throw error
-  }
-}
-
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
   // The provider can replace parents after materialization. Leave redirected paths untouched.
   if (!await hasSafeProviderPath(generated.root, dirname(generated.path))) return
-  if (generated.copiedBridgeSource !== undefined
-    && !await hasSafeProviderPath(generated.root, dirname(generated.copiedBridgeSource))) return
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {
@@ -336,38 +210,6 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
         return
       }
     }
-    return
-  }
-  if (generated.ownedLink !== undefined) {
-    const entry = await lstat(generated.path).catch(() => undefined)
-    if (entry?.isSymbolicLink() && await readlink(generated.path) === generated.ownedLink) {
-      await rm(generated.path)
-    }
-    for (const directory of generated.directories.reverse()) {
-      await rmdir(directory).catch((error) => {
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        const code = (error as NodeJS.ErrnoException).code
-        if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
-      })
-    }
-    return
-  }
-  if (generated.copiedBridgeSource !== undefined) {
-    // Reconcile conservatively: never remove or overwrite the original Skill
-    // before the replacement is safely staged. If several provider bridges
-    // exist, preserve the original as the explicit conflict policy.
-    if ((await lstat(generated.path).catch(() => undefined))?.isDirectory()) {
-      const sourceEntry = await lstat(generated.copiedBridgeSource).catch(() => undefined)
-      // The source may have been replaced by a file, symlink, or other entry
-      // while the bridge was active. That entry is not valid custody of the
-      // original Skill tree; restore the bridge contents in its place.
-      if (!sourceEntry || !sourceEntry.isDirectory()) {
-        if (sourceEntry) await rm(generated.copiedBridgeSource, { recursive: true, force: true })
-        await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
-      }
-    }
-    await rm(generated.path, { recursive: true, force: true })
-    for (const directory of generated.directories.reverse()) await rmdir(directory).catch(() => undefined)
     return
   }
   await rm(generated.path, { force: true, recursive: true })
@@ -2923,14 +2765,6 @@ function isTerminalEvent(event: ProviderRuntimeEvent, turnId: TurnId): boolean {
   return event.turnId === turnId && (event.type === "turn.completed" || event.type === "turn.aborted")
 }
 
-function addProviderSandboxSkill(files: Record<string, string | Uint8Array>, path: string, content: string | Uint8Array) {
-  const skillRoot = providerSkillRoots.find(root => path.startsWith(`${root}/`))
-  const skillPath = skillRoot ? path.slice(skillRoot.length + 1) : undefined
-  if (!skillPath) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside a provider skill root." })
-  // Every provider reads a different Home skill root.
-  for (const root of providerSkillRoots) files[`${root}/${skillPath}`] ??= content
-}
-
 function assertProviderSandboxInvocation<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(
   sandbox: SandboxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
@@ -3117,6 +2951,7 @@ async function* runProvider<
     const generatedProviderFiles: GeneratedProviderFile[] = []
   let restoreGeneratedGitMetadata: (() => Promise<void>) | undefined
     let claudePromptFile: string | undefined
+  let providerSkillDirectory: string | undefined
   const memoryResumeState = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let pendingResumeCursor = memoryResumeState?.cursor
   let resumeInstructions = memoryResumeState?.instructions
@@ -3617,28 +3452,16 @@ async function* runProvider<
         generatedProviderFiles.push(generated)
       }
     }
-    const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
-    for (const source of Object.values(colocatedSkills || {})) {
-      if (!isRuntimeRecord(source)
-        || !("content" in source)
-        || !("workspacePath" in source)
-        || !(typeof source.content === "string" || source.content instanceof Uint8Array)
-        || typeof source.workspacePath !== "string") continue
-      const target = resolve(providerCwd, source.workspacePath)
-      if (target !== providerCwd && !target.startsWith(`${providerCwd}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
-      if (options.sandbox) {
-        addProviderSandboxSkill(providerSandboxHomeFiles, relative(providerCwd, target), source.content)
-        continue
-      }
-      // Preserve resolved Workspace Sources only after validating the complete path.
-      const { entry } = await inspectGeneratedProviderFilePath(providerCwd, target)
-      if (entry?.isFile()) continue
-      generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, target, source.content))
-    }
-    if (preparedWorkspace?.projectRoot) {
-      generatedProviderFiles.push(...await materializeNestedProviderSkills(root, providerCwd))
-    }
-    generatedProviderFiles.push(...await materializeProviderSkillCompatibility(providerCwd))
+    // Provider Skills go to one private folder outside the checkout, so the
+    // checkout keeps only its own files. A Sandbox reads them from its Home.
+    const providerSkills = await selectProviderSkills({
+      colocated: context.context.get(colocatedAgentSkillsContextKey),
+      cwd: providerCwd,
+      provider: options.provider,
+      workspaceRoot: root,
+    })
+    if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)
+    else if (temporaryRoot) providerSkillDirectory = await materializeProviderSkills(providerSkills, options.provider, join(temporaryRoot.root, "skills"))
     if (pullRequestRoot || preparedWorkspace?.projectRoot) {
       restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(providerCwd, generatedProviderFiles.map(file => file.path))
     }
@@ -3691,6 +3514,8 @@ async function* runProvider<
     const launchArgs = [
       options.providerSettings?.launchArgs,
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
+      // Claude Code reads `.claude/skills` in every `--add-dir` directory.
+      ...(providerSkillDirectory && options.provider === "claude-code" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
@@ -3800,6 +3625,7 @@ async function* runProvider<
       model: options.model,
       resumeCursor,
       runtimeMode: providerRuntimeMode[permissions],
+      ...(providerSkillDirectory && options.provider === "codex" ? { skillRoots: [providerSkillDirectory] } : {}),
       // Deny native permission escalation without removing the edit-mode boundary.
       ...(permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
       ...(sandboxPolicy ? { sandboxPolicy } : {}),

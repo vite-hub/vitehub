@@ -80,8 +80,8 @@ const defaultImports: FormsImports = {
   runtime: "@vite-hub/forms/runtime",
   operations: "@vite-hub/forms/operations",
   database: "@vite-hub/forms/database",
-  databases: "@vite-hub/database/drizzle",
-  email: "@vite-hub/email/server",
+  databases: "@vite-hub/database/runtime/registry",
+  email: "@vite-hub/email",
   auth: "@vite-hub/auth/server",
   standard: "@vite-hub/runtime",
 }

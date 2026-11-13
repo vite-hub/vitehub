@@ -210,12 +210,12 @@ it.each([
   }
 })
 
-it("keeps preview interception and LLMs routes together, then removes both artifacts", async () => {
+it("keeps preview interception, RSS, and LLMs routes together, then removes both artifacts", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
   try {
     await mkdir(join(projectRoot, "server"), { recursive: true })
     const entry = join(projectRoot, "server/content.ts")
-    await writeFile(entry, 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ previews: true, seo: { llms: true } })')
+    await writeFile(entry, 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ previews: true, seo: { rss: true, llms: true } })')
     const handlers = await prepareSourceGeneration({ projectRoot })
     const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
     const llms = join(projectRoot, ".vitehub/content/llms.mjs")
@@ -224,10 +224,13 @@ it("keeps preview interception and LLMs routes together, then removes both artif
     expect(handlers.some(handler => handler.handler === join(projectRoot, ".vitehub/content/markdown.mjs"))).toBe(true)
     await access(plugin)
     await access(llms)
+    expect(handlers.some(handler => handler.route === "/rss.xml")).toBe(true)
+    await access(join(projectRoot, ".vitehub/content/rss.mjs"))
     await rm(entry)
     await prepareSourceGeneration({ projectRoot })
     await expect(access(plugin)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(access(llms)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(access(join(projectRoot, ".vitehub/content/rss.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {
     await rm(projectRoot, { recursive: true, force: true })

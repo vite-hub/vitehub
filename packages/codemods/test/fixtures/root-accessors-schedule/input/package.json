@@ -1,0 +1,9 @@
+{
+  "name": "schedule-docs",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vite-hub/schedule": "*",
+    "vite-hub": "*"
+  }
+}

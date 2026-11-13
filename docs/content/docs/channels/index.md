@@ -8,98 +8,100 @@ icon: i-lucide-send
 ---
 
 ::product-hero{tagline="Receive webhooks with signature checks, dedupe and retry, and send messages from any server code, through one named Channel." hosts="Node, Docker, Cloudflare, Vercel" channels="Stripe, Slack, Teams, Your API" channel-mode="custom"}
-  :::code-tree
-  ```ts [server/channels/stripe.ts] fragment
-  import { defineChannel, stripe } from 'vite-hub/channels'
-  import { sendQueue } from 'vite-hub/queue'
+  :hero-figure{name="channels"}
+::
 
-  // The file name makes this the "stripe" Channel.
-  export default defineChannel({
-    // Checks Stripe-Signature with STRIPE_WEBHOOK_SECRET
-    adapter: stripe(),
-    on: {
-      // Runs once per Stripe event ID, after ViteHub stores it.
-      // A failed Result retries the event.
-      'checkout.session.completed': event =>
-        sendQueue('fulfil', event.data),
-    },
-  })
-  ```
+::code-tree
+```ts [server/channels/stripe.ts] fragment
+import { defineChannel, stripe } from 'vite-hub/channels'
+import { sendQueue } from 'vite-hub/queue'
 
-  ```ts [server/queues/fulfil.ts]
-  import type { StripeEvent } from 'vite-hub/channels'
-  import { defineQueue } from 'vite-hub/queue'
+// The file name makes this the "stripe" Channel.
+export default defineChannel({
+  // Checks Stripe-Signature with STRIPE_WEBHOOK_SECRET
+  adapter: stripe(),
+  on: {
+    // Runs once per Stripe event ID, after ViteHub stores it.
+    // A failed Result retries the event.
+    'checkout.session.completed': event =>
+      sendQueue('fulfil', event.data),
+  },
+})
+```
 
-  export default defineQueue<StripeEvent>(async ({ payload }) => {
-    // Fulfil the order of payload.data.object
-    console.log('fulfil', payload.data.object.id)
-  })
-  ```
+```ts [server/queues/fulfil.ts]
+import type { StripeEvent } from 'vite-hub/channels'
+import { defineQueue } from 'vite-hub/queue'
 
-  ```ts [server/channels/slack.ts]
-  import { createSlackAdapter } from '@chat-adapter/slack'
-  import { slack } from 'vite-hub/agent/channels'
-  import { defineChannel } from 'vite-hub/channels'
+export default defineQueue<StripeEvent>(async ({ payload }) => {
+  // Fulfil the order of payload.data.object
+  console.log('fulfil', payload.data.object.id)
+})
+```
 
-  // The Agent that lists "slack" answers its messages.
-  export default defineChannel({
-    adapter: slack({ adapter: createSlackAdapter() }),
-  })
-  ```
+```ts [server/channels/slack.ts]
+import { createSlackAdapter } from '@chat-adapter/slack'
+import { slack } from 'vite-hub/agent/channels'
+import { defineChannel } from 'vite-hub/channels'
 
-  ```ts [server/agents/support.ts]
-  import { defineAgent } from 'vite-hub/agent'
+// The Agent that lists "slack" answers its messages.
+export default defineChannel({
+  adapter: slack({ adapter: createSlackAdapter() }),
+})
+```
 
-  export default defineAgent({
-    channels: ['slack'],
-    driver: { model: 'openai/gpt-5.1-mini' },
-  })
-  ```
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
 
-  ```ts [server/api/deploys.post.ts] fragment
-  import { defineEventHandler } from 'h3'
-  import { useChannel } from 'vite-hub/channels/server'
+export default defineAgent({
+  channels: ['slack'],
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
 
-  export default defineEventHandler(async () => {
-    // Send through the same Channel from any server code
-    const [error, receipt] = await useChannel('slack')
-      .send('Deploy finished.', { recipient: 'slack:C0123:' })
-    // A failed send returns an error, not a throw
-    if (error) throw error
-    return receipt
-  })
-  ```
+```ts [server/api/deploys.post.ts] fragment
+import { defineEventHandler } from 'h3'
+import { useChannel } from 'vite-hub/channels/server'
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: { host: 'node', agent: true, channels: true, queue: true },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { nitro } from 'nitro/vite'
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+export default defineEventHandler(async () => {
+  // Send through the same Channel from any server code
+  const [error, receipt] = await useChannel('slack')
+    .send('Deploy finished.', { recipient: 'slack:C0123:' })
+  // A failed send returns an error, not a throw
+  if (error) throw error
+  return receipt
+})
+```
 
-  export default defineConfig({
-    plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true }), nitro()],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', agent: true, channels: true, queue: true },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
-  export default defineConfig({
-    plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true })],
-  })
-  ```
-  ::::
-  :::
+export default defineConfig({
+  plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true }), nitro()],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true })],
+})
+```
+:::
 ::
 
 ::product-features

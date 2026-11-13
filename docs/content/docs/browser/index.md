@@ -8,100 +8,102 @@ icon: i-lucide-monitor
 ---
 
 ::product-hero{tagline="Open web pages in a cloud browser from your server, and get back HTML, screenshots, or data." hosts="Cloudflare"}
-  :::code-tree
-  ```ts [server/browsers/page-html.ts]
-  import { defineBrowser } from 'vite-hub/browser'
+  :hero-figure{name="browser"}
+::
 
-  // Returns the HTML of a page after it renders
-  export default defineBrowser(async (
-    input: { url: string },
-    { browser },
-  ) => {
-    return await browser.content(input.url)
-  })
-  ```
+::code-tree
+```ts [server/browsers/page-html.ts]
+import { defineBrowser } from 'vite-hub/browser'
 
-  ```ts [server/browsers/headings.ts]
-  import { defineBrowser } from 'vite-hub/browser'
+// Returns the HTML of a page after it renders
+export default defineBrowser(async (
+  input: { url: string },
+  { browser },
+) => {
+  return await browser.content(input.url)
+})
+```
 
-  // Keep one page open for several steps
-  export default defineBrowser(async (
-    input: { url: string },
-    { browser },
-  ) => {
-    const session = await browser.open()
-    await session.page.goto(input.url)
-    await session.page.locator('main').waitFor()
-    return await session.page.locator('h1').count()
-  })
-  ```
+```ts [server/browsers/headings.ts]
+import { defineBrowser } from 'vite-hub/browser'
 
-  ```ts [server/api/page-html.post.ts]
-  import { defineEventHandler, readValidatedBody } from 'h3'
-  import * as v from 'valibot'
-  import { runBrowser } from 'vite-hub/browser'
+// Keep one page open for several steps
+export default defineBrowser(async (
+  input: { url: string },
+  { browser },
+) => {
+  const session = await browser.open()
+  await session.page.goto(input.url)
+  await session.page.locator('main').waitFor()
+  return await session.page.locator('h1').count()
+})
+```
 
-  // Run the page-html file by its name
-  export default defineEventHandler(async (event) => {
-    const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.string() }), body))
-    return await runBrowser('page-html', input)
-  })
-  ```
+```ts [server/api/page-html.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { runBrowser } from 'vite-hub/browser'
 
-  ```ts [server/api/screenshot.get.ts]
-  import { defineEventHandler } from 'h3'
-  import {
-    runBrowserAction,
-  } from 'vite-hub/browser'
+// Run the page-html file by its name
+export default defineEventHandler(async (event) => {
+  const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.string() }), body))
+  return await runBrowser('page-html', input)
+})
+```
 
-  // One call, no browser file needed
-  export default defineEventHandler(() => {
-    return runBrowserAction(
-      'screenshot',
-      'https://example.com',
-    )
-  })
-  ```
+```ts [server/api/screenshot.get.ts]
+import { defineEventHandler } from 'h3'
+import {
+  runBrowserAction,
+} from 'vite-hub/browser'
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  // Adds the Cloudflare browser setting for you
+// One call, no browser file needed
+export default defineEventHandler(() => {
+  return runBrowserAction(
+    'screenshot',
+    'https://example.com',
+  )
+})
+```
 
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: { host: 'cloudflare', browser: true },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+// Adds the Cloudflare browser setting for you
 
-  // Adds the Cloudflare browser setting for you
-  export default defineConfig({
-    plugins: [
-      vitehub({ host: 'cloudflare', browser: true }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', browser: true },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-  // Adds the Cloudflare browser setting for you
-  export default defineConfig({
-    plugins: [
-      vitehub({ host: 'cloudflare', browser: true }),
-    ],
-  })
-  ```
-  ::::
-  :::
+// Adds the Cloudflare browser setting for you
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'cloudflare', browser: true }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+// Adds the Cloudflare browser setting for you
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'cloudflare', browser: true }),
+  ],
+})
+```
+:::
 ::
 
 ::product-features

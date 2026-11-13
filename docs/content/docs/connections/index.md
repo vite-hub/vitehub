@@ -8,8 +8,7 @@ icon: i-lucide-plug
 ---
 
 ::product-hero{tagline="Connect a Google account or an API key once, then call its API from your server without handling tokens." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-screenshot{src="/images/console-connections-light.webp" dark="/images/console-connections-dark.webp" alt="The Connections page of the ViteHub Console lists four Connections with their type, status, and account." width="1608" height="840"}
-  :::
+  :hero-figure{name="connections"}
 ::
 
 ::product-features

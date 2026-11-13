@@ -79,7 +79,9 @@ const NITRO_MIGRATIONS_DIR = ".vitehub/database/migrations"
 const NITRO_REQUEST_SCOPE_MIDDLEWARE = ".vitehub/nitro/database/request-scope.mjs"
 const NITRO_REQUEST_STATS_MIDDLEWARE = ".vitehub/nitro/database/request-stats.mjs"
 const HOSTED_RUNTIME_DIR = ".vitehub/database"
-const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/drizzle\.js$/
+const DB_REGISTRY_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/runtime\/registry\.js$/
+// The Database root, directly or through the `vite-hub/database` facade that the framework aliases to a file.
+const DB_ROOT_ENTRY_PATTERN = /(?:^|\/)(?:(?:@vite-hub\/database|database)\/dist\/index|vite-hub\/dist\/database)\.js$/
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
@@ -134,7 +136,18 @@ function resolveDatabaseVirtualId(id: string) {
   if (id === DB_VIRTUAL_DEFINITION_DEFAULTS_ID) return RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID
 }
 
-function rewriteDrizzleVirtualImports(code: string) {
+function importsDatabaseRoot(id: string) {
+  return id === "@vite-hub/database" || id === "vite-hub/database" || DB_ROOT_ENTRY_PATTERN.test(normalize(id))
+}
+
+/** True for a Database Definition or one of its schema sources. */
+function isDefinitionModule(config: ResolvedDBViteConfig, importer: string) {
+  const file = normalize(importer.split("?")[0]!)
+  return config.definitions.some(definition =>
+    normalize(definition.handler) === file || definition.schemaSources.some(source => normalize(source.handler) === file))
+}
+
+function rewriteRegistryVirtualImports(code: string) {
   return code
     .replaceAll(DB_VIRTUAL_SCHEMA_ID, DB_INTERNAL_VIRTUAL_SCHEMA_ID)
     .replaceAll(DB_VIRTUAL_DATABASES_ID, DB_INTERNAL_VIRTUAL_DATABASES_ID)
@@ -300,7 +313,7 @@ async function collectSourceDependencies(file: string, require: NodeRequire, fil
   }
 }
 
-export function hubDb(options?: DatabaseOptions): DBVitePlugin {
+export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ source: string, target: string }> = []
   let providerOutput: ProviderOutputCatalog | undefined
@@ -442,7 +455,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     const packageDir = computePackageDir(import.meta.url)
     const source = renderMigrateOnStartPlugin(runtimeConfig, {
       databases,
-      drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
+      registryImport: resolveRuntimeModule(packageDir, "runtime/registry"),
       migrationsImport: DB_INTERNAL_VIRTUAL_MIGRATIONS_ID,
       runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),
     })
@@ -635,7 +648,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
         if (module) context.server.moduleGraph.invalidateModule(module)
       }
     },
-    // Queue and Workflow still bundle their own host functions. They alias `@vite-hub/database/drizzle`
+    // Queue and Workflow still bundle their own host functions. They alias `@vite-hub/database/runtime/registry`
     // to this hosted runtime module, so Database calls in those functions use the same Definitions.
     async buildEnd(error) {
       const resetRuntimeContribution = () => {
@@ -676,16 +689,25 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
       }, siblingRuntimeGenerations.get(this))
     },
     resolveId: {
-      filter: { id: /^(?:(?:#|virtual:)vitehub\/database\/(?:schema|databases|migrations)|#vitehub\/database\/(?:definition-defaults|libsql))$/ },
-      handler(id) {
+      filter: { id: [
+        /^(?:(?:#|virtual:)vitehub\/database\/(?:schema|databases|migrations)|#vitehub\/database\/(?:definition-defaults|libsql))$/,
+        /^(?:@vite-hub\/database|vite-hub\/database)$/,
+        /(?:^|[\\/])(?:(?:@vite-hub[\\/]database|database)[\\/]dist[\\/]index|vite-hub[\\/]dist[\\/]database)\.js$/,
+      ] },
+      handler(id, importer) {
         if (id === DB_LIBSQL_IMPORT) return bundlesLibsql() ? undefined : resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/libsql-disabled")
-        return resolveDatabaseVirtualId(id)
+        const virtualId = resolveDatabaseVirtualId(id)
+        if (virtualId) return virtualId
+        // The registry imports each Definition, so a Definition must load defineDatabase() without the registry.
+        if (importer && runtimeConfig && importsDatabaseRoot(id) && isDefinitionModule(runtimeConfig, importer)) {
+          return resolveRuntimeModule(computePackageDir(import.meta.url), "definition")
+        }
       },
     },
     transform: {
-      filter: { id: /(?:^|[\\/])(?:@vite-hub[\\/]database|database)[\\/]dist[\\/]drizzle\.js$/ },
+      filter: { id: /(?:^|[\\/])(?:@vite-hub[\\/]database|database)[\\/]dist[\\/]runtime[\\/]registry\.js$/ },
       handler(code, id) {
-        if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+        if (DB_REGISTRY_ENTRY_PATTERN.test(normalize(id))) return rewriteRegistryVirtualImports(code)
       },
     },
     load: {

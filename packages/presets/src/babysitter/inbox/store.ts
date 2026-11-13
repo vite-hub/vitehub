@@ -125,6 +125,10 @@ export interface PullRequestInboxOptions {
   activityAuthors?: readonly string[]
   activityAppId?: number
   budgets?: InboxBudgets
+  /** Labels that put a PR first in the claim order after main repairs. Matched case-insensitively. */
+  priorityLabels?: readonly string[]
+  /** Head branch prefix of PRs that repair the base branch. They are claimed first and never exhaust `budgets.noProgress`. */
+  mainRepairBranchPrefix?: string
   /** Claim a PR whose base is another open PR's branch. By default it waits until its parent merges. */
   claimStackChildren?: boolean
   /**
@@ -215,7 +219,7 @@ export function looksMergeReady(s: Snapshot): boolean {
 }
 
 /** Wait reasons of PRs that a Babysitter budget parked. Their `lastResult` says how to resume them. */
-export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget', 'daily-pass-budget'])
+export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget', 'daily-pass-budget', 'daily-push-budget'])
 
 /** PRs that a budget parked, with the recorded reason and, for a timed budget, when they resume. */
 export function budgetParks(queue: readonly GitHubInboxSummary[]): Array<{ repository: string; number: number; budget: string; reason: string; resumeAt?: string }> {
@@ -250,13 +254,17 @@ export class PullRequestInbox {
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
+  private priorityLabels: string[]
+  private mainRepairBranchPrefix?: string
   private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
     this.budgets = { ...budgets }
+    this.priorityLabels = [...new Set(priorityLabels.map(label => label.trim().toLowerCase()).filter(Boolean))]
+    this.mainRepairBranchPrefix = mainRepairBranchPrefix || undefined
     this.claimStackChildren = claimStackChildren
     this.invalidRow = invalidRow
     if (typeof repositories === 'function') this.repositoryList = repositories
@@ -924,6 +932,14 @@ export class PullRequestInbox {
     }
     return true
   }
+  /** Whether the PR carries one of `priorityLabels`. */
+  isPriority(pr: GitHubPullRequestRecord | null | undefined): boolean {
+    return Boolean(pr?.labels?.some(label => this.priorityLabels.includes((typeof label === 'string' ? label : label.name ?? '').toLowerCase())))
+  }
+  /** Whether the PR's head branch starts with `mainRepairBranchPrefix`. */
+  isMainRepair(pr: GitHubPullRequestRecord | null | undefined): boolean {
+    return this.mainRepairBranchPrefix !== undefined && Boolean(pr?.head?.ref?.startsWith(this.mainRepairBranchPrefix))
+  }
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
     return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
   }
@@ -1149,17 +1165,24 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const now = this.clock(), claims: Claim[] = [], t = this.tables
       const repositories = this.repositoryFilter('p.repository')
-      // Columns select candidates; only these snapshots are parsed. A head with a stored review needs
-      // only a host merge check, and a head whose checks all passed is close to it, so both come
+      // Columns select candidates; only these snapshots are parsed. A main repair comes first: a red base
+      // fails every PR that tests against it. Then PRs with a priority label. A head with a stored review
+      // needs only a host merge check, and a head whose checks all passed is close to it, so both come
       // before PRs that need a model pass. Then stack parents, weighted by their open children:
       // merging one unblocks every child based on its branch. The review lookup uses the meta key.
+      const mainRepair = this.mainRepairBranchPrefix
+      const priority = this.priorityLabels.map(() => '?').join(', ')
       const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(CASE WHEN json_valid(p.value) THEN json_extract(p.value, '$.pr.base.repo.full_name') END, p.repository) AS base_repository FROM ${t.pullRequests} p
         WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
           AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
-        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND CASE WHEN json_valid(m.value) THEN json_extract(m.value, '$.head') END=p.head_sha) DESC,
+        ORDER BY ${mainRepair === undefined ? '' : 'substr(p.head_ref, 1, ?)=? DESC,'}${priority ? `
+          EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(p.value) THEN p.value END, '$.pr.labels') l
+            WHERE lower(CASE WHEN l.type='text' THEN l.value ELSE json_extract(l.value, '$.name') END) IN (${priority})) DESC,` : ''}
+          EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND CASE WHEN json_valid(m.value) THEN json_extract(m.value, '$.head') END=p.head_sha) DESC,
           COALESCE(CASE WHEN json_valid(p.summary) THEN json_extract(p.summary, '$.mergeReady') END, 0) DESC,
           (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
-          p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0])
+          p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0,
+        ...mainRepair === undefined ? [] : [mainRepair.length, mainRepair], ...this.priorityLabels])
       for (const candidate of candidates) {
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
@@ -1276,15 +1299,30 @@ export class PullRequestInbox {
    * Records that a claimed pass started the model, with the exemption that let it run past
    * `budgets.dailyPasses`. It changes no evidence, so the claim stays current.
    */
-  async recordModelPass(claim: Claim, exemption?: string): Promise<boolean> {
+  async recordModelPass(claim: Claim, exemption?: string): Promise<number | false> {
     if (this.budgets.dailyPasses === undefined) return false
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
-      if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
-      s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, this.clock(), s.humanFeedbackGeneration, exemption)
+      const at = this.clock()
+      if (!s || s.lease !== claim.token || s.leaseUntil <= at) return false
+      s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, at, s.humanFeedbackGeneration, exemption)
       s.revision = (s.revision ?? 0) + 1
       await this.put(tx, s)
       Object.assign(claim.snapshot, { dailyPassBudget: structuredClone(s.dailyPassBudget), revision: s.revision })
+      return at
+    })
+  }
+  /**
+   * Gives back the pass that `recordModelPass` counted at `at`, and its exemption, when the provider
+   * failed the pass before it did any work. It changes no evidence, so the claim stays current.
+   */
+  async releaseModelPass(claim: Claim, at: number, exemption?: string): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      if (!s?.dailyPassBudget?.passes.includes(at)) return false
+      s.dailyPassBudget = { ...s.dailyPassBudget, passes: s.dailyPassBudget.passes.filter(pass => pass !== at),
+        exemptions: exemption ? s.dailyPassBudget.exemptions.filter(item => item !== exemption) : s.dailyPassBudget.exemptions }
+      await this.put(tx, s)
       return true
     })
   }
@@ -1425,7 +1463,8 @@ export class PullRequestInbox {
       const creditedEvidence = previous?.creditedEvidence ?? []
       const verified = progress.kind === 'verified' && !creditedEvidence.includes(progress.evidence)
       const count = verified ? 0 : (previous?.count ?? 0) + 1
-      s.progressBudget = { head, limit, count, exhausted: count >= limit,
+      // A main repair gates every PR that inherits the base's failures, so only the daily pass budget caps it.
+      s.progressBudget = { head, limit, count, exhausted: count >= limit && !this.isMainRepair(s.pr),
         ...count >= limit ? { exhaustedAt: previous?.exhausted ? previous.exhaustedAt : this.clock() } : {},
         evidence: verified ? progress.evidence : previous?.evidence,
         creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,

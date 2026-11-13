@@ -39,9 +39,9 @@ The build and the development server include only the Console routes and server 
 - **Channels** lists the Channels of your Agents, their threads, and each conversation with its attachments and the runs that answered. You can download a conversation as Markdown or JSON. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
 - **Content** shows when `server/content.ts` defines document collections. It saves drafts, publishes, and restores revisions. `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console).
 - **Comments** shows when the app turns on [Comments](/docs/comments/configure#turn-comments-on-in-a-vitehub-app). It lists the threads that people left on the app's pages.
-- **Blob** lists stores and pages of object metadata. It uploads (up to 8 MiB) and deletes objects with `blob.put` and `blob.del`.
+- **Blob** lists stores and pages of object metadata. It uploads (up to 8 MiB) and deletes objects with `blob.put` and `blob.delete`.
 - **Database** lists found Definitions (the files that declare each resource), their source, definition mode, and table names, without connecting to a database.
-- **KV** lists stores and keys. It fetches a value only when you select its key. It edits and deletes with `kv.set` and `kv.del`.
+- **KV** lists stores and keys. It fetches a value only when you select its key. It edits and deletes with `kv.set` and `kv.delete`.
 - **Rate Limit** lists policies. It reads or resets the counter of a key you enter with `rate-limit.peek` and `rate-limit.reset`.
 - **Sandbox**, **Workspace**, **Workflow**, and **Queue** list Definitions and their source without starting runtime resources.
 - **Schedule** lists Schedule Definitions with their cron expression and time zone. It runs a Definition that sets `manual: true`.
@@ -145,7 +145,7 @@ pnpm vitehub project info --url https://app.example.com
   "name": "my-app",
   "vitehub": "0.1.0",
   "sections": ["env", "kv"],
-  "operations": ["definitions.list", "documents.action", "env.get", "kv.del", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
+  "operations": ["definitions.list", "documents.action", "env.get", "kv.delete", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
 }
 ```
 
@@ -263,6 +263,31 @@ The store is the verification table of Better Auth, so the app needs [Auth with 
 | `auth.impersonate` | The app home as the user. | The browser's app session has the email of the person and Better Auth's `impersonate` permission. |
 | `auth.stop-impersonating` | The app home as the administrator again. | The browser impersonates for the person. |
 
+## Give browsers site access
+
+The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages, with Comments and the **Console** link, shows to people the app knows. **Site access** in the Console lets a browser use it without signing in to the app:
+
+- **Open site** opens the app in a new tab, and that browser gets a pass as you.
+- **Link a phone** shows a QR code. The phone's camera opens the link, and the phone gets a pass as you. The code works for 10 minutes.
+- **Invite someone** makes a link for a guest. You give them a name, which becomes the author of their comments, and pick what they can do, such as **Write comments**. The link works once, in one browser, for 1, 7, or 30 days. Guests never get the **Console** link, and the Console never lets them in.
+
+Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. When the browser opens it, your app sets the `vitehub-pass` cookie: 32 random bytes, `HttpOnly`, `SameSite=Lax`. Your app keeps only its SHA-256, in the same store as the tickets, with the person, the grants, the device, such as `Chrome on macOS`, and the name of the Console key that signed the call. A browser that already holds a pass gets the new one instead, so each browser is one row in the Console.
+
+A pass lasts 90 days after its last use. It ends earlier when:
+
+- you click **Revoke** next to the browser in **Site access**, or run `site.revoke-pass`. The browser loses the page tools on its next page.
+- the app loses the `VITEHUB_CONSOLE_KEY_<NAME>` variable of the key that made it, as when you unlink the app. Every pass of that key ends.
+
+A member pass holds `console` and the grants of every page tool. A guest pass holds what the member picked. Page tools declare their grants; Comments declares `comments.read`, `comments.write`, `comments.resolve`, and `comments.delete`. When nobody signed in to the app, Comments takes the person of the pass, and [the grants decide](/docs/comments/configure#page-passes) instead of `authorize`. A person who signed in to the app keeps the app's own policy.
+
+| Operation | Does |
+| --- | --- |
+| `site.link` | Returns a one-time link that gives a member pass, then opens `path`, or the app home. `qr: true` makes it last 10 minutes. |
+| `site.invite` | Returns a one-time link that gives a guest pass with `name` and `grants`. `expiresInDays` is 1, 7 (the default), or 30. |
+| `site.invites` and `site.revoke-invite` | List the invites that nobody opened yet, and revoke one. |
+| `site.passes` and `site.revoke-pass` | List the browsers with a pass, and revoke one. |
+| `site.grants` | Lists the grants that a pass may hold. |
+
 ## Links to the Console
 
 `hostedConsoleUrl()` from `vite-hub/runtime` builds a link to one page of a project in the Console. `consoleInvocationUrl()` and GitHub pull request comments use it. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
@@ -290,6 +315,7 @@ The link gives no access. The Console checks the person and the team when it ope
 | Where | Who sees **Console** |
 | --- | --- |
 | Development server | Every visitor. |
+| A browser with a member [site access](#give-browsers-site-access) pass | The member. Guests never see it. |
 | Production, with [`console.authorize`](#limit-a-user-to-some-sections) | Visitors for whom `authorize` returns `true`, or `{ sections }` with one section or more. `authorize` gets `via: 'page'`, the session request of the page, and the app's Auth `user` when someone signed in. |
 | Production, without `authorize` | App Auth users with the admin role of Better Auth's `admin()` plugin. [Give the first admin role](/docs/auth/configure#give-the-first-admin-role) with `VITEHUB_ADMINS` or a claim code. Without app Auth, nobody. |
 
@@ -571,7 +597,7 @@ A section entry is the section id, or `'<section>:read'` for read only. A read g
 
 #### Grant one Blob store
 
-`'blob'` allows the Blob operations (`blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`) on every store. `'blob:<store>'` allows them on one store, and `'blob:<store>:read'` only the reads. A store grant gives editors the public Media store without the private Content store:
+`'blob'` allows the Blob operations (`blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, and `blob.variants`) on every store. `'blob:<store>'` allows them on one store, and `'blob:<store>:read'` only the reads. A store grant gives editors the public Media store without the private Content store:
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'

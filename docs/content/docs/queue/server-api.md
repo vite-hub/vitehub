@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `host: 'node'`, which runs jobs in the server process. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on `host: 'node'`, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -53,7 +53,7 @@ Providers can retry a failed delivery, so a handler must be safe to run again af
 | Provider | Default | Override |
 | --- | --- | --- |
 | Cloudflare | Success acknowledges the message. Failure retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`, or `void` for the default. |
-| Local | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
+| Local and postgres | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
 | Vercel | Vercel decides. When the callback returns `undefined`, ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), and Vercel retries the rest. | Return a directive from `callbackOptions.retry`, or `void` for the default. |
 
 In `vite dev`, Cloudflare and Vercel apps run jobs with the local provider and their provider's retry rules, without `onError` or `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).

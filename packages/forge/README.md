@@ -28,7 +28,7 @@ await github.request("POST", "/repos/acme/web/issues", { body: { title: "Nightly
 
 | Call | Returns |
 | --- | --- |
-| `useForge({ forge, baseUrl, env, fetch, userAgent })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
+| `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `conditionalRequests: false` stops GitHub providers from revalidating repeated GETs with ETags. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
 | `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
 | `forge.token({ repository, refresh, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `repository`, or for `VITEHUB_GITHUB_INSTALLATION_ID`. Cached until one minute before it expires. |
 | `forge.provider({ repository, refresh, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
@@ -64,7 +64,8 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `useForge(options)` | The Forge identity of the app, as above. |
 | `forgeEnv` | The Server Env table above. |
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
-| `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
+| `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. GitHub providers revalidate repeated GETs with `If-None-Match`, so unchanged responses come back as `304`s that GitHub doesn't charge; `conditionalRequests: false` turns it off, and `{ identity, cache }` sets who shares entries and where they live. |
+| `conditionalFetch(fetch, { identity, cache })`, `forgeMemoryCache({ maxSize, maxEntrySize })` | The `fetch` wrapper behind `conditionalRequests`, and its in-memory LRU. The default cache is shared by the process, holds up to 32 MiB of bodies, and skips bodies over 1 MiB. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
 | `forgeMerge(provider, pull, options)` | `threads.merge()` with `bypassRules`. GitHub only with `bypassRules: true`: merge past failing branch rules, as an admin or a ruleset bypass actor. It needs `method` and `sha`. |

@@ -9,7 +9,7 @@ import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
 import type { FormDefinition, FormEmailMessage, FormRateLimit, FormRateLimitDecision, FormServices, FormsStore, FormUser } from "./types.ts"
 
-/** The Database registry of `@vite-hub/database/drizzle`, as the generated handler passes it. */
+/** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
 export type FormsDatabaseRegistry = Record<string, { db: FormsDatabase } | undefined>
 
 /** What the generated route of a ViteHub app passes. Each service is there only when the app has its feature. */

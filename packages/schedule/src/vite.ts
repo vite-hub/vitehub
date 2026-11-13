@@ -114,7 +114,7 @@ interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions 
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleOptions {
-  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/drizzle`. */
+  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/runtime/registry`. */
   databaseImport?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
@@ -795,7 +795,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
   const leaseDatabaseImport = (plugins: readonly unknown[] | undefined) => hasVitePlugin(plugins, databaseVitePluginName)
-    ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database/drizzle" }
+    ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database/runtime/registry" }
     : {}
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
@@ -906,6 +906,12 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         if (id === SCHEDULE_REGISTRY_ID) {
           return RESOLVED_SCHEDULE_REGISTRY_ID
         }
+      },
+    },
+    transform: {
+      filter: { code: /\/\* @vitehub-schedule-registry \*\// },
+      handler(code) {
+        return code.replace(/\/\* @vite-ignore \*\/\s*\/\* @vitehub-schedule-registry \*\/\s*[\w$]+/g, JSON.stringify(SCHEDULE_REGISTRY_ID))
       },
     },
     load: {
