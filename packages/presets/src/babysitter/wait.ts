@@ -7,6 +7,7 @@ import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "../github/index.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
+import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 
@@ -132,12 +133,11 @@ function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
  * The newest run of each current-head check, by name and app. Some integrations leave an earlier
  * run in progress forever and report the result in a later run; the earlier run is not a gate.
  */
-function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
+export function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
   const latest = new Map<string, GitHubEvidence>();
   for (const signal of currentCheckSignals(s)) {
     const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
-    const previous = latest.get(key);
-    if (!previous || Number(signal.id ?? 0) >= Number(previous.id ?? 0)) latest.set(key, signal);
+    latest.set(key, newestCheckRun(latest.get(key), signal));
   }
   return [...latest.values()];
 }
@@ -170,6 +170,20 @@ export function checksStillRunning(s: Snapshot, now = Date.now(), policy?: Pick<
     const limit = !isActionsCheck(signal) ? stuckCheckMs : notStarted.has(String(signal.status)) ? stuckQueuedCheckMs : stuckRunningCheckMs;
     return timestamp >= now - limit;
   });
+}
+
+/**
+ * Required checks that never reported on a head whose checks all finished ten minutes ago. Waiting never
+ * brings them: on 2026-11-01 the `ci` job was missing from the successful runs of vitehub #3161 and
+ * #3162, and both waited overnight for "required checks pending".
+ */
+export function missingRequiredChecks(s: Snapshot, evaluation: { state: GitHubRequiredCheckState; checks: { context: string; state: GitHubRequiredCheckState }[]; missing: string[] } | undefined, now = Date.now()): string[] {
+  if (evaluation?.state !== "pending" || !evaluation.missing.length) return [];
+  if (evaluation.checks.some(check => check.state === "pending" && !evaluation.missing.includes(check.context))) return [];
+  const signals = latestCheckSignals(s);
+  if (signals.some(signal => pending.has(String(signal.status ?? signal.state)))) return [];
+  const finished = signals.map(signal => Date.parse(String(signal.completed_at ?? signal.updated_at ?? ""))).filter(Number.isFinite);
+  return finished.length && Math.max(...finished) < now - 10 * 60_000 ? evaluation.missing : [];
 }
 
 export function failureKeys(s: Snapshot): string[] {

@@ -39,6 +39,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "GitHub returned an invalid review comment cursor.",
       fix: "Retry the operation to read the thread again. If the cursor is still missing or repeated, check the GitHub API response before resolving the thread.",
     },
+    PRESETS_MERGE_BYPASS_CHECKS_INVALID: {
+      why: "Babysitter merge.bypassInheritedChecks must map repositories to check names.",
+      fix: "Set merge.bypassInheritedChecks to an object whose keys are owner/name repositories and whose values are arrays of non-empty required check names, such as { 'acme/app': ['ci'] }.",
+    },
     PRESETS_DAILY_PUSH_BUDGET_SPENT: {
       why: ({ count, nextAt }: { count: number; nextAt: string }) => `Daily push budget spent: this PR has ${count} repair pushes in the last 24 hours, and the next push is allowed at ${nextAt}.`,
       fix: "Do not push or commit again in this pass. Reply to and resolve the remaining review threads, then report the current PR head as reviewedHead.",
