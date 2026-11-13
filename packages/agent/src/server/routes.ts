@@ -1,3 +1,4 @@
+import { releaseReconcileRun } from "../internal/github-reconcile-branch.ts"
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
 import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
@@ -1793,6 +1794,7 @@ async function executeQueuedWebhookDelivery(
   })
   let webhookFence: Lock | undefined
   let stopWebhookFenceHeartbeat: (() => void) | undefined
+  let reconcileSignal: AbortSignal | undefined
   let retainWebhookFence = false
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
@@ -1943,6 +1945,7 @@ async function executeQueuedWebhookDelivery(
         if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
           throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
         }
+        reconcileSignal = resolved.input.abortSignal
         invocation = { ...invocation, input: resolved.input, run: resolved.run }
         accepted = resolved
       }
@@ -2242,6 +2245,7 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
+    releaseReconcileRun(reconcileSignal)
     if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()

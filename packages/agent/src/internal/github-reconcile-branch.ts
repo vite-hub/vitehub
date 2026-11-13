@@ -1,9 +1,12 @@
 import type { AgentChannelState, AgentChannelStateBinding } from "../types.ts"
+import { createAgentChannelState } from "./channel-state.ts"
 import { createAgentInvocationCancellationError } from "./invocation-cancellation.ts"
 
 /** The last branch events of one pull request, saved in Channel State. Times are milliseconds since the epoch. */
 interface PullRequestBranchRecord {
   closed?: { actor: string, at: number }
+  lastClose?: { actor: string, at: number }
+  deliveries?: string[]
   push?: { actor: string, at: number, sha?: string }
 }
 
@@ -42,16 +45,18 @@ export function pullRequestBranchEvent(event: string | undefined, payload: unkno
 }
 
 /** Saves `event` for `pullRequest` (`owner/repo#number`), so reconcile runs that start later can see it. */
-export async function recordPullRequestBranchEvent(channelState: AgentChannelState | undefined, pullRequest: string, event: PullRequestBranchEvent): Promise<void> {
-  if (!channelState) return
-  const at = Date.now()
-  await channelState.transaction<PullRequestBranchRecord, undefined>(stateKey(pullRequest), (record) => {
-    const { closed, ...open } = record.value ?? {}
-    if (event.kind === "push") record.set({ ...record.value, push: { actor: event.actor, at, ...(event.sha ? { sha: event.sha } : {}) } })
-    else if (event.kind === "closed") record.set({ ...open, closed: { actor: event.actor, at } })
-    // A reopened pull request takes new runs again.
-    else if (closed) record.set(open)
-    return undefined
+export async function recordPullRequestBranchEvent(channelState: AgentChannelState | undefined, pullRequest: string, event: PullRequestBranchEvent, deliveryId?: string): Promise<boolean> {
+  if (!channelState) return false
+  // Lifecycle invalidation must be durable before aborting work releases queue slots.
+  return createAgentChannelState(channelState).transaction<PullRequestBranchRecord, boolean>(stateKey(pullRequest), (record) => {
+    if (deliveryId && record.value?.deliveries?.includes(deliveryId)) return false
+    const at = Date.now()
+    const { closed: _closed, ...open } = record.value ?? {}
+    const deliveries = [...(record.value?.deliveries ?? []), ...(deliveryId ? [deliveryId] : [])]
+    if (event.kind === "push") record.set({ ...record.value, deliveries, push: { actor: event.actor, at, ...(event.sha ? { sha: event.sha } : {}) } })
+    else if (event.kind === "closed") record.set({ ...open, deliveries, closed: { actor: event.actor, at }, lastClose: { actor: event.actor, at } })
+    else record.set({ ...open, deliveries })
+    return true
   })
 }
 
@@ -64,12 +69,12 @@ export async function pullRequestBranchEventsSince(
   pullRequest: string,
   since: number | undefined,
 ): Promise<PullRequestBranchRecord> {
-  if (!channelState || since === undefined) return {}
+  if (!channelState) return {}
   const value = await channelState.state.get<PullRequestBranchRecord>(`${channelState.keyPrefix}${stateKey(pullRequest)}`)
   if (!value) return {}
   return {
-    ...(value.closed && value.closed.at > since ? { closed: value.closed } : {}),
-    ...(value.push && value.push.at > since ? { push: value.push } : {}),
+    ...(value.closed || (since !== undefined && value.lastClose && value.lastClose.at >= since) ? { closed: value.closed || value.lastClose } : {}),
+    ...(value.push && since !== undefined && value.push.at > since ? { push: value.push } : {}),
   }
 }
 
@@ -79,33 +84,34 @@ export function pullRequestBranchMovedNotice(push: NonNullable<PullRequestBranch
   return `While this request waited, ${push.actor} pushed ${commit} to the pull request branch. The checkout includes that push. Check whether the request still applies before you edit or push, and do not repeat work that the push already did.`
 }
 
-// Reconcile runs that started in this process, by pull request, then by run ID.
-const runningReconciles = new Map<string, Map<string, AbortController>>()
+// State identity and prefix retain the Agent and Channel that own each execution.
+const owners = new WeakMap<AgentChannelStateBinding["state"], Map<string, Map<AbortSignal, { controller: AbortController, invocationId: () => Promise<string> }>>>()
+const releases = new WeakMap<AbortSignal, () => void>()
 
-/**
- * Tracks a reconcile run that starts in this process and returns the abort signal for its input. Keeps the newest
- * `limit` runs per pull request: the queue runs at most `limit` at once, so an older entry belongs to a finished run.
- */
-export function trackReconcileRun(pullRequest: string, runId: string, limit: number): AbortSignal {
-  const runs = runningReconciles.get(pullRequest) ?? new Map<string, AbortController>()
-  runs.delete(runId)
+export function releaseReconcileRun(signal: AbortSignal | undefined): void {
+  if (signal) releases.get(signal)?.()
+}
+
+export function trackReconcileRun(binding: AgentChannelStateBinding, pullRequest: string, invocationId: () => Promise<string>): AbortSignal {
+  const groups = owners.get(binding.state) ?? new Map()
+  owners.set(binding.state, groups)
+  const key = `${binding.keyPrefix}${pullRequest}`
+  const runs = groups.get(key) ?? new Map()
+  groups.set(key, runs)
   const controller = new AbortController()
-  runs.set(runId, controller)
-  for (const oldest of runs.keys()) {
-    if (runs.size <= limit) break
-    runs.delete(oldest)
-  }
-  runningReconciles.set(pullRequest, runs)
+  runs.set(controller.signal, { controller, invocationId })
+  releases.set(controller.signal, () => {
+    runs.delete(controller.signal)
+    releases.delete(controller.signal)
+    if (!runs.size) groups.delete(key)
+  })
   return controller.signal
 }
 
-/**
- * Cancels the reconcile runs of `pullRequest` that run in this process. The abort reason is the Invocation
- * cancellation error, so the webhook queue settles each run as cancelled and does not retry it.
- */
-export async function cancelReconcileRuns(pullRequest: string, invocationId: (runId: string) => Promise<string>): Promise<void> {
-  const runs = runningReconciles.get(pullRequest)
+export async function cancelReconcileRuns(binding: AgentChannelStateBinding, pullRequest: string): Promise<void> {
+  const runs = owners.get(binding.state)?.get(`${binding.keyPrefix}${pullRequest}`)
   if (!runs) return
-  runningReconciles.delete(pullRequest)
-  for (const [runId, controller] of runs) controller.abort(createAgentInvocationCancellationError(await invocationId(runId)))
+  for (const { controller, invocationId } of Array.from(runs.values())) {
+    controller.abort(createAgentInvocationCancellationError(await invocationId()))
+  }
 }
