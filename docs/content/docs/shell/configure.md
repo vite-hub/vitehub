@@ -32,7 +32,7 @@ Controlled `curl` is a Just Bash command that goes through the Source network gr
 > [!WARNING]
 > Source responses are buffered before output checks and truncation. The Source executor must limit response bytes or memory while it reads.
 
-Read `runtime.boundary` or `session.boundary` to see what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output limits. These are declarations for inspection. They do not make an in-process provider an OS isolate. When a provider declares `timeout.enforcedBy: "runtime"`, the runtime enforces the timeout: `exec()` returns `command_timed_out` and aborts the provider signal, and a background process is stopped.
+Read `runtime.boundary` or `session.boundary` to see what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output limits. These are declarations for inspection. They do not make an in-process provider an OS isolate. When a provider declares `timeout.enforcedBy: "runtime"`, the runtime enforces the timeout: The time starts when the call starts, so provider startup counts. `exec()` returns `command_timed_out` and aborts the provider signal. `startProcess()` throws `SHELL_R0024` if the process does not start in time, and the runtime stops the process if the provider returns it later. A started background process is stopped when the time ends.
 
 To run Shell calls in another runtime, implement a custom `ShellExecutionProvider`.
 

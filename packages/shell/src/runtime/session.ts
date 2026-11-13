@@ -139,6 +139,7 @@ class RuntimeShellSession implements ShellSession {
   #disposeTask: Promise<ShellObservation> | undefined
   #processes = new Set<ShellProcess>()
   #starts = new Set<Promise<void>>()
+  #cancelStarts = new Set<(error: Error) => void>()
   #shellCalls = 0
 
   constructor(
@@ -223,26 +224,53 @@ class RuntimeShellSession implements ShellSession {
     })
     this.#starts.add(start)
     void start.finally(() => this.#starts.delete(start))
-    let process: ShellProcess
+
+    // A runtime timeout counts from the start call, so a slow or stuck provider startup is bounded too.
+    const timeout = this.boundary.timeout.enforcedBy === "runtime" ? options.timeout : undefined
+    const controller = timeout === undefined ? undefined : new AbortController()
+    let stop: (() => Promise<ShellObservation>) | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let cancelStart!: (error: Error) => void
+    const cancelled = new Promise<never>((_, reject) => {
+      cancelStart = (error) => {
+        controller?.abort(error)
+        reject(error)
+      }
+    })
+    if (timeout !== undefined) {
+      timer = setTimeout(() => {
+        if (stop) stop().catch(() => {})
+        else cancelStart(shellErrorDiagnostics.SHELL_R0024({ message: `[vitehub] Shell process start timed out after ${timeout}ms.` }))
+      }, timeout)
+      this.#cancelStarts.add(cancelStart)
+    }
+    let starting: Promise<ShellProcess> | undefined
+    let started: ShellProcess
     try {
-      process = await this.provider.startProcess(command, {
+      starting = this.provider.startProcess(command, {
         ...options,
-        signal,
+        signal: controller ? (signal ? AbortSignal.any([signal, controller.signal]) : controller.signal) : signal,
         env: { ...this.env, ...options.env },
       })
+      started = await (controller ? Promise.race([starting, cancelled]) : starting)
     }
     catch (error) {
+      clearTimeout(timer)
       finishStart()
+      // The provider may still return a handle after the runtime gave up on it. Stop that late process.
+      if (controller?.signal.aborted) void starting?.then(late => late.stop()).catch(() => {})
       throw error
+    }
+    finally {
+      this.#cancelStarts.delete(cancelStart)
     }
 
     let stopTask: Promise<ShellObservation> | undefined
     let trackedProcess: ShellProcess
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const stop = () => {
+    stop = () => {
       clearTimeout(timer)
       if (stopTask) return stopTask
-      stopTask = Promise.resolve().then(() => process.stop()).then(
+      stopTask = Promise.resolve().then(() => started.stop()).then(
         result => {
           this.#processes.delete(trackedProcess)
           return applyOutputLimit(result, options.maxOutputLength)
@@ -255,20 +283,16 @@ class RuntimeShellSession implements ShellSession {
       return stopTask
     }
     trackedProcess = {
-      get id() { return process.id },
-      get command() { return process.command },
-      get cwd() { return process.cwd },
+      get id() { return started.id },
+      get command() { return started.command },
+      get cwd() { return started.cwd },
       stop,
     }
     this.#processes.add(trackedProcess)
     finishStart()
-    const timeout = options.timeout
-    if (this.boundary.timeout.enforcedBy === "runtime" && timeout !== undefined && !this.#disposed) {
-      timer = setTimeout(() => { stop().catch(() => {}) }, timeout)
-    }
     if (this.#disposed) {
       try {
-        await stop()
+        await trackedProcess.stop()
       }
       catch (error) {
         throw new AggregateError(
@@ -289,6 +313,8 @@ class RuntimeShellSession implements ShellSession {
     this.#disposed = true
     if (this.#disposeTask) return this.#disposeTask
     this.#disposeTask = (async () => {
+      // A runtime-timed start stops waiting for its provider now. Its late handle is stopped when it arrives.
+      for (const cancel of this.#cancelStarts) cancel(shellErrorDiagnostics.SHELL_R0012({ message: shellSessionDisposedMessage }))
       await Promise.all(this.#starts)
       const failures: unknown[] = []
       for (const process of [...this.#processes].reverse()) {
