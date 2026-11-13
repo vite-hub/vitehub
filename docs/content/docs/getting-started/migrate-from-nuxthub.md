@@ -23,8 +23,9 @@ through [Capabilities](/docs/agents/capabilities).
 | `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
-| `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
-| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
+| `hub.kv` with any unstorage driver | `kv` with `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
+| `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. Another unstorage driver fails the build. See [Keep the cache](#keep-the-cache). |
+| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
 | `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
 | Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
@@ -99,8 +100,24 @@ instead of throwing, so check the error.
  })
 ```
 
-`get`, `set`, `has`, `keys`, and `clear` keep their names; `del` becomes `delete`. NuxtHub also
-has other unstorage methods. Check those calls against ViteHub's
+`kv` is not an unstorage `Storage`. Replace these unstorage calls:
+
+| NuxtHub | ViteHub |
+| --- | --- |
+| `getItem`, `setItem`, `hasItem` | `get`, `set`, `has` |
+| `del`, `remove`, `removeItem` | `delete` |
+| `getKeys` | `keys`, or `list()` for pages |
+| `getItemRaw` | `get(key, { type: "bytes" })` or `{ type: "text" }` |
+| `getItems`, `setItems` | One `get` or `set` for each key |
+| `mount`, `unmount` | Named stores with `kv.store(name)` |
+| `dispose` | `disposeKVStores()` from `vite-hub/kv` |
+| `setItemRaw`, `getMeta`, `setMeta`, `removeMeta`, `watch`, `unwatch` | No replacement |
+
+`set()` stores the value as JSON, so encode bytes, for example as base64,
+before you write them. In development, the local `fs-lite` store ignores
+`ttl`: a key stays until you delete it.
+
+`get`, `set`, `has`, `keys`, and `clear` keep their names. Check other calls against ViteHub's
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
@@ -115,6 +132,33 @@ returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
 `getRouterParam()` result for `undefined` before you pass it.
 
 For a custom serving route on Nitro 3, see
+[Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
+
+`blob.head()` returns `[undefined, null]` for a missing file. NuxtHub threw a
+`404`, so check for `null`:
+
+```diff [server/api/files/[...pathname].head.ts]
+-  const meta = await blob.head(pathname)
++  const [error, meta] = await blob.head(pathname)
++  if (error) throw error
++  if (!meta) throw createError({ statusCode: 404 })
+```
+
+`blob.serve()` sends `Cache-Control: private, no-cache` and
+`X-Content-Type-Options: nosniff`. NuxtHub sent neither. The built-in route of
+`blob: { serve: true }` sends `public, max-age=0, s-maxage=0`, or
+`private, no-cache` with `authorize`. For HTML, SVG, XML,
+and `multipart/*` files it also sends `Content-Security-Policy: sandbox`, so the
+file cannot run script on your origin. To cache files, pass `cacheControl`:
+
+```diff [server/routes/files/[...pathname].get.ts]
+-  return blob.serve(event, pathname)
++  return blob.serve(event.req, pathname, { cacheControl: "public, max-age=3600" })
+```
+
+For the built-in route, set `blob: { serve: { headers: { "Cache-Control": "public, max-age=3600" } } }`.
+The sandbox stays on. To serve a page that runs script, read it with
+`blob.get()` in your own route. See
 [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
 
 `blob.handleUpload()` and `blob.handleMultipartUpload()` keep their names and
@@ -345,6 +389,23 @@ storage driver for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 - Cloudflare needs `cache.namespaceId`, or an existing `CACHE` namespace with an id in `nitro.cloudflare.wrangler.kv_namespaces`, so the deployment always names a real namespace.
 - The `netlify` host has no default cache store, so `cache: true` fails the build there.
 - A `cache` mount you set in `nitro.kv` (`nitro.storage` in Nuxt) wins.
+
+The `cache` option accepts only the drivers above and `kv`. NuxtHub accepted
+any unstorage driver, but `cache: { driver: "redis" }` fails the build with
+`VITE_HUB_C0004`. To keep another driver, remove `cache` and mount it in Nitro:
+
+```diff [nuxt.config.ts]
+ export default defineNuxtConfig({
+   vitehub: {
+-    cache: { driver: "redis", url: process.env.REDIS_URL },
+   },
++  nitro: {
++    storage: {
++      cache: { driver: "redis", url: process.env.REDIS_URL },
++    },
++  },
+ })
+```
 
 To share the app's KV store instead, on any host, set `cache: { driver: "kv" }`
 with `kv` on. Cache keys get the `nitro-cache:` prefix.
