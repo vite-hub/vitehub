@@ -67,8 +67,9 @@ Nitro's Vite plugin. A Nuxt app adds the `vite-hub/nuxt` module. Server code use
 
 ## Nuxt support in ViteHub
 
-ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. The
-module takes the same options as `vitehub()`, also from the `vitehub` key in
+ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. Until Nuxt 5 is
+stable, install it as `nuxt@npm:nuxt-nightly@5x`. The module takes the same
+options as `vitehub()`, also from the `vitehub` key in
 `nuxt.config.ts`. It scans the server folder of the app and of each Nuxt
 layer. On Nuxt 5, server code uses `kv`, `blob`, `db`, `schema`, and the
 helpers of every other enabled feature without an import, as in NuxtHub. See
@@ -79,8 +80,6 @@ Differences from a Vite app:
 
 - The Nuxt module does not support Connections yet. Use the Vite integration
   for them.
-- Postgres traffic with high concurrency on Cloudflare Workers needs Nitro 3.
-  Read [Use Postgres](/docs/database/hosts#use-postgres).
 
 [Nuxt](/docs/frameworks-hosts/nuxt) lists every difference from the Vite
 integration.

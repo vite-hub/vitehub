@@ -21,6 +21,18 @@ const key = (kind: string, value: unknown) => `ci-evidence:v1:${kind}:${createHa
 export const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => item.status === 'completed' && failures.has(item.conclusion ?? '')
 const sourceUrl = (repository: string, job: ActionJob) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`
 
+/**
+ * The run of one check that counts: the newer one, unless it was cancelled beside a finished run. On
+ * onmax/comark-plugins#87 and #103 the push and pull_request runs of one workflow shared a concurrency
+ * group, the later one was cancelled, and the PRs waited 17 h on checks that had already passed.
+ */
+export function newestCheckRun<T extends { id?: unknown; status?: unknown; state?: unknown; conclusion?: unknown }>(previous: T | undefined, check: T): T {
+  if (!previous) return check
+  const [newer, older] = Number(check.id ?? 0) >= Number(previous.id ?? 0) ? [check, previous] : [previous, check]
+  const cancelled = (run: T) => String(run.conclusion ?? run.state) === 'cancelled'
+  return cancelled(newer) && !cancelled(older) && older.status === 'completed' ? older : newer
+}
+
 export function actionLocation(repository: string, check: GitHubEvidence): { runId: number; jobId?: number } | undefined {
   if (check.app?.slug && check.app.slug !== 'github-actions') return undefined
   for (const value of [check.html_url, check.details_url]) {

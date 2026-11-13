@@ -8,7 +8,7 @@ import { GitHubDependencyConflictError } from "../github/index.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import * as v from "valibot";
 import { join, resolve } from "node:path";
-import { forgeBranchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
+import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
@@ -28,9 +28,9 @@ import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
 import { hydrateSnapshot, reconcileOneSnapshot, readForgePullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
 import type { PullRequestInboxStorage } from "./inbox/storage.ts";
-import { hydrateFailedCiEvidence } from "./inbox/ci-evidence.ts";
+import { actionLocation, hydrateFailedCiEvidence, newestCheckRun } from "./inbox/ci-evidence.ts";
 import type { PullRequestWake } from "./inbox/wait-state.ts";
-import { parseEvidence } from "./inbox/types.ts";
+import { parseEvidence, type GitHubEvidence } from "./inbox/types.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
@@ -41,12 +41,13 @@ import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxD
 import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
-import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../github/index.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
-import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
+import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks, type GitHubRequiredCheckPolicy } from "../github/index.ts";
+import { directMergeReadiness, feedbackFingerprints, hasHumanComment, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
+import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
-import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
+import { baseFixedSinceFailure, checksTestedBase, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
+import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
 import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
@@ -453,6 +454,175 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return true;
   }
 
+  const conflicted = (snapshot: Snapshot) => snapshot.pr?.mergeable === false || snapshot.pr?.mergeable_state === "dirty";
+
+  /**
+   * A job that a runner or network error stopped gets a fresh CI run: the host updates the branch, once
+   * per head and base and at most hourly per PR. On 2026-11-09 vitehub#3534 waited 14 hours on a 504
+   * from setup-deno that nothing retried.
+   */
+  async function retestInfrastructureFailure(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
+    const { repository, number } = snapshot;
+    const pr = snapshot.pr;
+    const head = pr?.head?.sha;
+    if (!head || !pr?.base?.ref || pr.draft || conflicted(snapshot)) return false;
+    const key = `infrastructure-retest:${repository}#${number}`;
+    const previous = await pullRequestInbox.meta(key);
+    if (isRuntimeRecord(previous) && (previous.head === head && previous.base === pr.base.sha || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
+    await pullRequestInbox.setMeta(key, { head, base: pr.base.sha, at: Date.now() });
+    if (!await updateBranch(owner, repository, number, head, signal, pr)) return false;
+    schedulerEvent("babysitter.branch.retest", { ...owner, cause: "infrastructure" });
+    return true;
+  }
+
+  /**
+   * A required check that never reported gets a fresh run: a branch behind its base is updated, and a
+   * current one has its head's Actions runs rerun. Once per head every six hours.
+   */
+  async function retestMissingRequiredChecks(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
+    const { repository, number } = snapshot;
+    const pr = snapshot.pr;
+    const head = pr?.head?.sha;
+    const baseRef = pr?.base?.ref;
+    if (!head || !baseRef || pr.draft || conflicted(snapshot)) return false;
+    const missing = missingRequiredChecks(snapshot, await requiredCheckEvaluation(snapshot, signal));
+    if (!missing.length) return false;
+    const key = `missing-check-retest:${repository}#${number}`;
+    const previous = await pullRequestInbox.meta(key);
+    if (isRuntimeRecord(previous) && previous.head === head && Number(previous.at) > Date.now() - 6 * 60 * 60_000) return false;
+    await pullRequestInbox.setMeta(key, { head, at: Date.now() });
+    const compare = await readOnePage(`repos/${repository}/compare/${head}...${encodeURIComponent(baseRef)}?per_page=1`, signal).catch(() => undefined);
+    if (isRuntimeRecord(compare) && Number(compare.ahead_by) > 0 && await updateBranch(owner, repository, number, head, signal, pr)) {
+      schedulerEvent("babysitter.required_check.retest", { ...owner, missing, via: "update-branch", base_ahead: compare.ahead_by });
+      return true;
+    }
+    const runs = [...new Set(latestCheckSignals(snapshot).flatMap(check => actionLocation(repository, check)?.runId ?? []))];
+    if (!runs.length) return false;
+    try {
+      const { provider } = await forge(repository, signal);
+      // forges CI is read-only, so it cannot rerun a workflow run.
+      for (const runId of runs) await provider.request("POST", `/repos/${repository}/actions/runs/${runId}/rerun`, { signal });
+    } catch (error) {
+      await noteForgeQuota(error, "rerun");
+      schedulerEvent("babysitter.required_check.retest_failed", { ...owner, missing, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      return false;
+    }
+    schedulerEvent("babysitter.required_check.retest", { ...owner, missing, via: "rerun", runs });
+    return true;
+  }
+
+  /** What one failed Actions job's log shows, cached by job and completion. Undefined when the log is unavailable. */
+  const jobFailures = new Map<string, { facts: JobFailureFacts; output: FailedActionOutput | undefined }>();
+  async function jobFailure(repository: string, check: GitHubEvidence, signal: AbortSignal) {
+    const jobId = actionLocation(repository, check)?.jobId;
+    if (!jobId) return undefined;
+    const key = JSON.stringify([repository.toLowerCase(), jobId, check.completed_at ?? check.updated_at]);
+    const cached = jobFailures.get(key);
+    if (cached) return cached;
+    let log: string;
+    try {
+      const { provider } = await forge(repository, signal);
+      log = await new Response((await provider.request("GET", `/repos/${repository}/actions/jobs/${jobId}/logs`, { raw: true, signal })).body).text();
+    } catch (error) {
+      await noteForgeQuota(error, "job-log");
+      return undefined;
+    }
+    const value = { facts: jobFailureFacts(log), output: parseFailedActionOutput(log) };
+    if (jobFailures.size >= 128) jobFailures.delete(jobFailures.keys().next().value!);
+    jobFailures.set(key, value);
+    return value;
+  }
+
+  /** The newest GitHub Actions run of each check on a base commit. */
+  async function baseActionRuns(repository: string, ref: string, signal: AbortSignal): Promise<Map<string, GitHubEvidence>> {
+    const newest = new Map<string, GitHubEvidence>();
+    for (const value of await readRest(`repos/${repository}/commits/${ref}/check-runs?per_page=100`, ".check_runs[]", signal)) {
+      const check = parseEvidence(value);
+      if (check.app?.slug !== "github-actions") continue;
+      newest.set(String(check.name), newestCheckRun(newest.get(String(check.name)), check));
+    }
+    return newest;
+  }
+
+  /**
+   * Current-head Actions checks that only repeat the base's failure: the same job fails in the same step
+   * on the base tip, and the PR's output names no failure the base's lacks. A missing log proves nothing.
+   * `baseSha` pins the base commit; without it, a tip whose checks still run falls back to the base that
+   * these checks tested, unless the tip already finished that check.
+   */
+  async function readInheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal, baseSha?: string): Promise<number[]> {
+    const { repository } = snapshot;
+    const head = snapshot.pr?.head?.sha;
+    const baseRef = snapshot.pr?.base?.ref;
+    if (!head || !baseRef || conflicted(snapshot) || checksStillRunning(snapshot)) return [];
+    const failing = currentActionRuns(snapshot, waitPolicy.pendingReviewChecks).filter(check => failedConclusions.has(String(check.conclusion)));
+    if (!failing.length) return [];
+    const tip = await baseActionRuns(repository, baseSha ?? encodeURIComponent(baseRef), signal);
+    const inherited = new Map([...tip].filter(([, check]) => failedConclusions.has(String(check.conclusion))));
+    if (!baseSha && failing.some(check => tip.get(String(check.name))?.status !== "completed")) {
+      const tested = await checksTestedBase(freshnessReader, snapshot, head, baseRef, failedConclusions, signal);
+      if (tested) {
+        for (const [name, check] of await baseActionRuns(repository, tested, signal)) {
+          if (tip.get(name)?.status !== "completed" && failedConclusions.has(String(check.conclusion))) inherited.set(name, check);
+        }
+      }
+    }
+    const ids: number[] = [];
+    for (const check of failing) {
+      const base = inherited.get(String(check.name));
+      if (!base) continue;
+      const [own, tested] = await Promise.all([jobFailure(repository, check, signal), jobFailure(repository, base, signal)]);
+      if (sameActionFailure(own?.output, tested?.output)) ids.push(Number(check.id));
+    }
+    return ids;
+  }
+
+  const inheritedFailures = new Map<string, { ids: number[]; expiresAt: number }>();
+  /** `readInheritedBaseFailures()` for the base branch, cached for five minutes per head, base and failures. */
+  async function inheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal): Promise<number[]> {
+    const key = JSON.stringify([snapshot.repository, snapshot.pr?.base?.ref, snapshot.pr?.base?.sha, snapshot.pr?.head?.sha, failureKeys(snapshot)]);
+    const cached = inheritedFailures.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.ids;
+    let ids: number[];
+    try {
+      ids = await readInheritedBaseFailures(snapshot, signal);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      await noteForgeQuota(error, "inherited-failures");
+      return [];
+    }
+    if (inheritedFailures.size >= 128) inheritedFailures.delete(inheritedFailures.keys().next().value!);
+    inheritedFailures.set(key, { ids, expiresAt: Date.now() + 5 * 60_000 });
+    return ids;
+  }
+
+  /** Why each failing current-head check outside the review checks fails. A cause the host cannot prove is `pr`. */
+  async function failureCauses(snapshot: Snapshot, signal: AbortSignal): Promise<FailureCause[]> {
+    const failing = latestCheckSignals(snapshot).filter(check => failedConclusions.has(String(check.conclusion ?? check.state))
+      && !waitPolicy.pendingReviewChecks.has(String(check.name ?? check.context).toLowerCase()));
+    if (!failing.length) return [];
+    const inherited = new Set(await inheritedBaseFailures(snapshot, signal));
+    const causes: FailureCause[] = [];
+    for (const check of failing) {
+      const name = String(check.name ?? check.context);
+      const runId = actionLocation(snapshot.repository, check)?.runId;
+      const run = runId === undefined ? {} : { runId };
+      if (inherited.has(Number(check.id))) {
+        causes.push({ name, ...run, cause: "inherited" });
+        continue;
+      }
+      const job = runId === undefined ? undefined : await jobFailure(snapshot.repository, check, signal);
+      if (job?.facts.infrastructure) causes.push({ name, ...run, cause: "infrastructure", line: job.facts.infrastructure });
+      else if (job?.facts.gate) causes.push({ name, ...run, cause: "pr", gate: true });
+      // A failure the PR may cause needs a repair pass, so the other logs are not needed.
+      else return [...causes, { name, ...run, cause: "pr" }];
+    }
+    return causes;
+  }
+
+  const bypassChecksFor = (repository: string): ReadonlySet<string> =>
+    (merge.mode === "direct" ? merge.bypassInheritedChecks?.get(repository.toLowerCase()) : undefined) ?? new Set();
+
   /** GraphQL reads for the inbox snapshot readers, with the `{ data }` envelope they parse. */
   function readGraphql(repository: string, signal?: AbortSignal): ReadGraphql {
     return async (query, variables) => {
@@ -613,14 +783,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     if (signal.aborted) return "blocked";
-    const policy = await requiredChecks.read(repository, base);
-    const evaluation = evaluateGitHubRequiredChecks(policy, snapshotCheckEvidence(snapshot));
+    const evaluation = await checkEvaluation(snapshot, await requiredChecks.read(repository, base), signal);
     const savedAssessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
     // Version 1 also acknowledged feedback after a push without an explicit review.
     const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : undefined;
     const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : undefined;
     const assessedFeedback = new Set(isRuntimeRecord(assessment) && Array.isArray(assessment.feedback) ? assessment.feedback.filter(item => hasRuntimeType(item, "string")) : []);
-    let decision = directMergeReadiness(snapshot, evaluation.state, { ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy) });
+    const readiness = (checked: Snapshot, state: typeof evaluation.state, inheritedCheckIds: readonly number[]) => directMergeReadiness(checked, state, {
+      ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy), inheritedCheckIds: new Set(inheritedCheckIds) });
+    let decision = readiness(snapshot, evaluation.state, evaluation.inheritedCheckIds);
     if (decision.ready && merge.ready) {
       const callback = merge.ready;
       const head = decision.head;
@@ -637,6 +808,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return await parkMerge(hasRuntimeType(stopped.reason, "string") ? stopped.reason : "Stopped waiting for a pending GitHub merge.", stopped.until);
     }
     let mergeStarted = false;
+    const bypass = evaluation.bypassedRequiredChecks.length > 0;
+    let inheritedProof: Exclude<Awaited<ReturnType<typeof verifyInheritedMerge>>, { refused: string }> | undefined;
     const mergeToken = pending?.token ?? claim.token;
     try {
       const { provider, repo, pull } = await forge(repository, signal);
@@ -648,7 +821,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         live = await readPull(repository, number, signal);
       }
       const liveReviews = await readRest(`repos/${repository}/pulls/${number}/reviews?per_page=100`, ".[]", signal);
-      const current = liveMergeReadiness(live, decision.head, {
+      // GitHub reports a PR blocked by the failing required checks that the bypass merges past.
+      const current = liveMergeReadiness(bypass && isRuntimeRecord(live) && live.mergeable === true && live.mergeable_state === "blocked" ? { ...live, mergeable_state: "unstable" } : live, decision.head, {
         automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy),
         reviews: liveReviews.map(parseEvidence),
       });
@@ -665,7 +839,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (!pending && isRuntimeRecord(live) && isRuntimeRecord(live.head) && hasRuntimeType(live.head.sha, "string") && isRuntimeRecord(live.base) && hasRuntimeType(live.base.ref, "string")) {
         // Checks test the base of their moment. When the base changed a file this PR touches since
         // then, both can pass alone and still break the base together, so retest on the current base.
-        const overlap = await staleBaseOverlap(freshnessReader, snapshot, { head: { sha: live.head.sha }, base: { ref: live.base.ref } }, signal);
+        const overlap = await staleBaseOverlap(freshnessReader, snapshot, { head: { sha: live.head.sha }, base: { ref: live.base.ref } }, signal, bypass ? new Set(["success", ...failedConclusions]) : undefined);
         if (overlap.length) {
           const files = overlap.slice(0, 3).join(", ") + (overlap.length > 3 ? ` and ${overlap.length - 3} more` : "");
           schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `${base} changed files this PR touches after its checks ran: ${files}` });
@@ -688,15 +862,31 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: "claim changed before merge" });
         return "not-ready";
       }
+      if (bypass && isRuntimeRecord(live)) {
+        const proof = await verifyInheritedMerge(snapshot, live, signal);
+        if ("refused" in proof) {
+          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: proof.refused });
+          return pending?.asynchronous ? await parkMerge("Unconfirmed merge is waiting for inherited-check verification.") : "not-ready";
+        }
+        inheritedProof = proof;
+        const verified = readiness(inheritedProof.fresh, inheritedProof.evaluation.state, inheritedProof.evaluation.inheritedCheckIds);
+        if (!verified.ready) return await parkMerge(`Inherited-check bypass is waiting for ${verified.reason}.`);
+      }
       signal.throwIfAborted();
       if (!pending && !(await pullRequestInbox.beginDirectMerge(claim, decision.head, true))) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: "merge attempt already in flight or claim changed" });
         return "blocked";
       }
+      if (inheritedProof) {
+        const proof = { head: decision.head, base: inheritedProof.baseSha, checks: inheritedProof.evaluation.bypassedRequiredChecks,
+          checkIds: inheritedProof.evaluation.inheritedCheckIds, verifiedAt: new Date().toISOString(), token: mergeToken };
+        await pullRequestInbox.setMeta(`inherited-merge-proof:${repository}#${number}`, proof);
+        schedulerEvent("babysitter.direct_merge.inherited_checks", { ...owner, ...proof });
+      }
       mergeStarted = true;
       try {
-        // forges sends GitHub's asynchronous merge with the expected head and waits for its result.
-        await provider.threads.merge(pull(number), { method: merge.method, sha: decision.head, signal });
+        // GitHub's asynchronous merge with the expected head. A verified inherited failure merges past the branch rules.
+        await forgeMerge(provider, pull(number), { method: merge.method, sha: decision.head, signal, bypassRules: Boolean(inheritedProof) });
       } catch (error) {
         if (!(error instanceof MergeBlockedError) || error.status === 409) throw error;
         if (mergeResultStatus(error) === "enqueued") {
@@ -717,9 +907,65 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return await parkMerge(`GitHub merge request failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`);
     }
     await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
-    await pullRequestInbox.finish(claim, { text: `Merged ${decision.head} directly: required checks passed and review threads were resolved.`, terminal: true });
+    await pullRequestInbox.finish(claim, {
+      text: inheritedProof
+        ? `Merged ${decision.head} directly past ${inheritedProof.evaluation.bypassedRequiredChecks.join(", ")}, which fail the same way on base ${inheritedProof.baseSha}; every other merge rule was satisfied.`
+        : `Merged ${decision.head} directly: required checks passed and review threads were resolved.`,
+      terminal: true,
+    });
     schedulerEvent("babysitter.owner.merged", { ...owner, head_sha: decision.head, avoided_invocation: true });
     return "merged";
+  }
+
+  /**
+   * Proves from fresh GitHub reads that a bypass merge only skips inherited failures. The failures must
+   * repeat on the base branch tip, where the merge lands: the PR's `base.sha` can be a day old and have no
+   * CI runs (vitehub#3715). Every other branch rule must be known and satisfied. Returns why it cannot.
+   */
+  async function verifyInheritedMerge(snapshot: Snapshot, live: Record<string, unknown>, signal: AbortSignal): Promise<{ fresh: Snapshot; evaluation: InheritedCheckEvaluation; baseSha: string } | { refused: string }> {
+    const { repository, number } = snapshot;
+    const head = isRuntimeRecord(live.head) ? live.head.sha : undefined;
+    const prBase = isRuntimeRecord(live.base) ? live.base : {};
+    const base = prBase.ref;
+    if (!hasRuntimeType(head, "string") || head !== snapshot.pr?.head?.sha || !hasRuntimeType(base, "string") || !/^[a-f\d]{40}$/i.test(String(prBase.sha))) return { refused: "Inherited-check bypass target changed." };
+    const tip = await readOnePage(`repos/${repository}/git/ref/heads/${encodeURIComponent(base)}`, signal);
+    const baseSha = isRuntimeRecord(tip) && isRuntimeRecord(tip.object) ? tip.object.sha : undefined;
+    if (!hasRuntimeType(baseSha, "string") || !/^[a-f\d]{40}$/i.test(baseSha)) return { refused: "Inherited-check bypass base tip unavailable." };
+    const [owner, name] = repository.split("/");
+    const [protection, rules, review, threads] = await Promise.all([
+      // A branch without classic protection answers 404, and the bypass is then refused below.
+      readOnePage(`repos/${repository}/branches/${encodeURIComponent(base)}/protection`, signal).catch(() => undefined),
+      readRest(`repos/${repository}/rules/branches/${encodeURIComponent(base)}?per_page=100`, ".[]", signal),
+      readGraphql(repository, signal)("query BabysitterInheritedMergeReview($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid baseRefOid reviewDecision}}}", { owner, name, number }),
+      readThreads(repository, number, signal),
+    ]);
+    const data = isRuntimeRecord(review) && isRuntimeRecord(review.data) && isRuntimeRecord(review.data.repository) ? review.data.repository.pullRequest : undefined;
+    if (!isRuntimeRecord(data) || isRuntimeRecord(review) && Array.isArray(review.errors) && review.errors.length || data.headRefOid !== head || data.baseRefOid !== prBase.sha) {
+      return { refused: "Inherited-check bypass head or base changed during verification." };
+    }
+    const freshChecks = async () => {
+      const [runs, statuses] = await Promise.all([
+        readRest(`repos/${repository}/commits/${head}/check-runs?per_page=100`, ".check_runs[]", signal),
+        readRest(`repos/${repository}/commits/${head}/statuses?per_page=100`, ".[]", signal),
+      ]);
+      return {
+        checks: Object.fromEntries(runs.map(parseEvidence).map(check => [`check_run:${String(check.id)}`, check])),
+        statuses: Object.fromEntries(statuses.map(parseEvidence).map((status, index) => [`status:${String(status.id ?? index)}`, { ...status, sha: head }])),
+      };
+    };
+    let fresh: Snapshot = { ...snapshot, ...await freshChecks(), threads, threadsHydrated: true };
+    const ids = new Set(await readInheritedBaseFailures(fresh, signal, baseSha));
+    requiredChecks.invalidate(repository, base);
+    const policy = await requiredChecks.read(repository, base);
+    // Logs take time to download. A rerun must not reuse an older run's failure.
+    fresh = { ...fresh, ...await freshChecks() };
+    const evaluation = inheritedCheckEvaluation(fresh, policy, ids, waitPolicy.pendingReviewChecks, bypassChecksFor(repository));
+    if (evaluation.state !== "passed" || !evaluation.bypassedRequiredChecks.length) return { refused: "Fresh checks do not justify an inherited-check bypass." };
+    const ancestry = await readOnePage(`repos/${repository}/compare/${baseSha}...${head}?per_page=1`, signal);
+    const safety = inheritedBypassSafety({ protection, rules, reviewDecision: data.reviewDecision ?? null, threadsResolved: threads.every(thread => thread.isResolved === true),
+      method: merge.mode === "direct" ? merge.method : "squash", upToDate: isRuntimeRecord(ancestry) && ancestry.behind_by === 0 });
+    if (safety !== true) return { refused: `Inherited-check bypass refused: ${safety}.` };
+    return { fresh, evaluation, baseSha };
   }
 
   /**
@@ -806,14 +1052,22 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return true;
   }
 
-  async function requiredCheckEvaluation(snapshot: Snapshot) {
-    const base = snapshot.pr?.base?.ref;
-    if (!base) return undefined;
-    return evaluateGitHubRequiredChecks(await requiredChecks.read(snapshot.repository, base), snapshotCheckEvidence(snapshot));
+  /** The required-check evaluation with the PR's own failing Actions counted and the base's failures attributed to the base. */
+  async function checkEvaluation(snapshot: Snapshot, policy: GitHubRequiredCheckPolicy, signal: AbortSignal): Promise<InheritedCheckEvaluation> {
+    const evaluation = evaluateGitHubRequiredChecks(policy, snapshotCheckEvidence(snapshot));
+    if (evaluation.state === "unknown" || !failedOwnActions(snapshot, waitPolicy.pendingReviewChecks).length) return { ...evaluation, inheritedCheckIds: [], bypassedRequiredChecks: [] };
+    const inherited = new Set(await inheritedBaseFailures(snapshot, signal));
+    return inheritedCheckEvaluation(snapshot, policy, inherited, waitPolicy.pendingReviewChecks, bypassChecksFor(snapshot.repository));
   }
 
-  async function requiredCheckState(snapshot: Snapshot) {
-    return (await requiredCheckEvaluation(snapshot))?.state ?? "unknown";
+  async function requiredCheckEvaluation(snapshot: Snapshot, signal: AbortSignal = AbortSignal.timeout(120_000)) {
+    const base = snapshot.pr?.base?.ref;
+    if (!base) return undefined;
+    return await checkEvaluation(snapshot, await requiredChecks.read(snapshot.repository, base), signal);
+  }
+
+  async function requiredCheckState(snapshot: Snapshot, signal?: AbortSignal) {
+    return (await requiredCheckEvaluation(snapshot, signal))?.state ?? "unknown";
   }
 
   /** Times of the PR's repair pushes in the last 24 hours, kept while `dailyPushBudget` is set. */
@@ -1286,7 +1540,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const providerBlockedUntil = (await pullRequestInbox.metaNumber("provider-quota-blocked-until")) ?? 0;
           const providerBlocked = providerBlockedUntil > Date.now();
           const admitted = (currentAdmission?.accepting ?? modelAdmission) && !providerBlocked;
-          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkSpentReviewPushBudget() || await parkClosedPushWindow() || await parkSpentDailyPassBudget();
+          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkUnrelatedFailures() || await parkSpentReviewPushBudget() || await parkClosedPushWindow() || await parkSpentDailyPassBudget();
           modelWorkParked = true;
           outcome = "waiting";
           await pullRequestInbox.finish(inboxClaim, {
@@ -1300,6 +1554,32 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               ...(pushedHead ? { headSha: pushedHead } : {}),
               retryAt: admitted ? undefined : Math.max(retryAt ?? 0, providerBlocked ? providerBlockedUntil : 0) },
           });
+          return true;
+        };
+        /**
+         * Parks the claim before its first model dispatch when its required checks fail only because the
+         * base fails them the same way, or because a runner or network error stopped them. No pass, push or
+         * budget is spent on them. A conflict, a person's feedback or a person's open thread still gets a pass.
+         */
+        const parkUnrelatedFailures = async () => {
+          if (modelDispatched || pushedHead || merge.mode !== "direct") return false;
+          if (pullRequestInbox.isMainRepair(inboxClaim.snapshot.pr)) return false;
+          const snapshot = inboxClaim.snapshot;
+          if (conflicted(snapshot) || (snapshot.humanFeedbackGeneration ?? 0) > snapshot.handled) return false;
+          if (snapshot.threads.some(thread => thread.isResolved !== true && hasHumanComment(thread, waitPolicy.workerAuthors))) return false;
+          // An optional failure only needs the pass that assesses it before the PR can merge.
+          if (await requiredCheckState(snapshot, passSignal) !== "failed") return false;
+          const unrelated = unrelatedFailureWait(await failureCauses(snapshot, passSignal), snapshot.pr?.base?.ref ?? "the base");
+          if (!unrelated) return false;
+          modelWorkParked = true;
+          outcome = "waiting";
+          if (unrelated.infrastructure && await retestInfrastructureFailure(snapshot, owner, passSignal)) {
+            await pullRequestInbox.finish(inboxClaim, { text: `${unrelated.reason} Updated the branch with ${snapshot.pr?.base?.ref} for a fresh CI run.`, wait: createCheckWait(snapshot, waitPolicy) });
+            schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: snapshot.pr?.head?.sha, avoided_invocation: true, reason: "infrastructure-retest" });
+            return true;
+          }
+          await pullRequestInbox.finish(inboxClaim, { text: unrelated.reason, wait: { ...createCheckWait(snapshot, waitPolicy), reason: "unrelated-ci-failure", retryAt: unrelated.retryAt } });
+          schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: snapshot.pr?.head?.sha, avoided_invocation: true, reason: "unrelated-ci-failure", checks: unrelated.checks });
           return true;
         };
         // A push answers review when the claimed PR had no conflict and no failure outside the review checks.
@@ -1505,15 +1785,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason });
                 return;
               }
+              const retested = await retestMissingRequiredChecks(inboxClaim.snapshot, owner, passSignal);
               await pullRequestInbox.finish(inboxClaim, {
-                text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
+                text: retested ? "A required check never reported on this head; started a fresh CI run." : inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
                 wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: pushWindowRetry ? reviewedRetryAt : await mergeRetryAt(inboxClaim.snapshot) },
               });
               schedulerEvent("babysitter.wait.kept", {
                 ...owner,
                 head_sha: inboxClaim.snapshot.pr?.head?.sha,
                 avoided_invocation: true,
-                reason: "reviewed-head-unchanged",
+                reason: retested ? "missing-required-check-retest" : "reviewed-head-unchanged",
               });
               return;
             }

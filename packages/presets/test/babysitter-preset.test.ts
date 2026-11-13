@@ -269,6 +269,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       : ["api", ...(request.method === "GET" ? [] : ["-X", request.method]), path, ...fields];
     try {
       const result = await command(args, { signal: request.signal });
+      if (request.path.endsWith("/logs")) return result.stdout;
       const values: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
       if (request.path === "/graphql") {
         const first = values[0];
@@ -1170,6 +1171,69 @@ describe("Babysitter preset runtime", () => {
       expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "merge_method=squash", "merge_action=direct_merge", `sha=${"a".repeat(40)}`]));
       expect(createProviderRuntime).not.toHaveBeenCalled();
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  /** A required `test` Actions job that fails on the PR head and on the base tip with `log` and `baseLog`. */
+  function inheritFailure(f: Awaited<ReturnType<typeof fixture>>, log: string, baseLog = log) {
+    const command = f.command.getMockImplementation()!;
+    const run = (id: number, sha: string) => ({ id, name: "test", head_sha: sha, status: "completed", conclusion: "failure", completed_at: "2026-11-09T00:00:00Z",
+      app: { slug: "github-actions", id: 15368 }, html_url: `https://github.com/acme/app/actions/runs/${id}/job/${id}` });
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path.includes("/check-runs")) return { stdout: JSON.stringify(path.includes(`/commits/${f.pr().head.sha}/`) ? run(1, f.pr().head.sha) : run(2, f.pr().base.sha)), stderr: "" };
+      if (path === "repos/acme/app/actions/jobs/1/logs") return { stdout: log, stderr: "" };
+      if (path === "repos/acme/app/actions/jobs/2/logs") return { stdout: baseLog, stderr: "" };
+      if (path === "repos/acme/app/branches/main/protection") return { stdout: JSON.stringify({ required_status_checks: { strict: false, contexts: ["test"] }, enforce_admins: { enabled: true },
+        required_signatures: { enabled: false }, lock_branch: { enabled: false }, required_linear_history: { enabled: false } }), stderr: "" };
+      return command(args, request);
+    });
+  }
+  const failedLog = (lines: string[]) => ["2026-11-09T00:00:00.0000000Z ##[group]Run pnpm test", "pnpm test", "##[endgroup]", ...lines, "##[error]Process completed with exit code 1."].join("\n");
+
+  it("parks a PR whose required check fails the same way on the base, without a pass", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds", "Test Files  1 failed | 3 passed (4)"]), failedLog([" FAIL  test/a.test.ts > adds", "Test Files  1 failed | 9 passed (10)"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait?.reason).toBe("unrelated-ci-failure");
+      expect(parked?.lastResult).toContain("test fails the same way on main");
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a configured main-repair branch even when its failure repeats the base", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false, mainRepairBranchPrefix: "fix" } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).not.toBe("unrelated-ci-failure");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a required check whose output names a failure the base lacks", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds", " FAIL  test/b.test.ts > new"]), failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).not.toBe("unrelated-ci-failure");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("merges past an inherited required check only where bypassInheritedChecks names it", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", bypassInheritedChecks: { "Acme/App": ["test"] } }, options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT"));
+      expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "bypass_rules=true", `sha=${"a".repeat(40)}`]));
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+      expect(await f.runtime.inbox.meta("inherited-merge-proof:acme/app#12")).toMatchObject({ head: "a".repeat(40), base: "c".repeat(40), checks: ["test"], checkIds: [1] });
     } finally { await f.runtime.inbox.close(); }
   });
 
