@@ -1932,6 +1932,9 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

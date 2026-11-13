@@ -171,6 +171,23 @@ it("skips the Content route for defineContent({ route: false, ... })", async () 
   expect(generated.routes).toEqual(["/robots.txt"])
 })
 
+it.each([
+  ["vite-hub/source", ["/_vitehub/content/github", "/api/content/**"]],
+  ["@vite-hub/source", ["/_vitehub/content/github", "/api/content/**"]],
+])("adds the GitHub push webhook route when server/content.ts imports github from %s", async (module, routes) => {
+  const generated = await generatedRoutes({
+    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) } })\n`,
+  })
+  expect(generated.routes).toEqual(routes)
+})
+
+it("adds no GitHub push webhook route without a github() Source", async () => {
+  const generated = await generatedRoutes({
+    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,
+  })
+  expect(generated.routes).toEqual(["/api/content/**"])
+})
+
 it("removes the Collection types wrapper that earlier versions wrote", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
   try {

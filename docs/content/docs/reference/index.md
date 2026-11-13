@@ -39,7 +39,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/docs` | Docs sites from a Markdown folder: frontmatter, navigation, shell, theme, search, raw Markdown, llms.txt, MCP server, assistant | `@vite-hub/docs`, `@vite-hub/docs/nuxt`, `@vite-hub/docs/server`, `@vite-hub/docs/navigation`, `@vite-hub/docs/assistant` |
 | `@vite-hub/email` | Provider setup, built-in transports, runtime delivery, Dynamic Markdown, test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public, Server, and Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/bridge`, `@vite-hub/env/database`, `@vite-hub/env/seal` |
-| `@vite-hub/gateways` | AI gateways: Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` and its question builders for TypeSafe Jev. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
+| `@vite-hub/gateways` | [AI Gateways](/docs/gateways): Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` and its question builders for TypeSafe Jev. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
 | `@vite-hub/i18n` | [i18n](/docs/i18n): messages in the source language with no keys, PO catalogs, message IDs at build time, and one locale for each request on Nitro 3 | `@vite-hub/i18n`, `@vite-hub/i18n/vue`, `@vite-hub/i18n/vite`, `@vite-hub/i18n/nuxt` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
@@ -61,7 +61,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads the Vite config and runs each package's CLI commands. |
-| `@vite-hub/codemods` | Public CLI package | Migrates apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
+| `@vite-hub/codemods` | Public CLI package | [Codemods](/docs/codemods) that migrate apps to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
 | `@vite-hub/console` | Private app, not published | Console server with sign-in, linked projects, and a forward to each project's Operations endpoint. The Console page is in progress. |
 | `@vite-hub/icons` | Internal package | The ViteHub icon set (`i-vitehub-*`). `@vite-hub/ui` and the Console bundle it. Not published. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |

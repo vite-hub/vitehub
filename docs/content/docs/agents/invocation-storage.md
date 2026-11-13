@@ -548,6 +548,33 @@ vitehub agent invocations export --url https://app.example.com --origin webhook 
 
 `export` reads the same target as `list` and prints one line per Invocation, oldest first: the record without observations, plus `prompt` and `runId` from `agent.invocation.start`, `final` (the final assistant text), and `deliveries`, each `agent.channel.delivery.effect` with its `channel`, `kind`, `intent`, `content`, and `skipped` reason. `--status`, `--origin`, and `--agent` select records. `--since` takes an age such as `7d` or a date such as `2026-10-01`. `--observations` adds every observation. Fields appear only if the journal kept them, so content settings decide whether `prompt`, `final`, and delivery content appear.
 
+`--activity` adds a compact trace of what the Agent did, so you can see which tools ran, which failed, and where tokens went without the full observations:
+
+```sh
+vitehub agent invocations export --database /data/agent-invocations.sqlite --since 7d --activity > activity.jsonl
+```
+
+Each line then has `activity`, an array in observation order. Every entry has `at` (the time of its first observation) and `kind`:
+
+| `kind` | Fields |
+| --- | --- |
+| `tool` | `id`, `name`, `title`, `status` (`running`, `completed`, or `failed`), `input`, `paths`, `exitCode`, `error`, `durationMs`, `outputBytes`, `output` |
+| `message` | `phase` (`commentary` or `final`), `text` |
+| `reasoning` | `text`, the reasoning summary that a provider Driver such as Codex streams |
+| `usage` | `inputTokens`, `outputTokens`, `cachedInputTokens`, `reasoningTokens`, `totalTokens`, `costUsd`, `model`, `provider` |
+| `approval` | `id`, `name`, `approved`, `reason` |
+| `error` | `message`, `recoverable` |
+
+One `tool` entry joins the start, the streamed output, and the result of one call. `input` is the command for a shell call, without the `bash -lc` wrapper, or the input as JSON. `paths` lists the files of a file change. A call with a non-zero `exitCode` is `failed`. `outputBytes` is the UTF-8 size of the output that the journal kept. `output` appears only for a failed call. A `usage` entry is one token usage update, so a model Driver reports one per model step and Codex one per update.
+
+The export bounds each trace:
+
+- `input`, `title`, `text`, `error`, `message`, and `reason` keep their first 1,000 characters and end with `…[+N chars]`.
+- `output` keeps the last 2,000 characters and starts with `[N chars+]…`.
+- A trace keeps its first 1,000 entries. `activityOmitted` counts the others.
+
+`recordTruncated: true` marks an entry whose content the journal shortened when it recorded it. `contentOmitted` lists `tool.input` or `tool.output` when the journal content policy did not keep them, so `input`, `exitCode`, and `outputBytes` can be absent. The trace has no per-tool token counts, because Drivers report usage per model step, not per tool call.
+
 `delete` and `prune` open a SQLite or libSQL journal directly:
 
 ```sh
