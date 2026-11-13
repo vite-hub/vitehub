@@ -17,7 +17,8 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
+import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
+import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
@@ -111,7 +112,7 @@ import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, G
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
-import type { Adapter, FileUpload } from "chat"
+import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
 import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
@@ -264,11 +265,14 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /**
    * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
-   * credential. It receives the target `repository`.
+   * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
    */
-  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal }) => string | undefined | Promise<string | undefined>)
-  /** Trusted identity of the host's authenticated GitHub user or App. */
-  identity?: { login: string, appId?: number }
+  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
+  /**
+   * Trusted identity of the host's authenticated GitHub user or App. Provider Drivers and the `git()` Capability
+   * commit as `login` with `email`.
+   */
+  identity?: { login: string, appId?: number, email?: string }
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -781,13 +785,13 @@ export interface ChatSendOptions {
   recipient: string
   /**
    * Keeps every send with the same `key` under one root message in a channel. The recipient must be a channel
-   * without a message ID. ViteHub posts the root once, from `root` or else from the first text.
+   * without a message ID. ViteHub posts the root once, from `root` or else from the first message.
    */
-  thread?: { key: string, root?: string }
+  thread?: { key: string, root?: ChatMessage }
   /** A send with an `idempotencyKey` that ViteHub already sent to the recipient returns the stored receipt and posts nothing. */
   idempotencyKey?: string
   /**
-   * With `idempotencyKey`, edits the message stored for the key to this text and returns its receipt.
+   * With `idempotencyKey`, edits the message stored for the key to this message and returns its receipt.
    * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
    */
   update?: boolean
@@ -801,9 +805,16 @@ export interface ChatSendOptions {
   replace?: string
 }
 
-/** An outbound connector for `defineOutboundChannel()` that sends Markdown through a Chat SDK adapter. */
+/**
+ * What a chat adapter sends. Text is Markdown. An object goes to the Chat SDK adapter as is, for example
+ * `{ card: Card(...), fallbackText }` for a Teams Adaptive Card or Slack Block Kit, or `{ raw }` for text without
+ * Markdown conversion.
+ */
+export type ChatMessage = AdapterPostableMessage
+
+/** An outbound connector that sends through a Chat SDK adapter. */
 export interface ChatConnector {
-  send: (text: string, options: ChatSendOptions) => Promise<{ id: string }>
+  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -1528,7 +1539,9 @@ function githubPullRequestTaskPrompt(
           "- Run the project's local checks for your changes before you push.",
           "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.",
         ],
-    "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+    source.checkout === false
+      ? "- Resolve merge conflicts. Keep the intent of both sides, run the checks, and finish the merge or rebase. Do not abort it."
+      : `- Resolve merge conflicts with the ${mergeConflictSkillName} skill.`,
     "",
     `Request: ${command.body || "Inspect and resolve the requested pull request work."}`,
   ].join("\n")
@@ -1723,12 +1736,14 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
+  minLifetime?: number,
 ) {
   const options = githubAppOptions(app) || {}
   if (options.token) {
     const token = typeof options.token === "function" ? await options.token(context, {
       repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
       signal,
+      ...(minLifetime === undefined ? {} : { minLifetime }),
     }) : options.token
     return requiredString(token, 'token')
   }
@@ -1750,7 +1765,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     const installationId = (configuredInstallation === undefined || configuredInstallation === "") && repository
       ? await credentials.installation(repository, signal)
       : requiredNumber(configuredInstallation, "installationId")
-    return (await credentials.installationToken(installationId, { signal })).token
+    return (await credentials.installationToken(installationId, { signal, minLifetime })).token
   }
   catch (error) {
     const status = forgeErrorStatus(error)
@@ -1766,12 +1781,13 @@ async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntim
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
+  minLifetime?: number,
 ) {
   const env = await githubEnv(context)
   const token = cleanSecret(env.token)
   if (!app) return token
   try {
-    return await githubAppInstallationToken(app, context, installation, repository, signal)
+    return await githubAppInstallationToken(app, context, installation, repository, signal, minLifetime)
   }
   catch (error) {
     if (token) return token
@@ -2976,8 +2992,13 @@ async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: 
   if (error) throw error
 }
 
+/** Text is Markdown. The Chat SDK reads a plain string as raw text, so wrap it. */
+function chatPostable(message: ChatMessage): AdapterPostableMessage {
+  return typeof message === "string" ? { markdown: message } : message
+}
+
 /**
- * An outbound connector for `defineOutboundChannel()` that sends Markdown through one Chat SDK adapter.
+ * An outbound connector that sends through one Chat SDK adapter.
  * Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `<channel>:`.
  */
 function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector {
@@ -2993,7 +3014,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
     return adapter
   }
   return {
-    async send(text, { recipient, thread, idempotencyKey, update, replace }) {
+    async send(message, { recipient, thread, idempotencyKey, update, replace }) {
       if (typeof recipient !== "string" || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
       if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
       if (replace !== undefined && (typeof replace !== "string" || !replace || !idempotencyKey || replace === idempotencyKey)) {
@@ -3007,7 +3028,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           if (!chat.openDM) throw new TypeError(`[vitehub] The ${label} adapter cannot open direct messages.`)
           return await chat.openDM(recipient.slice(5))
         }
-        const post = async () => ({ id: (await chat.postMessage(await target(), { markdown: text })).id })
+        const post = async () => ({ id: (await chat.postMessage(await target(), chatPostable(message))).id })
         if (!idempotencyKey) return await post()
         const kv = await connectorKV(name)
         const receiptKeyFor = (key: string) => `${name}:messages:${connectorHash(`${recipient}\0${key}`)}`
@@ -3015,7 +3036,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         const receipt = await withConnectorLock(receiptKey, async () => {
           const stored = await connectorKVGet(kv, receiptKey)
           if (typeof stored?.id === "string") {
-            if (update) await chat.editMessage(await target(), stored.id, { markdown: text })
+            if (update) await chat.editMessage(await target(), stored.id, chatPostable(message))
             return { id: stored.id }
           }
           const receipt = await post()
@@ -3051,11 +3072,11 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         }
         if (typeof stored?.id === "string") {
           // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
-          if (update && threadId) await chat.editMessage(threadId, stored.id, { markdown: text })
+          if (update && threadId) await chat.editMessage(threadId, stored.id, chatPostable(message))
           return { id: stored.id }
         }
         if (!threadId) {
-          const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
+          const root = await postChannelMessage(recipient, chatPostable(thread.root ?? message))
           if (!root.id) throw new Error(`[vitehub] ${label} did not return a root message ID.`)
           threadId = threads.rootThreadId(chat, recipient, root)
           await connectorKVSet(kv, `${key}:root`, { threadId })
@@ -3064,10 +3085,10 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
             return { id: root.id }
           }
         }
-        const message = await chat.postMessage(threadId, { markdown: text })
-        if (!message.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
-        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: message.id })
-        return { id: message.id }
+        const sent = await chat.postMessage(threadId, chatPostable(message))
+        if (!sent.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
+        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: sent.id })
+        return { id: sent.id }
       })
       if (replacedKey) {
         await withConnectorLock(key, async () => {
@@ -3081,16 +3102,16 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
   }
 }
 
-/** A chat adapter that also sends: `useChannel(name).send(text, options)` posts through it. */
+/** A chat adapter that also sends: `useChannel(name).send(message, options)` posts through it. */
 export type ChatChannelAdapter<TChannel> = TChannel & {
-  send: (text: string, options: ChatSendOptions) => Promise<{ id: string }>
+  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 /** Adds `send` to a chat adapter. The connector is built on the first send, from the adapter's own options. */
 function withChatSend<TChannel extends object>(channel: TChannel, createConnector: () => ChatConnector): ChatChannelAdapter<TChannel> {
   let connector: ChatConnector | undefined
   return Object.assign(channel, {
-    send: async (text: string, options: ChatSendOptions) => await (connector ??= createConnector()).send(text, options),
+    send: async (message: ChatMessage, options: ChatSendOptions) => await (connector ??= createConnector()).send(message, options),
   })
 }
 
@@ -3672,6 +3693,28 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
   return trustGitHubPullRequestWorkspaceCapability(Object.freeze(capability))
 }
 
+function githubPullRequestSkillCapability<TRuntimeConfig extends AgentRuntimeConfig>(
+  workspace: GitHubPullRequestWorkspacePolicy | undefined,
+): AgentCapabilityDefinition<TRuntimeConfig> | undefined {
+  // The prompt names the Skill only when the run has a checkout, which needs the Agent Workspace.
+  if (!workspace?.enabled) return
+  return Object.assign(defineCapability({
+    id: "github-pull-request-skills",
+    workspace: {
+      sources: {
+        "skill.mergeConflicts": {
+          content: mergeConflictSkillContent,
+          mediaType: "text/markdown",
+          workspacePath: mergeConflictSkillPath,
+        },
+      },
+    },
+  }), {
+    [workspaceMaterializationPathsSymbol]: [mergeConflictSkillPath],
+    [workspacePersistencePathsSymbol]: [mergeConflictSkillPath],
+  })
+}
+
 const reservedChannelMessageMethodNames = new Set(["channel", "data", "kind"])
 
 function validateChannelMessageDefinition(kind: string, message: unknown): void {
@@ -3804,12 +3847,12 @@ function isChannelDefinitionValue(value: unknown): value is ChannelDefinition {
 }
 
 /** An adapter from `webhook()` or `stripe()`. */
-function isWebhookAdapter(adapter: ChannelAdapter<never>): adapter is WebhookChannelAdapter {
+function isWebhookAdapter(adapter: ChannelAdapter<never, never>): adapter is WebhookChannelAdapter {
   return isRecord((adapter as { webhook?: unknown }).webhook)
 }
 
 /** A built-in adapter such as `slack()`, which is already an Agent Channel. */
-function isAgentChannelAdapter(adapter: ChannelAdapter<never>): adapter is ChannelAdapter<never> & AgentChannelDefinition {
+function isAgentChannelAdapter(adapter: ChannelAdapter<never, never>): adapter is ChannelAdapter<never, never> & AgentChannelDefinition {
   return "messages" in adapter
 }
 
@@ -3969,6 +4012,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
   const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
   const workspaceCapability = githubPullRequestWorkspaceCapability(workspace, appOptions)
+  const skillCapability = githubPullRequestSkillCapability<TRuntimeConfig>(workspace)
   const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
         apiBaseUrl: app?.apiBaseUrl,
@@ -3984,6 +4028,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     activity: activityDefinition,
     capabilities: [
       ...(workspaceCapability ? [workspaceCapability] : []),
+      ...(skillCapability ? [skillCapability] : []),
       ...channelOptions.capabilities || [],
     ],
     ...(appEffects ? { [channelDeliveryHandlers]: appEffects } : {}),
@@ -3998,8 +4043,14 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
-      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal)
-      return token ? { token, baseUrl: appOptions === true ? undefined : appOptions.apiBaseUrl } : undefined
+      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
+      if (!token) return undefined
+      const identity = app?.identity
+      return {
+        token,
+        baseUrl: app?.apiBaseUrl,
+        ...(identity?.login ? { identity: { login: identity.login, ...(identity.email ? { email: identity.email } : {}) } } : {}),
+      }
     }
     Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
   }

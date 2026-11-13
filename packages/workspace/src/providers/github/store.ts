@@ -28,7 +28,7 @@ import {
   resolveGitHubRefsOption,
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
-  resolveGitHubTokenOption,
+  resolveGitHubCredential,
   type GitFileMode,
   type GitHubRepository,
   type GitHubTreeEntry,
@@ -236,10 +236,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         "a repository",
         resolveGitHubRepositoryOption(this.options),
       );
-      const token = requireGitHubOption("a token", resolveGitHubTokenOption(this.options));
       return {
         branch: resolveGitHubBranchOption(this.options),
-        client: connectGitHubRepository(repository, token),
+        client: connectGitHubRepository(repository, resolveGitHubCredential(this.options)),
         repository,
         root: resolveGitHubRootOption(this.options, this.workspaceName),
       };
@@ -657,7 +656,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async #ensure(options: { refresh: boolean }): Promise<void> {
     const wasReady = !!this.#ready;
-    this.#ready ||= this.#load();
+    // A failed load, such as a GitHub API error, lets the next call try again.
+    this.#ready ||= this.#load().catch((error: unknown) => {
+      this.#ready = undefined;
+      throw error;
+    });
     await this.#ready;
     if (wasReady && options.refresh && !this.#dirty) await this.#load();
   }

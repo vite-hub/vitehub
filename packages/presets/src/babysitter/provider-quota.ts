@@ -8,7 +8,7 @@ export const providerBlockedKey = "provider-quota-blocked-until";
 export const providerStrikesKey = "provider-quota-strikes";
 export const forgeBlockedKey = "forge-quota-blocked-until";
 
-/** The longest provider cooldown, and the forge cooldown. */
+/** The longest provider cooldown, and the forge block when GitHub names no reset time. */
 export const maxQuotaCooldownMs = 60 * 60_000;
 /** A success removes a strike only this long after the last cooldown ended. */
 const strikeRecoveryMs = 30 * 60_000;
@@ -61,15 +61,20 @@ export function createProviderQuota(store: QuotaStore, cooldownMs: number, now: 
 /** A GitHub rate limit stops every forge request until it resets. */
 export interface ForgeQuota {
   blockedUntil(): Promise<number>;
-  block(): Promise<number>;
+  /**
+   * Blocks until `resetAt`, GitHub's `x-ratelimit-reset` or `retry-after`, or for an hour when GitHub
+   * names neither or a later time. Never shortens a longer block.
+   */
+  block(resetAt?: number): Promise<number>;
 }
 
 export function createForgeQuota(store: QuotaStore, now: () => number = Date.now): ForgeQuota {
   const blockedUntil = async () => await store.metaNumber(forgeBlockedKey) ?? 0;
   return {
     blockedUntil,
-    async block() {
-      const until = Math.max(await blockedUntil(), now() + maxQuotaCooldownMs);
+    async block(resetAt) {
+      const longest = now() + maxQuotaCooldownMs;
+      const until = Math.max(await blockedUntil(), resetAt !== undefined && resetAt > now() && resetAt < longest ? resetAt : longest);
       await store.setMeta(forgeBlockedKey, until);
       return until;
     },

@@ -8,7 +8,7 @@ import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
-import { getAuthenticationSession } from "./session.ts"
+import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
@@ -17,10 +17,10 @@ import { checkAbility } from "./ability-check.ts"
 import { AbilityError } from "./ability-error.ts"
 import {
   authForRequest,
-  createAuthenticationProvider,
   createBetterAuthOptions,
   envResolverFor,
   getAuthForDefinition,
+  requestProvider,
   resolveDefaultDefinition,
 } from "./auth-instance.ts"
 
@@ -268,7 +268,8 @@ export function handleAuthRequest(
   const request = unwrapAuthRequest(input)
   // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
-  return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
+  const auth = requestProvider(definition, resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }))
+  return auth.handler(setRequestClientAddress(toRequest(request), address))
 }
 
 /** Return a Web Request itself, or the request in the Standard Context of a request event. */
@@ -323,13 +324,43 @@ function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
   return request.method === "GET" && request.headers.get("accept")?.includes("text/html") === true
 }
 
+/** The stable code of an Auth refusal, in `data.code` of the error body. */
+type AuthRefusalCode = "SIGNED_OUT" | "FORBIDDEN"
+
+// The inline guards read the code of a text refusal from here, so their HTTPError carries it too.
+const refusalCodes = new WeakMap<Response, AuthRefusalCode>()
+
+function refusal(response: Response, code: AuthRefusalCode): Response {
+  refusalCodes.set(response, code)
+  return response
+}
+
+/**
+ * A refusal in H3's JSON error format, the same body that `requireAuth()` and H3 errors send. The phrase also goes on
+ * the status line.
+ */
+function createRefusalResponse(code: AuthRefusalCode): Response {
+  const status = code === "SIGNED_OUT" ? 401 : 403
+  const statusText = code === "SIGNED_OUT" ? "Unauthorized" : "Forbidden"
+  return refusal(Response.json({ status, statusText, message: `${statusText}.`, data: { code } }, { status, statusText }), code)
+}
+
+/**
+ * A text 403 for an HTML request. The phrase on the status line is also the `statusText` of the error that the inline
+ * guards throw.
+ */
+function createTextRefusalResponse(text: string, code: AuthRefusalCode): Response {
+  return refusal(new Response(text, {
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    status: 403,
+    statusText: "Forbidden",
+  }), code)
+}
+
 function createForbiddenResponse(request: Pick<Request, "headers" | "method">): Response {
   return wantsHtml(request)
-    ? new Response("Forbidden.", {
-        headers: { "content-type": "text/plain; charset=utf-8" },
-        status: 403,
-      })
-    : Response.json({ error: "Forbidden." }, { status: 403 })
+    ? createTextRefusalResponse("Forbidden.", "FORBIDDEN")
+    : createRefusalResponse("FORBIDDEN")
 }
 
 function authAccessRoutes(
@@ -384,14 +415,19 @@ async function createSignInResponse(
   return new Response(null, { headers, status: 302 })
 }
 
+// Every guard of one request shares one session lookup. Like reusableAccessChecks, the key is the Request of the
+// Standard Context, so H3 middleware, the Fetchable route, and handler guards of one request share it.
+const sessionReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthenticationSessionSnapshot | null>>>()
+
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-
-
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
-  const auth = createAuthenticationProvider(providerOptions)
-  const session = await getAuthenticationSession(auth, { headers: request.headers })
-  return { auth, options, request, session }
+  const resolved = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
+  const auth = requestProvider(definition, resolved)
+  let reads = sessionReads.get(request)
+  if (!reads) sessionReads.set(request, reads = new WeakMap())
+  let session = reads.get(definition)
+  if (!session) reads.set(definition, session = getAuthenticationSession(auth, { headers: request.headers }))
+  return { auth, options: resolved.options, request, session: await session }
 }
 
 type AuthCheck =
@@ -652,24 +688,21 @@ async function checkAuthRequest(
   }
 
   if (!wantsHtml(request)) {
-    return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+    return reject(createRefusalResponse("SIGNED_OUT"))
   }
 
   if (!redirectToSignIn) {
-    return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+    return reject(createRefusalResponse("SIGNED_OUT"))
   }
 
   if (new URL(request.url).searchParams.has("auth_error")) {
-    return reject(new Response("Unauthorized.", {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-      status: 403,
-    }))
+    return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return reject(signIn
     ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
-    : Response.json({ error: "Unauthorized." }, { status: 401 }))
+    : createRefusalResponse("SIGNED_OUT"))
 }
 
 async function checkAuthorizeRequest(
@@ -678,7 +711,7 @@ async function checkAuthorizeRequest(
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { request, session } = await readRequestSession(input, definition)
-  if (!session) return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+  if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
@@ -707,7 +740,7 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
       ? Object.freeze({ request, session: session.session, user: session.user })
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
-    const deny = session ? undefined : () => Response.json({ error: "Unauthorized." }, { status: 401 })
+    const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
     const rejection = await runAccessAuthorize(authorize, authorization, deny)
     if (rejection.response) return rejection.response
     return handler(input, authorization)
@@ -779,9 +812,10 @@ async function rejectionError(response: Response): Promise<HTTPError> {
     if ("error" in body && typeof body.error === "string") message = body.error
     else if ("message" in body && typeof body.message === "string") message = body.message
   }
+  const code = refusalCodes.get(response)
   return new HTTPError({
     body: jsonBody,
-    data: jsonBody === undefined ? body : undefined,
+    data: code ? { code } : jsonBody === undefined ? body : undefined,
     headers,
     message: message || undefined,
     status: response.status,
@@ -999,7 +1033,7 @@ export function getAuthConsoleForRequest(request: Request, event?: ViteHubContex
     env: envResolverFor(definition),
   });
   return createAuthConsole(
-    createAuthenticationProvider(resolved.providerOptions),
+    requestProvider(definition, resolved),
     resolved.options.console as AuthConsoleOptions | undefined,
     resolved.options.events ? resolved.options.events.store : undefined,
     host,

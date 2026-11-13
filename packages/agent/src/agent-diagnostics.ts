@@ -230,6 +230,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0483",
   "AGENT_R0484",
   "AGENT_R0485",
+  "AGENT_R1038",
   "AGENT_R0486",
   "AGENT_R0487",
   "AGENT_R0488",
@@ -428,6 +429,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0925",
   "AGENT_R0929",
   "AGENT_R0938",
+  "AGENT_R1039",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -1511,9 +1513,17 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
     },
+    AGENT_R1038: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+      fix: "Pass driver.workspaceWrite as { network?: boolean, packageCaches?: boolean }, or remove it.",
+    },
     AGENT_R1037: {
       why: ({ name }: { name: string }) => `[vitehub] Agent "${name}" owns a Workspace, but the defineAgent() options that its file exports have no workspace key. A Capability, Channel, preset, parent, or configure callback added the Workspace. Add workspace: {} to its defineAgent() options.`,
       fix: "Add workspace: {} to the defineAgent() options in the Agent file. ViteHub reads the Workspace of a folder Agent only from this key, without running the module.",
+    },
+    AGENT_R1039: {
+      why: ({ value }: { value: unknown }) => `[vitehub] Agent Invocation afterSequence must be a non-negative safe integer, but it is ${typeof value === "string" ? JSON.stringify(value) : String(value)}.`,
+      fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
