@@ -563,6 +563,80 @@ export default defineNuxtConfig({
 })
 ```
 
+## Modules that expect NuxtHub
+
+ViteHub does not emulate NuxtHub's module APIs. It has no `hub:*` or
+`@nuxthub/*` imports, and it does not call `hub:db:*` hooks. A module that
+needs `@nuxthub/core` installs NuxtHub again and can start it next to ViteHub.
+The `nuxthub` codemod and [Doctor rule VHUB0032](/docs/reference/doctor-rules#vhub0032)
+report these modules.
+
+| Module | With ViteHub |
+| --- | --- |
+| `@nuxt/content` | Nothing to do. ViteHub gives Content the Database: D1, SQLite, libSQL, and Postgres. |
+| `nuxt-og-image` | Set `ogImage: { runtimeCacheStorage: 'kv' }` and turn on `kv`. Images are cached in the KV store in production builds. |
+| `nuxt-studio` external media | Not supported. Studio uploads external media only to NuxtHub Blob. Keep media in `public/`. |
+| `@evlog/nuxthub` | Remove it. Write the drain yourself, as below. |
+
+### Replace `@evlog/nuxthub`
+
+`@evlog/nuxthub` stores evlog events in the NuxtHub database and deletes old
+ones on a cron. Keep the `evlog/nuxt` module, then do the same with ViteHub.
+
+Add a table to your Database schema:
+
+```ts [server/databases/default/schema.ts] fragment
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const evlogEvents = sqliteTable('evlog_events', {
+  id: text().primaryKey(),
+  level: text().notNull(),
+  path: text(),
+  status: integer(),
+  data: text().notNull(),
+  createdAt: text().notNull(),
+})
+```
+
+Insert each event from the `evlog:drain` hook:
+
+```ts [server/plugins/evlog-db.ts] fragment
+import type { DrainContext } from 'evlog'
+import { db, schema } from 'vite-hub/database'
+
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('evlog:drain', async ({ event, request }: DrainContext) => {
+    await db.insert(schema.evlogEvents).values({
+      id: crypto.randomUUID(),
+      level: event.level,
+      path: request?.path,
+      status: typeof event.status === 'number' ? event.status : undefined,
+      data: JSON.stringify(event),
+      createdAt: new Date().toISOString(),
+    })
+  })
+})
+```
+
+Delete old events with a [Schedule](/docs/schedule/get-started):
+
+```ts [server/schedules/evlog-retention.ts] fragment
+import { lt } from 'drizzle-orm'
+import { db, schema } from 'vite-hub/database'
+import { defineSchedule } from 'vite-hub/schedule'
+
+// Keeps 7 days of events. Runs every day at 03:00 UTC.
+export default defineSchedule({
+  cron: '0 3 * * *',
+  async handler() {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    await db.delete(schema.evlogEvents).where(lt(schema.evlogEvents.createdAt, cutoff))
+  },
+})
+```
+
+Then run `pnpm vitehub database generate` for the new table.
+
 ## Deploy
 
 ViteHub uses NuxtHub's Cloudflare binding names: `DB` for D1, `KV` for Workers
