@@ -177,6 +177,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
     `import { createDatabaseBindingLookup } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/agent")))}`,
+    `import { readPostgresConnectionUrl } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/postgres-connection")))}`,
     `import { ensureDatabaseMigrations } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/migrate-on-start")))}`,
     "",
     ...schemaImports,
@@ -188,6 +189,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     "  return databases[name]",
     "}",
     "export const useDatabaseBinding = createDatabaseBindingLookup(databases)",
+    "export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }",
     "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: async () => ({ allowDataLoss: false, databases: {}, unsupported: 'Hosted test output does not ship migrations.' }) }, name === undefined ? undefined : [name]) }",
     "",
     // The Database root re-exports `db` and `schema`, so the registry has them also without a default Database.
