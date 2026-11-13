@@ -7,7 +7,7 @@ import {
   type ProcessReconciler,
   type ProcessReconcilerOptions,
   type ProcessReconcilerStatus,
-} from "@vite-hub/runtime/node";
+} from "@vite-hub/runtime/internal/node";
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime";
 import { createLibsqlAgentInvocationStore } from "../invocations/sqlite.ts";
 import { readAgentInvocationWorkload } from "../server/invocation-health.ts";

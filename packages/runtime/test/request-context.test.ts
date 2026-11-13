@@ -2,7 +2,7 @@ import { H3, H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { getRuntimeContext, getStandardContext } from "../src/index.ts"
-import { installStandardContext } from "../src/h3.ts"
+import { installStandardContext } from "../src/internal/h3.ts"
 
 /** A Request as Nitro 3 and srvx pass it to a Fetchable handler on Cloudflare. */
 function cloudflareRequest(url: string) {

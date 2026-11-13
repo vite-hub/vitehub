@@ -9,7 +9,7 @@ vi.mock("#vitehub/auth/definition", () => ({
 }))
 
 import { defineAuth } from "../src/definition.ts"
-import authRoute, { resetAuth } from "../src/server.ts"
+import authRoute, { resetAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const origin = "https://app.example.com"

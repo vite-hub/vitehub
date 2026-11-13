@@ -166,17 +166,18 @@ export default defineEventHandler(
 
 Without `key`, the count is per client address. The build reads this call, so the ID, `limit`, and `window` must be literals. `key` can change at runtime.
 
-To answer a limited request without an error, use `checkRateLimit()`. Same arguments and counter, but it returns the decision:
+To answer a limited request with something cheaper than an error, use `checkRateLimit()`. It takes the same arguments, uses the same counter, and returns `[error, decision]`:
 
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
 import { checkRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
-  const decision = await checkRateLimit(event, 'search', {
+  const [error, decision] = await checkRateLimit(event, 'search', {
     limit: 30,
     window: '1m',
   })
+  if (error) throw error
   if (!decision.allowed) {
     return { results: [], limited: true, retryAfter: decision.retryAfter }
   }

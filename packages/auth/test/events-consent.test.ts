@@ -5,7 +5,7 @@ import { organization } from "better-auth/plugins"
 import { getMigrations } from "better-auth/db/migration"
 import { afterEach, expect, it } from "vitest"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
-import { createBetterAuthOptions, handleAuthRequest } from "../src/server.ts"
+import { createBetterAuthOptions, handleAuthRequest } from "../src/internal/server.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { BetterAuthPlugin } from "better-auth"
 

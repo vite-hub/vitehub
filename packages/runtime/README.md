@@ -16,7 +16,7 @@ ViteHub packages and custom host integrations.
 | --------------------------------------------- | ------------------------- | --------------------------------------------------- |
 | A ViteHub application                         | `vite-hub`                | `vite-hub/runtime`                                  |
 | A reusable package or custom host integration | `@vite-hub/runtime`       | `@vite-hub/runtime`                                 |
-| Node diagnostics and process lifecycle        | The same selected package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
+| Operations for the Console, the CLI, and MCP  | The same selected package | `vite-hub/operations` or `@vite-hub/runtime/operations` |
 
 Use the `vite-hub` facade when it is already your application dependency. Install
 this owner package directly when the integration should depend only on Runtime's
@@ -30,8 +30,8 @@ pnpm add @vite-hub/runtime
 ```
 
 The package declares Node.js 22.18 or newer. Import the root entry for portable
-Runtime contracts. When inspected, the `/node` entry reads Node process
-information and, on Linux, `/proc` and cgroup v2 files.
+Runtime contracts. The `/operations` entry exports `defineOperation()`, its types,
+and the `vitehub: { operations }` contribution types of a Vite plugin.
 
 Trace payload inspection relies on the host's platform intrinsics. Load the
 Runtime before application code replaces platform methods. The Runtime captures
@@ -40,8 +40,8 @@ when that method is later replaced. It cannot recover the original intrinsic
 if the host replaces it before import; payload inspection is not an isolation
 boundary for code that can modify the host's JavaScript environment.
 
-Long-lived Node services can also use `createProcessReconciler()` from the `/node`
-entry to coalesce event-driven work, run periodic repair, stop admission, and await
+ViteHub packages use the private `/internal/node` entry. `createProcessReconciler()`
+lets a long-lived Node service coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
 manager should trigger that drain through `vitehub drain MAINPID [STATUS_URL]`
 from the `vite-hub` package, for example in systemd `ExecStop`. Lifecycle callbacks
@@ -53,7 +53,7 @@ status endpoint available until `vitehub drain` observes the terminal `drained`
 status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
 ViteHub packages register their stop work with `onShutdown(nitroApp, name, drain)`
-from the `/shutdown` entry, in a Nitro plugin. Applications do not call it. When a server
+from the private `/internal/shutdown` entry, in a Nitro plugin. Applications do not call it. When a server
 that owns stop signals gets `SIGTERM` or `SIGINT`, ViteHub runs every registered drain
 in parallel and keeps HTTP open. Each drain gets the shared budget from
 `VITEHUB_SHUTDOWN_DRAIN_MS` (default 0) and an `AbortSignal` that aborts when the
@@ -377,9 +377,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vitehub_leases TO lease_app
 | Import                   | Provides                                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, execution-authority, public URL, and host binding APIs |
+| `@vite-hub/runtime/operations` | `defineOperation()`, operation and plugin contribution types |
 | `@vite-hub/runtime/durability` | The `Durability` contract that each primitive reports, the boot table, and the instance check |
-| `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
-| `@vite-hub/runtime/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
+| `@vite-hub/runtime/internal/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
+| `@vite-hub/runtime/internal/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
 
 Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 

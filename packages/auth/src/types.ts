@@ -1,6 +1,6 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
 // From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
-import type { ViteHubContext } from "@vite-hub/runtime/h3"
+import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthRedirects, AuthRoutes } from "./nuxt-types.ts"

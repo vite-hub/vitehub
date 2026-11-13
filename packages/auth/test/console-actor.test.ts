@@ -5,7 +5,7 @@ import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
 import { defineAuth } from "../src/index.ts";
-import { createAuthForRequest } from "../src/server.ts";
+import { createAuthForRequest } from "../src/internal/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
 
 const origin = "http://localhost:5173";

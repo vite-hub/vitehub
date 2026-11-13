@@ -27,7 +27,7 @@ the same behavior.
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval helpers. Install Evalite and the test runner yourself. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
-| `vite-hub/logs` | Evlog's logger API and readable LogSource helpers. Requires the optional `evlog` peer. |
+| `vite-hub/logs` | The LogSource contract and `createLogBuffer()`. Import the Evlog logger API from `evlog`. |
 | `vite-hub/logs/source` | Server-side LogSource contract, query validation, and cursor errors without Evlog. |
 | `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runs without Evlog, but its types need `evlog`. |
 | `vite-hub/logs/host` | Install and resolve a project's LogSource in the process-wide registry, without Evlog. |
@@ -78,9 +78,6 @@ the same behavior.
 | `vite-hub/auth/mcp` | OAuth sign-in, discovery, request checks, and unused-client cleanup for an app's MCP server. Needs `@better-auth/oauth-provider`. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and adds its tables to generated migrations. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
-| `vite-hub/auth/runtime/server` | Light Auth resolver registration and lazy access middleware, without loading Better Auth. |
-| `vite-hub/auth/console` | Auth Console section descriptor and management types. |
-| `vite-hub/auth/console-runtime` | `createAuthConsole()` for trusted manual server hosts. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client, normalized session composables, `useAbility()`, and the `Can` and `Cannot` components. |
@@ -125,9 +122,7 @@ the same behavior.
 | `vite-hub/realtime/bus` | Node room fanout through Postgres or Redis, bus selection, and shutdown hooks for manual server integration. |
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
 | `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
-| `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
-| `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |
 | `vite-hub/schedule/runtime` | Schedule Run stores and custom runtime wiring. |

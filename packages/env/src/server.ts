@@ -3,7 +3,7 @@ export type { ViteHubContext } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import {

@@ -16,7 +16,7 @@ const serverMocks = vi.hoisted(() => ({
   useWorkspaceFiles: vi.fn(),
 }))
 
-vi.mock("@vite-hub/auth/server", () => ({
+vi.mock("@vite-hub/auth/internal/server", () => ({
   assertAuthOrigin: vi.fn(async () => {
     throw new Error("The ViteHub Auth session must not be used when identify() is defined.")
   }),

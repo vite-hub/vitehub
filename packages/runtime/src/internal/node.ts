@@ -10,8 +10,8 @@ import type {
   RuntimeResourceSnapshot,
   RuntimeResourceSupport,
   RuntimeResourceUnit,
-} from "./diagnostics.ts"
-import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+} from "../diagnostics.ts"
+import { runtimeErrorDiagnostics } from "../error-diagnostics.ts"
 
 type ReadText = (path: string, options?: { signal?: AbortSignal }) => Promise<string>
 

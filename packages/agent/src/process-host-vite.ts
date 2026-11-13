@@ -31,7 +31,7 @@ export function processAgentHost(options: { entry: string; exportName?: string; 
       const plugin = resolve(directory, "plugin.ts");
       const drain = resolve(directory, "drain.ts");
       // The generated file lives in the application, which may not resolve ViteHub packages.
-      const shutdown = createRequire(import.meta.url).resolve("@vite-hub/runtime/shutdown");
+      const shutdown = createRequire(import.meta.url).resolve("@vite-hub/runtime/internal/shutdown");
       // On a stop signal, ViteHub stops admission with `host.close()` while HTTP stays up, so
       // webhooks still reach durable queues. Then the server closes HTTP and the process exits.
       await writeFile(

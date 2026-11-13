@@ -2,7 +2,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins";
 import type { SecondaryStorage } from "better-auth";
 import { defineAuth, createDatabaseAuthEventStore } from "../../src/index.ts";
-import { createBetterAuthOptions, getAuthForDefinition } from "../../src/server.ts";
+import { createBetterAuthOptions, getAuthForDefinition } from "../../src/internal/server.ts";
 import { createAuthConsole } from "../../src/console-runtime.ts";
 import { eventDatabase } from "../event-helpers.ts";
 
