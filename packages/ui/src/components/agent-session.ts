@@ -1,7 +1,7 @@
 // The layout and the visual details follow T3 Code's thread view (https://github.com/pingdotgg/t3code, MIT License,
 // Copyright (c) T3 Tools Inc.): a centered timeline, a details card at the top right, and a right panel of surfaces
 // whose toggle stays in the top right corner whether the panel is open or closed.
-import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@vite-hub/kit/tabs";
 import {
   computed,
   defineComponent,
@@ -14,6 +14,7 @@ import {
   type VNode,
 } from "vue";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { kitSlot } from "../internal/slot-part.ts";
 import { Markdown } from "./markdown.ts";
 
 /** A surface that the right panel can show, such as the Workspace files or the session's changes. */
@@ -342,73 +343,78 @@ export const AgentSession = defineComponent({
     const panel = () => {
       const surfaceById = new Map(props.surfaces.map((surface) => [surface.id, surface]));
       const current = active.value ? surfaceById.get(active.value) : undefined;
-      return h(TabsRoot, {
-        as: "aside",
-        modelValue: active.value ?? "",
-        "onUpdate:modelValue": (id: string | number) => { active.value = String(id); },
+      // `null` selects no tab while the launcher shows.
+      return h(Tabs, {
+        value: active.value,
+        "onUpdate:value": (id: string | null) => { active.value = id; },
         class: "vh-agent-session__panel",
-        "data-slot": "agent-session-panel",
         "aria-label": "Right panel",
-      }, () => [
-        h("div", { class: "vh-agent-session__panel-header", "data-slot": "agent-session-panel-header" }, [
-          // Reka keeps the close button beside its trigger and owns keyboard focus and tab semantics.
-          h(TabsList, { class: "vh-agent-session__tabs" }, () => [
-            ...visibleTabs.value.map((id) => {
-              const surface = surfaceById.get(id);
-              if (!surface) return null;
-              const selected = id === active.value;
-              // A lone tab has nothing to close into: the panel toggle hides the panel.
-              const closable = visibleTabs.value.length > 1;
-              return h("div", {
-                key: id,
-                class: "vh-agent-session__tab",
-                "data-active": selected ? "" : undefined,
-                "data-closable": closable ? "" : undefined,
-              }, [
-                h(TabsTrigger, {
-                  value: id,
-                  class: "vh-agent-session__tab-button",
-                  onAuxclick: (event: MouseEvent) => closable && event.button === 1 && closeSurface(id),
-                }, () => [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
-                closable
-                  ? h("button", {
-                      type: "button",
-                      class: "vh-agent-session__tab-close",
-                      "aria-label": `Close ${surface.label}`,
-                      onClick: () => closeSurface(id),
-                    }, [icon("i-lucide-x")])
-                  : null,
-              ]);
-            }),
-            h("button", {
-              type: "button",
-              class: "vh-agent-session__toggle vh-agent-session__new-tab",
-              "aria-label": "Open a surface",
-              title: "Open a surface",
-              "aria-pressed": active.value === null ? "true" : "false",
-              onClick: () => (active.value = null),
-            }, [icon("i-lucide-plus")]),
+      }, {
+        // The panel is an `aside` landmark.
+        render: kitSlot("aside", "agent-session-panel"),
+        default: () => [
+          h("div", { class: "vh-agent-session__panel-header", "data-slot": "agent-session-panel-header" }, [
+            // The kit tabs keep the close button beside its tab and own keyboard focus and tab semantics.
+            h(TabsList, { class: "vh-agent-session__tabs" }, () => [
+              ...visibleTabs.value.map((id) => {
+                const surface = surfaceById.get(id);
+                if (!surface) return null;
+                const selected = id === active.value;
+                // A lone tab has nothing to close into: the panel toggle hides the panel.
+                const closable = visibleTabs.value.length > 1;
+                return h("div", {
+                  key: id,
+                  class: "vh-agent-session__tab",
+                  "data-active": selected ? "" : undefined,
+                  "data-closable": closable ? "" : undefined,
+                }, [
+                  h(TabsTab, {
+                    value: id,
+                    class: "vh-agent-session__tab-button",
+                    onAuxclick: (event: MouseEvent) => closable && event.button === 1 && closeSurface(id),
+                  }, () => [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
+                  closable
+                    ? h("button", {
+                        type: "button",
+                        class: "vh-agent-session__tab-close",
+                        "aria-label": `Close ${surface.label}`,
+                        onClick: () => closeSurface(id),
+                      }, [icon("i-lucide-x")])
+                    : null,
+                ]);
+              }),
+              h("button", {
+                type: "button",
+                class: "vh-agent-session__toggle vh-agent-session__new-tab",
+                "aria-label": "Open a surface",
+                title: "Open a surface",
+                "aria-pressed": active.value === null ? "true" : "false",
+                onClick: () => (active.value = null),
+              }, [icon("i-lucide-plus")]),
+            ]),
+            h("div", { class: "vh-agent-session__controls" }, [
+              toggle({
+                slot: "agent-session-maximize",
+                label: maximized.value ? "Restore panel size" : "Maximize panel",
+                iconName: maximized.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2",
+                pressed: maximized.value,
+                onClick: () => (maximized.value = !maximized.value),
+              }),
+              panelToggle(),
+            ]),
           ]),
-          h("div", { class: "vh-agent-session__controls" }, [
-            toggle({
-              slot: "agent-session-maximize",
-              label: maximized.value ? "Restore panel size" : "Maximize panel",
-              iconName: maximized.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2",
-              pressed: maximized.value,
-              onClick: () => (maximized.value = !maximized.value),
-            }),
-            panelToggle(),
-          ]),
-        ]),
-        current
-          ? h(TabsContent, {
-              key: current.id,
-              value: current.id,
-              class: "vh-agent-session__panel-body",
-              "data-slot": "agent-session-panel-body",
-            }, () => slots[`surface-${current.id}`]?.({ surface: current }) ?? slots.surface?.({ surface: current }))
-          : h("div", { class: "vh-agent-session__panel-body", "data-slot": "agent-session-panel-body" }, [launcher()]),
-      ]);
+          current
+            ? h(TabsPanel, {
+                key: current.id,
+                value: current.id,
+                class: "vh-agent-session__panel-body",
+              }, {
+                render: kitSlot("div", "agent-session-panel-body"),
+                default: () => slots[`surface-${current.id}`]?.({ surface: current }) ?? slots.surface?.({ surface: current }),
+              })
+            : h("div", { class: "vh-agent-session__panel-body", "data-slot": "agent-session-panel-body" }, [launcher()]),
+        ],
+      });
     };
 
     return () => {

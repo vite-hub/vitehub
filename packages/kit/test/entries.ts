@@ -17,3 +17,6 @@ export const kitEntries: string[] = exportKeys(readFileSync(new URL("../package.
 export const uiSdkEntries: string[] = exportKeys(readFileSync(new URL(import.meta.resolve("@ui-sdk/vue/package.json")), "utf8"))
   .filter((subpath) => subpath !== "." && subpath !== "./nuxt" && subpath !== "./package.json")
   .map((subpath) => subpath.slice(2));
+
+/** The entries the kit adds to ui-sdk's, with components that ui-sdk does not have. */
+export const ownEntries: string[] = ["editable", "form", "tag-group", "tags-input"];

@@ -2,6 +2,8 @@ import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 // eslint-disable-next-line no-control-regex -- the check must match control characters.
 const controlCharacters = /[\u0000-\u001F\u007F]/
+// Methods decode a pathname once. A decoded pathname with `%XX` would decode again when passed back, and target another object.
+const percentEncoded = /%[\da-f]{2}/i
 
 function hasUnpairedSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index++) {
@@ -24,6 +26,7 @@ export function pathnameIssue(pathname: string, { prefix = false } = {}): string
   if (!pathname && !prefix) return "must not be empty"
   if (controlCharacters.test(pathname)) return "must not contain control characters"
   if (hasUnpairedSurrogate(pathname)) return "must contain well-formed Unicode"
+  if (percentEncoded.test(pathname)) return "must not contain \"%\" followed by two hex digits after decoding"
   if (pathname.split(/[/\\]/).some(segment => segment === "." || segment === "..")) return "must not contain \".\" or \"..\" segments"
   return undefined
 }
