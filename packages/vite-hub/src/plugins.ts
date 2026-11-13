@@ -35,6 +35,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -88,6 +89,7 @@ export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
+export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
@@ -461,6 +463,21 @@ export interface ViteHubOptions {
    * unless the app configures Worker routing.
    */
   publicUrl?: string | ((agentName: string) => string)
+  /**
+   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
+   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
+   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
+   * you run sets the header. Default: `false`.
+   */
+  trustProxy?: boolean
+  /**
+   * Refuse browser writes from other origins that carry cookies, with 403, before any middleware or route runs. A
+   * request is refused when its method is not GET, HEAD, or OPTIONS, it has a `Cookie` header, and its
+   * `Sec-Fetch-Site` is `same-site` or `cross-site`, or its `Origin` is not the app's origin. Requests without cookies,
+   * such as bearer-token clients and webhooks, pass. `exclude` lists path prefixes that take writes from other sites.
+   * Default: `false`.
+   */
+  sameOriginWrites?: boolean | SameOriginWritesOptions
   agent?: boolean | AgentOptions
   auth?: boolean | AuthOptions
   blob?: boolean | BlobOptions
@@ -509,8 +526,9 @@ export interface ViteHubOptions {
   health?: boolean | HealthOptions
   kv?: boolean | KVOptions
   /**
-   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
-   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. MCP clients sign in with `mcpOAuth()`
+   * from `vite-hub/auth/mcp`, so it needs `auth`, unless `mcp: { auth: false }` lets anyone call every tool. Needs
+   * `@vite-hub/mcp`.
    */
   mcp?: boolean | McpOptions
   /**
@@ -1393,6 +1411,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (options.trustProxy || options.sameOriginWrites) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
 
@@ -1549,9 +1568,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.bundle) plugins.push(hubBundle())
   if (options.mcp) {
     const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
-    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    const { auth: mcpAuth = true, ...mcpOptions } = mcpConfig
     if (mcpAuth && !options.auth) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] The MCP server needs Auth, so that only signed-in MCP clients call its tools. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } to let anyone call every tool." })
     }
     plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
       ...mcpOptions,

@@ -156,7 +156,7 @@ Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin
 
 ### Behind a proxy that ends TLS
 
-Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
+Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. When the proxy sends the client's `Host` header, set [`vitehub({ trustProxy: true })`](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy): the request URL of every route, Auth included, becomes `https://`. Otherwise, set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
