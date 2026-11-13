@@ -168,7 +168,7 @@ const statusCommand: ViteHubCliCommand = {
   usage: "vitehub status [--offline] [--json]",
 }
 
-const linkUsage = "vitehub link [--host <preset>] [--project <name>] [--account <id>] [--create] [--json]"
+const linkUsage = "vitehub link [--host <host>] [--project <name>] [--account <id>] [--create] [--json]"
 
 function readLinkArgs(args: string[]) {
   try {

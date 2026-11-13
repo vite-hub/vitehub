@@ -6,11 +6,11 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-vercel
 ---
 
-The `vercel` preset deploys your app to Vercel. A production build writes
+The `vercel` host deploys your app to Vercel. A production build writes
 Vercel Build Output under `.vercel/output`. Definitions stay portable;
 Vercel details stay in the config and output.
 
-| Feature | Default on the `vercel` preset |
+| Feature | Default on the `vercel` host |
 | --- | --- |
 | Blob | Vercel Blob with OIDC (`BLOB_STORE_ID`), or `BLOB_READ_WRITE_TOKEN` off Vercel |
 | KV | Upstash Redis with `KV_REST_API_URL` and `KV_REST_API_TOKEN` |
@@ -32,9 +32,9 @@ Vercel details stay in the config and output.
 | External Database | A Database Definition on Cloudflare D1 over authenticated HTTP, or a Database integration `connection` to hosted libSQL. |
 | Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`, plus an optional team id, for Blob Provision. Server Env for runtime secrets. |
 
-## Configure the preset
+## Configure the host
 
-Select the `vercel` preset and turn on the features you use.
+Select the `vercel` host and turn on the features you use.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -42,7 +42,7 @@ Select the `vercel` preset and turn on the features you use.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     blob: true,
     queue: true,
   },
@@ -59,7 +59,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: true,
       queue: true,
     }),
@@ -77,7 +77,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: true,
       queue: true,
     }),
@@ -120,7 +120,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     database: {
       connection: {
         url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -142,7 +142,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       database: {
         connection: {
           url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -165,7 +165,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       database: {
         connection: {
           url: env({ source: env.source('TURSO_DATABASE_URL') }),

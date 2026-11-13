@@ -1,6 +1,6 @@
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { DeploymentPreset } from "./plugins.ts"
+import type { ViteHubHost } from "./deployment.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */
@@ -29,15 +29,15 @@ export interface ResolvedCacheStorage {
 const defaultCacheBase = ".vitehub/data/cache"
 const defaultCloudflareCacheBinding = "CACHE"
 
-// Each driver needs a runtime that only one preset provides.
-const cacheDriverPresets: Record<CacheDriver, DeploymentPreset> = {
+// Each driver needs a runtime that only one host provides.
+const cacheDriverHosts: Record<CacheDriver, ViteHubHost> = {
   "cloudflare-kv-binding": "cloudflare",
   "deno-kv": "deno",
   "fs-lite": "node",
   "vercel-runtime-cache": "vercel",
 }
 
-const presetCacheDrivers: Partial<Record<DeploymentPreset, CacheDriver>> = {
+const hostCacheDrivers: Partial<Record<ViteHubHost, CacheDriver>> = {
   cloudflare: "cloudflare-kv-binding",
   deno: "deno-kv",
   node: "fs-lite",
@@ -49,35 +49,35 @@ function trimmed(value: unknown): string | undefined {
 }
 
 function isCacheDriver(value: unknown): value is CacheDriver {
-  return typeof value === "string" && Object.hasOwn(cacheDriverPresets, value)
+  return typeof value === "string" && Object.hasOwn(cacheDriverHosts, value)
 }
 
-function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): CacheDriver {
+function readCacheDriver(cache: true | CacheOptions, host: ViteHubHost): CacheDriver {
   if (cache === true) {
-    const driver = presetCacheDrivers[preset]
+    const driver = hostCacheDrivers[host]
     if (!driver) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache: true\` has no default store for the ${preset} preset. Remove \`cache\` or use a preset that provides one.` })
+      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache: true\` has no default store for the ${host} host. Remove \`cache\` or use a host that provides one.` })
     }
     return driver
   }
   if (!isPlainObject(cache) || !isCacheDriver(cache.driver)) {
     throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare-kv-binding", "deno-kv", "fs-lite", "kv", or "vercel-runtime-cache".` })
   }
-  if (cacheDriverPresets[cache.driver] !== preset) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache.driver: "${cache.driver}"\` requires the ${cacheDriverPresets[cache.driver]} preset, but the preset is ${preset}.` })
+  if (cacheDriverHosts[cache.driver] !== host) {
+    throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache.driver: "${cache.driver}"\` requires the ${cacheDriverHosts[cache.driver]} host, but the host is ${host}.` })
   }
   return cache.driver
 }
 
-/** Resolve `cache` into Nitro storage mounts for one deployment preset. */
-export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset, kvCacheDriver?: string): ResolvedCacheStorage {
-  // KV runs on every host, so this driver needs `kv` instead of a preset.
+/** Resolve `cache` into Nitro storage mounts for one host. */
+export function resolveCacheStorage(cache: true | CacheOptions, host: ViteHubHost, kvCacheDriver?: string): ResolvedCacheStorage {
+  // KV runs on every host, so this driver needs `kv` instead of a host.
   if (isPlainObject(cache) && cache.driver === "kv") {
     if (!kvCacheDriver) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
     const mount: KVCacheMount = { base: trimmed(cache.base) ?? "nitro-cache", driver: kvCacheDriver }
     return { devStorage: mount, storage: mount }
   }
-  const driver = readCacheDriver(cache, preset)
+  const driver = readCacheDriver(cache, host)
   const explicit = cache === true ? undefined : cache
   const localBase = explicit?.driver === "fs-lite" ? trimmed(explicit.base) ?? defaultCacheBase : defaultCacheBase
   const devStorage = { driver: "fs-lite" as const, base: localBase }

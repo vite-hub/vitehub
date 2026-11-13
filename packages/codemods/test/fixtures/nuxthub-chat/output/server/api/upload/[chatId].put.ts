@@ -1,6 +1,6 @@
 import { createError, defineEventHandler, getRouterParam } from 'nuxt/server'
 import { blob } from 'vite-hub/blob'
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {

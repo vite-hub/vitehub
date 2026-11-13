@@ -122,7 +122,8 @@ describe("canonical Env documentation", () => {
   it("keeps every Public Env and Define Env declaration in build mode", async () => {
     const declarations = await canonicalBuildDeclarations();
 
-    expect(declarations).toHaveLength(5);
+    // The standalone hero code tree adds one Vite declaration to the canonical examples.
+    expect(declarations).toHaveLength(6);
     for (const declaration of declarations) {
       const options = declaration.arguments[0];
       expect(isObjectLiteralExpression(options) && optionsHaveBuildMode(options)).toBe(true);

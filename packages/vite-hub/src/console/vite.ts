@@ -19,7 +19,7 @@ import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild, type ConsoleNitroPluginOptions } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsoleRpcHandler } from "./nitro.ts"
+import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -61,6 +61,11 @@ export interface ConsoleOptions {
   impersonation?: boolean
   /** Let the Console start Agent Invocations and run manual Schedules. Defaults to `true` in development and `false` in production builds. */
   invoke?: boolean
+  /**
+   * Sections to leave out of this Console, such as `{ content: false }`. A hidden section has no navigation entry and
+   * no Console routes. It does not change the primitive itself: the app still reads and writes its content.
+   */
+  sections?: Readonly<Record<string, false>>
   /**
    * Show the MCP client section: it connects to MCP servers as the person who signed in to the Console, with OAuth or a
    * token. It lists the servers that the app announces in its RFC 9728 metadata, such as its own `/mcp`.
@@ -119,7 +124,11 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (impersonation !== undefined && impersonation !== true && impersonation !== false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.impersonation must be true or false." })
   }
-  // SAFETY: `auth` and `impersonation` are checked above. The other fields keep their documented types and are checked where they are read.
+  const sections: unknown = Reflect.get(value, "sections")
+  if (sections !== undefined && (!(sections instanceof Object) || Array.isArray(sections) || Object.values(sections).some(entry => entry !== false))) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.sections maps a section id to false, such as { content: false }." })
+  }
+  // SAFETY: `auth`, `impersonation`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
 }
 
@@ -185,6 +194,8 @@ function configureConsoleNitroRoutes(
   const mount = viteHubPageToolsBase({ base: baseURL, nitro }).mount
   const kit = createNitroServerKit({ ...nitro, handlers: Array.isArray(nitro.handlers) ? [...nitro.handlers] : [] })
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount)
+  // The development RPC without Console options has no Console link in the page tools pill.
+  if (!rpcOnly) addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, mount)
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
     .filter(asset => asset?.dir !== consoleSkillsRoot)
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations.
@@ -231,6 +242,7 @@ export function resolveConsoleAccessBuild(configured: ConsoleOptions, options: {
     mode: configured.auth === false ? "open" : "token",
     ...(authorize ? { authorize } : {}),
     ...(configured.impersonation === true ? { impersonation: true as const } : {}),
+    ...(configured.sections && Object.keys(configured.sections).length ? { hiddenSections: Object.keys(configured.sections) } : {}),
   }
 }
 
@@ -284,6 +296,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
+      ...(options.rpcOnly ? {} : { pageTool: { base: applicationBase } }),
     }
   }
 

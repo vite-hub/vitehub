@@ -72,8 +72,7 @@
     "@vite-hub/runtime": "workspace:*",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ocache": "catalog:unjs",
-    "ofetch": "catalog:unjs"
+    "ocache": "catalog:unjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",

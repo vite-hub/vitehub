@@ -1,13 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
-// The `semver` entry loads every one of its 47 modules. These three load a handful.
-import satisfies from "semver/functions/satisfies.js"
-import validVersion from "semver/functions/valid.js"
-import validRange from "semver/ranges/valid.js"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -22,6 +19,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/browser"
     | "@vite-hub/channels"
     | "@vite-hub/cms"
+    | "@vite-hub/codemods"
     | "@vite-hub/comments"
     | "@vite-hub/connections"
     | "@vite-hub/content"
@@ -82,6 +80,8 @@ export const optionalFeaturePackages = {
   // `.template.md` imports and `vite-hub/markdown-template`.
   "markdown-template": ["@vite-hub/markdown-template"],
   "mcp": features.mcp.packages,
+  // `vitehub migrate` runs its codemods. Install it as a development dependency.
+  "migrate": ["@vite-hub/codemods"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
   "queue": features.queue.packages,
   "rateLimit": features.rateLimit.packages,
@@ -97,8 +97,44 @@ export const optionalFeaturePackages = {
 
 export type OptionalFeature = keyof typeof optionalFeaturePackages
 
-/** Whether the app installed `packageName`, as `vite-hub` resolves it. */
+/**
+ * The results of `isPackageInstalled` in this process. Each lookup resolves from `vite-hub` itself, so the package name
+ * is the key. A dev start asks for the same packages two or three times, and most of them are missing.
+ */
+const packageChecks = new Map<string, boolean>()
+
+/** Whether the app installed `packageName`, as `vite-hub` resolves it. The result stays until `forgetPackageChecks`. */
 export function isPackageInstalled(packageName: string): boolean {
+  let installed = packageChecks.get(packageName)
+  if (installed === undefined) {
+    installed = resolvesPackage(packageName)
+    packageChecks.set(packageName, installed)
+  }
+  return installed
+}
+
+/**
+ * Forgets the results of `isPackageInstalled`, so that the next check sees the packages that the app installed or
+ * removed since then. The `vite-hub/dependencies` plugin calls it when the dev server or the build closes.
+ */
+export function forgetPackageChecks(): void {
+  packageChecks.clear()
+}
+
+let startedPackageChecks = false
+
+/**
+ * Forgets the results of an earlier start. `vitehub()` calls it each time Vite loads the app config, and the Nuxt module
+ * calls it when Nuxt asks for its dependencies, first on each start. A Vite restart creates the new server before it
+ * closes the old one, so `closeBundle` comes after the config hooks of the new server. A Nuxt start that fails before
+ * Vite starts closes no plugin. The first start keeps the results of the checks that the import of `vite-hub` made.
+ */
+export function startPackageChecks(): void {
+  if (startedPackageChecks) forgetPackageChecks()
+  startedPackageChecks = true
+}
+
+function resolvesPackage(packageName: string): boolean {
   try {
     import.meta.resolve(`${packageName}/package.json`)
     return true
@@ -163,8 +199,13 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
 
 /** Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range. */
 export function assertFeaturePackages(features: readonly OptionalFeature[]): void {
-  const missing = features.filter(feature => !optionalFeaturePackages[feature].every(isPackageInstalled))
-  if (missing.length) throw missingFeaturePackagesError(missing)
+  const isMissing = (feature: OptionalFeature) => !optionalFeaturePackages[feature].every(isPackageInstalled)
+  if (features.some(isMissing)) {
+    // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
+    forgetPackageChecks()
+    const missing = features.filter(isMissing)
+    if (missing.length) throw missingFeaturePackagesError(missing)
+  }
   warnUnsupportedPackageVersions(features.flatMap(feature => optionalFeaturePackages[feature]))
 }
 
@@ -223,6 +264,7 @@ export function unsupportedPackageVersionsWarning(
   manifest: unknown = readViteHubManifest(),
 ): string | undefined {
   const peers = isPlainObject(manifest) && isPlainObject(manifest.peerDependencies) ? manifest.peerDependencies : {}
+  const { satisfies, validRange, validVersion } = semverFunctions()
   const unsupported = [...new Set(packages)].flatMap((name) => {
     const range = peers[name]
     if (typeof range !== "string" || validRange(range) === null) return []
@@ -237,6 +279,29 @@ export function unsupportedPackageVersionsWarning(
   const previews = installArguments(unsupported.map(({ name }) => name), manifest)
   const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!))
   return `[vitehub] ${lines.join(" ")} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${install.join(" ")}`
+}
+
+interface SemverFunctions {
+  satisfies: typeof import("semver/functions/satisfies.js")
+  validRange: typeof import("semver/ranges/valid.js")
+  validVersion: typeof import("semver/functions/valid.js")
+}
+
+let semver: SemverFunctions | undefined
+
+/**
+ * Loads semver when a version check runs, so `vite-hub/nuxt` starts without it. The `semver` entry loads every one of
+ * its 47 modules. These three load a handful.
+ */
+function semverFunctions(): SemverFunctions {
+  if (semver) return semver
+  const require = createRequire(import.meta.url)
+  semver = {
+    satisfies: require("semver/functions/satisfies.js"),
+    validRange: require("semver/ranges/valid.js"),
+    validVersion: require("semver/functions/valid.js"),
+  }
+  return semver
 }
 
 const checkedPackageVersions = new Set<string>()

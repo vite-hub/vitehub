@@ -1,4 +1,4 @@
-import { email as viteHubEmail } from 'vite-hub/email/server'
+import { email as viteHubEmail } from 'vite-hub/email'
 
 export default defineEventHandler(async (event) => {
   const { email, message } = await readBody<{ email: string, message: string }>(event)

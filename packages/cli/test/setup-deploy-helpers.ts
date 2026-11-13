@@ -59,7 +59,7 @@ if (await run(["deploy", "create", ".", "--source", "local", ...common]) !== 0) 
 
 /** The build output files of each host, as ViteHub's build writes them, without the server bundle. */
 export function buildOutput(host: "cloudflare" | "vercel" | "netlify" | "deno", deployCommand = "npx wrangler deploy --config ./server/wrangler.json"): Record<string, string> {
-  const manifest = (dir: string) => ({ [`${dir}/deployment.json`]: JSON.stringify({ host, identity: { name: "my-app", source: "package" }, preset: host }) })
+  const manifest = (dir: string) => ({ [`${dir}/deployment.json`]: JSON.stringify({ host, identity: { name: "my-app", source: "package" } }) })
   switch (host) {
     case "cloudflare": return {
       ...manifest(".output"),
@@ -80,7 +80,7 @@ export function buildOutput(host: "cloudflare" | "vercel" | "netlify" | "deno", 
 export async function builtProject(host: "cloudflare" | "vercel" | "netlify" | "deno", files: Record<string, string> = {}): Promise<string> {
   return await createProject({
     "package.json": JSON.stringify({ name: "my-app", packageManager: "pnpm@10.0.0", scripts: { build: "vite build" }, type: "module" }),
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ preset: "${host}" })] })\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ host: "${host}" })] })\n`,
     ".gitignore": ".output\n.vercel\n.netlify\ndist\n.vitehub\n",
     ...buildOutput(host),
     ...files,

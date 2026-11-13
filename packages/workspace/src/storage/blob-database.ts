@@ -428,7 +428,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     if (headError?.code === "BLOB_NOT_FOUND") return
     if (headError) throw headError
     if (!object) return
-    const [error] = await this.options.blob.del(key)
+    const [error] = await this.options.blob.delete(key)
     if (error && error.code !== "BLOB_NOT_FOUND") throw error
   }
 
@@ -460,7 +460,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       if (cursor) cursors.add(cursor)
     } while (cursor)
     for (let offset = 0; offset < remaining.length; offset += 1000) {
-      const [error] = await this.options.blob.del(remaining.slice(offset, offset + 1000))
+      const [error] = await this.options.blob.delete(remaining.slice(offset, offset + 1000))
       if (error) throw error
     }
     await this.options.database.batch([

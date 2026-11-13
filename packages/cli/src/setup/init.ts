@@ -17,18 +17,18 @@ import { installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { JsonValue } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddArgs, SetupChange, SetupOptions, SetupRerun } from "./add.ts"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
 
-const usage = "vitehub init <dir> --host <preset> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
+const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
 /** The command that starts a project. It runs from the `vite-hub` package, so it needs no install. */
 const initCommandPrefix = "pnpm dlx vite-hub init"
 
-const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly DeploymentPreset[]
+const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly ViteHubHost[]
 type InitHost = typeof initHosts[number]
 type InitFramework = "vite" | "nuxt"
 const frameworks: readonly InitFramework[] = ["vite", "nuxt"]
@@ -238,14 +238,14 @@ function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   "include": ["server/**/*.ts", "vite.config.ts"]
 }
 `,
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: "${host}" })],\n})\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ host: "${host}" })],\n})\n`,
   }
 }
 
 /** The config that `nuxi init` and the adoption would give, to plan a new Nuxt app before `nuxi init` runs. */
 function nuxtAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { preset: "${host}" }],\n  ],\n})\n`,
+    "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { host: "${host}" }],\n  ],\n})\n`,
     "package.json": `${JSON.stringify({ name, private: true, type: "module" }, null, 2)}\n`,
   }
 }
@@ -304,7 +304,7 @@ async function readOptional(file: string): Promise<string | undefined> {
 }
 
 function manualConfig(file: string, reason: string, host: InitHost, framework: InitFramework): SetupFailure {
-  const snippet = framework === "nuxt" ? `[viteHubNuxt, { preset: "${host}" }],` : `vitehub({ preset: "${host}" }),`
+  const snippet = framework === "nuxt" ? `[viteHubNuxt, { host: "${host}" }],` : `vitehub({ host: "${host}" }),`
   return new SetupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
 }
 
@@ -322,13 +322,13 @@ function adoptConfig(project: SetupProject, host: InitHost, framework: InitFrame
   if (before === undefined) throw manualConfig(file, "no-vitehub", host, framework)
   if (!config?.ok) {
     if (config?.reason !== "no-vitehub") throw manualConfig(file, config?.reason ?? "no-vitehub", host, framework)
-    const inserted = insertViteHubConfig(file, before, { preset: host })
+    const inserted = insertViteHubConfig(file, before, { host })
     if (!inserted.ok) throw manualConfig(file, inserted.reason, host, framework)
     return { after: inserted.code, before, file }
   }
-  const preset = config.site.keys.preset
-  if (preset?.kind === "literal" && preset.value === host) return { after: before, before, file }
-  const edited = editViteHubConfig(file, before, [{ key: "preset", op: "set", value: host }])
+  const configuredHost = config.site.keys.host
+  if (configuredHost?.kind === "literal" && configuredHost.value === host) return { after: before, before, file }
+  const edited = editViteHubConfig(file, before, [{ key: "host", op: "set", value: host }])
   if (!edited.ok) throw manualConfig(file, edited.reason, host, framework)
   return { after: edited.code, before, file }
 }

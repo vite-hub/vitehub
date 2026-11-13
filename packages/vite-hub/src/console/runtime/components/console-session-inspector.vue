@@ -13,15 +13,21 @@ import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
-const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
+const ConsoleFileTree = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileTree));
+const ConsolePatchDiff = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.PatchDiff));
+const ConsoleFileDiff = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileDiff));
 // JSON Render and Zod load with the Capabilities tab, not with every session.
 const AgentCapabilityInspector = defineAsyncComponent(() => import("./invocation/agent-capability-inspector").then(module => module.AgentCapabilityInspector));
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
+type WorkspaceChange = { path: string; status: "added" | "deleted" | "modified" };
 type WorkspaceDescriptor = {
+  /** The head of the ref that `changes` compares with, such as `main`. */
+  base?: { ref: string; revision: string };
+  changes?: WorkspaceChange[];
   paths: string[];
   pullRequest?: number;
+  ref?: string;
   repository: string;
   revision: string;
 };
@@ -32,6 +38,8 @@ const props = withDefaults(
     invocation: AgentInvocationView;
     maximized?: boolean;
     maximizable?: boolean;
+    /** Show only this view, without the tab strip, for a layout that has its own tabs such as AgentSession. */
+    view?: InspectorTab;
     workspaceBase?: string;
   }>(),
   { maximized: false, maximizable: true },
@@ -48,14 +56,17 @@ const workspaceLoading = ref(false);
 const file = ref<WorkspaceFile>();
 const fileError = ref<string>();
 const fileLoading = ref(false);
+// The selected file at the base revision, for the diff of a changed file.
+const baseFile = ref<{ content: string; path: string }>();
+const diffOpen = ref(true);
 const viewMeta: Record<
   InspectorTab,
   { description: string; icon: string; label: string }
 > = {
   details: {
-    description: "Review the run, runtime, and identifiers.",
-    icon: "i-lucide-circle-dot",
-    label: "Invocation",
+    description: "Review the run, its usage, setup, and identifiers.",
+    icon: "i-lucide-info",
+    label: "Details",
   },
   capabilities: {
     description: "Inspect capabilities, servers, and tool contracts.",
@@ -78,9 +89,10 @@ const viewMeta: Record<
     label: "Diff",
   },
 };
+// A tab with nothing to show is left out. Tools without a Capability are listed in the Details tab.
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
-  "capabilities",
+  ...(props.invocation.configuration?.capabilities?.length ? (["capabilities"] as const) : []),
   "trace",
   ...(props.workspaceBase ? (["workspace"] as const) : []),
   ...(diffs.value.length ? (["diff"] as const) : []),
@@ -132,6 +144,11 @@ const workspaceLabel = computed(() =>
       : `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
     : "Agent Workspace",
 );
+const changes = computed(() => workspace.value?.changes ?? []);
+const selectedChange = computed(() => changes.value.find(change => change.path === selectedPath.value));
+// A changed file opens as its diff against the base. "File" shows the whole file again.
+const showDiff = computed(() => Boolean(diffOpen.value && selectedChange.value && workspace.value?.base && file.value));
+const changeLabels: Record<WorkspaceChange["status"], string> = { added: "Added", deleted: "Deleted", modified: "Modified" };
 const workspaceSources = computed(() => props.invocation.configuration?.workspace?.sources
   ?.map(source => source instanceof Object ? source.id : source)
   .join(" · "));
@@ -172,6 +189,7 @@ const launcherItems = computed<DropdownMenuItem[]>(() =>
 );
 const treeOptions = computed(() => ({
   density: "compact" as const,
+  gitStatus: changes.value.filter(change => change.status !== "deleted"),
   onSelectionChange(paths: readonly string[]) {
     const path = paths.findLast((path) => workspace.value?.paths.includes(path));
     if (path) selectedPath.value = path;
@@ -241,12 +259,24 @@ watch(
     if (items.some((item) => String(item.value) === activeSurface.value)) return;
     const fallback = items.at(-1)?.value;
     if (fallback !== undefined) activateSurface(fallback);
-    else {
-      activeSurface.value = "";
-      selectedPath.value = undefined;
-    }
+    // An open panel always shows something: the Details tab when no other tab is open, such as a link to a tab
+    // that this session does not have.
+    else openView("details");
   },
-  { flush: "post" },
+  { flush: "post", immediate: true },
+);
+
+// A single-view inspector opens its view once the default Details tab is in place, and keeps a file that the caller
+// asked for, since opening the Workspace view clears the selection.
+watch(
+  () => props.view,
+  (view) => {
+    if (!view) return;
+    const path = selectedPath.value;
+    openView(view);
+    if (path && view === "workspace") selectedPath.value = path;
+  },
+  { flush: "post", immediate: true },
 );
 
 watch(activeSurface, async () => {
@@ -415,6 +445,7 @@ async function loadFile(path: string) {
   fileLoading.value = true;
   fileError.value = undefined;
   file.value = undefined;
+  baseFile.value = undefined;
   try {
     const loadedFile = parseWorkspaceFile(
       await requestJson(
@@ -428,6 +459,7 @@ async function loadFile(path: string) {
       });
     if (fileRequest !== controller || selectedPath.value !== path) return;
     file.value = loadedFile;
+    void loadBaseFile(path, controller);
   } catch (error) {
     if (!controller.signal.aborted && fileRequest === controller) fileError.value = message(error);
   } finally {
@@ -435,6 +467,27 @@ async function loadFile(path: string) {
       fileRequest = undefined;
       fileLoading.value = false;
     }
+  }
+}
+
+/** Reads the base revision of a modified file. An added file has no base, so its diff starts empty. */
+async function loadBaseFile(path: string, controller: AbortController) {
+  baseFile.value = undefined;
+  const base = workspace.value?.base;
+  const change = workspace.value?.changes?.find(entry => entry.path === path);
+  if (!base || !change) return;
+  if (change.status === "added") {
+    baseFile.value = { content: "", path };
+    return;
+  }
+  try {
+    const loaded = parseWorkspaceFile(await requestJson(
+      `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace?path=${encodeURIComponent(path)}&revision=${encodeURIComponent(base.revision)}`,
+      controller.signal,
+    ));
+    if (selectedPath.value === path && loaded.path === path) baseFile.value = { content: loaded.content, path };
+  } catch {
+    // The whole file still shows. Only the diff is missing.
   }
 }
 
@@ -467,6 +520,20 @@ function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
     revision,
   };
   if (pullRequest !== undefined) result.pullRequest = pullRequest;
+  const ref = stringValue(descriptor?.ref);
+  if (ref) result.ref = ref;
+  const base = record(descriptor?.base);
+  const baseRef = stringValue(base?.ref);
+  const baseRevision = stringValue(base?.revision);
+  if (baseRef && baseRevision) result.base = { ref: baseRef, revision: baseRevision };
+  if (Array.isArray(descriptor?.changes)) {
+    result.changes = descriptor.changes.flatMap((entry) => {
+      const change = record(entry);
+      const path = stringValue(change?.path);
+      const status = change?.status;
+      return path && (status === "added" || status === "deleted" || status === "modified") ? [{ path, status }] : [];
+    });
+  }
   return result;
 }
 
@@ -508,8 +575,8 @@ function message(error: unknown) {
 </script>
 
 <template>
-  <aside class="session-inspector">
-    <header class="session-inspector__header">
+  <aside class="session-inspector" :data-single-view="props.view ? '' : undefined">
+    <header v-if="!props.view" class="session-inspector__header">
       <div ref="tabstrip" class="session-inspector__tabstrip">
         <!--
           Reka tabs, not UTabs: each tab has its own close button beside the trigger, and UTabs renders its trailing
@@ -573,21 +640,21 @@ function message(error: unknown) {
             :aria-pressed="props.maximized"
             @click="emit('toggleMaximized')"
         /></UTooltip>
-        <UTooltip text="Toggle right panel"
+        <!-- The session header holds the details toggle. A maximized panel hides that header, so it needs its own. -->
+        <UTooltip v-if="props.maximized" text="Close session details"
           ><UButton
             class="session-inspector__icon-button"
             icon="i-lucide-panel-right"
             variant="ghost"
             size="xs"
-            aria-label="Toggle right panel"
-            aria-pressed="true"
+            aria-label="Close session details"
             @click="emit('close')"
         /></UTooltip>
       </div>
     </header>
 
     <UEmpty
-      v-if="!activeSurfaceExists"
+      v-if="!props.view && !activeSurfaceExists"
       variant="naked"
       class="session-inspector__empty"
       title="Open a tab"
@@ -680,6 +747,17 @@ function message(error: unknown) {
           ></template
         >
         <div class="session-inspector__workspace-actions">
+          <UTooltip v-if="selectedChange && workspace?.base" :text="diffOpen ? 'Show the whole file' : `Show changes since ${workspace.base.ref}`">
+            <UButton
+              icon="i-lucide-git-compare-arrows"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              :aria-label="diffOpen ? 'Show the whole file' : `Show changes since ${workspace.base.ref}`"
+              :aria-pressed="diffOpen"
+              @click="diffOpen = !diffOpen"
+            />
+          </UTooltip>
           <UTooltip :text="wrapLines ? 'Disable line wrap' : 'Enable line wrap'">
             <UButton
               icon="i-lucide-wrap-text"
@@ -721,10 +799,34 @@ function message(error: unknown) {
       <template v-else-if="workspace || selectedPath">
         <div class="session-inspector__workspace-body" :data-tree-open="treeOpen && !!workspace">
           <div class="session-inspector__file">
-            <div v-if="!selectedPath && workspace" class="session-inspector__snapshot">
+            <section
+              v-if="!selectedPath && workspace && changes.length"
+              class="session-inspector__changes"
+              aria-labelledby="session-inspector-changes"
+            >
+              <header>
+                <strong id="session-inspector-changes">Changes since {{ workspace.base?.ref ?? "base" }}</strong>
+                <small>{{ changes.length }} {{ changes.length === 1 ? "file" : "files" }}</small>
+              </header>
+              <ul>
+                <li v-for="change in changes" :key="change.path">
+                  <button
+                    type="button"
+                    data-focus-inset
+                    :disabled="change.status === 'deleted'"
+                    :title="change.status === 'deleted' ? `${change.path} is not in this revision` : `Open ${change.path}`"
+                    @click="openFile(change.path)"
+                  >
+                    <span class="session-inspector__change-status" :data-status="change.status" :aria-label="changeLabels[change.status]">{{ change.status[0]!.toUpperCase() }}</span>
+                    <span class="session-inspector__change-path">{{ change.path }}</span>
+                  </button>
+                </li>
+              </ul>
+            </section>
+            <div v-else-if="!selectedPath && workspace" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
               <span class="session-inspector__eyebrow">{{
-                ["current", "live"].includes(workspace.revision) ? "Live workspace" : "Immutable snapshot"
+                ["current", "live"].includes(workspace.revision) ? "Live workspace" : workspace.base ? `Same files as ${workspace.base.ref}` : "Immutable snapshot"
               }}</span>
               <strong>{{ workspaceLabel }}</strong>
               <small>
@@ -740,6 +842,13 @@ function message(error: unknown) {
             <div v-else-if="fileError" class="session-inspector__state text-error">
               <UIcon name="i-lucide-file-warning" />{{ fileError }}
             </div>
+            <ConsoleFileDiff
+              v-else-if="selectedPath && file && showDiff && baseFile"
+              class="session-inspector__file-diff"
+              :old-file="{ name: file.path, contents: baseFile.content }"
+              :new-file="{ name: file.path, contents: file.content }"
+              :options="{ diffStyle: 'unified', overflow: wrapLines ? 'wrap' : 'scroll' }"
+            />
             <ConsoleSessionCodePreview
               v-else-if="selectedPath && file"
               :content="file.content"
@@ -760,8 +869,10 @@ function message(error: unknown) {
         </div>
       </template>
       <footer v-if="workspace || file" class="session-inspector__file-status">
-        <span v-if="workspace" :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : workspace.revision">{{ workspace.revision === 'current' ? 'Current mounted files' : workspace.revision }}</span>
-        <span v-else-if="file">{{ file.revision === "current" ? "Current mounted file" : file.revision }}</span>
+        <span v-if="workspace" class="session-inspector__file-revision" :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : `${workspace.ref ? `${workspace.ref} · ` : ''}${workspace.revision}`">{{ workspace.revision === 'current' ? 'Current mounted files' : `${workspace.ref ? `${workspace.ref} · ` : ''}${workspace.revision.slice(0, 12)}` }}</span>
+        <span v-if="selectedChange" class="session-inspector__change-note">{{ changeLabels[selectedChange.status] }} since {{ workspace?.base?.ref }}</span>
+        <span v-else-if="file && workspace?.base" class="session-inspector__change-note">Unchanged since {{ workspace.base.ref }}</span>
+        <span v-else-if="file && file.revision !== workspace?.revision" class="session-inspector__file-revision" :title="file.revision">{{ file.revision === "current" ? "Current mounted file" : file.revision.slice(0, 12) }}</span>
         <span v-if="file?.provenance">From {{ file.provenance.source }}</span>
         <span><template v-if="workspace">{{ workspace.paths.length }} files<span v-if="file"> · </span></template><template v-if="file">{{ consoleBytes(file.size) }}</template></span>
       </footer>

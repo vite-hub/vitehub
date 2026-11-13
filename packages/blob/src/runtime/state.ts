@@ -21,23 +21,9 @@ import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
 let runtimeConfigSnapshot: string | undefined
-const functionIds = new WeakMap<Function, number>()
-let nextFunctionId = 0
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorages = new Map<string, BlobStorage>()
 let pendingStorages = new Map<string, Promise<BlobStorage>>()
-
-function isCallable(value: unknown): value is Function {
-  if (value === null || value === undefined) return false
-  try {
-    // SAFETY: bind.call checks callability across realms and callable proxies.
-    Function.prototype.bind.call(value as Function, undefined)
-    return true
-  }
-  catch {
-    return false
-  }
-}
 
 export {
   clearActiveCloudflareEnv,
@@ -82,7 +68,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
       const env = typeof process !== "undefined" ? process.env : {}
       const hosting = getActiveCloudflareEnv()
         ? "cloudflare"
-        : readEnv(env, "VITEHUB_HOSTING")
+        : readEnv(env, "VITEHUB_HOST")
           || (readEnv(env, "NETLIFY") || readEnv(env, "NETLIFY_DEV") || readEnv(env, "NETLIFY_LOCAL") ? "netlify" : undefined)
           || (readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
       return normalizeBlobOptions(undefined, { env, hosting }) || false
@@ -106,15 +92,7 @@ export function getNamedBlobRuntimeStorage(name: string): BlobStorage | undefine
 }
 
 export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions | undefined): void {
-  const snapshot = config === undefined ? undefined : JSON.stringify(config, (_key, value: unknown) => {
-    if (!isCallable(value)) return value
-    let id = functionIds.get(value)
-    if (id === undefined) {
-      id = ++nextFunctionId
-      functionIds.set(value, id)
-    }
-    return { __viteHubFunctionId: id }
-  })
+  const snapshot = config === undefined ? undefined : JSON.stringify(config)
   if (config !== undefined && config === runtimeConfig && snapshot === runtimeConfigSnapshot) return
   runtimeConfig = config
   runtimeConfigSnapshot = snapshot

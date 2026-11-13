@@ -9,6 +9,13 @@ export interface ViteHubConsoleDefinitionCatalogView {
   notice: string
 }
 
+/** Lists Workspace Definitions like a catalog, and browses the refs, revisions, and files of the selected one. */
+export interface ViteHubConsoleWorkspaceBrowserView {
+  kind: "workspace-browser"
+  /** States which runtime data the browser does not include. */
+  notice: string
+}
+
 export interface ViteHubConsoleRecordColumn {
   /** Set it for a column with few values, such as a status. The Console then filters the table by its values. */
   filter?: boolean
@@ -96,7 +103,8 @@ export type ViteHubConsoleSectionView =
   | ViteHubConsoleAuthView
   | ViteHubConsoleDefinitionCatalogView
   | ViteHubConsoleRecordTableView
-  | ViteHubConsoleDocumentEditorView;
+  | ViteHubConsoleDocumentEditorView
+  | ViteHubConsoleWorkspaceBrowserView;
 
 /**
  * The overview of a document editor section: document counts by state, the changes that wait for a publish, recent

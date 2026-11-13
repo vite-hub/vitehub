@@ -52,7 +52,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const { features } = plan
   const wranglerFile = findWranglerFile(cwd)
   const configResult = editConfig(config, plan, wranglerFile, await readCloudflareResourceOptions(cwd, wranglerFile, plan.bindings))
-  const cloudflare = configResult.preset === "cloudflare"
+  const cloudflare = configResult.host === "cloudflare"
   const wrangler = await planWrangler(cwd, wranglerFile, features, cloudflare, plan.bindings, configResult.written)
 
   let schema: SchemaMove | undefined
@@ -81,7 +81,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (features.cache) notes.push("Cached handlers come from Nitro and use the cache store of cache: true. In Nitro 3, import defineCachedHandler() (formerly cachedEventHandler()) and defineCachedFunction() from nitro/cache.")
   const installed = features.database ? "vite-hub and @vite-hub/database" : "vite-hub"
   return {
-    summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.preset ? ` with preset "${configResult.preset}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
+    summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
     followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
