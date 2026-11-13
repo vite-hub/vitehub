@@ -64,6 +64,10 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : `Realtime \`persistence.${name}\` must be a non-negative number of milliseconds.`,
       fix: "Set `persistence: { debounce: 2_000, maxWait: 10_000 }`, or remove the option to use these defaults.",
     },
+    REALTIME_CHECKPOINT_UNSUPPORTED: {
+      why: "The Realtime definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method, so `history.checkpoint()` could never run.",
+      fix: "Add `checkpoint(context, { digest, message, user })` to the document adapter, use `document: { workspace }`, or remove `history`.",
+    },
     REALTIME_INVALID_USER: {
       why: "The realtime identity needs a user `id` that is a non-empty string of at most 256 characters.",
       fix: "Return a user with an `id` from the Auth session or from `authorize()`.",

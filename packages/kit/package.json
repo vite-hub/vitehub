@@ -26,7 +26,10 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/styles/default.css",
+    "./dist/styles/tokens.css"
+  ],
   "exports": {
     "./accordion": {
       "types": "./dist/accordion.d.ts",
@@ -127,11 +130,6 @@
       "types": "./dist/drawer.d.ts",
       "import": "./dist/drawer.js",
       "default": "./dist/drawer.js"
-    },
-    "./editable": {
-      "types": "./dist/editable.d.ts",
-      "import": "./dist/editable.js",
-      "default": "./dist/editable.js"
     },
     "./field": {
       "types": "./dist/field.d.ts",
@@ -323,11 +321,6 @@
       "import": "./dist/tabs.js",
       "default": "./dist/tabs.js"
     },
-    "./tag-group": {
-      "types": "./dist/tag-group.d.ts",
-      "import": "./dist/tag-group.js",
-      "default": "./dist/tag-group.js"
-    },
     "./tags-input": {
       "types": "./dist/tags-input.d.ts",
       "import": "./dist/tags-input.js",
@@ -393,27 +386,35 @@
       "import": "./dist/waterfall.js",
       "default": "./dist/waterfall.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./styles/default.css": "./dist/styles/default.css",
+    "./styles/tokens.css": "./dist/styles/tokens.css"
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/kit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run --cache -t @vite-hub/kit#build && vp test"
+    "test": "vp run --cache -t @vite-hub/kit#build && vp test",
+    "test:styles": "node --test test/browser/styles.browser.mjs"
   },
   "dependencies": {
     "@ui-sdk/core": "0.1.0-beta.2",
     "@ui-sdk/vue": "0.1.0-beta.2"
   },
   "devDependencies": {
+    "@fontsource-variable/geist": "catalog:ui",
+    "@fontsource-variable/geist-mono": "catalog:ui",
     "@nuxt/kit": "4.6.2",
     "@nuxt/schema": "4.6.4",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vitejs/plugin-vue": "^6.0.10",
     "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
+    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"

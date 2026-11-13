@@ -27,7 +27,6 @@ const send = defineQueueOperation<QueueSendOperationInput, QueueSendOperationRes
   description: "Send one job to a Queue Definition. The payload is a JSON value.",
   input: v.strictObject({
     delaySeconds: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
-    id: v.optional(v.pipe(v.string(), v.minLength(1))),
     idempotencyKey: v.optional(v.pipe(v.string(), v.minLength(1))),
     payload: v.unknown(),
     queue: v.pipe(v.string(), v.minLength(1)),

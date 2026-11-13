@@ -188,7 +188,6 @@ async function captureEmailOutbox(): Promise<void> {
     from: "hello@acme.test",
     headers: { Authorization: "Bearer re_playground_secret" },
     html: '<p onclick="steal()">Welcome, Linus <img src=x onerror=alert(1)></p>\n<script>alert("xss")</script>',
-    preheader: "Start here",
     subject: "Welcome to Acme",
     text: "Welcome, Linus.",
     to: ["linus@example.test"],

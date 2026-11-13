@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition } from "../src/types.ts"
+import type { RealtimeDocumentDefinition } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
-import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument } from "../src/server.ts"
+import { defineRealtime } from "../src/definition.ts"
+import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument, resolveRealtimeDefinition } from "../src/server.ts"
 import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
@@ -44,7 +45,7 @@ async function pace(): Promise<void> {
   await vi.advanceTimersByTimeAsync(60)
 }
 
-function liveDefinition(adapter: RealtimeDefinition["document"], extra: Partial<RealtimeDefinition> = {}): RealtimeDefinition {
+function liveDefinition(adapter: RealtimeDocumentDefinition["document"], extra: Partial<RealtimeDocumentDefinition> = {}): RealtimeDocumentDefinition {
   return { document: adapter, editor: createStubEditor().editor, ...extra }
 }
 
@@ -620,7 +621,7 @@ describe("re-seeding", () => {
 })
 
 describe("identity and authorization", () => {
-  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: Partial<RealtimeDefinition> = {}) {
+  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: Partial<RealtimeDocumentDefinition> = {}) {
     return liveDefinition(memory.adapter, {
       authorize: ({ documentId, mode, user }) => {
         if (documentId === "secret") return user?.id === "ana"
@@ -730,6 +731,16 @@ describe("identity and authorization", () => {
 })
 
 describe("history checkpoints", () => {
+  it("rejects history.checkpoint on an adapter without checkpoint() when the definition loads", () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const definition = liveDefinition(memory.adapter, { history: { checkpoint: true } })
+    const unsupported = expect.objectContaining({ code: "REALTIME_CHECKPOINT_UNSUPPORTED", fix: expect.stringContaining("checkpoint(") })
+    expect(() => defineRealtime(definition)).toThrow(unsupported)
+    expect(() => resolveRealtimeDefinition(definition)).toThrow(unsupported)
+    expect(() => defineRealtime(liveDefinition(memory.adapter))).not.toThrow()
+    expect(() => defineRealtime(liveDefinition({ ...memory.adapter, checkpoint: vi.fn() }, { history: { checkpoint: true } }))).not.toThrow()
+  })
+
   it("saves and records history through the adapter in one room operation", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const snapshot = { createdAt: "2026-10-14T00:00:00.000Z", entries: { page: { digest: "v2", type: "file" as const } }, id: "snapshot-1" }
