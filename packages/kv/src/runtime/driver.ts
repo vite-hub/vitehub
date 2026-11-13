@@ -4,6 +4,7 @@ import type { KVAtomicOperation, KVDriver, KVDriverAtomicOperations, KVListOptio
 import type { KVDatabases } from "./database.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { getItemsOneByOne, setItemsOneByOne } from "./batch.ts"
 
 type AnyRecord = Record<PropertyKey, unknown>
 
@@ -49,8 +50,10 @@ const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOpera
 /** Other optional unstorage methods that a driver has. */
 const otherOptionalDriverMethods: Partial<Record<KVDriver, readonly string[]>> = {
   "fs-lite": ["getItemRaw", "getMeta", "setItemRaw"],
-  "upstash": ["getItems"],
 }
+
+/** Batch methods. A driver without one gets a version that calls the single-key method for each key. */
+const batchDriverMethods = new Set<PropertyKey>(["getItems", "setItems"])
 
 const lazyOptionalDriverMethods = Object.fromEntries(Object.entries(driverAtomicOperations).map(([driver, operations]) => [
   driver,
@@ -146,6 +149,14 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions, loadD
           // SAFETY: dispose is optional and invoked only when callable.
           const fn = driver.dispose as ((this: unknown) => unknown) | undefined
           return fn?.call(driver)
+        }
+      }
+      if (batchDriverMethods.has(prop)) {
+        return async (...args: unknown[]) => {
+          const driver = await resolve()
+          const batch = prop === "getItems" ? driver.getItems ?? getItemsOneByOne(driver) : driver.setItems ?? setItemsOneByOne(driver)
+          // SAFETY: The arguments come from unstorage's batch call, which matches the driver's batch method.
+          return (batch as (this: unknown, ...args: unknown[]) => unknown).apply(driver, args)
         }
       }
       const optionalMethods = lazyOptionalDriverMethods[config.store.driver]

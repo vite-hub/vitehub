@@ -1,8 +1,9 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import createCloudflareDriver from "./cloudflare-kv.ts"
-import { installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
+import { assertCloudflareKVWrite, installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
 import createFsLiteKVDriver from "./fs-lite.ts"
+import { getItemsOneByOne, setItemsOneByOne } from "./batch.ts"
 
 import type { ResolvedCloudflareKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -33,10 +34,20 @@ export default function createCloudflareKVLocalDriver(store: ResolvedCloudflareK
       await Promise.all([binding.dispose?.(), localPromise?.then(local => local.dispose?.())])
     },
     getItem: async (key, options) => (await pick()).getItem(key, options),
+    async getItems(items, options) {
+      const driver = await pick()
+      return (driver.getItems ?? getItemsOneByOne(driver))(items, options)
+    },
     getKeys: async (base, options) => (await pick()).getKeys(base, options),
     hasItem: async (key, options) => (await pick()).hasItem(key, options),
     listKeys: async options => (await pick()).listKeys(options),
     removeItem: async (key, options) => (await pick()).removeItem?.(key, options),
     setItem: async (key, value, options) => (await pick()).setItem?.(key, value, options),
+    async setItems(items, options) {
+      // Check every entry before any write, as the binding driver does.
+      for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...options, ...item.options })
+      const driver = await pick()
+      return (driver.setItems ?? setItemsOneByOne(driver))(items, options)
+    },
   }
 }

@@ -4,12 +4,15 @@ import { createKVStorage } from "./create-storage.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
-import { installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
+import { assertCloudflareKVKey, assertCloudflareKVWrite, installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
+import { chunks, setItemsOneByOne } from "./batch.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface CloudflareKVNamespace {
+  /** A bulk read: up to 100 keys per call. */
+  get: (keys: string[], type: "text") => Promise<unknown>
   list: (options: { cursor?: string; limit: number; prefix?: string }) => Promise<unknown>
 }
 
@@ -34,6 +37,9 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
   })) return false
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
+
+/** Cloudflare reads at most 100 keys in one bulk `get()`. */
+const cloudflareKVBulkGetKeys = 100
 
 const cloudflareBindingIdentities = new WeakMap<object, number>()
 let nextCloudflareBindingIdentity = 0
@@ -62,6 +68,26 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
   installCloudflareKVLimits(driver)
+  driver.getItems = async (items) => {
+    for (const item of items) assertCloudflareKVKey(item.key)
+    const values = new Map<string, string | null>()
+    for (const batch of chunks([...new Set(items.map(item => item.key))], cloudflareKVBulkGetKeys)) {
+      // The instance is a Promise when unstorage still has to find the binding.
+      const page = await (await driver.getInstance()).get(batch, "text")
+      if (!(page instanceof Map)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV bulk get did not return a Map." })
+      for (const key of batch) {
+        const value: unknown = page.get(key)
+        values.set(key, typeof value === "string" ? value : null)
+      }
+    }
+    return items.map(item => ({ key: item.key, value: values.get(item.key) ?? null }))
+  }
+  // Workers KV has no bulk write in a binding. Check every entry first, so a rejected entry stops the call before any write.
+  const setItemsOneByOneWithLimits = setItemsOneByOne(driver)
+  driver.setItems = async (items, commonOptions) => {
+    for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...commonOptions, ...item.options })
+    await setItemsOneByOneWithLimits(items, commonOptions)
+  }
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
   const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)

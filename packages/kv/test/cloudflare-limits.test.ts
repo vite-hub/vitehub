@@ -60,6 +60,22 @@ describe("Cloudflare KV limits", () => {
     expect(puts).toHaveLength(1)
   })
 
+  it("returns the limit codes from getMany() and setMany() before any provider call", async () => {
+    const kv = await cloudflareKV()
+
+    const [getError] = await kv.getMany(["a", "k".repeat(513)])
+    expect(getError?.code).toBe("KV_KEY_TOO_LONG")
+    const [setError] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "1" }], { expirationTtl: 30 })
+    expect(setError?.code).toBe("KV_TTL_TOO_SHORT")
+    const [keyError] = await kv.setMany([{ key: "a", value: "1" }, { key: "k".repeat(513), value: "1" }])
+    expect(keyError?.code).toBe("KV_KEY_TOO_LONG")
+    expect(puts).toEqual([])
+
+    const [error] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "2" }])
+    expect(error).toBeUndefined()
+    expect(puts.map(put => put.key).sort()).toEqual(["a", "b"])
+  })
+
   it("returns KV_VALUE_TOO_LARGE for a value above 25 MiB", async () => {
     const kv = await cloudflareKV()
 
