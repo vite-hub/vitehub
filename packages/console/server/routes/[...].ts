@@ -33,12 +33,12 @@ const headers = {
   "x-frame-options": "DENY",
 }
 
-// Console routes, such as /kv or /invite/<id>, are client routes. They all get the page. API paths that no route
-// answers stay 404.
+// Console routes, such as /kv or /invite/<id>, are client routes. They all get the page. API, MCP, and well-known paths
+// that no route answers stay 404, so an MCP client finds no OAuth metadata for /mcp.
 export default {
   fetch(request: Request): Response {
     const { pathname } = new URL(request.url)
-    if (/^\/(?:api|p|assets)(?:\/|$)/.test(pathname)) return Response.json({ code: "NOT_FOUND", message: "Not found.", ok: false, status: 404 }, { status: 404 })
+    if (/^\/(?:api|p|assets|mcp|\.well-known)(?:\/|$)/.test(pathname)) return Response.json({ code: "NOT_FOUND", message: "Not found.", ok: false, status: 404 }, { status: 404 })
     if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { headers: { allow: "GET, HEAD" }, status: 405 })
     return new Response(request.method === "HEAD" ? null : renderConsolePage(page, request), { headers })
   },

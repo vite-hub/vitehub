@@ -432,7 +432,7 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect((await app.request("/robots.txt")).status).toBe(404)
     const markdown = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
     expect(await (await markdown.request("/blog/hello.md")).text()).toBe("page")
-    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true or false/)
+    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true, false, or \{ prefix/)
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { site: "example.com" } })).toThrow(/absolute http\(s\) URL/)
     // Disallowed paths start with /.
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { robots: { disallow: ["admin"] } } })).toThrow(/disallow/)
