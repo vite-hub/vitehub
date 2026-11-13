@@ -1,5 +1,5 @@
 import { createSSRApp, defineComponent, h } from "vue";
-import { renderToString } from "@vue/server-renderer";
+import { renderToString } from "vue/server-renderer";
 import { Window } from "happy-dom";
 import { describe, expect, it } from "vitest";
 import { PrimitiveIcon, PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, primitiveIconNames } from "../src/primitive-rail.ts";

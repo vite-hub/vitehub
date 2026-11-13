@@ -2,7 +2,7 @@
 import { mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { h, nextTick } from "vue";
-import { DeviceFrame, type DeviceFrameSize } from "../src/device-frame.ts";
+import { DeviceFrame, type DeviceFrameSize } from "../src/index.ts";
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 

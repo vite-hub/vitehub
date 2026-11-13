@@ -1355,7 +1355,7 @@ describe("vitehub", () => {
     })
     const imports = dependencyPluginByName(vitehub({ host: "node" }), "vite-hub/optional-owner-imports")
     vi.mocked(assertFeaturePackages).mockClear()
-    callHook(imports.resolveId, ["vite-hub/ui/avatar-stack", "/app/app.vue"])
+    callHook(imports.resolveId, ["vite-hub/ui/headless", "/app/app.vue"])
     expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 

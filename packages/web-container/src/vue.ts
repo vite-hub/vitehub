@@ -8,7 +8,7 @@ import {
   type WebContainerStage,
   type WebContainerStep,
   type WebContainerSupport,
-} from "@vite-hub/web-container";
+} from "./index.ts";
 import {
   computed,
   type ComputedRef,
@@ -24,24 +24,26 @@ import {
   shallowRef,
   toValue,
 } from "vue";
-import type { WorkspaceTerminalOutput } from "./workspace-terminal.ts";
 
 /** Text files of the app, keyed by a relative path such as `server/routes/index.ts`. */
-export type WorkspaceFiles = Record<string, string>;
+export type WebContainerFiles = Record<string, string>;
+
+/** Output chunks in order. `offset` is the number of characters evicted from the start of the stream. */
+export type WebContainerLogs = readonly string[] & { readonly offset?: number };
 
 /** `idle` comes before the first `boot()`. The other stages come from `@vite-hub/web-container`. */
-export type WorkspaceStatus = "idle" | WebContainerStage;
+export type UseWebContainerStatus = "idle" | WebContainerStage;
 
 /** Why the workspace stopped. The UI picks its copy and its recovery action from `kind`. */
-export type WorkspaceFailure =
+export type WebContainerFailure =
   | { kind: "unsupported", error: Error }
   | { kind: "boot", error: Error }
   | { kind: "install", error: Error, exitCode?: number }
   | { kind: "server", error: Error, exitCode?: number };
 
-export interface UseWorkspaceOptions {
+export interface UseWebContainerOptions {
   /** The files to mount. `reset()` goes back to them. */
-  files: WorkspaceFiles;
+  files: WebContainerFiles;
   /**
    * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
    * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
@@ -73,16 +75,16 @@ export interface SetFilesOptions {
   mode?: "merge" | "replace";
 }
 
-export interface Workspace {
-  status: Readonly<Ref<WorkspaceStatus>>;
+export interface UseWebContainerReturn {
+  status: Readonly<Ref<UseWebContainerStatus>>;
   /** Every stage so far, with its timing. */
   steps: Readonly<ShallowRef<readonly WebContainerStep[]>>;
   /** Set after the first support check, on the client only. */
   support: Readonly<ShallowRef<WebContainerSupport | undefined>>;
-  failure: Readonly<ShallowRef<WorkspaceFailure | undefined>>;
+  failure: Readonly<ShallowRef<WebContainerFailure | undefined>>;
   error: ComputedRef<Error | undefined>;
   /** The current files, including edits. */
-  files: Readonly<ShallowRef<Readonly<WorkspaceFiles>>>;
+  files: Readonly<ShallowRef<Readonly<WebContainerFiles>>>;
   /** Paths whose contents differ from `options.files`, sorted. */
   modified: ComputedRef<readonly string[]>;
   /** The WebContainer file system, after mount. */
@@ -90,7 +92,7 @@ export interface Workspace {
   container: Readonly<ShallowRef<ViteHubWebContainer | undefined>>;
   previewUrl: Readonly<Ref<string | undefined>>;
   /** Recent output in order, limited to 65,536 characters and 1,000 chunks. The array is replaced when new output comes. */
-  logs: Readonly<ShallowRef<WorkspaceTerminalOutput>>;
+  logs: Readonly<ShallowRef<WebContainerLogs>>;
   /** `navigator.onLine`. An offline reader keeps their edits, but install needs a connection. */
   online: Readonly<Ref<boolean>>;
   boot: () => Promise<void>;
@@ -98,15 +100,22 @@ export interface Workspace {
   install: () => Promise<void>;
   /** Stops the dev server, if it runs, and starts it again. */
   restart: () => Promise<void>;
-  setFiles: (files: WorkspaceFiles, options?: SetFilesOptions) => Promise<void>;
+  setFiles: (files: WebContainerFiles, options?: SetFilesOptions) => Promise<void>;
   /** Puts back the original files. */
   reset: () => Promise<void>;
   teardown: () => void;
 }
 
-/** Whether this page can run a WebContainer. Call it in the browser, such as in `onMounted()`. */
-export function checkWorkspaceSupport(): WebContainerSupport {
-  return checkWebContainerSupport();
+/** The browser globals that the composable reads. This package compiles without the DOM library. */
+interface BrowserWindow {
+  navigator: { onLine: boolean };
+  addEventListener(type: "online" | "offline", listener: () => void): void;
+  removeEventListener(type: "online" | "offline", listener: () => void): void;
+}
+
+function browserWindow(): BrowserWindow | undefined {
+  // SAFETY: `window` is the browser global with these members, and it is undefined on a server.
+  return (globalThis as { window?: BrowserWindow }).window;
 }
 
 function toError(cause: unknown): Error {
@@ -119,25 +128,24 @@ function parentDirectory(path: string): string | undefined {
 }
 
 /**
- * Runs an app in a WebContainer and keeps the state that the workspace components render.
- *
- * This is the only `@vite-hub/ui` module that imports `@vite-hub/web-container`. Only one WebContainer runs per page.
+ * Runs an app in a WebContainer and keeps its state in Vue refs, for the workspace components of `@vite-hub/ui/workspace`
+ * or your own. Only one WebContainer runs per page.
  */
-export function useWorkspace(options: UseWorkspaceOptions): Workspace {
-  const initial: WorkspaceFiles = { ...options.files };
+export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
+  const initial: WebContainerFiles = { ...options.files };
   const installCommand = options.install ?? "install";
   const startCommand = options.start ?? "dev";
 
-  const status = ref<WorkspaceStatus>("idle");
+  const status = ref<UseWebContainerStatus>("idle");
   const steps = shallowRef<readonly WebContainerStep[]>([]);
   const support = shallowRef<WebContainerSupport>();
-  const failure = shallowRef<WorkspaceFailure>();
-  const files = shallowRef<Readonly<WorkspaceFiles>>({ ...initial });
+  const failure = shallowRef<WebContainerFailure>();
+  const files = shallowRef<Readonly<WebContainerFiles>>({ ...initial });
   const fs = shallowRef<FileSystemAPI>();
   const container = shallowRef<ViteHubWebContainer>();
   const previewUrl = ref<string>();
-  const logs = shallowRef<WorkspaceTerminalOutput>(Object.assign([], { offset: 0 }));
-  const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);
+  const logs = shallowRef<WebContainerLogs>(Object.assign([], { offset: 0 }));
+  const online = ref(browserWindow()?.navigator.onLine ?? true);
 
   const modified = computed(() => {
     const current = files.value;
@@ -178,7 +186,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
   }
 
   // What the container has on disk. Edits made before mount differ from it and are written when mount ends.
-  let written: WorkspaceFiles = {};
+  let written: WebContainerFiles = {};
   let writes: Promise<void> = Promise.resolve();
   let booting: Promise<void> | undefined;
   let devRun: WebContainerRun | undefined;
@@ -377,7 +385,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
     return recover(startServer);
   }
 
-  async function setFiles(next: WorkspaceFiles, setOptions: SetFilesOptions = {}) {
+  async function setFiles(next: WebContainerFiles, setOptions: SetFilesOptions = {}) {
     files.value = setOptions.mode === "replace" ? { ...next } : { ...files.value, ...next };
     await sync();
   }
@@ -391,14 +399,15 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
     fs.value = undefined;
   }
 
-  if (typeof window !== "undefined") {
-    const update = () => { online.value = navigator.onLine; };
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
+  const browser = browserWindow();
+  if (browser) {
+    const update = () => { online.value = browser.navigator.onLine; };
+    browser.addEventListener("online", update);
+    browser.addEventListener("offline", update);
     if (getCurrentScope()) {
       onScopeDispose(() => {
-        window.removeEventListener("online", update);
-        window.removeEventListener("offline", update);
+        browser.removeEventListener("online", update);
+        browser.removeEventListener("offline", update);
       });
     }
   }
@@ -409,7 +418,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
     if (options.immediate !== false) void boot();
   };
   if (getCurrentInstance()) onMounted(start);
-  else if (typeof window !== "undefined") start();
+  else if (browser) start();
 
   return {
     status: readonly(status),
