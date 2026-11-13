@@ -76,7 +76,7 @@ Each request gets its own grant through `AsyncLocalStorage`, so parallel preview
 
 A generated Nitro plugin wraps Nitro's request entry. The whole request runs in the preview scope: route rules, middleware, cached routes, pages, and server routes. Requests without the cookie pass through. Your server code does not change.
 
-This works with the `vitehub()` Vite plugin and the `vite-hub/nuxt` module on Nitro 3, with no Nitro experimental flag. Nuxt `useFetch()` during SSR forwards the cookie, so the rendered page shows the draft too.
+Preview requires Nitro 3. This works with the `vitehub()` Vite plugin on Nitro 3 and the `vite-hub/nuxt` module on Nuxt 5, with no Nitro experimental flag. Nuxt `useFetch()` during SSR forwards the cookie, so the rendered page shows the draft too.
 
 Preview needs the host's `AsyncLocalStorage` request context. On Cloudflare Workers, turn on the `nodejs_als` compatibility flag in the Worker configuration. Without this API, ViteHub reports a configuration error before it serves requests.
 
@@ -105,7 +105,7 @@ A frame token reads the draft of its one document only:
 - A form that posts another document, or a token changed in any part, gets `403`. Frame tokens and preview cookie tokens are not interchangeable. Use `enable()` to preview the whole site.
 - Nested requests, such as `/api/content/**` during SSR, keep the frame scope. A preview cookie does not widen it.
 - Nothing is stored. The response is `private, no-store` and `noindex`, and skips Nitro's cache. In Nuxt, the page keeps its payload in the HTML, even with a `cache`, `swr`, or `isr` rule. A later `_payload.json` request cannot carry the form, so it would read `published`.
-- A form without a valid token, or with a cross-site `Sec-Fetch-Site` or `Origin`, gets `403`. `Origin` must match the page URL and protocol, which comes from `x-forwarded-proto` behind a proxy or from TLS. The parameter on a `GET` grants nothing. The token is in the form body, never the URL. A cross-site form is refused before its body is read. The body is at most 1 MiB. The plugin counts bytes as they arrive, ignores `Content-Length`, and answers `403` at the first byte over.
+- A form without a valid token, or with a cross-site `Sec-Fetch-Site` or `Origin`, gets `403`. `Origin` must match the page URL and protocol, which comes from `x-forwarded-proto` behind a proxy or from the Web request URL. The parameter on a `GET` grants nothing. The token is in the form body, never the URL. A cross-site form is refused before its body is read. The body is at most 1 MiB. The plugin counts bytes as they arrive, ignores `Content-Length`, and answers `403` at the first byte over.
 
 A `GET` of the page with `?vitehub-content-published` loads it as a guest sees it.
 
