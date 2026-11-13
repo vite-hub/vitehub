@@ -15,6 +15,7 @@ const surfaces = [
   "packages/docs/src",
   "packages/ui/src",
   "packages/ui/styles.css",
+  "packages/kit/src/styles",
   "docs/app",
   "playground",
 ]
@@ -22,6 +23,8 @@ const surfaces = [
 // The theme itself, generated images, and files whose colors are data, such as brand logos.
 const allowed = [
   "packages/ui/theme.css",
+  // The kit tokens are the colors of its style families, as theme.css is for @vite-hub/ui.
+  "packages/kit/src/styles/tokens.css",
   "packages/ui/src/theme.ts",
   "packages/docs/runtime/app/components/OgImage/",
   "packages/vite-hub/src/console/runtime/components/invocation/internal/brand-icons.ts",
@@ -30,6 +33,10 @@ const allowed = [
   "docs/app/data/brand-colors.ts",
   "docs/app/examples/",
 ]
+
+// A kit style family is a theme for headless parts that have no Nuxt UI theme to draw focus, so it draws the one focus
+// ring itself. It must still take every color from the tokens.
+const focusThemes = ["packages/kit/src/styles/"]
 
 const ignoreDirs = new Set([".nuxt", ".output", ".vitehub", "dist", "node_modules"])
 const sourceFile = /\.(vue|ts|css)$/
@@ -93,7 +100,8 @@ function scan(): Finding[] {
     for (const file of files) {
       const path = relative(repoRoot, file)
       if (allowed.some(prefix => path.startsWith(prefix)) || /\.test\.ts$/.test(path)) continue
-      findings.push(...scanSource(path, readFileSync(file, "utf8")))
+      const fileFindings = scanSource(path, readFileSync(file, "utf8"))
+      findings.push(...(focusThemes.some(prefix => path.startsWith(prefix)) ? fileFindings.filter(finding => !finding.rule.startsWith("focus")) : fileFindings))
     }
   }
   return findings
