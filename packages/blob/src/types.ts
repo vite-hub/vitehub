@@ -165,6 +165,11 @@ export interface BlobUploadOptions {
 export interface BlobMultipartHandlerOptions {
   /** Options for `createMultipartUpload()`. The client sends only the content type. */
   create?: BlobMultipartOptions
+  /**
+   * Limit the upload. `create` checks `types` against the content type, and `maxSize` against the size that the client
+   * declares. `upload` rejects a larger part, and `complete` deletes a larger object.
+   */
+  ensure?: BlobEnsureOptions
 }
 
 /** What `handleMultipartUpload()` returns for each action. */
