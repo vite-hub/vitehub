@@ -119,13 +119,15 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
 With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.
+
+The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. Its cursor holds the last listed key, so a key added between pages does not repeat or skip another key. It reads only the directories on the `prefix` path and the directories that the page reaches.
 
 ## Serve a transformed object
 
@@ -144,7 +146,7 @@ export default defineEventHandler((event) => {
 })
 ```
 
-`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
+`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
 
 HEAD responses keep the same status and headers as GET, with no body.
 
@@ -227,6 +229,8 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 `blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
 for each file. The file name, without folders, is the pathname. ViteHub does
 not URL-decode it, so a file named `..%2Fevil.txt` stays inside `prefix`.
+It replaces the `%` of each `%XX` sequence with `_`, so `Q3 100%25.pdf` is
+stored as `Q3 100_25-<uuid>.pdf`. Renamed files get a fresh UUID suffix before the extension to avoid overwriting a different file.
 It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
@@ -235,6 +239,10 @@ With `multiple: false` and `ensure.maxSize`, a request whose `Content-Length`
 is more than `maxSize` plus 64 KB for the form framing gets a 413 error before
 the body is read. With more than one file, the total has no limit, so the body
 is read before `ensure` runs. Limit the request body on your host too.
+
+`event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
+`Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
+the event.
 
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
@@ -337,7 +345,7 @@ export default defineEventHandler(async (event) => {
 - `upload` rejects a part that is larger than `maxSize`. A `Content-Length`
   above `maxSize` gets a 413 error before the part is read.
 - `complete` deletes the joined object and throws a 400 error when it is larger
-  than `maxSize`.
+  than `maxSize` or its stored content type fails `types`.
 
 In Vue, `useMultipartUpload()` sends the parts and tracks progress:
 

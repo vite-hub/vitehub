@@ -298,6 +298,8 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
+The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
+
 `--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
 
 ## Anchors

@@ -9,6 +9,7 @@ import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/
 import MagicString from "magic-string"
 
 import { compileMessages } from "./catalogs.ts"
+import { i18nErrorDiagnostics } from "./errors.ts"
 import { createLinguiConfig, recordsRoot } from "./lingui.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
@@ -120,6 +121,19 @@ function renderClientModule(importBase: string, locale: I18nLocaleConfig, live: 
   ].join("\n")
 }
 
+/**
+ * Fails the build when `i18n.workspace` names no Workspace of the app. A wrong name would otherwise only log an error on
+ * each read of the published translations. The Workspace plugin runs first and lists its Workspaces in `buildStart`,
+ * after other plugins, such as Content, contribute theirs, so this check sees every definition.
+ */
+function assertWorkspaceDefined(workspace: string, plugins: readonly Plugin[]): void {
+  // `@vite-hub/workspace/vite` lists its Workspaces in `api.getWorkspaces()`. i18n does not depend on that package.
+  const api: { getWorkspaces?: () => Array<{ name: string }> } | undefined = plugins.find(entry => entry.name === "@vite-hub/workspace/vite")?.api
+  const workspaces = api?.getWorkspaces?.().map(entry => entry.name)
+  if (workspaces?.includes(workspace)) return
+  throw i18nErrorDiagnostics.I18N_UNKNOWN_WORKSPACE({ workspace, workspaces })
+}
+
 /** Vite plugin of ViteHub i18n. `vitehub({ i18n })` and `vite-hub/nuxt` add it for you. */
 export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   const importBase = (options as InternalOptions).importBase ?? packageName
@@ -129,6 +143,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let lingui: LinguiConfigNormalized | undefined
   let isProduction = false
   let isBuild = false
+  let plugins: readonly Plugin[] = []
   /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
   const manifest: I18nManifest = { environments: {} }
   const moduleMessages = new Map<string, Map<string, SourceMessages>>()
@@ -245,6 +260,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     configResolved(config) {
       isProduction = config.isProduction
+      plugins = config.plugins
       const vue = config.plugins.find(plugin => plugin.name === "vite:vue") as (Plugin & { api?: { options?: VueOptions } }) | undefined
       // Without Vue, messages still work in scripts and server code.
       if (vue?.api?.options) installTemplateTransform(vue.api.options, isProduction)
@@ -255,6 +271,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     buildStart() {
       buildRecords = undefined
+      if (configured.workspace) assertWorkspaceDefined(configured.workspace, plugins)
     },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule

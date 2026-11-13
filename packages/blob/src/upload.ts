@@ -1,9 +1,9 @@
-import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { createError } from "h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { ensureBlob, ensureBlobSize, ensureBlobType, ensureMaxBytes } from "./ensure.ts"
+import { eventRequest } from "./internal/event-request.ts"
 import { getBlobRequestBodyLimit } from "./internal/host-limits.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -41,9 +41,15 @@ function isMultipartAction(value: string | undefined): value is MultipartAction 
 }
 
 // Browsers send the bare file name; drop any directory part so the client cannot pick a folder.
-// put() decodes pathnames once, so encode the name to store it as written.
+// Rename unsupported `%XX` names with a UUID to avoid overwriting their replacement name.
+// put() decodes pathnames once, so encode the name.
 function uploadedFileName(file: File): string {
-  return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
+  const name = file.name.split(/[\\/]/).pop() || "file"
+  const safeName = name.replace(/%(?=[\da-f]{2})/gi, "_")
+  if (safeName === name) return encodeURIComponent(name)
+  const extension = safeName.lastIndexOf(".")
+  const split = extension > 0 ? extension : safeName.length
+  return encodeURIComponent(`${safeName.slice(0, split)}-${globalThis.crypto.randomUUID()}${safeName.slice(split)}`)
 }
 
 function payloadTooLarge(bytes: number, limit: number): Error {
@@ -145,7 +151,7 @@ export async function handleBlobUpload(
   options: BlobUploadOptions = {},
 ): Promise<Result<BlobObject[], BlobErrorCode>> {
   const formKey = options.formKey ?? "files"
-  const request = getStandardContext(event).req
+  const request = eventRequest(event)
   // With one file, the body is the file plus its framing. Without a file count, the total has no bound.
   if (options.ensure && options.multiple === false) {
     const maxBytes = ensureMaxBytes(options.ensure)
@@ -182,7 +188,7 @@ export async function handleBlobMultipartUpload(
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
   }
   if (!pathname) throw badRequest("Missing `pathname` route param.")
-  const request = getStandardContext(event).req
+  const request = eventRequest(event)
   if (request.method !== multipartMethods[action]) {
     throw createError({ statusCode: 405, message: `The ${action} action requires ${multipartMethods[action]}.` })
   }
@@ -227,18 +233,22 @@ export async function handleBlobMultipartUpload(
   if (action === "complete") {
     const [error, object] = await upload.complete(completionParts ?? readParts(completionBody?.parts))
     if (error) return [error, undefined]
-    // Parts do not carry their size, so the joined object is the first place the total is known.
-    if (ensure && maxBytes !== undefined) {
-      let size = object.size
-      if (size === undefined) {
-        const [headError, stored] = await storage.head(object.pathname)
+    // Validate provider metadata: serialized upload state can be edited by the client.
+    if (ensure) {
+      let stored = object
+      if ((maxBytes !== undefined && stored.size === undefined) || (ensure.types?.length && !stored.contentType)) {
+        const [headError, metadata] = await storage.head(object.pathname)
         if (headError) return [headError, undefined]
-        size = stored?.size
+        if (metadata) stored = metadata
       }
-      if (size !== undefined && size > maxBytes) {
+      try {
+        ensureBlobType(stored.contentType ?? "", ensure)
+        if (stored.size !== undefined) ensureBlobSize(stored.size, ensure)
+      }
+      catch (error) {
         const [deleteError] = await storage.delete(object.pathname)
         if (deleteError) return [deleteError, undefined]
-        ensureBlobSize(size, ensure)
+        throw error
       }
     }
     return [undefined, { action, object }]
