@@ -160,13 +160,23 @@ function readConfigExpression(expression: Expression | undefined): DatabaseConfi
   const envName = readProcessEnvName(expression)
   if (envName) return createRuntimeEnvConfigValue([envName])
   if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
-  const primary = readProcessEnvName(unwrapExpression(expression.left))
-  if (!primary) return
+  const names = readProcessEnvChain(unwrapExpression(expression.left))
+  if (!names) return
   const fallback = unwrapExpression(expression.right)
   const fallbackEnvName = readProcessEnvName(fallback)
-  if (fallbackEnvName) return createRuntimeEnvConfigValue([primary, fallbackEnvName])
+  if (fallbackEnvName) return createRuntimeEnvConfigValue([...names, fallbackEnvName])
   const staticFallback = readStaticStringLiteral(fallback)
-  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([primary], staticFallback)
+  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue(names, staticFallback)
+}
+
+/** The names in `process.env.A || process.env.B || ...`, in order. */
+function readProcessEnvChain(expression: Expression): string[] | undefined {
+  const name = readProcessEnvName(expression)
+  if (name) return [name]
+  if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
+  const left = readProcessEnvChain(unwrapExpression(expression.left))
+  const right = readProcessEnvName(unwrapExpression(expression.right))
+  return left && right ? [...left, right] : undefined
 }
 
 /** Reads `env({ source: env.source("NAME" | ["NAME", ...]), default: "value" })`. */
