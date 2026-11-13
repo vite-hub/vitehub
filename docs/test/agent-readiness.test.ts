@@ -21,8 +21,9 @@ describe("agent-ready HTTP contracts", () => {
     const diagnostics = modules.indexOf("./modules/diagnostics");
     expect(diagnostics).toBeGreaterThanOrEqual(0);
     expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
-    // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
-    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
+    // The docs module installs nuxt-agent-discovery, so the site does not list it. Content serves llms.txt.
+    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery"]));
+    expect(Object.keys(docsPackage.dependencies)).not.toContain("nuxt-llms");
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
     expect(workspace).not.toContain("docus");
