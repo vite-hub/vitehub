@@ -44,7 +44,7 @@ import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../github/index.ts";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
 import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
-import { dailyPassResumeAt, nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
+import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches } from "./stack.ts";
@@ -155,6 +155,17 @@ export function isProviderRateLimit(error: unknown): boolean {
       && /\b429\b|too many requests|rate limit|\busage limit\b/i.test(candidate.message));
 }
 
+/** A provider failure that says nothing about the PR: a rate limit or a stream the provider dropped. */
+function isProviderFailure(error: unknown): boolean {
+  if (error instanceof Error && error.name === "AbortError") return false;
+  return isProviderRateLimit(error) || [error, error instanceof Error ? error.cause : undefined].some(candidate =>
+    isRuntimeRecord(candidate) && hasRuntimeType(candidate.message, "string")
+      && /stream disconnected before completion|stream closed before response\.completed/i.test(candidate.message));
+}
+
+/** A provider failure this soon after dispatch gives the daily pass back. A longer pass did real work. */
+const providerFailureReleaseMs = 10 * 60_000;
+
 /** Own one durable PR inbox and its repair passes inside a process host. */
 export interface BabysitterRuntime {
   inbox: PullRequestInbox;
@@ -189,6 +200,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
+  const dailyPushBudget = presetOptions.dailyPushBudget ?? false;
   const repositorySource = fixedOrSource(options.repositories);
   const minorReviewRounds = presetOptions.minorReviewRounds ?? false;
   const reviewConvergencePushes = presetOptions.reviewConvergencePushes ?? false;
@@ -202,6 +214,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
       ...reviewPushBudget === false || minorReviewRounds === false ? {} : { minorReviewRounds },
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
+    priorityLabels: presetOptions.priorityLabels ?? [],
+    mainRepairBranchPrefix: presetOptions.mainRepairBranchPrefix,
     claimStackChildren: repairStackChildren,
     // One invalid row must not stop the claim loop or the health endpoint.
     invalidRow: ({ repository, number, error }) => options.error?.("babysitter.inbox.invalid_row", error, { repository, pullRequest: number }),
@@ -760,7 +774,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       wait: { ...waiting, headSha: head } });
   }
 
-  /** Retries a provider rate limit three times, then opens an escalating model cooldown. */
+  /** Retries a provider rate limit `providerRetries` times, then opens an escalating model cooldown. */
   async function runWithProviderRetry<T>(run: () => Promise<T>, signal: AbortSignal, onRateLimit?: () => void): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
@@ -770,7 +784,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       } catch (error) {
         if (isAbortError(error) || !isProviderRateLimit(error)) throw error;
         onRateLimit?.();
-        if (attempt === 3) {
+        if (attempt >= providerRetries) {
           await providerQuota.block();
           throw error;
         }
@@ -780,6 +794,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
   }
   const providerRetryDelayMs = options.providerRetryDelayMs ?? 10_000;
+  const providerRetries = presetOptions.providerRetries ?? 3;
   const mergeabilityRetryDelayMs = options.mergeabilityRetryDelayMs ?? 3000;
 
   /** A GitHub rate limit stops every forge request until it resets. Returns whether the error was one. */
@@ -799,6 +814,18 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   async function requiredCheckState(snapshot: Snapshot) {
     return (await requiredCheckEvaluation(snapshot))?.state ?? "unknown";
+  }
+
+  /** Times of the PR's repair pushes in the last 24 hours, kept while `dailyPushBudget` is set. */
+  async function repairPushTimes(snapshot: Snapshot): Promise<number[]> {
+    const pushes = await pullRequestInbox.meta(`repair-pushes:${snapshot.repository}#${snapshot.number}`);
+    return Array.isArray(pushes) ? pushes.filter(at => hasRuntimeType(at, "number") && at > Date.now() - 24 * 60 * 60_000) : [];
+  }
+
+  /** Whether a pass may push now under `dailyPushBudget`, or undefined without that budget. */
+  async function repairPushWindow(snapshot: Snapshot, requiredChecks: string, conflicted: boolean) {
+    if (dailyPushBudget === false) return undefined;
+    return repairPushAllowance(await repairPushTimes(snapshot), dailyPushBudget, { requiredChecks, conflicted, priority: pullRequestInbox.isPriority(snapshot.pr), now: Date.now() });
   }
 
   /**
@@ -1259,7 +1286,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const providerBlockedUntil = (await pullRequestInbox.metaNumber("provider-quota-blocked-until")) ?? 0;
           const providerBlocked = providerBlockedUntil > Date.now();
           const admitted = (currentAdmission?.accepting ?? modelAdmission) && !providerBlocked;
-          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkSpentReviewPushBudget() || await parkSpentDailyPassBudget();
+          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkSpentReviewPushBudget() || await parkClosedPushWindow() || await parkSpentDailyPassBudget();
           modelWorkParked = true;
           outcome = "waiting";
           await pullRequestInbox.finish(inboxClaim, {
@@ -1306,6 +1333,28 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "review-push-budget" });
           return true;
         };
+        /**
+         * Parks the claim before its first model dispatch when required checks fail and `dailyPushBudget`
+         * refuses a push until later: such a pass could only build a commit that the push gate refuses.
+         * A conflict or a person's feedback still gets a pass.
+         */
+        const parkClosedPushWindow = async () => {
+          if (modelDispatched || pushedHead || dailyPushBudget === false) return false;
+          const snapshot = inboxClaim.snapshot;
+          if (snapshot.pr?.mergeable === false || snapshot.pr?.mergeable_state === "dirty" || (snapshot.humanFeedbackGeneration ?? 0) > snapshot.handled) return false;
+          if (await requiredCheckState(snapshot) !== "failed") return false;
+          const window = await repairPushWindow(snapshot, "failed", false);
+          if (!window || window.allowed) return false;
+          modelWorkParked = true;
+          outcome = "waiting";
+          const resumeAt = new Date(window.nextAt).toISOString();
+          await pullRequestInbox.finish(inboxClaim, {
+            text: `Daily push budget spent: ${window.count} repair pushes in the last 24 hours (dailyPushBudget ${dailyPushBudget}). Required checks fail, so the next repair push and pass can start at ${resumeAt}. A person's comment or review or a merge conflict still starts a pass.`,
+            wait: { ...createCheckWait(snapshot, waitPolicy), reason: "daily-push-budget", retryAt: window.nextAt + 60_000 },
+          });
+          schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: snapshot.pr?.head?.sha, avoided_invocation: true, reason: "daily-push-budget", resume_at: resumeAt });
+          return true;
+        };
         // The exemption that let this pass run past its daily pass budget. Dispatch records it once.
         let dailyPassExemptionUsed: string | undefined;
         /**
@@ -1318,7 +1367,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const budget = (await pullRequestInbox.get(repository, number))?.dailyPassBudget;
           const resumeAt = dailyPassResumeAt(budget, dailyPassBudget, now);
           if (resumeAt === undefined) return false;
-          const exemption = dailyPassExemption(inboxClaim.snapshot, await requiredCheckState(inboxClaim.snapshot), budget);
+          if (pullRequestInbox.isPriority(inboxClaim.snapshot.pr)) {
+            schedulerEvent("babysitter.daily_pass_budget.exempt", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, exemption: "priority-label" });
+            return false;
+          }
+          const requiredChecks = await requiredCheckState(inboxClaim.snapshot);
+          const window = requiredChecks === "failed" ? await repairPushWindow(inboxClaim.snapshot, requiredChecks, false) : undefined;
+          const openPushWindow = window?.allowed ? Math.max(0, ...await repairPushTimes(inboxClaim.snapshot)) : undefined;
+          const exemption = dailyPassExemption(inboxClaim.snapshot, requiredChecks, budget, openPushWindow);
           if (exemption) {
             dailyPassExemptionUsed = exemption;
             schedulerEvent("babysitter.daily_pass_budget.exempt", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, exemption });
@@ -1328,7 +1384,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           outcome = "waiting";
           const passes = budget?.passes.filter(at => at > now - 24 * 60 * 60_000).length ?? 0;
           await pullRequestInbox.finish(inboxClaim, {
-            text: `Daily pass budget spent: ${passes} model pass${passes === 1 ? "" : "es"} in the last 24 hours (dailyPassBudget ${dailyPassBudget}). The next pass can start at ${new Date(resumeAt).toISOString()}. A person's comment or review, the first failing required check on a head, or a merge conflict on an otherwise ready PR still starts a pass.`,
+            text: `Daily pass budget spent: ${passes} model pass${passes === 1 ? "" : "es"} in the last 24 hours (dailyPassBudget ${dailyPassBudget}). The next pass can start at ${new Date(resumeAt).toISOString()}. A person's comment or review, the first failing required check on a head, a head whose required checks pass, or a merge conflict still starts a pass.`,
             wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "daily-pass-budget", retryAt: resumeAt },
           });
           schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "daily-pass-budget", resume_at: new Date(resumeAt).toISOString() });
@@ -1402,7 +1458,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // the model again. New feedback, conflicts, or a new failure alter
             // the evidence key and invalidate this checkpoint.
             const assessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
-            if (isRuntimeRecord(assessment)
+            // A reviewed head whose required checks fail cannot merge. Under `dailyPushBudget`, it waits
+            // only while the budget refuses its repair push, and then gets the pass that pushes it.
+            let reviewedRetryAt: number | undefined = Date.now() + 120_000;
+            let pushWindowRetry = false;
+            if (dailyPushBudget !== false && await requiredCheckState(inboxClaim.snapshot) === "failed") {
+              const window = await repairPushWindow(inboxClaim.snapshot, "failed", false);
+              reviewedRetryAt = window && !window.allowed ? window.nextAt + 60_000 : undefined;
+              pushWindowRetry = reviewedRetryAt !== undefined;
+            }
+            if (reviewedRetryAt !== undefined && isRuntimeRecord(assessment)
               && assessment.version === 2
               && assessment.head === inboxClaim.snapshot.pr?.head?.sha
               && matchesMergeReviewEvidence(assessment.evidenceKey, inboxClaim.snapshot, waitPolicy)
@@ -1442,7 +1507,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               }
               await pullRequestInbox.finish(inboxClaim, {
                 text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
-                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: await mergeRetryAt(inboxClaim.snapshot) },
+                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: pushWindowRetry ? reviewedRetryAt : await mergeRetryAt(inboxClaim.snapshot) },
               });
               schedulerEvent("babysitter.wait.kept", {
                 ...owner,
@@ -1827,6 +1892,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       signal: abortSignal,
                       beforePush: async head => {
                         const current = await assertLease(); await assertRepairBase();
+                        const window = await repairPushWindow(current, await requiredCheckState(current), current.pr?.mergeable === false);
+                        if (window && !window.allowed) throw presetsErrorDiagnostics.PRESETS_DAILY_PUSH_BUDGET_SPENT({ count: window.count, nextAt: new Date(window.nextAt).toISOString() });
                         if (head && !await pullRequestInbox.registerProspectivePush({ ...inboxClaim, generation: current.generation, snapshot: current }, head)) {
                           throw new DOMException("Publication candidate lease changed.", "AbortError");
                         }
@@ -1838,7 +1905,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                         } : undefined;
                       },
                       // The synchronize webhook may still expose the pre-push head.
-                      afterPush: async head => { recordPush(head); await assertLease(); },
+                      afterPush: async head => {
+                        if (dailyPushBudget !== false && head !== pullRequest.headRefOid) {
+                          await pullRequestInbox.setMeta(`repair-pushes:${repository}#${number}`, [...await repairPushTimes(inboxClaim.snapshot), Date.now()]);
+                        }
+                        recordPush(head);
+                        await assertLease();
+                      },
                     });
                     recordPush(result);
                     return result;
@@ -2048,6 +2121,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);
               const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, then finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a dependency such as a pkg.pr.new build keeps no integrity and the frozen install fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
+              const requiredChecksNow = dailyPushBudget === false ? undefined : await requiredCheckState(inboxClaim.snapshot);
+              const pushWindow = requiredChecksNow && await repairPushWindow(inboxClaim.snapshot, requiredChecksNow, inboxClaim.snapshot.pr?.mergeable === false || inboxClaim.snapshot.pr?.mergeable_state === "dirty");
+              // Say up front whether this pass can push, so a pass that the push gate refuses builds no commit.
+              const pushContext = !pushWindow ? ""
+                : !pushWindow.allowed ? `\n\n<push-window>\nThis PR already has ${pushWindow.count} repair pushes in the last 24 hours, so pushRepair refuses every push until ${new Date(pushWindow.nextAt).toISOString()}. Do not edit files or commit. Assess the current HEAD: reply to and resolve the automated findings, classify each one, and set reviewedHead to the current HEAD.\n</push-window>`
+                  : pushWindow.spaced ? `\n\n<push-window>\nThis PR already has ${pushWindow.count} repair pushes in the last 24 hours. Its required checks fail, so this pass may push one commit, and the next push opens two hours later. Make that commit fix the failing required checks (setup, lockfile, lint, typecheck, build or tests) first. Leave review findings below P0 for a later pass.\n</push-window>`
+                    : requiredChecksNow === "failed" ? `\n\n<required-checks-failing>\nRequired checks fail on this head. Fix them before review findings, and push the fix in this pass even when review findings remain: the PR cannot merge until they pass.\n</required-checks-failing>` : "";
               if (workspaceEntry && keptWork && workspaces?.resumeThreads) {
                 workspaceRun.session = providerSessionDecision(workspaceEntry.previous, workspaceRun.reason, { base: pullRequest.baseRefOid, release });
               }
@@ -2056,7 +2136,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const reviewPushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
               const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
               const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
-              const userMessage = `${prompt}${resumeContext}\n\n${snapshotContext}${installContext}${severityContext}${convergenceContext}`;
+              const userMessage = `${prompt}${resumeContext}\n\n${snapshotContext}${installContext}${pushContext}${severityContext}${convergenceContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
@@ -2076,6 +2156,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               workspaceRun.thread = workspaceRun.session?.resume ? workspaceEntry?.previous?.session : runId;
               githubRun.threadId = `${githubRun.threadId}:${workspaceRun.thread}`;
               inboxClaim.activity = githubRun.activity;
+              // The daily pass this claim recorded, given back when the provider fails the pass early.
+              let recordedPass: { at: number; exemption?: string } | undefined;
               const result = await runWithProviderRetry(async () => {
                 // Run metadata and retry backoff can outlive a sibling admission
                 // block. Check each Sandbox dispatch immediately before runAgent.
@@ -2084,8 +2166,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 try {
                   // Each pass that starts the model counts once against the daily pass budget.
                   if (!modelDispatched && dailyPassBudget !== false) {
-                    const recorded = await pullRequestInbox.recordModelPass(inboxClaim, dailyPassExemptionUsed === humanFeedbackExemption ? undefined : dailyPassExemptionUsed);
+                    const exemption = dailyPassExemptionUsed === humanFeedbackExemption ? undefined : dailyPassExemptionUsed;
+                    const recorded = await pullRequestInbox.recordModelPass(inboxClaim, exemption);
                     if (!recorded || !await pullRequestInbox.isClaimCurrent(inboxClaim)) throw new DOMException("Provider dispatch lost its inbox lease.", "AbortError");
+                    recordedPass = { at: recorded, exemption };
                   }
                   // Keep the ownership fence immediately before entering the
                   // provider runtime; setup and admission may have taken time.
@@ -2110,7 +2194,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 } finally {
                   releaseModelSlot();
                 }
-              }, abortSignal, () => { providerLimited = true; });
+              }, abortSignal, () => { providerLimited = true; }).catch(async (error: unknown) => {
+                if (recordedPass && isProviderFailure(error) && Date.now() - recordedPass.at < providerFailureReleaseMs
+                  && await pullRequestInbox.releaseModelPass(inboxClaim, recordedPass.at, recordedPass.exemption)) {
+                  schedulerEvent("babysitter.daily_pass_budget.released", { ...owner, head_sha: pullRequest.headRefOid, ...recordedPass.exemption ? { exemption: recordedPass.exemption } : {},
+                    reason: (error instanceof Error ? error.message : String(error)).slice(0, 160) });
+                }
+                throw error;
+              });
               // The structured worker driver validates its output with
               // passResultSchema before runAgent returns. Revalidating here
               // would invoke the diagnostic reporter a second time.
