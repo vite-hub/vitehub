@@ -251,11 +251,22 @@ describe("hourly check without a webhook", () => {
     expect(await content.sources.advance("docs")).toMatchObject({ sha: second })
   })
 
-  it.each(["pin", "webhook"] as const)("keeps a concurrent %s during an unchanged-branch lookup", async (operation) => {
+  it.each([
+    ["pin", false],
+    ["webhook", false],
+    ["pin", true],
+    ["webhook", true],
+  ] as const)("keeps a concurrent %s during an unchanged-branch lookup (rejected: %s)", async (operation, rejected) => {
     vi.useFakeTimers({ toFake: ["Date"] })
     const first = fake.commit("main", { "guide.md": page("Guide") })
     const reader = await server()
     const writer = await server()
+    if (rejected) {
+      fake.branch("last-valid", "main")
+      fake.commit("main", { "broken.md": "---\ntitle: [unclosed\n---\n" })
+      expect(await reader.content.sources.advance("docs")).toMatchObject({ diagnostic: { code: "CONTENT_R0019" } })
+      fake.branch("main", "last-valid")
+    }
     vi.advanceTimersByTime(61 * 60 * 1000)
 
     let resume!: () => void

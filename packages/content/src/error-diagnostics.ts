@@ -58,7 +58,7 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** A new commit of a `github()` Source failed validation, so the head stays on the last valid commit. */
     CONTENT_R0019: {
-      fix: "Fix the document in the repository and push a new commit, then call `content.sources.advance()`. `content.sources.head()` shows the rejected commit and the reason.",
+      fix: "Fix the document in the repository and push a new commit, then run `vitehub content advance` or call `content.sources.advance()`. `vitehub content head` and `content.sources.head()` show the rejected commit and the reason.",
       why: ({ source, sha, reason, head }: { source: string, sha: string, reason: string, head: string | null }) => `[vitehub] Commit ${sha} of Content source ${JSON.stringify(source)} failed validation, so Content keeps ${head ? `commit ${head}` : "no head"}: ${reason}`,
     },
     /** A `github()` Source has no token, so it has no head commit. */
@@ -128,6 +128,11 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_R0032: {
       fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env for a higher GitHub rate limit, then try again. `content.sources.allow()` holds each decision for 10 minutes.",
       why: ({ source, ref, reason }: { source: string, ref: string, reason: string }) => `[vitehub] Content could not check on GitHub whether ref ${JSON.stringify(ref)} of Content source ${JSON.stringify(source)} is public: ${reason}`,
+    },
+    /** GitHub refused the branch lookup of a `github()` Source with 403 or 429, so the head did not move. */
+    CONTENT_R0035: {
+      fix: "Wait until the GitHub rate limit resets, then run `vitehub content advance`. Check that the token in `VITEHUB_GITHUB_TOKEN` or `github({ auth })` can read the repository: GitHub also answers 403 when it cannot.",
+      why: ({ source, head }: { source: string, head: string | null }) => `[vitehub] GitHub refused the branch lookup of Content source ${JSON.stringify(source)} with 403 or 429, as it does when the rate limit is hit, so Content keeps ${head ? `commit ${head}` : "no head"}.`,
     },
   },
 })
