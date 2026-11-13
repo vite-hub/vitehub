@@ -35,7 +35,7 @@ export default defineDatabase({
 
 ```ts
 // server/api/notes.get.ts
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { defineEventHandler } from "h3"
 
 export default defineEventHandler(() => {
@@ -55,7 +55,7 @@ export default defineConfig({
 })
 ```
 
-Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database/drizzle` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit. A query to D1, through the binding or D1 HTTP, rejects with `DATABASE_D1_TOO_MANY_PARAMETERS` above 100 bound parameters, `DATABASE_D1_STATEMENT_TOO_LONG` above 100,000 bytes of SQL, and `DATABASE_D1_VALUE_TOO_LARGE` for a bound string or BLOB above 2,000,000 bytes ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). When the build targets Cloudflare, `vite dev` runs the same checks on the local SQLite that stands in for D1.
+Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit. A query to D1, through the binding or D1 HTTP, rejects with `DATABASE_D1_TOO_MANY_PARAMETERS` above 100 bound parameters, `DATABASE_D1_STATEMENT_TOO_LONG` above 100,000 bytes of SQL, and `DATABASE_D1_VALUE_TOO_LARGE` for a bound string or BLOB above 2,000,000 bytes ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). When the build targets Cloudflare, `vite dev` runs the same checks on the local SQLite that stands in for D1.
 
 The table shorthand covers inserts binding at most one parameter per column. The helper does not inspect row contents or SQL defaults. For SQL expressions with more bindings, supply a numeric `per` covering the maximum bindings of a whole row, including defaults: a one-column row containing `` sql`${first} || ${second}` `` needs `{ per: 2 }`.
 
@@ -73,7 +73,7 @@ change must compare and update shared state without an interactive transaction.
 
 ```ts
 // server/api/notes/seed.post.ts
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { defineEventHandler } from "h3"
 
 export default defineEventHandler(async () => {
@@ -85,9 +85,9 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Each Database is `server/databases/<name>.ts`, or `server/databases/<name>/index.ts` when it has other files such as schema modules. `server/databases/default.ts` is the default database, and every other Definition sets the same `name` option. Its migrations are in `server/databases/<name>/migrations/`. The Vite forms `src/database.ts` and `src/<name>.database.ts` also work, but `src/database.ts` cannot be used beside named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. The former `config.ts` files fail with `DATABASE_LEGACY_CONFIG_FILE`; `npx @vite-hub/codemods define-forms` moves them. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/default/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
+Each Database is `server/databases/<name>.ts`, or `server/databases/<name>/index.ts` when it has other files such as schema modules. `server/databases/default.ts` is the default database, and every other Definition sets the same `name` option. Its migrations are in `server/databases/<name>/migrations/`. The Vite forms `src/database.ts` and `src/<name>.database.ts` also work, but `src/database.ts` cannot be used beside named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database`. The former `config.ts` files fail with `DATABASE_LEGACY_CONFIG_FILE`; `npx @vite-hub/codemods define-forms` moves them. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/default/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
 
-`@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
+`db`, `schema`, and `useDatabase()` from `@vite-hub/database` read the Databases that the Vite integration generates for server code that Nitro builds. Nitro is the only host output. In plain `node`, outside Vite, `db` throws `DATABASE_DISABLED` and `useDatabase()` throws `DATABASE_NOT_FOUND`.
 
 Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names. It returns `{ db, schema, relations }`.
 
@@ -95,7 +95,7 @@ Pass `relations` from Drizzle's `defineRelations(schema, r => ({ ... }))` to `de
 
 In a Nuxt application, ViteHub also discovers Definitions in each layer's server directory. Definitions with the same name merge their tables into one database and one set of migrations in the application. The application Definition takes precedence over layer tables. Relations merge like tables: the relations of one table merge across layers, and the application wins a relation name. When the application sets `connection` or `cloudflare`, it replaces all layer options and must also set each option that a layer sets.
 
-When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration merges each resolved D1 binding into `nitro.cloudflare.wrangler.d1_databases` and copies the Definition's migration SQL to `.output/server/.vitehub/database/migrations/<binding>`. A Definition's binding replaces a Nitro binding with the same name.
+When the Nitro Vite plugin builds with a Cloudflare host, the Vite integration merges each resolved D1 binding into `nitro.cloudflare.wrangler.d1_databases` and copies the Definition's migration SQL to `.output/server/.vitehub/database/migrations/<binding>`. A Definition's binding replaces a Nitro binding with the same name.
 
 A production build bundles libSQL only when a Database can reach a remote libSQL server: a `libsql:`, `http(s):`, or `ws(s):` connection URL, a URL from the environment, or a Definition that the build cannot read. A Cloudflare build whose Databases use D1 bindings or D1 over HTTP, or a Nuxt build with only D1-over-HTTP Databases, ships no libSQL client and no SQLite WASM. There, a Database without its D1 binding fails with `DATABASE_MISSING_CONNECTION`. Development and Node builds keep local SQLite.
 
@@ -134,7 +134,7 @@ On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_loc
 
 With `migrateOnStart: true`, another host, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a SQLite file or a Postgres database must not have one folder name with different SQL; otherwise startup refuses all changes with that error. SQLite has no lock across processes: run one server process per database file.
 
-`ensureMigrations(name?)` from `@vite-hub/database/drizzle` applies the same migrations from server code, for example a Nitro task, a Nitro plugin, or an app test. It runs the start path, with the Postgres lock, once for each Database in the process: parallel calls and later calls share the run, and the start plugin shares it too. A failed run is forgotten, so the next call tries again. A new run waits for the run before it, so Definitions that share a SQLite file apply each migration once. It works in a build with `migrateOnStart: false`. A Cloudflare or Vercel build ships no migrations, and the call rejects with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. In app tests, it skips SQLite Databases, which already have their migrations.
+`ensureMigrations(name?)` from `@vite-hub/database` applies the same migrations from server code, for example a Nitro task, a Nitro plugin, or an app test. It runs the start path, with the Postgres lock, once for each Database in the process: parallel calls and later calls share the run, and the start plugin shares it too. A failed run is forgotten, so the next call tries again. A new run waits for the run before it, so Definitions that share a SQLite file apply each migration once. It works in a build with `migrateOnStart: false`. A Cloudflare or Vercel build ships no migrations, and the call rejects with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. In app tests, it skips SQLite Databases, which already have their migrations.
 
 ## Contributed tables
 
@@ -259,7 +259,7 @@ Nuxt apps can declare one D1 database resource in `vite-hub/nuxt` and let it wir
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt", "@nuxt/content"],
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     database: {
       driver: "d1",
       databaseName: "app-content",

@@ -144,14 +144,19 @@ describe("hubDb", () => {
 
   it("filters resolveId, load, and transform to the ids Database owns", () => {
     const plugin = hubDb()
-    const filter = (hook: unknown) => (hook as { filter: { id: RegExp } }).filter.id
+    const matches = (hook: unknown, id: string) => {
+      const filter = (hook as { filter: { id: RegExp | RegExp[] } }).filter.id
+      return [filter].flat().some(pattern => pattern.test(id))
+    }
     const virtualIds = [DB_VIRTUAL_SCHEMA_ID, DB_VIRTUAL_DATABASES_ID, "#vitehub/database/definition-defaults"]
 
     expect([...virtualIds, "virtual:vitehub/database/schema", "virtual:vitehub/database/databases", "#vitehub/database/libsql", "virtual:vitehub/database/definition-defaults", "virtual:vitehub/database/libsql", "#vitehub/database/other"]
-      .map(id => filter(plugin.resolveId).test(id))).toEqual([true, true, true, true, true, true, false, false, false])
-    expect([...virtualIds.map(id => `\0${id}`), DB_VIRTUAL_SCHEMA_ID].map(id => filter(plugin.load).test(id))).toEqual([true, true, true, false])
-    expect(["/app/node_modules/@vite-hub/database/dist/drizzle.js", "C:\\app\\packages\\database\\dist\\drizzle.js", "/app/node_modules/drizzle-orm/dist/drizzle.js", "/app/server/drizzle.js"]
-      .map(id => filter(plugin.transform).test(id))).toEqual([true, true, false, false])
+      .map(id => matches(plugin.resolveId, id))).toEqual([true, true, true, true, true, true, false, false, false])
+    expect(["@vite-hub/database", "vite-hub/database", "/app/node_modules/@vite-hub/database/dist/index.js", "C:\\app\\packages\\database\\dist\\index.js", "/app/node_modules/vite-hub/dist/database.js", "/app/server/database.js"]
+      .map(id => matches(plugin.resolveId, id))).toEqual([true, true, true, true, true, false])
+    expect([...virtualIds.map(id => `\0${id}`), DB_VIRTUAL_SCHEMA_ID].map(id => matches(plugin.load, id))).toEqual([true, true, true, false])
+    expect(["/app/node_modules/@vite-hub/database/dist/runtime/registry.js", "C:\\app\\packages\\database\\dist\\runtime\\registry.js", "/app/node_modules/drizzle-orm/dist/registry.js", "/app/server/registry.js"]
+      .map(id => matches(plugin.transform, id))).toEqual([true, true, false, false])
   })
 
   it("does not inspect provider output without enabled Database Definitions", async () => {
@@ -254,7 +259,7 @@ describe("hubDb", () => {
   it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options when Vite builds for Cloudflare", async (name) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`)
-    // `vitehub({ preset: "cloudflare", database: true })` passes this to the Database plugin.
+    // `vitehub({ host: "cloudflare", database: true })` passes this to the Database plugin.
     const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
 
     expect(buildStart).toThrow(expect.objectContaining({
@@ -571,7 +576,7 @@ describe("hubDb", () => {
     })
     await mkdir(join(rootDir, "server"), { recursive: true })
     await writeFile(join(rootDir, "server", "query.ts"), [
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "export const query = () => {",
       "  const { db, schema } = useDatabase('default')",
       "  return db.select().from(schema.notes)",
@@ -622,7 +627,7 @@ describe("hubDb", () => {
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
       "import definition from './databases/default.ts'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ DB: binding }, async () => {",
       "  const { db, schema } = useDatabase('default')",
@@ -738,7 +743,7 @@ describe("hubDb", () => {
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
       "import definition from './databases/default.ts'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ HOST_DB: binding }, async () => {",
       "  const { db, schema } = useDatabase('default')",
@@ -1254,8 +1259,8 @@ describe("hubDb", () => {
     expect(databasesCode).toContain("\"server/databases/default/migrations\"")
     const generatedTypesFile = join(rootDir, ".vitehub/types/database.d.ts")
     const generatedTypes = await readFile(generatedTypesFile, "utf8")
-    expect(generatedTypes).toContain('declare module "@vite-hub/database/drizzle"')
-    expect(generatedTypes).toContain('declare module "vite-hub/database/drizzle"')
+    expect(generatedTypes).toContain('declare module "@vite-hub/database"')
+    expect(generatedTypes).toContain('declare module "vite-hub/database"')
     expect(generatedTypes).toContain("type DefaultDatabaseSchema = typeof database_0.schema")
     expect(generatedTypes).toContain('declare module "#vitehub/database/schema" {\n  interface DatabaseSchema extends DefaultDatabaseSchema {}')
 

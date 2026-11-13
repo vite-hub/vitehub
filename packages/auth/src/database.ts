@@ -1,7 +1,7 @@
 // `authDatabase()` connects Better Auth to a ViteHub Database. The Auth Vite plugin finds the call in the Auth
 // Definition and adds the Better Auth tables to that Database, so `vitehub database generate` writes their migration.
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { databases } from "@vite-hub/database/drizzle"
+import { databases } from "@vite-hub/database/runtime/registry"
 import { is } from "drizzle-orm"
 import { PgAsyncDatabase } from "drizzle-orm/pg-core"
 

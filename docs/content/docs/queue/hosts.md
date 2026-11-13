@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Develop locally
 
-`pnpm dev` runs Queue jobs in the dev server for every preset. `sendQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
+`pnpm dev` runs Queue jobs in the dev server for every host. `sendQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
 
 ```bash [Terminal]
 pnpm vitehub queue list
@@ -25,11 +25,11 @@ pnpm vitehub queue jobs clear --state dead --yes
 
 Each command takes `--json`, and `--url` for a deployed app. The Console and agents run the same `queue.jobs-*` operations.
 
-With `preset: 'node'` and no Postgres Database, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+With `host: 'node'` and no Postgres Database, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
 
 ## Run on several Node instances
 
-With `preset: 'node'` and a Postgres Default Database, the build uses the postgres provider. Each server process uses the Default Database's connection and takes due jobs from the `vitehub_queue_jobs` table. `QUEUE_POSTGRES_URL` on the server overrides the connection. All instances share the jobs, so a job that instance A accepts can run on instance B. `pnpm dev` keeps jobs in `.vitehub/data/queue` with the same retry rules, so dev needs no Postgres. See [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery) for the rules.
+With `host: 'node'` and a Postgres Default Database, the build uses the postgres provider. Each server process uses the Default Database's connection and takes due jobs from the `vitehub_queue_jobs` table. `QUEUE_POSTGRES_URL` on the server overrides the connection. All instances share the jobs, so a job that instance A accepts can run on instance B. `pnpm dev` keeps jobs in `.vitehub/data/queue` with the same retry rules, so dev needs no Postgres. See [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery) for the rules.
 
 `vitehub queue list` shows `provider: "postgres"`, the table and its database without the password, and `durability: "shared"`. The `queue jobs` commands and the Console read and change the jobs in Postgres, so any instance shows the jobs of all instances.
 

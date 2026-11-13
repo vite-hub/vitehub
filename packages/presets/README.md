@@ -79,6 +79,14 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+With only `filter.repository.allow`, the Babysitter serves pull requests whose
+author is an owner, member, or collaborator, skips those labelled
+`babysitter:skip`, and merges ready ones directly. A direct merge holds a pull
+request from someone without write access until a maintainer approves its head.
+Any `filter.author` or `filter.authorAssociation` rule replaces the author
+default, `lifecycle.labels` or `filter.labels` replace the label, and
+`merge: false` turns merging off.
+
 `filter.authorAssociation` selects authors by their GitHub `author_association`,
 such as `{ allow: ["OWNER", "MEMBER", "COLLABORATOR"] }`. A pull request passes
 when its author matches `filter.author.allow` or `filter.authorAssociation.allow`,
@@ -195,8 +203,13 @@ threads from blocking a direct merge or waking the PR. `dailyPassBudget` (defaul
 `16`, `false` disables it) limits the model passes per PR in a rolling 24
 hours. A PR that reached it parks until its oldest pass is 24 hours old, and
 health lists it with `resumeAt`. A person's new feedback, the first failing
-required check on a head and a conflict on an otherwise ready PR still start a
-pass. `install` (default `true`) installs
+required check on a head, any conflict and a head whose required checks pass
+still start a pass. `dailyPushBudget` (default `false`) limits repair pushes per
+PR in a rolling 24 hours; past it, only a conflict repair pushes, and a PR whose
+required checks fail pushes once every two hours. `priorityLabels` (default none)
+put a labelled PR first in the queue and exempt it from both daily budgets.
+`mainRepairBranchPrefix` (default none) puts PRs from those head branches before
+every other PR and exempts them from `noProgressBudget`. `install` (default `true`) installs
 dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in
@@ -211,13 +224,13 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 `install: { cache: { directory, entries } }` configures the cache on any filesystem, and
 `cache: false` disables it. At startup, the built-in host removes pass
 workspaces from an earlier process when its temporary directory is inside the
-service directory. Claims take reviewed heads first, then heads whose checks all
-passed, then stack parents. A restart releases the claims of the previous process.
+service directory. Claims take main repairs and priority-labelled PRs first, then reviewed heads,
+then heads whose checks all passed, then stack parents. A restart releases the claims of the previous process.
 A stacked PR whose parent merged into the default branch is retargeted to the
 default branch; until then the child waits. With `merge: "direct"`,
 `repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
 and feedback alongside its open parent. The child never merges into the parent's
-branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried three times; after that, model
+branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.
@@ -225,6 +238,16 @@ Each owner rechecks the durable deadline before dispatch, including after
 workspace setup. Host merges and stack retargets continue during the cooldown.
 A failed dependency install continues the pass without dependencies unless
 `install.required` is set; `install.concurrency` sets the install slots.
+`warmWorkspaces` (default `false`) keeps one workspace per open PR in
+`<dataDir>/pr-workspaces`. A pass on the head the previous pass pushed or left,
+after a pass that finished, on a clean tree, keeps `node_modules` and build
+caches and skips a current install; any other pass empties the workspace and
+checks the head out again. The host clone is fetched instead of cloned. Entries
+go when the PR closes, after `idleDays` (7) without a pass, and least recently
+used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
+`warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
+provider thread when that pass pushed or recorded a wait on the same base and
+release.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding
@@ -234,7 +257,11 @@ headings. Explicit `driver.instructions` replaces that slot. Use
 A discovered Agent that imports the preset runs without more wiring on the Node
 server preset. ViteHub generates a Nitro plugin that starts a process host for
 it: a SQLite PR inbox in Agent State, bounded GitHub discovery of
-`filter.repository.allow`, claims, repair passes, and wake handling. Signed
+`filter.repository.allow` (or, without it, of every repository the GitHub App
+installations can access, except archived ones and `filter.repository.deny`),
+claims, repair passes, and wake handling. Installing the App on a repository
+enrolls it; `installation` and `installation_repositories` webhooks update the
+list at once, and the host lists the installations again every 10 minutes. Signed
 GitHub deliveries to `/api/_vitehub/agents/<name>/webhooks/github` feed the
 inbox; they never start the Agent directly. `GET /api/_vitehub/host/drain`
 reports drain status, and `GET /api/_vitehub/host/health` reports each host's
@@ -345,7 +372,7 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
 
 For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
-`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ minLifetime })` mints a new App installation token when the cached one expires within that many milliseconds. `host.channel()` passes it for Provider Driver runs. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
+`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. Providers from `forge()` revalidate repeated GETs with `If-None-Match`; an unchanged response comes back as a `304` that GitHub does not count against the rate limit. Entries are kept per App installation, so they outlast token rotation. Set `conditionalRequests: false` on `createGitHubHost()` to turn this off. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ minLifetime })` mints a new App installation token when the cached one expires within that many milliseconds. `host.channel()` passes it for Provider Driver runs. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
 
 `host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
 A provider `env` resolver can call `host.environment()` inside

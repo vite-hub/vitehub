@@ -33,7 +33,7 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
       "  modules: [hubDb()], nitro: { preset: 'node-server' },",
       "  hooks: {",
       "    'nitro:init': async (nitro) => {",
-      `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/drizzle']))`,
+      `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/runtime/registry']))`,
       "    },",
       "  },",
       "})",
@@ -48,7 +48,8 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
     const runtime: string = JSON.parse(await readFile(aliasFile, "utf8"))
     const source = await readFile(runtime, "utf8")
     expect(source).toContain(`[${JSON.stringify(name)}]: {`)
-    expect(source).toContain("export const useDatabase = createUseDatabase(")
+    expect(source).toContain("export function useDatabase(name) {")
+    expect(source).toContain("return createUseDatabase(databases, Object.keys(configured()))(name)")
     await expect(readFile(join(buildDir, "nuxt.d.ts"), "utf8")).resolves.toContain("reference")
   }
   finally {

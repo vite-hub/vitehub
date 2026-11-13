@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { AgentSession, AgentSessionDetailsRow, AgentSessionDetailsSection, AgentSessionTimeline } from "@vite-hub/ui/agent-session";
-import type { AgentSessionItem, AgentSessionSurface } from "@vite-hub/ui/agent-session";
+import { AgentSession, AgentSessionDetailsRow, AgentSessionDetailsSection, AgentSessionTimeline } from "@vite-hub/ui";
+import type { AgentSessionItem, AgentSessionSurface } from "@vite-hub/ui";
 
 const surfaces: AgentSessionSurface[] = [{ id: "trace", label: "Trace", icon: "i-lucide-list-tree", shortcut: "t" }];
 const items: AgentSessionItem[] = [

@@ -7,18 +7,20 @@ import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "c
 import { formatDiagnostic } from "nostics"
 import type { Diagnostic } from "nostics"
 
-import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
+import { CommitMemory, commitJson, commitKey, decodeCommit, encodeCommit, parserHash, readCommitJson, withCommitDocuments } from "./commit-cache.ts"
 import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
 import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
+import { openCommitSnapshot } from "./snapshots.ts"
 import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
 import type { ContentKV } from "./kv.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
 import type { ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+import type { BuiltContentCommit, ContentCommitSnapshot, ContentSnapshotLoader } from "./snapshots.ts"
 import type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 import type { ContentSourceRef, ParsedContentRef } from "./source-refs.ts"
 
@@ -138,7 +140,7 @@ export interface ContentSourceHeads {
 }
 
 /** A `github()` Source definition. */
-export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "resolveRef" | "contains" | "pullsAt">>
+export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "latest" | "changes" | "resolveRef" | "contains" | "pullsAt">>
 
 /** The KV value of a head. */
 interface StoredHead {
@@ -174,7 +176,9 @@ interface HeadState {
   definition: GitHubDefinition
   /** The parser hash of the commit cache keys. */
   hash?: Promise<string>
-  stats: { memory: number, kv: number, misses: number }
+  stats: { memory: number, build: number, kv: number, misses: number }
+  /** The build snapshot of the Source, opened on the first commit load. */
+  built?: () => Promise<ContentCommitSnapshot | undefined>
   instance?: ComarkContent
   /** Whether the Source has a token and the app a KV store. Checked once per server instance. */
   live?: Promise<boolean>
@@ -297,8 +301,13 @@ interface ContentSourceHeadsRuntime {
   api: ContentSourceHeads
   /** Resolve selected heads before hub reads, including Comark's internal cache and index paths. */
   sync(names?: readonly string[]): Promise<void>
-  /** How the instance of a `github()` Source reads its head commit, for `createContentInstance()`. Undefined for other Sources. */
-  commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined
+  /**
+   * How the instance of a `github()` Source reads its head commit, for `createContentInstance()`. Undefined for other
+   * Sources. `snapshot` is the build snapshot of the Source, which serves the commit that the build parsed.
+   */
+  commits(name: string, input: ContentSourceInput, snapshot?: ContentSnapshotLoader): ContentSourceCommits | undefined
+  /** For the build: resolve and parse the branch commit of a `github()` Source. Undefined without a GitHub token. */
+  snapshot(name: string): Promise<BuiltContentCommit | string | undefined>
   /** Give a `github()` Source its Comark instance, so a moved head reloads it. */
   attach(name: string, instance: ComarkContent): void
   /** Close every view after its current reads finish. */
@@ -314,8 +323,17 @@ interface ContentSourceHeadsRuntime {
   names(): string[]
   /** The names of the `github()` Sources that follow `ref` of `repo`. `defaultBranch` resolves a Source without `ref`. */
   match(repo: string, ref: string, defaultBranch: string | undefined): { repository: boolean, sources: string[] }
+  /**
+   * Run a read with the Comark instance of the commit of a ref, for a preview request. The commit must pass validation,
+   * as for `at()`. The view stays open until the read ends.
+   */
+  read<T>(target: ContentSourceRef, read: (view: ComarkContent) => Promise<T>): Promise<T>
   /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
+  /** Run `work` after the push webhook moves the head of a Source, such as computing page dates. */
+  onMove(work: (source: string) => Promise<void>): void
+  /** The work of `onMove()` for a Source whose head moved. The push webhook runs it in `waitUntil`. */
+  moved(source: string): Promise<void>
 }
 
 const runtimes = new WeakMap<object, ContentSourceHeadsRuntime>()
@@ -450,6 +468,18 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     return state.hash
   }
 
+  /** The commit `sha` from the build snapshot, or undefined when the build parsed another commit or none. */
+  async function readBuilt(state: HeadState, sha: string): Promise<ContentCommit | undefined> {
+    if (!state.built) return
+    // A snapshot that does not load or inflate counts as a miss, like a KV entry that does not decode.
+    try {
+      const snapshot = await state.built()
+      if (snapshot?.sha !== sha || snapshot.origin !== origin(state)) return
+      return readCommitJson(await snapshot.read())
+    }
+    catch {}
+  }
+
   async function readCommit(key: string): Promise<ContentCommit | undefined> {
     const store = contentKV()
     if (!store) return
@@ -484,8 +514,9 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   /**
-   * One commit of a Source: from memory, then from ViteHub KV, then from its GitHub archive. Only a commit whose documents
-   * all parse goes to KV. Concurrent loads of one commit share one download.
+   * One commit of a Source: from memory, then from the build snapshot, then from ViteHub KV, then from its GitHub archive.
+   * Only a commit whose documents all parse goes to KV. Concurrent loads of one commit share one download. The build
+   * snapshot does not go to KV: each server instance of the build has it.
    */
   async function load(state: HeadState, revision: SourceRevision): Promise<LoadedCommit> {
     const key = commitKey(await hashOf(state), revision.id, state.name)
@@ -495,6 +526,11 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       return await held
     }
     const loading = (async (): Promise<LoadedCommit> => {
+      const built = await readBuilt(state, revision.id)
+      if (built) {
+        state.stats.build++
+        return { files: built.files, commit: built }
+      }
       const stored = await readCommit(key)
       if (stored) {
         state.stats.kv++
@@ -653,7 +689,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   async function view(state: HeadState, head: StoredHead | null, live = true): Promise<ContentSourceHead> {
-    const { memory: memoryHits, kv: kvHits, misses } = state.stats
+    const { memory: memoryHits, build: buildHits, kv: kvHits, misses } = state.stats
     return {
       source: state.name,
       live,
@@ -665,7 +701,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       checkedAt: live && head ? await lastCheck(state, head) : null,
       webhook: await lastDelivery(state),
       diagnostic: diagnostic(state, head, live),
-      cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, kv: kvHits }, misses },
+      cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, build: buildHits, kv: kvHits }, misses },
       views: [...views.values()].filter(open => open.state === state).map(open => open.sha),
     }
   }
@@ -755,10 +791,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   /** Run one read on the view of a commit. A view that left the pool opens again, from the commit cache. */
-  async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>) => Promise<T>): Promise<T> {
+  async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>, view: ComarkContent) => Promise<T>): Promise<T> {
     const open = await openView(state, sha, true)
     try {
-      return await read(open.hub)
+      return await read(open.hub, open.view)
     }
     finally {
       open.readers--
@@ -948,6 +984,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     return { repo, ref: typeof ref === "string" && ref !== "default" ? ref : undefined }
   }
 
+  const onMoved: Array<(source: string) => Promise<void>> = []
   const runtime: ContentSourceHeadsRuntime = {
     api,
     async dispose() {
@@ -958,10 +995,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async sync(names) {
       await Promise.all([...states.values()].filter(state => names === undefined || names.includes(state.name)).map(state => sync(state)))
     },
-    commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined {
+    commits(name: string, input: ContentSourceInput, snapshot?: ContentSnapshotLoader): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)
       if (!isGitHubDefinition(definition)) return
-      const state: HeadState = { name, input, definition, reported: new Set(), stats: { memory: 0, kv: 0, misses: 0 }, access: new AsyncLocalStorage() }
+      const state: HeadState = { name, input, definition, reported: new Set(), stats: { memory: 0, build: 0, kv: 0, misses: 0 }, access: new AsyncLocalStorage(), ...(snapshot ? { built: openCommitSnapshot(snapshot) } : {}) }
       states.set(name, state)
       // A read outside a guarded operation first brings the Source to its head.
       const revision = async (): Promise<SourceRevision | undefined> => {
@@ -976,6 +1013,15 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
           return served && (await load(state, served)).commit
         }),
       }
+    },
+    async snapshot(name) {
+      const state = stateOf(name)
+      if (!await state.definition.authenticated()) return
+      const revision = await createSource(state.definition).revision()
+      if (!revision?.immutable) return `GitHub gave no commit for the branch of Content source ${JSON.stringify(name)}.`
+      const loaded = await parseCommit(state, await createSource(state.definition, { revision }).items())
+      if (!loaded.commit) return `Commit ${revision.id} of Content source ${JSON.stringify(name)} failed validation: ${loaded.reason}`
+      return { sha: revision.id, ref: revision.ref ?? null, origin: origin(state), json: commitJson(loaded.commit) }
     },
     github: name => states.get(name)?.definition,
     async published(name: string): Promise<string | null> {
@@ -1027,7 +1073,21 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         },
       })
     },
+    onMove(work) {
+      onMoved.push(work)
+    },
+    async moved(name) {
+      await Promise.all(onMoved.map(work => work(name)))
+    },
     names: () => [...states.keys()],
+    async read(ref, read) {
+      assertActive()
+      const target = givenRef(ref)
+      const state = stateOf(target.source)
+      const loaded = await load(state, { id: target.sha, immutable: true })
+      if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
+      return await readAt(state, target.sha, (_hub, view) => read(view))
+    },
     match(repo, ref, defaultBranch) {
       const result: { repository: boolean, sources: string[] } = { repository: false, sources: [] }
       for (const state of states.values()) {

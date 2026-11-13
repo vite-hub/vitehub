@@ -7,7 +7,7 @@ export default defineEventHandler((event) => {
       || !!event.context._platform?.cloudflare?.env
     const isVercel = !!(process.env.VERCEL || process.env.VERCEL_URL)
     const provider = isCloudflare ? "cloudflare" : isVercel ? "vercel" : null
-    const hosting = process.env.VITEHUB_HOSTING
+    const hosting = process.env.VITEHUB_HOST
       || (isCloudflare ? "cloudflare-module" : isVercel ? "vercel" : null)
 
     return {

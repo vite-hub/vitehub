@@ -85,7 +85,9 @@ export function defineContentGitHubWebhookHandler(content: { sources: ContentSou
       const work = Promise.all(match.sources.map(name => runtime.deliver(name, { id: delivery, sha: push.after })))
       const waitUntil = getStandardContext(request).waitUntil
       if (waitUntil) {
-        waitUntil(work.catch((error: unknown) => console.error(error)))
+        // After the response, a moved head also computes its page dates, so no feed or sitemap request waits for them.
+        const after = work.then(deliveries => Promise.all(deliveries.map((result, index) => result.result === "moved" ? runtime.moved(match.sources[index]!) : undefined)))
+        waitUntil(after.catch((error: unknown) => console.error(error)))
         return Response.json({ sources: match.sources }, { status: 202 })
       }
       return Response.json({ sources: match.sources, deliveries: await work })

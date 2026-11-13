@@ -13,7 +13,7 @@ export default {
     database: true,
     // Redis requires an explicit driver. Without it, KV infers the Postgres Default Database.
     kv: process.env.REDIS_URL ? { driver: "redis" } : true,
-    preset: "node",
+    host: "node",
     queue: true,
     rateLimit: true,
     realtime: { authority: "memory" },

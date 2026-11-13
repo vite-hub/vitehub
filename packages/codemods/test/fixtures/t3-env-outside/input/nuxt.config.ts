@@ -1,4 +1,4 @@
 export default defineNuxtConfig({
-  vitehub: { preset: "cloudflare" },
+  vitehub: { host: "cloudflare" },
   modules: ["vite-hub/nuxt"],
 });
