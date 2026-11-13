@@ -147,6 +147,19 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the problem in `why`. Without `--remote`, `vitehub database export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
     },
 
+    DATABASE_SQL_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot run the SQL on the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub database sql` runs on the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`. For a SQL error, fix the statement and run it again.",
+    },
+    DATABASE_DROP_NOT_CONFIRMED: {
+      why: ({ database }: { database: string }) => `\`vitehub database drop\` drops every table of the database "${database}" and was not confirmed.`,
+      fix: "Answer `y` on a terminal, or add `--force` when no terminal can answer, such as in CI or a script.",
+    },
+    DATABASE_DROP_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot drop the tables of the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. The drop runs in one transaction, so a failure drops nothing. Without `--remote`, it drops the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`.",
+    },
+
     // Definition errors. `defineDatabase()` throws them.
     DATABASE_DRIZZLE_OPTION_REMOVED: {
       why: "`defineDatabase()` has no `drizzle` option. Drizzle 1.0 removed the database `casing` option.",

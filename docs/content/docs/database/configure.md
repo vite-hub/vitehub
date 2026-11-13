@@ -65,9 +65,11 @@ export default defineConfig({
 | --- | --- | --- | --- |
 | `database` | `boolean` or `DatabaseOptions` | disabled | `true` or an object turns on Database in `vitehub()`. `false` leaves it off. |
 | `database.projectRoot` | `string` | effective application root | Root for finding Definitions, generated files, and provisioning. Relative paths start from the Vite root, or from the Nuxt `rootDir` in Nuxt. |
+| `database.cli.drop` | `false` | enabled | Turns off `database drop`. |
 | `database.cli.export` | `false` | enabled | Turns off `database export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
+| `database.cli.sql` | `false` | enabled | Turns off `database sql`. |
 | `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `d1` selects Cloudflare D1 output for all databases. |
@@ -354,6 +356,32 @@ SQLite, libSQL, and D1 dumps use the `wrangler d1 export` format: `PRAGMA defer_
 For local SQLite, libSQL, and object-form D1 proxies, contentless FTS5 tables (`content=''`) are not supported. The command fails instead of writing a dump without their search indexes. Use a SQLite backup that keeps FTS shadow tables.
 
 Object-form D1 proxies cannot keep one read transaction across requests. So tables without a usable rowid key, such as `WITHOUT ROWID` and virtual tables, are read in one query, and writes cannot shift pages. If that query is over the proxy's response limit, the export fails with no dump. Use the native D1 export API then.
+
+## Run SQL and drop tables
+
+`vitehub database sql` runs SQL on one database and prints the rows of each statement as a table. `vitehub database drop` drops every table and view of one database, and the migrations table with them, so the next `vitehub database migrate` starts from an empty database. Like `export`, they read the config and do not build the app.
+
+```bash [commands/sql]
+pnpm vitehub database sql "select id, email from users limit 5"
+pnpm vitehub database sql --json "select count(*) as users from users"
+cat seed.sql | pnpm vitehub database sql
+pnpm vitehub database sql --remote --stage production "select count(*) from users"
+pnpm vitehub database drop
+pnpm vitehub database drop --force                          # in CI or a script
+```
+
+Both commands use the same target as `export`. Without `--remote`, they use only the local SQLite file or PGlite folder of `vitehub database migrate`. Any other database, such as D1, libSQL, or a Postgres server, needs `--remote` and the same credentials as `export --remote`. `--stage <name>` loads the Vite env files of that mode, and `--database <name>` picks the database when the app has several.
+
+`sql` reads the SQL from the argument, or from stdin when there is no argument. It runs the statements in order and stops at the first error. A statement without rows prints the number of changed rows, when the driver reports it. `--json` prints one JSON array, with `{ columns, rows, rowsAffected }` for each statement. Bytes print as hex and big integers as strings. SQLite and D1 statements are split at semicolons, so a trigger with `BEGIN ... END` does not run through `sql`. Postgres and PGlite get the script as one query.
+
+`drop` lists what it will drop and asks before it drops it. Without a terminal to ask, such as in CI, it needs `--force`, else it fails with `DATABASE_DROP_NOT_CONFIRMED`. It runs in one transaction, so a failure drops nothing:
+
+| Database | Drops |
+| --- | --- |
+| SQLite, libSQL, and D1 | Every table and view, with `__drizzle_migrations` or Wrangler's `d1_migrations`. SQLite and Cloudflare internal tables stay. Foreign key checks wait until the commit. |
+| Postgres and PGlite | The tables, views, sequences, and enum types that the connecting user owns, in every schema but the system ones, and Drizzle's `drizzle` schema. Then each schema that is left empty, except `public`. Objects of other roles, such as the `auth` tables of Supabase, stay. |
+
+Failures print `DATABASE_SQL_FAILED` or `DATABASE_DROP_FAILED` and exit with code 1. A local file that does not exist fails `sql`, and `drop` has nothing to drop. Neither creates the file.
 
 ## Tables from Nuxt layers
 

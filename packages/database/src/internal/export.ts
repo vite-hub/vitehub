@@ -16,8 +16,8 @@ import { withoutCredentials } from "./migration-plan.ts"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1Query } from "./d1-migrations.ts"
 
-/** Where `vitehub database export` reads a database. Only `local` is on this machine. */
-type ExportTarget =
+/** Where `vitehub database export`, `sql`, and `drop` reach a database. Only `local` and `pglite` are on this machine. */
+export type ExportTarget =
   | { kind: "local", path: string }
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "d1", accountId?: string, databaseId?: string, databaseName?: string, token?: string }
@@ -35,8 +35,8 @@ interface ExportOptions {
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
 }
 
-/** Resolves the export target with the same connection rules as `vitehub database migrate`. */
-function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
+/** Resolves the target with the same connection rules as `vitehub database migrate`. */
+export function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
   if (database.dialect === "postgresql") {
     const url = resolveConfigValue(database.connection?.url, env)?.trim() || undefined
     if (runsOnPglite(database.driver, url, env)) return { kind: "pglite", path: resolve(projectRoot, localPgliteDir(database.name)) }
@@ -264,16 +264,11 @@ interface D1ExportPoll {
   status?: "active" | "complete" | "error"
 }
 
-/** Exports a D1 database with Cloudflare's export API, like `wrangler d1 export --remote`. */
-async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: string, options: ExportOptions) {
-  const missing = [
-    !target.accountId && "`CLOUDFLARE_ACCOUNT_ID`",
-    !target.token && "`CLOUDFLARE_API_TOKEN`",
-    !target.databaseId && !target.databaseName && "`cloudflare.databaseId` or `cloudflare.databaseName`",
-  ].filter(Boolean)
-  if (missing.length) throw new Error(`ViteHub exports D1 with the Cloudflare API, which needs ${missing.join(" and ")}.`)
-  const request = options.fetch ?? fetch
-  const api = async (path: string, init: { body?: unknown, method?: string } = {}) => {
+type CloudflareApi = (path: string, init?: { body?: unknown, method?: string }) => Promise<unknown>
+
+/** Calls the Cloudflare API of the target account. Throws with the HTTP status and the API messages, without the token. */
+export function cloudflareApi(target: Pick<Extract<ExportTarget, { kind: "d1" }>, "accountId" | "token">, request: typeof fetch = fetch): CloudflareApi {
+  return async (path, init = {}) => {
     const response = await request(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}${path}`, {
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       headers: { "Authorization": `Bearer ${target.token}`, "Content-Type": "application/json" },
@@ -286,13 +281,33 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
     }
     return payload.result
   }
-  let databaseId = target.databaseId
-  if (!databaseId) {
-    const listed = await api(`/d1/database?name=${encodeURIComponent(target.databaseName!)}`)
-    const match = (Array.isArray(listed) ? listed as Array<{ name?: string, uuid?: string }> : []).find(database => database.name === target.databaseName)
-    if (!match?.uuid) throw new Error(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --provider cloudflare\` or set \`cloudflare.databaseId\`.`)
-    databaseId = match.uuid
-  }
+}
+
+/** The D1 database id of the target: `cloudflare.databaseId`, or the id of the D1 database named `cloudflare.databaseName`. */
+export async function resolveD1DatabaseId(target: Extract<ExportTarget, { kind: "d1" }>, api: CloudflareApi): Promise<string> {
+  if (target.databaseId) return target.databaseId
+  const listed = await api(`/d1/database?name=${encodeURIComponent(target.databaseName!)}`)
+  const match = (Array.isArray(listed) ? listed as Array<{ name?: string, uuid?: string }> : []).find(database => database.name === target.databaseName)
+  if (!match?.uuid) throw new Error(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --provider cloudflare\` or set \`cloudflare.databaseId\`.`)
+  return match.uuid
+}
+
+/** Names the Cloudflare values that a D1 target lacks. Empty when it has them all. */
+export function missingD1Credentials(target: Extract<ExportTarget, { kind: "d1" }>): string[] {
+  return [
+    !target.accountId && "`CLOUDFLARE_ACCOUNT_ID`",
+    !target.token && "`CLOUDFLARE_API_TOKEN`",
+    !target.databaseId && !target.databaseName && "`cloudflare.databaseId` or `cloudflare.databaseName`",
+  ].filter(value => typeof value === "string")
+}
+
+/** Exports a D1 database with Cloudflare's export API, like `wrangler d1 export --remote`. */
+async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: string, options: ExportOptions) {
+  const missing = missingD1Credentials(target)
+  if (missing.length) throw new Error(`ViteHub exports D1 with the Cloudflare API, which needs ${missing.join(" and ")}.`)
+  const request = options.fetch ?? fetch
+  const api = cloudflareApi(target, request)
+  const databaseId = await resolveD1DatabaseId(target, api)
   let bookmark: string | undefined
   let signedUrl: string | undefined
   const maxPolls = 600

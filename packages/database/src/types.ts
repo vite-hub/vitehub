@@ -62,9 +62,11 @@ export interface DatabaseRuntimeD1Options {
 
 export interface DatabaseIntegrationOptions {
   cli?: false | {
+    drop?: false
     export?: false
     generate?: false
     migrate?: false
+    sql?: false
     up?: false
   }
   /**
