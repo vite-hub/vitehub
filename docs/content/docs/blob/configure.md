@@ -76,8 +76,9 @@ export default defineConfig({
 | `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Named stores. `stores.default` is required. |
 | `blob: { serve: false }` | No serve route. This is the default. |
-| `blob: { serve: true }` | Adds a Nitro route at `/api/_vitehub/blob/**` that serves the default store. |
-| `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Adds a Nitro route. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
+| `blob: { serve: { public: true } }` | Adds a Nitro route at `/api/_vitehub/blob/**` that sends every file of the default store to anyone. |
+| `blob: { serve: { authorize: true } }` | Adds the same route, but each request needs a signed-in Auth session. |
+| `blob: { serve: { public?, authorize?, route?, store?, publicBaseUrl?, headers?, anonymous? } }` | Adds a Nitro route. Set exactly one of `public: true` and `authorize: true`, or the build fails with `BLOB_C0021`. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
 > [!WARNING]
 > The serve route sends each file from the app origin with the content type that the uploader sent. It serves HTML, SVG, XML, and multipart types in a CSP sandbox, so they run no script. A middleware `Content-Security-Policy` does not remove the sandbox. When users who are not fully trusted can upload, set `publicBaseUrl` to an origin that has no app cookies, and limit [`ensure.types`](/docs/blob/server-api#ensureblobblob-options) to the types that your app needs. Read [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
@@ -130,7 +131,7 @@ Writes from `vite dev` then change real data. On first use, the dev server print
 
 ### Protect served objects
 
-The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. Enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
+The serve route is not public unless you set `serve.public: true`. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. Enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -255,14 +256,14 @@ export const authorize: BlobServeAnonymousAuthorize = ({ request, user }) => {
 
 ## Serve blob-backed assets
 
-Set `serve` to add a Nitro route that sends stored files to the browser through `blob.serve()`. It is off by default.
+Set `serve` to add a Nitro route that sends stored files to the browser through `blob.serve()`. It is off by default. Each route says who may read the files: `public: true` sends every file of the store to anyone who has its URL, and `authorize: true` requires a signed-in session (see [Protect served objects](#protect-served-objects)). Keep private files in a store that the route does not serve, or use `authorize: true`. `put()` has no `access` option: one file cannot be private in a public store, and `put()` with `access` throws `BLOB_R0045`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { blob: { driver: 'fs', serve: true } },
+  vitehub: { blob: { driver: 'fs', serve: { public: true } } },
 })
 ```
 :::
@@ -274,7 +275,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ blob: { driver: 'fs', serve: true } }), nitro()],
+  plugins: [vitehub({ blob: { driver: 'fs', serve: { public: true } } }), nitro()],
 })
 ```
 :::
@@ -285,13 +286,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ blob: { driver: 'fs', serve: true } })],
+  plugins: [vitehub({ blob: { driver: 'fs', serve: { public: true } } })],
 })
 ```
 :::
 ::
 
-`serve: true` uses `/api/_vitehub/blob`. This path does not collide with your routes, static assets, or framework asset folders. For URLs that your users see, set `serve.route`.
+The route uses `/api/_vitehub/blob` by default. This path does not collide with your routes, static assets, or framework asset folders. For URLs that your users see, set `serve.route`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -303,6 +304,7 @@ export default defineNuxtConfig({
       driver: 's3',
       bucket: 'app-assets',
       serve: {
+        public: true,
         route: '/assets',
         headers: {
           'Cache-Control': 'public, max-age=300',
@@ -328,6 +330,7 @@ export default defineConfig({
         driver: 's3',
         bucket: 'app-assets',
         serve: {
+          public: true,
           route: '/assets',
           headers: {
             'Cache-Control': 'public, max-age=300',
@@ -354,6 +357,7 @@ export default defineConfig({
         driver: 's3',
         bucket: 'app-assets',
         serve: {
+          public: true,
           route: '/assets',
           headers: {
             'Cache-Control': 'public, max-age=300',
@@ -395,7 +399,7 @@ export default defineNuxtConfig({
   vitehub: {
     blob: {
       driver: 'fs',
-      serve: true,
+      serve: { public: true },
       images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
   },
@@ -414,7 +418,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'fs',
-        serve: true,
+        serve: { public: true },
         images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -434,7 +438,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'fs',
-        serve: true,
+        serve: { public: true },
         images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),

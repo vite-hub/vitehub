@@ -168,7 +168,7 @@ export default defineEventHandler(async (event) => {
 
 ### Serve files from a private store
 
-A private store has no public URL. Set `serve` to add a route that streams files through your app:
+A private store has no public URL. Set `serve` with `authorize: true` to add a route that streams files through your app to signed-in users. It needs [Auth](/docs/auth):
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -177,10 +177,11 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'vercel',
+    auth: true,
     blob: {
       driver: 'vercel-blob',
       access: 'private',
-      serve: { route: '/files' },
+      serve: { route: '/files', authorize: true },
     },
   },
 })
@@ -197,10 +198,11 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'vercel',
+      auth: true,
       blob: {
         driver: 'vercel-blob',
         access: 'private',
-        serve: { route: '/files' },
+        serve: { route: '/files', authorize: true },
       },
     }),
     nitro(),
@@ -218,10 +220,11 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'vercel',
+      auth: true,
       blob: {
         driver: 'vercel-blob',
         access: 'private',
-        serve: { route: '/files' },
+        serve: { route: '/files', authorize: true },
       },
     }),
   ],
@@ -230,10 +233,10 @@ export default defineConfig({
 :::
 ::
 
-`/files/avatars/ada.png` now returns `avatars/ada.png` from the store.
+`/files/avatars/ada.png` now returns `avatars/ada.png` from the store to a signed-in user, and `401` to a signed-out one. Export `authorize` from `server/blob.ts` to decide which user can read which file.
 
 ::warning
-The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session.
+Use `serve: { public: true }` only when anyone may read every file of the store. `access` on the Vercel Blob store sets the provider access. It does not protect the serve route.
 ::
 
 See [Serve blob-backed assets](/docs/blob/configure#serve-blob-backed-assets) and [Protect served objects](/docs/blob/configure#protect-served-objects).

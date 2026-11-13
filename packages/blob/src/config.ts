@@ -318,24 +318,35 @@ function normalizeServeHeaders(value: unknown): Record<string, string> | undefin
   return Object.fromEntries(entries) as Record<string, string>
 }
 
-function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
+function normalizeServeOptions(value: false | BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
   if (value === undefined || value === false) return
-  if (value === true) return { route: DEFAULT_BLOB_SERVE_ROUTE, store: "default" }
-  if (!isPlainObject(value)) throw blobErrorDiagnostics.BLOB_C0005({ message: "`blob.serve` must be true or a plain object." })
+  if (!isPlainObject(value)) {
+    throw blobErrorDiagnostics.BLOB_C0005({ message: `\`blob.serve\` must be a plain object that says who may read the files. Received ${JSON.stringify(value)}.` })
+  }
   if (value.authorize !== undefined && value.authorize !== true && value.authorize !== false) {
     throw blobErrorDiagnostics.BLOB_C0012({ message: "`blob.serve.authorize` must be a boolean. Export an `authorize` function from `server/blob.ts` for per-request rules." })
+  }
+  if (value.public !== undefined && value.public !== true && value.public !== false) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve.public` must be a boolean." })
+  }
+  if (value.public && value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` sets both `public: true` and `authorize: true`. Choose one." })
+  }
+  if (!value.public && !value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` does not say who may read the files. The serve route sends every object of the store, so set `public: true` or `authorize: true`." })
   }
   if (value.anonymous !== undefined && value.anonymous !== true && value.anonymous !== false) {
     throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` must be a boolean." })
   }
   if (value.anonymous && !value.authorize) {
-    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. Without authorization the serve route is already public." })
+    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. A `public: true` route already serves signed-out callers." })
   }
   const headers = normalizeServeHeaders(value.headers)
   return {
     ...(value.anonymous ? { anonymous: true } : {}),
     ...(value.authorize ? { authorize: true } : {}),
     ...(headers ? { headers } : {}),
+    ...(value.public ? { public: true } : {}),
     route: trimmed(value.route) || DEFAULT_BLOB_SERVE_ROUTE,
     store: trimmed(value.store) || "default",
     ...(trimmed(value.publicBaseUrl) ? { publicBaseUrl: trimmed(value.publicBaseUrl) } : {}),
@@ -461,7 +472,7 @@ export function normalizeBlobOptions(
   const dev = input.dev === true
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
-  const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  const optionRecord = options as { serve?: false | BlobServeOptions } | undefined
   // SAFETY: `options` was validated as a plain object above, so this assertion only narrows its optional `stores` property.
   const storesOption = (options as { stores?: unknown } | undefined)?.stores
   if (options !== undefined && Object.hasOwn(options, "stores") && storesOption !== undefined && !isPlainObject(storesOption)) {

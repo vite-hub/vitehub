@@ -180,7 +180,7 @@ export default defineNuxtConfig({
   vitehub: {
     blob: {
       driver: 'cloudflare-r2',
-      serve: true,
+      serve: { public: true },
       images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
   },
@@ -199,7 +199,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { public: true },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -219,7 +219,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { public: true },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -254,7 +254,7 @@ export default defineNuxtConfig({
   vitehub: {
     blob: {
       driver: 'cloudflare-r2',
-      serve: true,
+      serve: { public: true },
       images: { transformer: 'photon' },
     },
   },
@@ -273,7 +273,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { public: true },
         images: { transformer: 'photon' },
       },
     }),
@@ -293,7 +293,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { public: true },
         images: { transformer: 'photon' },
       },
     }),

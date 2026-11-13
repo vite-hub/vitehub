@@ -429,8 +429,9 @@ describe("blob config", () => {
   })
 
   it("normalizes opt-in serving defaults", () => {
-    expect(normalizeBlobOptions({ serve: true })).toEqual({
+    expect(normalizeBlobOptions({ serve: { public: true } })).toEqual({
       serve: {
+        public: true,
         route: "/api/_vitehub/blob",
         store: "default",
       },
@@ -450,6 +451,7 @@ describe("blob config", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
+        public: true,
         publicBaseUrl: "https://assets.example",
         route: "assets",
         store: "default",
@@ -460,6 +462,7 @@ describe("blob config", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
+        public: true,
         publicBaseUrl: "https://assets.example",
         route: "assets",
         store: "default",
@@ -472,16 +475,12 @@ describe("blob config", () => {
   })
 
   it("rejects invalid serving config", () => {
-    expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be true or a plain object.")
+    expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be a plain object that says who may read the files. Received \"yes\".")
   })
 
-  it("keeps serve authorization only when it is enabled", () => {
+  it("keeps serve authorization when it is enabled", () => {
     expect(normalizeBlobOptions({ driver: "fs", serve: { authorize: true, route: "/photos" } })?.serve).toEqual({
       authorize: true,
-      route: "/photos",
-      store: "default",
-    })
-    expect(normalizeBlobOptions({ driver: "fs", serve: { authorize: false, route: "/photos" } })?.serve).toEqual({
       route: "/photos",
       store: "default",
     })
@@ -494,7 +493,7 @@ describe("blob config", () => {
       route: "/f",
       store: "default",
     })
-    expect(() => normalizeBlobOptions({ driver: "fs", serve: { anonymous: true } })).toThrow("`blob.serve.anonymous` requires `blob.serve.authorize: true`.")
+    expect(() => normalizeBlobOptions({ driver: "fs", serve: { anonymous: true, public: true } } as never)).toThrow("`blob.serve.anonymous` requires `blob.serve.authorize: true`.")
     expect(() => normalizeBlobOptions({ driver: "fs", serve: { anonymous: "yes", authorize: true } } as never)).toThrow("`blob.serve.anonymous` must be a boolean.")
   })
 
@@ -507,15 +506,15 @@ describe("blob config", () => {
 
   it("rejects invalid serving headers", () => {
     expect(() => normalizeBlobOptions({
-      serve: { headers: ["Cache-Control"] },
+      serve: { public: true, headers: ["Cache-Control"] },
     } as never)).toThrow("`blob.serve.headers` must be a plain object.")
 
     expect(() => normalizeBlobOptions({
-      serve: { headers: { "Cache-Control": 300 } },
+      serve: { public: true, headers: { "Cache-Control": 300 } },
     } as never)).toThrow("`blob.serve.headers` values must be strings.")
 
     expect(() => normalizeBlobOptions({
-      serve: { headers: { "Invalid Header": "value" } },
+      serve: { public: true, headers: { "Invalid Header": "value" } },
     } as never)).toThrow("`blob.serve.headers` contains an invalid HTTP header: \"Invalid Header\".")
   })
 
@@ -523,6 +522,7 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions({
       driver: "fs",
       serve: {
+        public: true,
         store: "media",
       },
     })).toThrow("`blob.serve.store` must reference a configured Blob store: \"media\".")
@@ -532,6 +532,7 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions({
       driver: "fs",
       serve: {
+        public: true,
         store: "constructor",
       },
     })).toThrow("`blob.serve.store` must reference a configured Blob store: \"constructor\".")
@@ -570,6 +571,7 @@ describe("blob config", () => {
   it("normalizes serving from a configured named Blob store", () => {
     expect(normalizeBlobOptions({
       serve: {
+        public: true,
         store: "assets",
       },
       stores: {
@@ -584,6 +586,7 @@ describe("blob config", () => {
       },
     })).toEqual({
       serve: {
+        public: true,
         route: "/api/_vitehub/blob",
         store: "assets",
       },
@@ -607,6 +610,7 @@ describe("blob config", () => {
   it("rejects serving from an unknown named Blob store", () => {
     expect(() => normalizeBlobOptions({
       serve: {
+        public: true,
         store: "media",
       },
       stores: {

@@ -26,7 +26,7 @@ const context = { authority: "memory", definition: "drafts", documentId: "a/v1.m
 const save = { editors: [], reason: "idle" as const }
 
 describe("blobDocument", () => {
-  it("creates, loads, and saves one private Markdown file per document", async () => {
+  it("creates, loads, and saves one Markdown file per document", async () => {
     const { files, store } = memoryBlob()
     const adapter = blobDocument(store, { prefix: "drafts/" })
     expect(await adapter.load(context)).toEqual({ body: "", digest: null })
@@ -43,9 +43,9 @@ describe("blobDocument", () => {
   it("throws RealtimeDocumentConflict and keeps the other writer's file", async () => {
     const { files, store } = memoryBlob()
     const adapter = blobDocument(store)
-    await store.put(context.documentId, "# Draft", { access: "private", contentType: "text/markdown" })
+    await store.put(context.documentId, "# Draft", { contentType: "text/markdown" })
     const loaded = await adapter.load(context)
-    await store.put(context.documentId, "# Someone else", { access: "private", contentType: "text/markdown" })
+    await store.put(context.documentId, "# Someone else", { contentType: "text/markdown" })
 
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: loaded.digest }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT", name: "RealtimeDocumentConflict" })
@@ -55,14 +55,14 @@ describe("blobDocument", () => {
   it("throws RealtimeDocumentConflict when the file was deleted or created by someone else", async () => {
     const { files, store } = memoryBlob()
     const adapter = blobDocument(store)
-    await store.put(context.documentId, "# Draft", { access: "private", contentType: "text/markdown" })
+    await store.put(context.documentId, "# Draft", { contentType: "text/markdown" })
     const loaded = await adapter.load(context)
     files.delete(context.documentId)
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: loaded.digest }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" })
     expect(files.has(context.documentId)).toBe(false)
 
-    await store.put(context.documentId, "# New", { access: "private", contentType: "text/markdown" })
+    await store.put(context.documentId, "# New", { contentType: "text/markdown" })
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: null }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" })
   })
@@ -90,12 +90,12 @@ describe("blobDocument", () => {
   it("re-seeds a room whose Blob file another writer changed, and keeps that file", async () => {
     vi.useFakeTimers()
     const { files, store } = memoryBlob()
-    await store.put("page", "Start", { access: "private", contentType: "text/markdown" })
+    await store.put("page", "Start", { contentType: "text/markdown" })
     const server = createTestServer({ document: blobDocument(store), editor: createStubEditor().editor })
     const client = await server.connect("page")
     await settle()
     await vi.advanceTimersByTimeAsync(60)
-    await store.put("page", "Someone else", { access: "private", contentType: "text/markdown" })
+    await store.put("page", "Someone else", { contentType: "text/markdown" })
     appendParagraph(client.doc, "Mine")
 
     const response = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
