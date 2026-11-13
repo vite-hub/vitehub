@@ -48,7 +48,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, checksTestedBase, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -791,6 +791,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const assessedFeedback = new Set(isRuntimeRecord(assessment) && Array.isArray(assessment.feedback) ? assessment.feedback.filter(item => hasRuntimeType(item, "string")) : []);
     const readiness = (checked: Snapshot, state: typeof evaluation.state, inheritedCheckIds: readonly number[]) => directMergeReadiness(checked, state, {
       ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy), inheritedCheckIds: new Set(inheritedCheckIds) });
+    // Green PRs merge here without reaching the reviewed-head path that also marks drafts ready.
+    if (!pending && snapshot.pr?.draft === true && evaluation.state !== "failed" && snapshot.pr.mergeable !== false
+      && snapshot.pr.mergeable_state !== "dirty" && await markDraftReady(snapshot, owner, signal)) {
+      await pullRequestInbox.finish(claim, { text: "Marked the draft ready for review so it can merge.", wait: { ...createCheckWait(snapshot, waitPolicy), retryAt: Date.now() + 120_000 } });
+      return "blocked";
+    }
     let decision = readiness(snapshot, evaluation.state, evaluation.inheritedCheckIds);
     if (decision.ready && merge.ready) {
       const callback = merge.ready;
@@ -849,8 +855,32 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         }
       }
       const repositorySettings = (await provider.repos.get(repo, { signal })).raw;
-      const children = await readPulls(repository, { state: "open", base: snapshot.pr?.head?.ref ?? "", limit: 1_000 }, signal);
-      const branchSafety = directMergeBranchSafety(repositorySettings, live, children);
+      const readChildren = () => readPulls(repository, { state: "open", base: snapshot.pr?.head?.ref ?? "", limit: 1_000 }, signal);
+      const children = await readChildren();
+      let branchSafety = directMergeBranchSafety(repositorySettings, live, children);
+      // The repository deletes merged branches, so move the open children onto this PR's base before
+      // merging it. Refusing left the parent and its children waiting on each other.
+      const parentBase = isRuntimeRecord(live) && isRuntimeRecord(live.base) && hasRuntimeType(live.base.ref, "string") ? live.base.ref : undefined;
+      if (!pending && parentBase && branchSafety === stackChildBaseDeletion) {
+        const retargeted: number[] = [];
+        try {
+          for (const child of children) {
+            if (!isRuntimeRecord(child) || String(child.state).toLowerCase() !== "open" || !isRuntimeRecord(child.base) || child.base.ref !== snapshot.pr?.head?.ref
+              || !Number.isSafeInteger(child.number)) continue;
+            // Persist before PATCH: a later retarget, lease check, or parent merge can fail.
+            // Keep this across restarts and child head/base changes until GitHub confirms landing.
+            await pullRequestInbox.setMeta(`stack-dependency:${repository}#${child.number}`, number);
+            await provider.request("PATCH", `/repos/${repository}/pulls/${child.number}`, { body: { base: parentBase }, signal });
+            retargeted.push(child.number as number);
+          }
+          branchSafety = directMergeBranchSafety(repositorySettings, live, await readChildren());
+        }
+        catch (error) {
+          await noteForgeQuota(error, "stack-retarget");
+          branchSafety = `stacked child retarget failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`;
+        }
+        if (retargeted.length) schedulerEvent("babysitter.stack.children_retargeted", { ...owner, children: retargeted, base: parentBase });
+      }
       if (branchSafety !== true) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: branchSafety });
         return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${branchSafety}.`) : "not-ready";
@@ -1288,6 +1318,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function retargetMergedStackBase(claim: Claim, signal: AbortSignal): Promise<{ from: string; to: string } | { parent: number } | undefined> {
     const snapshot = claim.snapshot;
     const pr = snapshot.pr;
+    const dependency = await pullRequestInbox.metaNumber(`stack-dependency:${snapshot.repository}#${snapshot.number}`);
+    if (dependency !== undefined) {
+      const parent = await readPull(snapshot.repository, dependency, signal);
+      if (!isRuntimeRecord(parent) || !(parent.merged === true || hasRuntimeType(parent.merged_at, "string"))) return { parent: dependency };
+    }
     const target = pr && nonDefaultBase(pr);
     if (!pr || !target) return undefined;
     const { base, owner } = target;
@@ -2096,7 +2131,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // Mark every repair comment, including mentions, so its webhook cannot revoke this pass.
                 commentPrefix: "<!-- vitehub-babysitter-repair:repair -->\n",
                 signal: abortSignal,
-                autoMerge: merge.mode === "auto",
+                autoMerge: merge.mode === "auto" && stackParent === undefined,
                 eligible: (current) =>
                   pullRequestInbox.eligible(repository, normalizePullRequest(current)),
                 checkDependencies: async () => {
