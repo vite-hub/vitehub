@@ -70,7 +70,8 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
+  const number = preset.number ?? 12;
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -111,8 +112,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   // Check runs that the REST API reports in addition to the fixture's required "test" run.
   const extraCheckRuns: Record<string, unknown>[] = [];
   const pr = () => ({
-    number: 12,
-    node_id: "PR_12",
+    number,
+    node_id: `PR_${number}`,
     state: "open",
     draft: preset.draft ?? false,
     title: "Fix value",
@@ -122,7 +123,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     labels: [{ name: "repair" }],
     head: { sha: head, ref: "fix", repo: { full_name: "acme/app" } },
     base: { sha: baseHead, ref: preset.base ?? "main", repo: { full_name: "acme/app", default_branch: "main", owner: { login: "acme" } } },
-    html_url: "https://github.com/acme/app/pull/12",
+    html_url: `https://github.com/acme/app/pull/${number}`,
     mergeable_state: preset.mergeableState ?? "clean",
   });
   const pageInfo = { hasNextPage: false, endCursor: null };
@@ -134,8 +135,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       rebaseMergeAllowed: true,
       deleteBranchOnMerge: false,
       pullRequest: {
-        id: "PR_12",
-        number: 12,
+        id: `PR_${number}`,
+        number,
         state: "OPEN",
         isDraft: preset.draft ?? false,
         headRefOid: head,
@@ -161,7 +162,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     if (text.includes("enablePullRequestAutoMerge"))
       return {
         stdout: JSON.stringify({
-          data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_12", state: "OPEN", headRefOid: head, autoMergeRequest: { enabledAt: "2026-09-13T00:00:00Z" } } } },
+          data: { enablePullRequestAutoMerge: { pullRequest: { id: `PR_${number}`, state: "OPEN", headRefOid: head, autoMergeRequest: { enabledAt: "2026-09-13T00:00:00Z" } } } },
         }),
         stderr: "",
       };
@@ -211,7 +212,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     if (path.startsWith("repos/acme/app/git/ref/heads/"))
       return { stdout: JSON.stringify({ ref: `refs/heads/${pr().base.ref}`, object: { type: "commit", sha: preset.baseBranchHead ?? pr().base.sha } }), stderr: "" };
     const data =
-      path.includes("pulls?state") || path === "repos/acme/app/pulls/12"
+      path.includes("pulls?state") || path === `repos/acme/app/pulls/${number}`
         ? [pr()]
         : path.includes("/reviews?")
           ? preset.merge ? [] : [
@@ -1174,6 +1175,104 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("retargets open stacked children onto its base before a merge deletes their base branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    const headRef = f.pr().head.ref;
+    let childBase = headRef;
+    f.command.mockImplementation(async (args, request) => {
+      const text = args.join(" ");
+      if (args.includes("repos/acme/app")) {
+        const repository = JSON.parse((await command(args, request)).stdout);
+        return { stdout: JSON.stringify({ ...repository, delete_branch_on_merge: true }), stderr: "" };
+      }
+      if (text.includes("-X PATCH") && text.includes("repos/acme/app/pulls/13")) {
+        childBase = args.find(arg => arg.startsWith("base="))!.slice(5);
+        return { stdout: JSON.stringify({ number: 13, state: "open", base: { ref: childBase } }), stderr: "" };
+      }
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path.includes("pulls?") && path.includes("state=open") && path.includes(`base=${encodeURIComponent(headRef)}`)) {
+        const child = { number: 13, state: "open", base: { ref: childBase }, head: { ref: "child", repo: { full_name: "acme/app" } } };
+        return { stdout: childBase === headRef ? JSON.stringify(child) : "", stderr: "" };
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(childBase).toBe("main");
+      expect(f.events).toHaveBeenCalledWith("babysitter.stack.children_retargeted", expect.objectContaining({ children: [13], base: "main" }));
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(true);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each(["second retarget", "parent merge", "asynchronous merge"])("keeps retargeted children blocked after %s across restart", async failure => {
+    const parent = await fixture(false, false, { merge: "direct" });
+    const command = parent.command.getMockImplementation()!;
+    const headRef = parent.pr().head.ref;
+    let childBase = headRef;
+    parent.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path === "repos/acme/app") {
+        return { stdout: JSON.stringify({ ...JSON.parse((await command(args, request)).stdout), delete_branch_on_merge: true }), stderr: "" };
+      }
+      if (args.includes("PATCH") && path === "repos/acme/app/pulls/13") {
+        // The dependency must survive even if PATCH succeeds but the process stops before its response.
+        expect(await parent.runtime.inbox.metaNumber("stack-dependency:acme/app#13")).toBe(12);
+        childBase = "main";
+        return { stdout: "{}", stderr: "" };
+      }
+      if (args.includes("PATCH") && path === "repos/acme/app/pulls/14") throw new Error("retarget rejected");
+      if (path.includes("pulls?") && path.includes("state=open") && path.includes(`base=${encodeURIComponent(headRef)}`)) {
+        const children = [
+          ...(childBase === headRef ? [{ number: 13, state: "open", base: { ref: headRef } }] : []),
+          ...(failure === "second retarget" ? [{ number: 14, state: "open", base: { ref: headRef } }] : []),
+        ];
+        return { stdout: children.map(child => JSON.stringify(child)).join("\n"), stderr: "" };
+      }
+      if (args.includes("PUT") && path.endsWith("/merge-async")) {
+        if (failure === "parent merge") throw Object.assign(new Error("merge rejected"), { status: 405 });
+        return { stdout: JSON.stringify({ status: "enqueued", details: {} }), stderr: "" };
+      }
+      return command(args, request);
+    });
+    const inboxPath = join(parent.checkout, "..", "inbox.sqlite");
+    try {
+      await parent.reconcile();
+      expect(childBase).toBe("main");
+      expect(parent.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(failure !== "second retarget");
+      if (failure === "asynchronous merge") expect(await parent.runtime.inbox.directMergeAttempt("acme/app", 12)).toMatchObject({ enqueued: true });
+      expect(await parent.runtime.inbox.metaNumber("stack-dependency:acme/app#13")).toBe(12);
+    } finally { await parent.runtime.inbox.close(); }
+    const child = await fixture(false, false, { number: 13, inboxPath, merge: "direct" });
+    await child.runtime.inbox.seed("acme/app", child.pr());
+    const childCommand = child.command.getMockImplementation()!;
+    child.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/12")) return { stdout: JSON.stringify({ ...parent.pr(), merged: false }), stderr: "" };
+      return childCommand(args, request);
+    });
+    try {
+      await child.reconcile();
+      expect(child.passes).toHaveLength(0);
+      expect(child.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/13/merge-async"))).toBe(false);
+      expect((await child.runtime.inbox.get("acme/app", 13))?.wait).toMatchObject({ reason: "stack-parent", wake: { kind: "pull-request", repository: "acme/app", number: 12 } });
+    } finally { await child.runtime.inbox.close(); }
+  });
+
+  it.each([false, true])("requires confirmed parent landing for a child already targeting main (merged=%s)", async merged => {
+    const child = await fixture(false, false, { merge: "direct" });
+    await child.runtime.inbox.setMeta("stack-dependency:acme/app#12", 7);
+    const command = child.command.getMockImplementation()!;
+    child.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/7")) return { stdout: JSON.stringify({ number: 7, state: "closed", merged_at: merged ? "2026-11-13T00:00:00Z" : null }), stderr: "" };
+      return command(args, request);
+    });
+    try {
+      await child.reconcile();
+      expect(child.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(merged);
+      expect(child.passes).toHaveLength(0);
+    } finally { await child.runtime.inbox.close(); }
+  });
+
   /** A required `test` Actions job that fails on the PR head and on the base tip with `log` and `baseLog`. */
   function inheritFailure(f: Awaited<ReturnType<typeof fixture>>, log: string, baseLog = log) {
     const command = f.command.getMockImplementation()!;
@@ -1754,8 +1853,20 @@ describe("Babysitter preset runtime", () => {
         expect(markReady(f)[0]![0]).toContain("id=PR_12");
         expect(f.passes).toHaveLength(0);
         expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
-        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the reviewed draft ready for review so it can merge." });
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the draft ready for review so it can merge." });
         expect(f.events).toHaveBeenCalledWith("babysitter.draft.ready", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("marks a listed author's green draft ready before any review assessment", async () => {
+      const f = await fixture(false, false, { merge: { strategy: "direct", markDraftsReady: ["Developer"] }, draft: true });
+      try {
+        await f.runtime.inbox.ingest("draft-opened", "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: f.pr() });
+        expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeUndefined();
+        await f.reconcile();
+        expect(markReady(f)).toHaveLength(1);
+        expect(f.passes).toHaveLength(0);
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the draft ready for review so it can merge." });
       } finally { await f.runtime.inbox.close(); }
     });
 
@@ -1861,6 +1972,11 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { refreshes: 0 } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
+    for (const mainRepair of [{}, { workflows: [] }, { workflows: [" "] }, { workflows: ["ci"], repositories: ["app"] }, { workflows: ["ci"], stuckJobMinutes: 0 }, { workflows: ["ci"], stuckJobMinutes: true }, true]) {
+      expect(() => defineAgent({ extends: babysitter, options: { mainRepairBranchPrefix: "repair-main-", mainRepair: mainRepair as never } })).toThrow(/mainRepair must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { mainRepair: { workflows: ["ci"] } } })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_MAIN_REPAIR_NEEDS_PREFIX" }));
+    expect(() => defineAgent({ extends: babysitter, options: { mainRepairBranchPrefix: "repair-main-", mainRepair: { workflows: ["ci", "pkg.pr.new"], repositories: ["acme/app"], stuckJobMinutes: false } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: false } })).toThrow(/repairStackChildren requires merge: "direct"/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).not.toThrow();

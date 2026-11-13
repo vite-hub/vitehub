@@ -114,14 +114,16 @@ const bundledInternal: Record<string, string[]> = {
   forms: ["birpc"],
   kv: ["@valibot/to-json-schema", "birpc"],
   "rate-limit": ["@valibot/to-json-schema", "birpc"],
+  // Operation definitions are bundled from the private owner into Runtime.
+  runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
-  "vite-hub": ["@valibot/to-json-schema", "birpc", "semver"],
+  "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
-const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
+const packsWithPublint = ["forge", "gateways", "kit", "presets", "runtime", "shell"];
 
 // Settings that no manifest, config or script states.
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
@@ -156,7 +158,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     ignoreDependencies: [
       // The module installs these Nuxt modules by name from `moduleDependencies`.
       "nuxt-agent-discovery",
-      "nuxt-llms",
       "nuxt-og-image",
       "nuxt-site-config",
       // nuxt-og-image renders the `*.takumi.vue` share images with it.
@@ -242,7 +243,7 @@ const config: KnipConfiguration = {
   ignoreDependencies: ["cloudflare"],
   // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, the docs Nuxt module serves `#docs/*`,
   // and the Console app's Vite plugin supplies its built account page as `#console-page`.
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
   // A CLI that people install on their own machine. The Sandbox runs it when they choose the Crabbox provider.
   ignoreBinaries: ["crabbox"],
   ignoreIssues: {

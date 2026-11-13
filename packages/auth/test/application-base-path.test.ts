@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import hubAuthNuxt from "../src/nuxt.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
-import { createAuthAccessHandler, handleAuthRequest, resetAuth, withAuth } from "../src/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, resetAuth, withAuth } from "../src/internal/server.ts"
 import { createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
 const roots: string[] = []

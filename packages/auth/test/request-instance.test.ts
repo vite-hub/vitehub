@@ -2,7 +2,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAuth, withAuthorization } from "../src/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAuth, withAuthorization } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const provider = vi.hoisted(() => ({

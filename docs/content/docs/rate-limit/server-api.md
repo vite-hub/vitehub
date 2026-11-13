@@ -37,21 +37,22 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals,
 
 ## Check without throwing
 
-`checkRateLimit(event, id, options)` takes the same arguments and uses the same counters as `requireRateLimit()`, but returns the [decision](#understand-the-decision) instead of throwing. Use it to still answer a limited request, for example with a cached result.
+`checkRateLimit(event, id, options)` takes the same arguments and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
 
 ```ts [server/api/og.get.ts]
 import { defineEventHandler } from 'h3'
 import { checkRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
-  const decision = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
+  const [error, decision] = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
+  if (error) throw error
   // Over the limit, answer with the generic card instead of rendering one
   if (!decision.allowed) return { image: '/og/generic.png' }
   return { image: `/og/render.png?path=${encodeURIComponent(event.url.pathname)}` }
 })
 ```
 
-`reason` is `limited` when the budget is used up, or `unavailable` when the driver failed and `failure` is `deny`. With `failure: 'allow'`, an unavailable driver returns `allowed: true` with `reason: 'unavailable'`. Invalid options, a missing Cloudflare binding, and a request without a key still throw. ViteHub finds `checkRateLimit()` calls like `requireRateLimit()` calls, so the ID and policy must be static, and both share one budget per ID.
+`reason` is `limited` when the budget is used up, or `unavailable` when the driver failed and `failure` is `deny`. With `failure: 'allow'`, an unavailable driver returns `allowed: true` with `reason: 'unavailable'`. `error` is set when the check cannot run: `RATE_LIMIT_R0013` for a request without a key, and `RATE_LIMIT_R0009` for a missing Cloudflare binding. Invalid options throw. ViteHub discovers `checkRateLimit()` calls like `requireRateLimit()` calls, so the ID and policy must be static, and both share one budget per ID.
 
 ## Public imports
 

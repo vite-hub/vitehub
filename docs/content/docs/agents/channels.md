@@ -615,7 +615,7 @@ Or call `replayChannel()` from trusted server code:
 
 ```ts [server/api/backfill.post.ts] fragment
 import { replayChannel } from 'vite-hub/agent/server'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import labeller from '../agents/labeller'
 
 export default defineEventHandler(async (event) => {

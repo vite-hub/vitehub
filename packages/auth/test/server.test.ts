@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { organization } from "better-auth/plugins"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 describe("server auth helpers", () => {
@@ -18,8 +18,6 @@ describe("server auth helpers", () => {
     const definition = defineAuth({
       appName: "ViteHub",
       basePath: "/auth/",
-      database: { dedicated: true, name: "auth" },
-      secondaryStorage: { store: "auth" },
     })
 
     const options = createBetterAuthOptions(definition, {
@@ -158,7 +156,7 @@ describe("server auth helpers", () => {
   it("keeps the runtime env resolver when a dev reload re-runs the server module", async () => {
     setAuthRuntimeEnvResolver(() => ({ secret: "env-secret" }))
     vi.resetModules()
-    const reloaded = await import("../src/server.ts")
+    const reloaded = await import("../src/internal/server.ts")
     const definition = defineAuth({ runtime: ({ env }) => ({ secret: env.secret as string }) })
 
     expect(reloaded.createBetterAuthOptions(definition)).toMatchObject({ secret: "env-secret" })

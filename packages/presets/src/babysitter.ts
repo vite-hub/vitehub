@@ -15,6 +15,7 @@ import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge
 import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
 import { validWarmWorkspaces, type BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
+import type { BabysitterMainRepair } from "./babysitter/main-repair.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
@@ -24,6 +25,7 @@ import { githubAuthorAssociations } from "./babysitter/pull-request-filter.ts";
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
 export type { BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
+export type { BabysitterMainRepair } from "./babysitter/main-repair.ts";
 export type { AutomatedReviewClass } from "./babysitter/inbox/budgets.ts";
 export { BabysitterPlacementCapacityError } from "./babysitter/placement.ts";
 
@@ -179,6 +181,15 @@ export interface BabysitterOptions {
    */
   mainRepairBranchPrefix?: string;
   /**
+   * Open a PR that repairs the default branch when one of `workflows` fails on it. The check runs every
+   * 10 minutes per repository, and at once when a failed push run of a watched workflow is delivered.
+   * The PR starts with an empty commit on a branch named `mainRepairBranchPrefix` and the red commit's
+   * short SHA, so the queue claims it first. One repair PR is open at a time, and a red commit gets
+   * one repair branch. Running jobs of watched push runs older than `stuckJobMinutes` are force-cancelled
+   * first. Needs `mainRepairBranchPrefix`. Defaults to `false`.
+   */
+  mainRepair: BabysitterMainRepair | false;
+  /**
    * Wait for running required checks and review checks before a pass, unless a failure or conflict
    * already needs repair. One pass then handles CI and review results together. Defaults to `true`.
    */
@@ -311,6 +322,15 @@ function validInstall(install: unknown): boolean {
   if (!isRuntimeRecord(cache)) return false;
   return (cache.directory === undefined || (hasRuntimeType(cache.directory, "string") && cache.directory.trim() !== ""))
     && (cache.entries === undefined || (Number.isSafeInteger(cache.entries) && Number(cache.entries) >= 1));
+}
+
+function validMainRepair(mainRepair: unknown): boolean {
+  if (!isRuntimeRecord(mainRepair) || Array.isArray(mainRepair)) return false;
+  const { workflows, repositories, stuckJobMinutes } = mainRepair;
+  const names = (list: unknown, pattern: RegExp) => Array.isArray(list) && list.length > 0 && list.every(value => hasRuntimeType(value, "string") && pattern.test(value));
+  return names(workflows, /\S/)
+    && (repositories === undefined || names(repositories, /^[\w.-]+\/[\w.-]+$/))
+    && (stuckJobMinutes === undefined || stuckJobMinutes === false || (Number.isSafeInteger(stuckJobMinutes) && Number(stuckJobMinutes) >= 1));
 }
 
 const babysitterHost: AgentProcessHostContribution = {
@@ -449,6 +469,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     dailyPushBudget: false as number | false,
     priorityLabels: [] as string[],
     mainRepairBranchPrefix: undefined as string | undefined,
+    mainRepair: false as BabysitterMainRepair | false,
     deferWhilePending: true,
     install: true as BabysitterInstall,
     mentionAllowlist: [] as string[],
@@ -464,7 +485,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     providerCooldownMs: 5 * 60_000,
     status: {} as BabysitterStatusOptions,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, dailyPushBudget, priorityLabels, mainRepairBranchPrefix, providerRetries, deferWhilePending, install, concurrency, admission, placement, ciRecovery, warmWorkspaces, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, dailyPushBudget, priorityLabels, mainRepairBranchPrefix, mainRepair, providerRetries, deferWhilePending, install, concurrency, admission, placement, ciRecovery, warmWorkspaces, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -506,6 +527,12 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (mainRepairBranchPrefix !== undefined && !(hasRuntimeType(mainRepairBranchPrefix, "string") && mainRepairBranchPrefix.trim())) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "mainRepairBranchPrefix", expected: "a non-empty branch name prefix" });
+    }
+    if (mainRepair !== false && !validMainRepair(mainRepair)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "mainRepair", expected: 'false or { workflows, repositories?, stuckJobMinutes? } with workflow names, "owner/name" repositories and a positive integer or false' });
+    }
+    if (mainRepair !== false && mainRepairBranchPrefix === undefined) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_MAIN_REPAIR_NEEDS_PREFIX();
     }
     if (!hasRuntimeType(deferWhilePending, "boolean")) {
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");

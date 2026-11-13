@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
-import { withAuth } from "../src/server.ts"
+import { withAuth } from "../src/internal/server.ts"
 const provider = vi.hoisted(() => ({ betterAuth: vi.fn(), getSession: vi.fn() }))
 vi.mock("better-auth", () => ({ betterAuth: provider.betterAuth }))
 describe("undefined session repro", () => {
