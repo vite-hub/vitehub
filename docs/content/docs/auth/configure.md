@@ -44,7 +44,7 @@ export default defineAuth({
 
 When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no Better Auth secret. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth signs with `deriveSecret('vitehub:auth')`.
 
-- Auth reads `VITEHUB_SECRET`, then `NUXT_APP_SECRET`, from the process environment and the request's Cloudflare bindings.
+- Auth reads `VITEHUB_SECRET` from the process environment and the request's Cloudflare bindings.
 - A configured Better Auth secret always wins.
 - With no secret at all, Better Auth uses a development default and throws in production.
 - A root secret shorter than 32 characters throws `AUTH_R0016`.

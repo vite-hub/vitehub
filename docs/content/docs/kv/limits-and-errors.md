@@ -43,7 +43,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
-| `KV_KEY_TOO_LONG` | `del()`, `get()`, `has()`, `set()` | |
+| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
 | `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `setIfAbsent()` | |
@@ -120,7 +120,7 @@ The `deno-kv` driver needs `Deno.openKv()`. Run on Deno with KV enabled, or pick
 
 ### KV_DISABLED
 
-The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKv()` to the Vite plugins and do not pass `false` to it.
+The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKV()` to the Vite plugins and do not pass `false` to it.
 
 ### KV_INVALID_CONFIG
 

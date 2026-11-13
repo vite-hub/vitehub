@@ -13,11 +13,11 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setu
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { defineDatabase } from "../src/definition.ts"
-import { hubDb as hubDbNuxt } from "../src/nuxt.ts"
+import { hubDatabase as hubDatabaseNuxt } from "../src/nuxt.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
 import { postgresEnvNames } from "../src/runtime/postgres-env.ts"
 import { runWithDatabaseRequestStats } from "../src/runtime/request-stats.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 const notes = pgTable("notes", {
   id: serial("id").primaryKey(),
@@ -65,19 +65,19 @@ function spawn(command: string, args: string[], options: { cwd?: string, env?: N
 type Hook<T> = { handler: (...args: never[]) => T } | ((...args: never[]) => T)
 
 function callHook<T>(hook: unknown, ...args: unknown[]): T {
-  // SAFETY: The tests call Vite hooks that hubDb() returns, with the arguments Vite passes.
+  // SAFETY: The tests call Vite hooks that hubDatabase() returns, with the arguments Vite passes.
   const value = hook as Hook<T>
   return (typeof value === "function" ? value : value.handler)(...(args as never[]))
 }
 
-/** Runs `hubDb()` like `vite dev` or `vite build`, and returns the plugin with its CLI. */
+/** Runs `hubDatabase()` like `vite dev` or `vite build`, and returns the plugin with its CLI. */
 async function startVite(root: string, command: "build" | "serve") {
-  const plugin = hubDb()
+  const plugin = hubDatabase()
   await callHook(plugin.configResolved, { command, plugins: [], root })
   return plugin
 }
 
-async function runCli(plugin: ReturnType<typeof hubDb>, root: string, feature: "generate" | "migrate", args: string[] = []) {
+async function runCli(plugin: ReturnType<typeof hubDatabase>, root: string, feature: "generate" | "migrate", args: string[] = []) {
   const cli = await plugin.vitehub!.cli!()
   const command = cli!.namespaces[0]!.features.find(candidate => candidate.name === feature)!
   const stdout = { write: vi.fn() }
@@ -88,7 +88,7 @@ async function runCli(plugin: ReturnType<typeof hubDb>, root: string, feature: "
 }
 
 /** Writes the `#vitehub/database/databases` module that `vite dev` loads, and imports it. */
-async function importDevDatabases(plugin: ReturnType<typeof hubDb>, root: string) {
+async function importDevDatabases(plugin: ReturnType<typeof hubDatabase>, root: string) {
   const id = await callHook<string>(plugin.resolveId, "#vitehub/database/databases")
   const code = await callHook<string>(plugin.load, id)
   const file = join(root, ".vitehub/databases.dev.mjs")
@@ -340,7 +340,7 @@ describe("PGlite in a production build", () => {
     // Nuxt takes the project root from the nearest package.json.
     await writeFile(join(root, "package.json"), "{\"private\":true,\"type\":\"module\"}")
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDbNuxt()(undefined, {
+    await hubDatabaseNuxt()(undefined, {
       hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (event === "nitro:config") hooks.push(callback)
       },

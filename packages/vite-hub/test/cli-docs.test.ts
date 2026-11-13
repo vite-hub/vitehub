@@ -13,7 +13,7 @@ import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
 import { hubI18n } from "@vite-hub/i18n/vite";
-import { hubKv } from "@vite-hub/kv/vite";
+import { hubKV } from "@vite-hub/kv/vite";
 import { hubQueue } from "@vite-hub/queue/vite";
 import { hubRateLimit } from "@vite-hub/rate-limit/vite";
 import { hubWorkflow } from "@vite-hub/workflow/vite";
@@ -89,7 +89,7 @@ describe("CLI documentation contract", () => {
       hubEnv(),
       hubI18n({ locales: ["en", "es"] }),
       emailPlugin,
-      hubKv(),
+      hubKV(),
       hubQueue(),
       hubRateLimit(),
       schedulePlugin,

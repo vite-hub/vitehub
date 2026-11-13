@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `useDatabaseBinding` from `vite-hub/database` | Get the D1 binding or request session of a database. |
 | `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
 | `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
-| `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
+| `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 

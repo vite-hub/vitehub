@@ -68,13 +68,13 @@ const put = defineBlobOperation<{ contentType?: string, data: string, overwrite?
   run: async input => await (await runtime()).runBlobOperation("put", input) as BlobDevPutResult,
 })
 
-const del = defineBlobOperation<{ pathname: string, store?: string }, BlobDevDeleteResult>({
+const deleteBlob = defineBlobOperation<{ pathname: string, store?: string }, BlobDevDeleteResult>({
   cli: { command: "delete", positional: ["pathname"] },
   description: "Delete one blob.",
   input: v.object({ pathname, store }),
   kind: "destructive",
-  name: "blob.del",
-  run: async input => await (await runtime()).runBlobOperation("del", input) as BlobDevDeleteResult,
+  name: "blob.delete",
+  run: async input => await (await runtime()).runBlobOperation("delete", input) as BlobDevDeleteResult,
 })
 
 const media = defineBlobOperation<{ pathname: string, store?: string }, BlobDevMediaResult>({
@@ -95,8 +95,8 @@ const variants = defineBlobOperation<{ pathname: string, store?: string }, BlobD
   run: async input => await (await runtime()).runBlobOperation("variants", input) as BlobDevVariantsResult,
 })
 
-/** The `blob.*` operations: list, head, get, put, del, media, and variants. The Console, `vitehub blob`, and agents run them. */
-export const blobOperations: readonly AnyOperation[] = [list, head, get, put, del, media, variants]
+/** The `blob.*` operations: list, head, get, put, delete, media, and variants. The Console, `vitehub blob`, and agents run them. */
+export const blobOperations: readonly AnyOperation[] = [list, head, get, put, deleteBlob, media, variants]
 
 export type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevPutResult, BlobDevVariantsResult }
 

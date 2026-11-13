@@ -40,9 +40,30 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive. `vitehub migrate` runs it. |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
+| `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
 | `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `renamed-apis`
+
+ViteHub renamed some APIs. `renamed-apis` rewrites the code of an app that uses ViteHub:
+
+| Old | New |
+| --- | --- |
+| `hubDb` from `@vite-hub/database/vite` or `@vite-hub/database/nuxt` | `hubDatabase` |
+| `hubKv` from `@vite-hub/kv/vite` | `hubKV` |
+| `createWorkspaceDriver` from `@vite-hub/workspace/mountx` | `createMountxDriver` |
+| `console` from `vite-hub/console/server` | `agentConsole` |
+| `kv.del()`, `blob.del()`, `kv.store(name).del()` | `.delete()` |
+| `deriveSecret(purpose, event)` | `deriveSecret(purpose, { event })` |
+| `"kv.del"`, `"blob.del"`, `"kv_del"`, and `"blob_del"` strings, such as operation names and Console MCP tool names in a client | `"kv.delete"`, `"blob.delete"`, `"kv_delete"`, and `"blob_delete"` |
+
+The codemod renames the uses of an import too, and the names in `const { hubKv } = await import("@vite-hub/kv/vite")`. When a file declares the same name again, it renames only the import and lists the file. The report lists what the codemod cannot change: a `.del()` call on another value in a file that imports `kv` or `blob`, a `deriveSecret()` call with a root secret, `package.json` scripts that call `vitehub kv del` or `vitehub blob del`, and env and Wrangler files that set `NUXT_APP_SECRET` without `VITEHUB_SECRET`. ViteHub no longer reads `NUXT_APP_SECRET`. The codemod never prints or copies a secret value.
+
+```sh
+npx @vite-hub/codemods renamed-apis [dir] [--dry-run]
+```
 
 ## `root-accessors`
 
@@ -98,7 +119,7 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 | `defineConfig({ env: { server }, plugins: [vitehub()] })` | `vitehub({ env: { server } })` |
 | `defineConfig({ env, plugins: [hubEnv()] })` | `hubEnv({ ...declarations })` |
 | `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
-| A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKv()` |
+| A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKV()` |
 | `contentImportBase` | removed |
 
 The report lists what the codemod cannot move: a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.

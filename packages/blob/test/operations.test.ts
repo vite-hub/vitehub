@@ -64,14 +64,14 @@ describe("blob operations", () => {
       ["list", {}],
       ["get", { pathname: "private.json" }],
       ["put", { pathname: "private.json", data: Buffer.from("changed").toString("base64") }],
-      ["del", { pathname: "private.json", store: "default" }],
+      ["delete", { pathname: "private.json", store: "default" }],
       ["head", { pathname: "a.txt", store: "archive" }],
     ] as const) {
       const refused = await call(name, input)
       expect(refused, name).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
       expect(refused.ok === false && refused.message, name).toContain(`"blob:${"store" in input ? input.store : "default"}"`)
     }
-    expect(await call("del", { store: "media", pathname: "guides/hero.txt" })).toMatchObject({ ok: true, value: { deleted: true } })
+    expect(await call("delete", { store: "media", pathname: "guides/hero.txt" })).toMatchObject({ ok: true, value: { deleted: true } })
     // The private object is unchanged.
     expect(await run({ operation: "get", pathname: "private.json" })).toMatchObject({ body: { data: Buffer.from("internal").toString("base64") }, status: 200 })
   })
@@ -93,9 +93,9 @@ describe("blob operations", () => {
     await run({ operation: "put", pathname: "recent.txt", data: Buffer.from("recent").toString("base64") })
     const missing = await blob.head("absent.txt")
     const head = vi.spyOn(blob, "head").mockResolvedValue(missing)
-    const del = vi.spyOn(blob, "del")
+    const del = vi.spyOn(blob, "delete")
     try {
-      expect(await run({ operation: "del", pathname: "recent.txt" })).toMatchObject({ status: 200, body: { deleted: false } })
+      expect(await run({ operation: "delete", pathname: "recent.txt" })).toMatchObject({ status: 200, body: { deleted: false } })
       expect(del).toHaveBeenCalledWith("recent.txt")
     }
     finally { head.mockRestore(); del.mockRestore() }
@@ -104,7 +104,7 @@ describe("blob operations", () => {
 
   it.each(["", "   "])("rejects store %j without changing the default store", async (store) => {
     await run({ data: Buffer.from("original").toString("base64"), operation: "put", pathname: "original.txt" })
-    expect((await run({ operation: "del", pathname: "original.txt", store })).status).toBe(400)
+    expect((await run({ operation: "delete", pathname: "original.txt", store })).status).toBe(400)
     expect((await run({ data: "", operation: "put", pathname: "unexpected.txt", store })).status).toBe(400)
     expect((await run({ operation: "list" })).body).toMatchObject({ blobs: [{ pathname: "original.txt" }] })
   })
@@ -159,11 +159,11 @@ describe("blob operations", () => {
     const head = await run({ operation: "head", pathname: "docs/b.txt", store: "media" })
     expect(head.body).toMatchObject({ object: { contentType: "text/plain; charset=utf-8", pathname: "docs/b.txt", size: 2 }, store: "media" })
 
-    await expect(run({ operation: "del", pathname: "docs/b.txt", store: "media" })).resolves.toEqual({
+    await expect(run({ operation: "delete", pathname: "docs/b.txt", store: "media" })).resolves.toEqual({
       body: { deleted: true, pathname: "docs/b.txt", store: "media" },
       status: 200,
     })
-    await expect(run({ operation: "del", pathname: "docs/b.txt", store: "media" })).resolves.toEqual({
+    await expect(run({ operation: "delete", pathname: "docs/b.txt", store: "media" })).resolves.toEqual({
       body: { deleted: false, pathname: "docs/b.txt", store: "media" },
       status: 200,
     })
@@ -239,7 +239,7 @@ describe("blob operations", () => {
     expect(putError).toBeUndefined()
     for (const pathname of ["_vitehub/internal.json", "./_vitehub/x.json", "docs/../_vitehub/x.json", "_VITEHUB/x.json", "%5Fvitehub/internal.json", "%2F_vitehub%2Finternal.json", "docs%2F..%2F_vitehub/internal.json"]) {
       await expect(run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
-      await expect(run({ operation: "del", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
+      await expect(run({ operation: "delete", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
     }
     await expect(run({ operation: "head", pathname: "_vitehub/internal.json" })).resolves.toMatchObject({ status: 200 })
     await expect(run({ operation: "get", pathname: "_vitehub/internal.json" })).resolves.toMatchObject({ status: 200 })
@@ -294,7 +294,7 @@ describe("blob operations", () => {
 
   it("marks the upload as a write and the delete as destructive", () => {
     expect(blobOperations.map(operation => [operation.name, operation.kind])).toEqual([
-      ["blob.list", "read"], ["blob.head", "read"], ["blob.get", "read"], ["blob.put", "write"], ["blob.del", "destructive"], ["blob.media", "read"], ["blob.variants", "read"],
+      ["blob.list", "read"], ["blob.head", "read"], ["blob.get", "read"], ["blob.put", "write"], ["blob.delete", "destructive"], ["blob.media", "read"], ["blob.variants", "read"],
     ])
   })
 

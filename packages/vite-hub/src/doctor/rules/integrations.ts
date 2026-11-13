@@ -387,7 +387,7 @@ export const validViteHubOptions: DoctorRule = createRule({
       if (!property) continue
       ctx.report(diagnostics.VHUB0031({
         why: `Vite does not read a top-level \`${name}\` key. Only \`vitehub()\` reads feature options, so this value does nothing.`,
-        fix: `Move it into \`vitehub({ ${name} })\`, or pass it to the feature's own plugin, such as \`${name === "env" ? "hubEnv" : "hubKv"}(options)\`. \`npx @vite-hub/codemods vitehub-options\` moves it.`,
+        fix: `Move it into \`vitehub({ ${name} })\`, or pass it to the feature's own plugin, such as \`${name === "env" ? "hubEnv" : "hubKV"}(options)\`. \`npx @vite-hub/codemods vitehub-options\` moves it.`,
       }), { range: ctx.range(property) })
     }
     const r = resolver(ctx)
@@ -449,13 +449,6 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
             ctx.report(diagnostics.VHUB0032({
               why: `\`${name}()\` is a NuxtHub auto-import. ViteHub does not register it, so the call fails at runtime.`,
               fix: helper,
-            }), { range: ctx.range(node) })
-          }
-          const reference = r.callee(node)
-          if (reference?.module === "blob" && reference.name === "blob" && reference.path.length === 1 && reference.path[0] === "delete") {
-            ctx.report(diagnostics.VHUB0032({
-              why: "`blob.delete()` is the NuxtHub name. ViteHub Blob has no `delete` method, so the call fails at runtime.",
-              fix: "Call `blob.del()`. It returns an `[error]` tuple: `const [error] = await blob.del(pathname)`.",
             }), { range: ctx.range(node) })
           }
           return

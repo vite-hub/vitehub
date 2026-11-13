@@ -93,7 +93,7 @@ import { defineSchedule } from 'vite-hub/schedule'
 export default defineSchedule({
   cron: '0 0 * * *',
   async handler() {
-    const [error] = await kv.del('expired')
+    const [error] = await kv.delete('expired')
     if (error) throw error
   },
 })

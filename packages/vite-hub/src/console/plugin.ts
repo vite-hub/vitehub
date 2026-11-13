@@ -53,7 +53,7 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "blob", name: "blob" },
   { exportName: "connections", name: "connections" },
   { exportName: "content", name: "content" },
-  { exportName: "console", name: "console" },
+  { exportName: "agentConsole", name: "console" },
   { exportName: "agentDb", name: "db" },
   { exportName: "email", name: "email" },
   { exportName: "agentI18n", name: "i18n" },

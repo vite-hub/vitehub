@@ -86,7 +86,7 @@ icon: i-lucide-database-zap
 
   // Remove the key and its value
   export default defineEventHandler(async () => {
-    const [error] = await kv.del('settings')
+    const [error] = await kv.delete('settings')
     if (error) throw error
     return { ok: true }
   })
