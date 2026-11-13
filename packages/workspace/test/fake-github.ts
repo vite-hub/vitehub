@@ -358,7 +358,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
 
   /** The tarball of a commit, as GitHub serves it: every file under one `owner-repo-sha/` folder. */
   function archive(ref: string): Response {
-    if (state.archive) return new Response(state.archive)
+    if (state.archive) return new Response(state.archive.slice())
     const commit = resolve(ref)
     if (!commit) return failure(404, "Not Found")
     const files = Object.fromEntries(commit.tree.map(entry => [entry.path, blobs.get(entry.sha) ?? new Uint8Array()]))

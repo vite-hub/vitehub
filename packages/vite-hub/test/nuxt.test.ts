@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
@@ -282,6 +282,20 @@ describe("ViteHub Nuxt integration", () => {
     await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
       code: "VITE_HUB_B0023",
       message: expect.stringContaining(`needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}.`),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["the vitehub key", { vitehub: { preset: "cloudflare" } }, {}],
+    ["inline options", {}, { preset: "cloudflare" }],
+  ])("fails on the renamed preset option in %s", async (_, config, inline) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt.options, config)
+    // SAFETY: an old nuxt.config.ts still sets `preset`, which ViteHubNuxtOptions no longer declares.
+    await expect(viteHubNuxtModule(inline as Parameters<typeof viteHubNuxtModule>[0], application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0024",
+      message: expect.stringContaining("`preset` in the `vitehub` options of nuxt.config.ts is no longer a ViteHub option."),
     })
     expect(mocks.vitehub).not.toHaveBeenCalled()
   })
@@ -833,6 +847,30 @@ describe("ViteHub Nuxt integration", () => {
     expect(noExternals).toEqual(["existing-inline"])
   })
 
+  it.each([false, true])("bundles linked workspace packages through Nitro runtime aliases (dev: %s)", async (dev) => {
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    const nodeModules = resolve(nuxt.options.rootDir, "node_modules")
+    const frameworkRoot = resolve(tmp, "linked-framework")
+    const authRoot = resolve(tmp, "linked-auth")
+    const installedRoot = resolve(nodeModules, ".pnpm/kv")
+    try {
+      for (const directory of [resolve(nodeModules, "@vite-hub"), frameworkRoot, authRoot, installedRoot]) {
+        await mkdir(directory, { recursive: true })
+      }
+      await symlink(frameworkRoot, resolve(nodeModules, "vite-hub"), "junction")
+      await symlink(authRoot, resolve(nodeModules, "@vite-hub/auth"), "junction")
+      await symlink(installedRoot, resolve(nodeModules, "@vite-hub/kv"), "junction")
+      const nitroConfig: Record<string, unknown> = {}
+      await viteHubNuxtModule({ console: false }, nuxt)
+      await runNitroConfigHook(nitroConfig)
+      await runNitroConfigHook(nitroConfig)
+      expect(nitroConfig.noExternals).toEqual(["vite-hub", "@vite-hub/", resolve(nuxt.options.rootDir, ".vitehub"), h3RuntimeRoot, frameworkRoot, authRoot])
+    }
+    finally {
+      await rm(nodeModules, { recursive: true, force: true })
+    }
+  })
+
   it("loads mode-specific KV credentials only in Nitro's server replay", async () => {
     const envDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-kv-env-"))
     for (const name of ["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"]) vi.stubEnv(name, undefined)
@@ -1161,6 +1199,15 @@ describe("ViteHub Nuxt integration", () => {
 
     const kvConfig = (nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]
     expect(kvConfig).toBeTypeOf("string")
+    const kvAlias = (nitroConfig.alias as Record<string, string>)["#vitehub/kv/config"]!
+    expect(await readFile(kvAlias, "utf8")).toBe(kvConfig)
+    const bundled = await build({
+      alias: { "#vitehub/kv/config": kvAlias },
+      bundle: true,
+      stdin: { contents: 'export { kv } from "#vitehub/kv/config"', resolveDir: nuxt.options.rootDir },
+      write: false,
+    })
+    expect(bundled.outputFiles[0]?.text).toContain("kv = false")
     // The same exports as the module that @vite-hub/kv/vite generates.
     const kvConfigModule = await import(`data:text/javascript,${encodeURIComponent(kvConfig!)}`) as Record<string, unknown>
     expect({ ...kvConfigModule }).toEqual({ default: { hosting: undefined, kv: false }, hosting: undefined, kv: false })
@@ -1184,6 +1231,7 @@ describe("ViteHub Nuxt integration", () => {
       alias: { "@vite-hub/kv/runtime/upstash-driver": "/app/upstash.mjs" },
       virtual: { "#vitehub/kv/config": "export const kv = { custom: true }" },
     })
+    expect(nitroConfig.alias).not.toHaveProperty("#vitehub/kv/config")
 
     const fresh = createNuxt(true)
     const freshConfig: Record<string, unknown> = {}
@@ -3298,6 +3346,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         "#vitehub/env/description": `${tmp}/vitehub-nuxt/.vitehub/env/description.mjs`,
         "#vitehub/env/public": `${tmp}/vitehub-nuxt/.vitehub/env/public.mjs`,
         "#vitehub/env/server": `${tmp}/vitehub-nuxt/.vitehub/env/server.mjs`,
+        "#vitehub/kv/config": `${tmp}/vitehub-nuxt/.vitehub/nuxt/disabled-kv-config.mjs`,
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/[\\/]internal[\\/]disabled-redis-driver\.(?:ts|js)$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/[\\/]internal[\\/]disabled-upstash-driver\.(?:ts|js)$/),
       },
