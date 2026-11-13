@@ -52,6 +52,8 @@ export default defineConfig({
 })
 ```
 
+`blob.copy(from, to, { overwrite? })` copies a file in the same store with its content type and custom metadata, and returns the new `BlobObject`. A missing source returns `BLOB_NOT_FOUND`, and a file at `to` returns `BLOB_CONFLICT` unless `overwrite` is `true`. S3-compatible stores and Vercel Blob copy on the server, `fs` copies the file, R2 streams the object from the binding, and Netlify Blobs reads and writes it.
+
 ## Vite Integration
 
 Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code. Nitro is the only host output. `hubBlob()` adds its runtime plugin to the Nitro config, and Nitro bundles it into the server output for each host. On a Cloudflare host, it also adds the R2 bucket bindings to Nitro's `wrangler.json`.
