@@ -30,12 +30,13 @@ import type { ContentSourceHeads } from "./source-heads.ts"
 import type { ContentSourceRef } from "./source-refs.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
-import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition, parseDocumentFile } from "./documents.ts"
+import { collectionPathsOverlap, contentDocumentUrl, documentsRuntimeOf, isContentCollectionDefinition, parseDocumentFile } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview, createRequestScope } from "./preview.ts"
-import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
-import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
+import { contentRefTokenParameter } from "./preview-parameters.ts"
+import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
+import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderPageMarkdownCopy, siteOrigin } from "./sitemap.ts"
 import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
@@ -45,6 +46,7 @@ import type {
   AnyContentCollection,
   ContentCollection,
   ContentDocument,
+  ContentPublishPreview,
   ContentDocumentState,
   ContentDocumentStatus,
   ContentDocumentSummary,
@@ -112,7 +114,7 @@ export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult }
 export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
-export type { ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
+export type { ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
@@ -194,6 +196,7 @@ export type {
   ContentPublishOptions,
   ContentResolved,
   ContentResolveOptions,
+  ContentPublishPreview,
   ContentPublishResult,
   ContentPullRequest,
   ContentRawDocument,
@@ -846,7 +849,7 @@ export function defineContent<
       list: (collection?: string) => requireDocuments().sessions.list(collection),
     } as ContentSessions,
     collection: (name: string): unknown => requireDocuments().collection(name),
-    publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
+    publish: async (publishOptions?: ContentPublishOptions) => await withPublishPreviews(await requireDocuments().publish(publishOptions)),
     resolve: (path: string, resolveOptions?: ContentResolveOptions) => requireDocuments().resolve(path, resolveOptions),
     supportsScheduling: () => requireDocuments().supportsScheduling(),
     schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
@@ -927,8 +930,87 @@ export function defineContent<
       ? `[vitehub] defineContent({ previews: true }) found more than one github() Source: ${names.join(", ")}. Name one with previews: { source }.`
       : "[vitehub] defineContent({ previews: true }) needs a github() Source in sources." })
   }
+  /** A preview URL of an app path under `prefix`, absolute when a site is known, with the signed link token if any. */
+  function previewUrl(prefix: string, path: string, site: string | undefined, token: string | undefined): string {
+    const query = token === undefined ? undefined : `${contentRefTokenParameter}=${encodeURIComponent(token)}`
+    const link = previewLink(path, prefix, query)
+    return site === undefined ? link : new URL(link, site).href
+  }
+  /**
+   * Add signed `/pr/<number>/<path>` links to a publish that opened a pull request, for each document with a `url`.
+   * The pull request is already open, so a failure here only logs `CONTENT_R0076` and returns the result as it is.
+   */
+  async function withPublishPreviews(result: ContentPublishResult): Promise<ContentPublishResult> {
+    const pull = result.pullRequest
+    if (!pull || !result.revision || previews === false || !heads.names().length) return result
+    try {
+      const name = previewSource()
+      const signed = await heads.api.sign(`pr/${pull.number}`, name)
+      const documents = requireDocuments()
+      const links: ContentPublishPreview[] = []
+      for (const { collection, id, locale, change } of result.documents) {
+        if (change === "delete") continue
+        const definition = documents.collection(collection)
+        const read = { revision: result.revision.id, ...(locale === undefined ? {} : { locale }) }
+        const document = definition.kind === "singleton" ? await definition.get(read) : await definition.get(id, read)
+        if (!document || String(document.url) !== document.url) continue
+        links.push({ collection, id, ...(locale === undefined ? {} : { locale }), url: previewUrl(`/pr/${pull.number}`, document.url, configuredSite, signed.token), expiresAt: signed.expiresAt })
+      }
+      return links.length ? { ...result, previews: links } : result
+    }
+    catch (error) {
+      console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0076({ pull: pull.number, reason: error instanceof Error ? error.message : String(error) })))
+      return result
+    }
+  }
   const reportedDenials = new Set<string>()
   const previewRoutes: ContentSourcePreviewRoutes = {
+    async previewLinks(pull, linkOptions = {}) {
+      if (previews === false) throw contentErrorDiagnostics.CONTENT_R0079()
+      if (!Number.isSafeInteger(pull) || pull < 1) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.previewLinks() needs a pull request number, received ${JSON.stringify(pull)}.` })
+      }
+      const name = previewSource()
+      const definition = heads.github(name)!
+      const missing = (reason: string) => contentErrorDiagnostics.CONTENT_R0075({ source: name, pull, reason })
+      if (!definition.pullChanges) throw missing("the github() Source cannot list the files of a pull request. Update @vite-hub/source")
+      let view: Awaited<ReturnType<ContentSourceHeads["at"]>>
+      try {
+        view = await heads.api.at(`pr/${pull}`, name)
+      }
+      catch (error) {
+        if (Reflect.get(Object(error), "code") === "CONTENT_R0028") throw missing("GitHub has no such pull request")
+        throw error
+      }
+      // An anonymous request: what a reader of the pull request gets without a cookie or a link token.
+      const decision = await heads.api.allow(view, new Request("https://vitehub.invalid/"), name)
+      let access: ContentPreviewLinkAccess
+      let signed: { token: string, expiresAt: Date } | undefined
+      if (decision.allowed) access = decision.reason === "console" ? "token" : decision.reason
+      else if (decision.reason === "private") {
+        signed = await heads.api.sign(view.ref, name, linkOptions.maxAge === undefined ? undefined : { maxAge: linkOptions.maxAge })
+        access = "token"
+      }
+      else if (decision.reason === "missing") throw missing("GitHub has no such pull request")
+      else access = decision.reason
+      const changed = await definition.pullChanges(pull)
+      if (!changed) throw missing("GitHub has no such pull request")
+      const keys = new Set(changed)
+      const site = linkOptions.site === undefined ? configuredSite : siteOrigin(linkOptions.site)
+      const pages: ContentPreviewLink[] = []
+      const url = contentSourceUrl(inputs[name])
+      for (const file of await view.list([name])) {
+        // Comark keys a file as `<source>/<Source key>`.
+        const key = file.meta.key.startsWith(`${name}/`) ? file.meta.key.slice(name.length + 1) : file.meta.key
+        if (!keys.has(key)) continue
+        const path = url === undefined ? file.path : contentDocumentUrl(url, { id: file.path.replace(/^\/+/, ""), data: file.data })
+        if (path !== null) pages.push({ key, path, url: previewUrl(`/pr/${pull}`, path, site, signed?.token) })
+      }
+      pages.sort((left, right) => left.path.localeCompare(right.path))
+      const fingerprint: unknown = definition.fingerprint
+      const repo: unknown = typeof fingerprint === "object" && fingerprint !== null ? Reflect.get(fingerprint, "repo") : undefined
+      return { source: name, repo: String(repo), sha: view.sha, pull: view.pull!, access, expiresAt: signed?.expiresAt ?? null, pages }
+    },
     current: () => refScope.getStore()?.preview ?? null,
     async route(request, next) {
       const url = new URL(request.url)

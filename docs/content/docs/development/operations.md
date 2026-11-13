@@ -235,7 +235,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | [Rate Limit](/docs/development/cli#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
-| [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap` |
+| [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap`, `content.previews` |
 | [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-show`, `workflow.runs-clear` (development only) |
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
