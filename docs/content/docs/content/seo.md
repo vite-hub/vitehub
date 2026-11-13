@@ -1,6 +1,6 @@
 ---
 title: Content SEO
-description: Give documents public URLs, per-document SEO fields, head tags for any framework, a sitemap and robots.txt, an RSS feed, Markdown files for agents, and a page MCP server.
+description: Give documents public URLs, SEO fields, head tags, a sitemap and robots.txt, an RSS feed, Markdown files for agents, and a page MCP server.
 navigation.title: SEO
 navigation.order: 12
 icon: i-lucide-search-check
