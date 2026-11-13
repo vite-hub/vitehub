@@ -460,8 +460,8 @@ describe("hubDb", () => {
     const statsHandler = join(rootDir, ".vitehub/nitro/database/request-stats.mjs")
     // The stats middleware comes first, so it also counts the calls of later middleware.
     expect(options.handlers).toEqual([{ handler: statsHandler, middleware: true }, { handler, middleware: true }])
-    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next?: () => unknown) => unknown
-    const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next: () => unknown) => unknown
+    const { getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
     const request = (bindings: Record<string, unknown>) => ({ "~standard": { req: new Request("https://app.example/"), res: { headers: new Headers() }, runtime: { cloudflare: { env: bindings } }, vendor: "test" } })
     const scopes = [
@@ -470,11 +470,6 @@ describe("hubDb", () => {
     ]
     expect(scopes[0]).toBeDefined()
     expect(scopes[0]).not.toBe(scopes[1])
-
-    const nitro2Env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/nitro2" } }
-    middleware(request(nitro2Env), undefined)
-    expect(getActiveCloudflareEnv()).toBe(nitro2Env)
-    expect(getActiveCloudflareRequestScope()).toBeDefined()
   })
 
   it("installs request scope middleware for D1 read replication without Postgres", async () => {

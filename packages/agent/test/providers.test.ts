@@ -1576,14 +1576,11 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent()
     const result = await resolveAgentViteConfig(plugin, {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-      nitro: { externals: { inline: ["existing"] }, noExternals: [/existing/] },
+      nitro: { noExternals: [/existing/] },
     })
 
     expect(result).toMatchObject({
       nitro: {
-        externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
-        },
         noExternals: [/existing/, "@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"],
         rollupConfig: {
           external: optionalAgentRuntimeExternals,
@@ -1881,14 +1878,13 @@ describe("agent Vite plugin", () => {
   })
 
   it.each([
-    { version: 2, file: "routes/_vitehub/agent/invocations/dev.ts", command: "serve", conflict: true },
     { version: 3, file: "routes/_vitehub/agent/invocations/dev.ts", command: "serve", conflict: true },
     { version: 3, file: "routes/_vitehub/agent/[agent]/[action].ts", command: "serve", conflict: true },
     { version: 3, file: "routes/_vitehub/agent/[...path].ts", command: "serve", conflict: true },
     { version: 3, file: "middleware/log.ts", command: "serve", conflict: false },
     { version: 3, file: "routes/health.ts", command: "serve", conflict: false },
     { version: 3, file: "routes/_vitehub/agent/invocations/dev.ts", command: "build", conflict: false },
-  ] as const)("guards the development invocation route after Nitro $version scans $file during $command", { timeout: 30_000 }, async ({ version, file, command, conflict }) => {
+  ] as const)("guards the development invocation route after Nitro scans $file during $command", { timeout: 30_000 }, async ({ file, command, conflict }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-route-scan-"))
     const serverDir = join(root, "server")
@@ -1911,31 +1907,22 @@ describe("agent Vite plugin", () => {
       const generated = (config as { nitro: { modules: unknown[], handlers: unknown[] } }).nitro
       const options = {
         rootDir: root,
-        ...(version === 2 ? { srcDir: serverDir } : { serverDir }),
+        serverDir,
         scanDirs: [serverDir],
         dev: command === "serve",
         compatibilityDate: "2026-01-01" as const,
         imports: false as const,
         logLevel: 0,
-        // SAFETY: The hook emits Nitro modules and handlers accepted by both supported builders.
-        modules: generated.modules as NonNullable<Parameters<typeof import("nitropack").createNitro>[0]>["modules"] & NonNullable<Parameters<typeof import("nitro/builder").createNitro>[0]>["modules"],
+        // SAFETY: The hook emits Nitro modules and handlers that the Nitro builder accepts.
+        modules: generated.modules as NonNullable<Parameters<typeof import("nitro/builder").createNitro>[0]>["modules"],
         handlers: generated.handlers as Array<{ handler: string, route: string }>,
       }
-      const scan = version === 2
-        ? await (async () => {
-            const { createNitro } = await import("nitropack")
-            const nitro = await createNitro(options)
-            return { scannedHandlers: nitro.scannedHandlers, close: () => nitro.close(), check: () => nitro.hooks.callHook("build:before", nitro) }
-          })()
-        : await (async () => {
-            const { createNitro } = await import("nitro/builder")
-            const nitro = await createNitro(options)
-            return { scannedHandlers: nitro.scannedHandlers, close: () => nitro.close(), check: () => nitro.hooks.callHook("build:before", nitro) }
-          })()
-      close = scan.close
+      const { createNitro } = await import("nitro/builder")
+      const nitro = await createNitro(options)
+      close = () => nitro.close()
       expect(existingModule.setup).toHaveBeenCalledOnce()
-      expect(scan.scannedHandlers).toContainEqual(expect.objectContaining({ handler: filename }))
-      const check = Promise.resolve().then(scan.check)
+      expect(nitro.scannedHandlers).toContainEqual(expect.objectContaining({ handler: filename }))
+      const check = Promise.resolve().then(() => nitro.hooks.callHook("build:before", nitro))
       if (conflict) await expect(check).rejects.toThrow("development invocation route conflicts")
       else await expect(check).resolves.toBeUndefined()
     } finally {
@@ -2710,7 +2697,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("preserves portable and Node webhook abort lifecycles", async () => {
+  it("passes the host abort signal to webhook requests", async () => {
     const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
     const portableController = new AbortController()
     const portable = createAgentWebhookRequest({
@@ -2722,53 +2709,6 @@ describe("agent Vite plugin", () => {
     portableController.abort(new Error("host stopped"))
     expect(portable.signal.aborted).toBe(true)
     expect(portable.signal.reason).toEqual(new Error("host stopped"))
-
-    let abortRequest!: () => void
-    let closeResponse!: () => void
-    const nodeResponse = { writableEnded: true }
-    const node = createAgentWebhookRequest({
-      method: "POST",
-      node: {
-        req: {
-          aborted: false,
-          once: vi.fn((_event, listener) => {
-            abortRequest = listener
-          }),
-        },
-        res: {
-          ...nodeResponse,
-          once: vi.fn((_event, listener) => {
-            closeResponse = listener
-          }),
-        },
-      },
-      signal: new AbortController().signal,
-      url: "https://example.com/webhook",
-    })
-    closeResponse()
-    expect(node.signal.aborted).toBe(false)
-    abortRequest()
-    expect(node.signal.aborted).toBe(true)
-    expect(node.signal.reason).toMatchObject({ name: "AbortError" })
-
-    let closeIncompleteResponse!: () => void
-    const incomplete = createAgentWebhookRequest({
-      method: "POST",
-      node: {
-        req: { aborted: false, once: vi.fn() },
-        res: {
-          writableEnded: false,
-          once: vi.fn((_event, listener) => {
-            closeIncompleteResponse = listener
-          }),
-        },
-      },
-      signal: new AbortController().signal,
-      url: "https://example.com/webhook",
-    })
-    closeIncompleteResponse()
-    expect(incomplete.signal.aborted).toBe(true)
-    expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
   it("writes generated Nitro handlers that compile with checked indexed access", async () => {
