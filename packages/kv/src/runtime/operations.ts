@@ -2,7 +2,7 @@ import "../virtual-module.d.ts"
 
 import { normalizeKey } from "unstorage"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-// The package import keeps the Nitro module graph on the storage that `hubKv()` selects, for example the generated
+// The package import keeps the Nitro module graph on the storage that `hubKV()` selects, for example the generated
 // Cloudflare KV runtime. A relative import would bypass that selection.
 import { kv } from "@vite-hub/kv"
 
@@ -187,7 +187,7 @@ function requireKey(operation: string, input: KVOperationInput): string {
  * Runs one `kv.*` operation against the KV stores of this runtime. The Nitro runtime owns the stores and their
  * bindings, so this runs where the app does. There is no operation that clears a store.
  */
-export async function runKVOperation(operation: "list" | "get" | "has" | "set" | "del", input: KVOperationInput, stores: readonly KVDevStore[] = listKVDevStores()): Promise<unknown> {
+export async function runKVOperation(operation: "list" | "get" | "has" | "set" | "delete", input: KVOperationInput, stores: readonly KVDevStore[] = listKVDevStores()): Promise<unknown> {
   const selected = selectStore(stores, input.store)
   switch (operation) {
     case "list": {
@@ -244,11 +244,11 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       if (ttl) result.ttl = ttl
       return result
     }
-    case "del": {
+    case "delete": {
       const key = requireKey(operation, input)
       requireWritableKey(operation, key)
       const existed = unwrap(await selected.storage.has(key))
-      unwrap(await selected.storage.del(key))
+      unwrap(await selected.storage.delete(key))
       const result: KVDevDeleteResult = { deleted: existed, key, store: selected.name }
       return result
     }

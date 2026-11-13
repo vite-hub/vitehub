@@ -58,7 +58,7 @@ describe("diagnostic catalogs", () => {
       expect(code(name)).toMatchObject({ pkg: "agent", docsBase: "https://vitehub.dev/docs/agents/diagnostics" })
     }
     for (const name of ["MCP_B0001", "MCP_B0002"]) {
-      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/development/diagnostics" })
+      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/mcp/diagnostics" })
     }
   })
 

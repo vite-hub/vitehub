@@ -4,36 +4,36 @@ import { dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { createDocsManifest, DocsContentError } from "../src/manifest.ts"
+import { createDocsContent, createDocsManifest, DocsContentError } from "../src/manifest.ts"
 import { docsManifestPages, findDocsPage } from "../src/navigation.ts"
 
 import type { DocsManifest } from "../src/types.ts"
 
-function withContent(files: Record<string, string>, run: (dir: string) => void): void {
+async function withContent(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "vitehub-docs-manifest-"))
   try {
     for (const [file, contents] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, file)), { recursive: true })
       writeFileSync(join(dir, file), contents)
     }
-    run(dir)
+    await run(dir)
   }
   finally {
     rmSync(dir, { force: true, recursive: true })
   }
 }
 
-function manifestOf(files: Record<string, string>, base = "/docs"): DocsManifest {
+async function manifestOf(files: Record<string, string>, base = "/docs"): Promise<DocsManifest> {
   let manifest: DocsManifest | undefined
-  withContent(files, (dir) => {
-    manifest = createDocsManifest({ dir, base })
+  await withContent(files, async (dir) => {
+    manifest = await createDocsManifest({ dir, base })
   })
   return manifest!
 }
 
 describe("createDocsManifest", () => {
-  it("mounts independent sources, excludes partials, adapts metadata and preserves physical file paths", () => {
-    withContent(
+  it("mounts independent sources, excludes partials, adapts metadata and preserves physical file paths", async () => {
+    await withContent(
       {
         "pages/index.md": "---\ntitle: Home\n---\n",
         "pages/guide/install.md": "---\ntitle: Install\n---\n",
@@ -41,8 +41,8 @@ describe("createDocsManifest", () => {
         "package/partials/example.md": "---\ntitle: Partial\n---\n",
         "package/usage.md": "---\ntitle: Usage\n---\n",
       },
-      (dir) => {
-        const manifest = createDocsManifest({
+      async (dir) => {
+        const manifest = await createDocsManifest({
           dir,
           base: "/",
           sources: [
@@ -75,17 +75,17 @@ describe("createDocsManifest", () => {
     );
   });
 
-  it("rejects routes produced by different source files", () => {
-    withContent(
+  it("rejects routes produced by different source files", async () => {
+    await withContent(
       { "first/zoom.md": "---\ntitle: First\n---", "second/index.md": "---\ntitle: Second\n---" },
-      (dir) => {
-        expect(() =>
+      async (dir) => {
+        await expect(
           createDocsManifest({
             dir,
             base: "/",
             sources: [{ dir: join(dir, "first") }, { dir: join(dir, "second"), mount: "/zoom" }],
           }),
-        ).toThrow(/also produced/);
+        ).rejects.toThrow(/also produced/);
       },
     );
   });
@@ -94,13 +94,13 @@ describe("createDocsManifest", () => {
     ["docs/start/guide.md", "docs/start/guide/index.md"],
     ["docs/start.md", "docs/start/index.md"],
     ["about.md", "about/index.md"],
-  ])("rejects duplicate routes from %s and %s", (first, second) => {
-    expect(() => manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).toThrow(DocsContentError)
-    expect(() => manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).toThrow(new RegExp(`${first}.*${second}|${second}.*${first}`))
+  ])("rejects duplicate routes from %s and %s", async (first, second) => {
+    await expect(manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).rejects.toThrow(DocsContentError)
+    await expect(manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).rejects.toThrow(new RegExp(`${first}.*${second}|${second}.*${first}`))
   })
 
-  it("reads sections, ordered pages, and pages outside the base", () => {
-    const manifest = manifestOf({
+  it("reads sections, ordered pages, and pages outside the base", async () => {
+    const manifest = await manifestOf({
       "docs/index.md": "---\ntitle: ViteHub docs\nnavigation.order: 0\n---\n\nStart here.\n",
       "docs/server-primitives/index.md": "---\ntitle: Overview\nnavigation.order: 1\n---\n\nServer content.\n",
       "docs/server-primitives/.navigation.yml": "title: Server primitives\nicon: i-lucide-server-cog\norder: 30\ncategory: Data\ngroup: Platform\nfold: true\n",
@@ -138,8 +138,8 @@ describe("createDocsManifest", () => {
     ])
   })
 
-  it("joins section and page paths without a double slash when the base is the site root", () => {
-    const manifest = manifestOf({
+  it("joins section and page paths without a double slash when the base is the site root", async () => {
+    const manifest = await manifestOf({
       "index.md": "---\ntitle: Home\n---\n",
       "guide/index.md": "---\ntitle: Guide\n---\n",
       "guide/install.md": "---\ntitle: Install\n---\n",
@@ -150,9 +150,9 @@ describe("createDocsManifest", () => {
     expect(manifest.sections[0]?.pages.map(page => page.path)).toEqual(["/guide", "/guide/install"])
   })
 
-  it.each(["/", "/docs"])("retains direct Markdown pages under the base %s exactly once", (base) => {
+  it.each(["/", "/docs"])("retains direct Markdown pages under the base %s exactly once", async (base) => {
     const prefix = base === "/" ? "" : "docs/"
-    const manifest = manifestOf({
+    const manifest = await manifestOf({
       [`${prefix}index.md`]: "---\ntitle: Home\n---\n",
       [`${prefix}faq.md`]: "---\ntitle: FAQ\n---\n",
       [`${prefix}guide/index.md`]: "---\ntitle: Guide\n---\n",
@@ -164,9 +164,9 @@ describe("createDocsManifest", () => {
     expect(docsManifestPages(manifest).map(page => page.path)).toEqual([base, `${base === "/" ? "" : base}/guide`, path])
   })
 
-  it("stops on frontmatter that does not match the schema", () => {
-    withContent({ "docs/kv/index.md": "---\ntitle: KV\nlayout: wide\n---\n" }, (dir) => {
-      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(DocsContentError)
+  it("stops on frontmatter that does not match the schema", async () => {
+    await withContent({ "docs/kv/index.md": "---\ntitle: KV\nlayout: wide\n---\n" }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
     })
   })
 
@@ -174,29 +174,65 @@ describe("createDocsManifest", () => {
     ["layuot: landing", "layuot"],
     ["navigation:\n  titel: Guide", "titel"],
     ["seo.descriptionn: Description", "descriptionn"],
-  ])("rejects unknown page fields: %s", (fields, key) => {
-    withContent({ "docs/guide/index.md": `---\ntitle: Guide\n${fields}\n---\n` }, (dir) => {
-      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(DocsContentError)
-      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(key)
+  ])("rejects unknown page fields: %s", async (fields, key) => {
+    await withContent({ "docs/guide/index.md": `---\ntitle: Guide\n${fields}\n---\n` }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(key)
     })
   })
 
-  it("rejects unknown section fields", () => {
-    withContent({
+  it("rejects unknown section fields", async () => {
+    await withContent({
       "docs/guide/index.md": "---\ntitle: Guide\n---\n",
       "docs/guide/.navigation.yml": "titel: Guide\n",
-    }, (dir) => {
-      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(DocsContentError)
-      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(/\.navigation\.yml.*titel/)
+    }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(/\.navigation\.yml.*titel/)
     })
   })
 
-  it("hides a page with navigation: false even when dotted keys set navigation fields", () => {
-    const manifest = manifestOf({
+  it("hides a page with navigation: false even when dotted keys set navigation fields", async () => {
+    const manifest = await manifestOf({
       "docs/kv/index.md": "---\ntitle: KV\n---\n",
       "docs/kv/hidden.md": "---\ntitle: Hidden\nnavigation: false\nnavigation.title: Shown\n---\n",
     })
 
     expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")).toMatchObject({ navigation: false, title: "Hidden" })
+  })
+
+  it("stops on a .navigation.yml that is not YAML", async () => {
+    await withContent({
+      "docs/guide/index.md": "---\ntitle: Guide\n---\n",
+      "docs/guide/.navigation.yml": "title: [Guide\n",
+    }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(/\.navigation\.yml/)
+    })
+  })
+
+  it("names an empty page file, which Content does not list", async () => {
+    await withContent({ "docs/guide/index.md": "---\ntitle: Guide\n---\n", "docs/guide/empty.md": "" }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(/empty\.md/)
+    })
+  })
+
+  it("lists the pages and section files through Content", async () => {
+    await withContent({
+      "docs/guide/index.md": "---\ntitle: Guide\n---\n",
+      "docs/guide/.navigation.yml": "title: Guides\n",
+      "docs/guide/notes.txt": "not a page",
+    }, async (dir) => {
+      const content = createDocsContent([{ dir }])
+      const listed = await content.list("docs_0")
+      expect(listed.map(file => [file.meta.key, file.data])).toEqual([
+        ["docs_0/docs/guide/.navigation.yml", { title: "Guides" }],
+        ["docs_0/docs/guide/index.md", { title: "Guide" }],
+      ])
+    })
+  })
+
+  it("has no pages for a folder that does not exist", async () => {
+    const manifest = await createDocsManifest({ dir: join(tmpdir(), "vitehub-docs-missing-folder"), base: "/docs" })
+    expect(docsManifestPages(manifest)).toEqual([])
   })
 })

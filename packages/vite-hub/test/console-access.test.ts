@@ -28,6 +28,9 @@ import { operationRpcBody, operationRpcResponseResult } from "../../internal/tes
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
+// The page tools session reads no Console data: it lists the page tools of a visitor, and the Console link it can list
+// gives no access.
+const pageRoutes = new Set(["page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
@@ -66,7 +69,7 @@ describe("Console data route contract", () => {
     expect(routes).toContain("invocation-workspace.get.ts")
     expect(routes).toContain("rpc.ts")
 
-    for (const file of routes) {
+    for (const file of routes.filter(route => !pageRoutes.has(route))) {
       Reflect.deleteProperty(globalThis, policyKey)
       const route: unknown = (await import(join(serverRoot, file))).default
       // HTTP routes are Fetchables. Operation handlers are functions of a request event.
@@ -113,6 +116,14 @@ describe("Console access policies", () => {
   it("refuses an unknown console.auth value", () => {
     expect(() => resolveConsoleOptions({ auth: "public" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
     expect(() => resolveConsoleOptions("yes")).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
+  })
+
+  it("hides the sections that console.sections turns off, and accepts only false", () => {
+    const root = process.cwd()
+    expect(resolveConsoleAccessBuild(resolveConsoleOptions({ auth: false, sections: { content: false } })!, { root })).toEqual({ hiddenSections: ["content"], mode: "open" })
+    expect(resolveConsoleAccessBuild(resolveConsoleOptions({ auth: false, sections: {} })!, { root })).toEqual({ mode: "open" })
+    expect(() => resolveConsoleOptions({ auth: false, sections: { content: true } })).toThrow(/console\.sections maps a section id to false/)
+    expect(() => resolveConsoleOptions({ auth: false, sections: ["content"] })).toThrow(/console\.sections/)
   })
 
   it("accepts access callbacks created in another runtime realm", async () => {
@@ -375,17 +386,17 @@ describe("generated Console access", () => {
     expect(config.nitro.publicAssets).toEqual(assets)
   })
 
-  it.each(["/", "/portal/"])("registers only the RPC, and no Console page, client, MCP, or assets, below %s", async (base) => {
+  it.each(["/", "/portal/"])("registers only the RPC and the page tools session, and no Console page, client, MCP, or assets, below %s", async (base) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`])
+    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub/page/session`])
     for (const removed of ["/_vitehub", "/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
       expect(routes, removed).not.toContain(`${mount}${removed}`)
     }
-    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|client\.get|page-session|page-tool)\.js$/) }))
+    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|client\.get)\.js$/) }))
     expect(config.nitro.publicAssets?.map(asset => asset.baseURL)).not.toContain(`${mount}/_vitehub/assets`)
   })
 

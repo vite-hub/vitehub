@@ -13,9 +13,9 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 import { ensureDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
-import { hubDb as hubDbVite } from "../src/vite.ts"
+import { hubDatabase as hubDatabaseVite } from "../src/vite.ts"
 
 import type { PostgresMigrationSql } from "../src/runtime/migrate-on-start.ts"
 import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
@@ -56,7 +56,7 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
 }
 
 const selectUsers = [
-  'import { useDatabase } from "@vite-hub/database/drizzle"',
+  'import { useDatabase } from "@vite-hub/database"',
   'const { db, schema } = useDatabase("default")',
   "console.log(JSON.stringify(await db.select().from(schema.users)))",
 ]
@@ -64,7 +64,7 @@ const selectUsers = [
 /** Runs the Nuxt module and bundles a production or prerender entry that imports Nitro's plugins first, then runs `body`. */
 async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = [], prerender = false, body = selectUsers) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-  await hubDb(options)(undefined, {
+  await hubDatabase(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
       if (event === "nitro:config") hooks.push(callback)
     },
@@ -438,7 +438,7 @@ describe("database.migrateOnStart", () => {
     const root = await createProject()
     await writeMigrations(root, [init])
     const setup = async (options: { dev?: boolean, preset?: string }) => {
-      const plugin = hubDbVite({ migrateOnStart: true })
+      const plugin = hubDatabaseVite({ migrateOnStart: true })
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
       const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
       plugin.nitro.setup({ hooks: { hook: () => {} }, options: nitroOptions })
@@ -459,7 +459,7 @@ describe("database.migrateOnStart", () => {
     await writeMigrations(root, [init])
     for (const source of ["nuxt", "nitro"]) {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-      await hubDb({ migrateOnStart: true })(undefined, {
+      await hubDatabase({ migrateOnStart: true })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -494,7 +494,7 @@ describe("database.migrateOnStart", () => {
 describe("ensureMigrations", () => {
   // Parallel calls and a later call, then the rows of `users`.
   const ensureThenSelect = [
-    'import { ensureMigrations } from "@vite-hub/database/drizzle"',
+    'import { ensureMigrations } from "@vite-hub/database"',
     'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
     "await ensureMigrations()",
     ...selectUsers,
@@ -524,7 +524,7 @@ describe("ensureMigrations", () => {
     const url = `file:${join(root, "data/app.sqlite")}`
     // Without the ledger, a run of its own would apply `init` again and fail on the existing table.
     const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true }, [], false, [
-      'import { useDatabase as useStartDatabase } from "@vite-hub/database/drizzle"',
+      'import { useDatabase as useStartDatabase } from "@vite-hub/database"',
       'await useStartDatabase("default").db.$client.execute("DROP TABLE __drizzle_migrations")',
       ...ensureThenSelect,
     ])
@@ -597,11 +597,11 @@ describe("ensureMigrations", () => {
     const root = await createProject()
     await writeMigrations(root, [init])
     const load = async (config: Record<string, unknown>) => {
-      const plugin = hubDbVite({ migrateOnStart: { allowDataLoss: true } })
+      const plugin = hubDatabaseVite({ migrateOnStart: { allowDataLoss: true } })
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root, ...config })
-      // SAFETY: These are Vite hook handlers returned by hubDb.
+      // SAFETY: These are Vite hook handlers returned by hubDatabase.
       const id = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler("#vitehub/database/migrations")
-      // SAFETY: These are Vite hook handlers returned by hubDb.
+      // SAFETY: These are Vite hook handlers returned by hubDatabase.
       const code = await (plugin.load as { handler: (id: string) => Promise<string> | undefined }).handler(id!)
       return JSON.parse(code!.replace(/^export default /, ""))
     }
@@ -669,7 +669,7 @@ describe("migrate on start defaults", () => {
     await writeMigrations(root, [init])
     const configFor = async (preset: string) => {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-      await hubDb({})(undefined, {
+      await hubDatabase({})(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -693,7 +693,7 @@ describe("migrate on start defaults", () => {
     ].join("\n"))
     await writeMigrations(root, [init])
     const setup = async (options: { preset?: string }) => {
-      const plugin = hubDbVite({})
+      const plugin = hubDatabaseVite({})
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
       const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
       plugin.nitro.setup({ hooks: { hook: () => {} }, options: nitroOptions })

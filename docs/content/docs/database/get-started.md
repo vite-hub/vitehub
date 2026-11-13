@@ -32,7 +32,7 @@ Then add `database: true` to the ViteHub options of your app. Keep the other opt
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', database: true },
+  vitehub: { host: 'node', database: true },
 })
 ```
 ::::
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true }), nitro()],
+  plugins: [vitehub({ host: 'node', database: true }), nitro()],
 })
 ```
 ::::
@@ -57,7 +57,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true })],
+  plugins: [vitehub({ host: 'node', database: true })],
 })
 ```
 ::::
@@ -108,7 +108,7 @@ Create `server/api/notes.post.ts`. This file is the route `POST /api/notes`. It 
 
 ```ts [server/api/notes.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ title?: unknown }>(event)
@@ -135,7 +135,7 @@ Create `server/api/notes.get.ts`. This route reads all notes, in ID order.
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')

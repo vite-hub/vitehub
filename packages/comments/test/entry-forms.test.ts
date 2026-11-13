@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { afterEach, expect, it } from "vitest"
 import { resolveConfig } from "vite"
-import { hubDb } from "@vite-hub/database/vite"
+import { hubDatabase } from "@vite-hub/database/vite"
 import { hubComments, readCommentsDatabase } from "../src/vite.ts"
 import { defineComments } from "../src/index.ts"
 import { isCommentsDefinition } from "../src/operations-core/define.ts"
@@ -93,7 +93,7 @@ it("discovers the operations schema through the real Database plugin", async () 
   const definition = pathToFileURL(join(process.cwd(), "src/index.ts")).href
   await writeFile(join(root, "server/comments.ts"), `import { defineComments } from ${JSON.stringify(definition)}; export default defineComments({ authorize: () => true })`)
   const comments = hubComments()
-  const database = hubDb()
+  const database = hubDatabase()
   await resolveConfig({ configFile: false, root, logLevel: "silent", plugins: [database, comments] }, "build")
   const schemaPath = database.api.getConfig()?.generatedSchemaFilesByDatabase.default
   if (!schemaPath) throw new Error("Comments did not contribute a default Database")

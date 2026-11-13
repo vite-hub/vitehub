@@ -130,7 +130,7 @@ export async function can(runtime: Pick<CommentsRuntime, "definition" | "develop
   const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}) }
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
   if (authorize) return await authorize(full) === true
-  if (defaultPolicy(full.user, checked)) return true
+  if (defaultPolicy(full.user, checked, full.action)) return true
   if (deniedForMissingPolicy(runtime.definition, full.user, checked)) warnMissingPolicy()
   return false
 }

@@ -172,6 +172,8 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
     // Keep application filesystem paths and PATH out of the runner environment.
     // Gateway variables are required provider environment, which the runner forwards.
     forwardEnvironment: ["CODEX_AUTH_JSON"],
+    // The check reports the runner as it is now, so a refused connection fails at once.
+    connectRetryMs: 0,
     host: option(values, "host", env, "CRABBOX_STATIC_HOST") ?? "127.0.0.1",
     identityFile: required(values, "identity-file", env, "CRABBOX_SSH_KEY"),
     port: port(values, env),
@@ -179,12 +181,14 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
     ...(hostKeyFile ? { hostKeyFile } : {}),
     ...(knownHostsFile ? { knownHostsFile } : {}),
   });
+  // When the check disconnects, the runner sends SIGTERM to the whole process group. The signal can arrive
+  // while the EXIT trap runs, so the trap ignores it and rm can still remove the credentials.
   const remoteProbe = String.raw`
 umask 077
 temporary_root=$TMPDIR
 if [ -z "$temporary_root" ]; then temporary_root=/tmp; fi
 workspace=$(mktemp -d "$temporary_root/vitehub-sandbox-check.XXXXXX") || exit 1
-trap 'rm -rf "$workspace"' EXIT
+trap 'trap "" HUP INT TERM; rm -rf "$workspace"' EXIT
 trap 'exit 1' HUP INT TERM
 cd "$workspace" || exit 1
 if [ -n "$CODEX_AUTH_JSON" ]; then

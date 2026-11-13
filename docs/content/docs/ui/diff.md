@@ -13,7 +13,7 @@ The diff components wrap Pierre's `@pierre/diffs` views for Vue. Use them to rev
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/patch-diff`, `@vite-hub/ui/multi-file-diff`, `@vite-hub/ui/file-diff`, and `@vite-hub/ui/unresolved-file`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { FileDiff, MultiFileDiff, PatchDiff, UnresolvedFile } from "@vite-hub/ui";

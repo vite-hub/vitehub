@@ -327,7 +327,7 @@ describe('standalone Channel aliases', () => {
 
 describe.each(['deno', 'netlify'] as const)('%s named Channel hosting', (hosting) => {
   it.each(['webhook', 'stripe'])('allows an Agent to host a listed %s Channel', async (adapter) => {
-    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOSTING', 'netlify')
+    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOST', 'netlify')
     const root = await app({
       'server/channels/hooks.ts': `import { defineChannel, ${adapter} } from '@vite-hub/channels'
 export default defineChannel({ adapter: ${adapter}({ path: '/hooks' }) })`,
@@ -341,7 +341,7 @@ export default makeAgent({ channels: ['hooks'] as const, runtime: false, driver:
   })
 
   it('still rejects the inbound Channel that no Agent lists', async () => {
-    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOSTING', 'netlify')
+    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOST', 'netlify')
     const root = await app({
       'server/channels/claimed.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
 export default defineChannel({ adapter: webhook() })`,

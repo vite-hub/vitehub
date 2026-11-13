@@ -3,7 +3,6 @@ import { rmSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
@@ -62,14 +61,14 @@ describe("hubConnections", () => {
   });
 
   it("asks @vite-hub/database for the default SQLite Database when it has a Database module", () => {
-    expect(hubConnections({ database: "vite-hub/database/drizzle" }).vitehub.databases()).toEqual([
+    expect(hubConnections({ database: "@vite-hub/database/runtime/registry" }).vitehub.databases()).toEqual([
       { database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
     ]);
     expect(hubConnections().vitehub.databases()).toEqual([]);
   });
 
   it.each(["users", "billing/archive", "audit.logs", "1users", "Team_1/archive-2"])("keeps Connection data in the %s Database", async (databaseName) => {
-    const plugin = hubConnections({ database: "vite-hub/database/drizzle", databaseName });
+    const plugin = hubConnections({ database: "@vite-hub/database/runtime/registry", databaseName });
     expect(plugin.vitehub.databases()).toEqual([
       { database: databaseName, dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
     ]);
@@ -78,7 +77,7 @@ describe("hubConnections", () => {
     await (plugin.config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
     const nitro = config.nitro as { alias: Record<string, string> };
     await expect(readFile(nitro.alias[CONNECTIONS_REGISTRY_ID]!, "utf8")).resolves.toContain(
-      `export const database = () => import("vite-hub/database/drizzle").then(module => module.databases[${JSON.stringify(databaseName)}].db)`,
+      `export const database = () => import("@vite-hub/database/runtime/registry").then(module => module.databases[${JSON.stringify(databaseName)}].db)`,
     );
   });
 
@@ -89,7 +88,7 @@ describe("hubConnections", () => {
   it.each(["@vite-hub/connections", "vite-hub/connections"])("writes the registry and mounts the management API through %s in development", async (importBase) => {
     const root = await createTempProject();
     const definition = await writeConnection(root, "server/connections/google.ts");
-    const plugin = hubConnections({ database: "vite-hub/database/drizzle", importBase });
+    const plugin = hubConnections({ database: "@vite-hub/database/runtime/registry", importBase });
     const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (plugin.config as unknown as ConfigHook)(config, {
       command: "serve",
@@ -102,7 +101,7 @@ describe("hubConnections", () => {
     const registry = await readFile(nitro.alias[CONNECTIONS_REGISTRY_ID]!, "utf8");
     expect(registry).toContain(JSON.stringify(definition));
     expect(registry).toContain(
-      'export const database = () => import("vite-hub/database/drizzle").then(module => module.db)',
+      'export const database = () => import("@vite-hub/database/runtime/registry").then(module => module.db)',
     );
     expect(nitro.handlers.map((handler) => handler.route)).toEqual([
       "/_vitehub/connections",
@@ -114,19 +113,6 @@ describe("hubConnections", () => {
     await expect(readFile(nitro.handlers[0]!.handler, "utf8")).resolves.toContain(
       `from "${importBase}/server"`,
     );
-  });
-
-  it("inlines a linked @vite-hub/connections in Nitro so it reads the generated registry", async () => {
-    const root = await createTempProject();
-    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
-    await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
-    const { inline } = (config.nitro as { externals: { inline: unknown[] } }).externals;
-    // In this workspace the package resolves outside node_modules, like any linked package. Nitro 2 matches inline
-    // strings against the path and against the part after the last `node_modules/`.
-    const file = fileURLToPath(import.meta.resolve("@vite-hub/connections/server"));
-    const nitroMatches = (pattern: string) => file.startsWith(pattern) || file.split("node_modules/").pop()!.startsWith(pattern);
-    expect(nitroMatches("@vite-hub/connections")).toBe(false);
-    expect(inline.some(entry => typeof entry === "string" && nitroMatches(entry))).toBe(true);
   });
 
   it("hands the registry to the package that Node loads in vite dev", async () => {
@@ -243,10 +229,10 @@ describe("hubConnections", () => {
     expect(handler).not.toContain("/early/");
   });
 
-  it("updates the handlers of a Nitro 2 instance at the Nuxt app base, not the assets base", async () => {
+  it("updates the handlers of a Nitro instance at the Nuxt app base, not the assets base", async () => {
     const root = await createTempProject();
     const connections = hubConnections();
-    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
+    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> }, routing: { sync: vi.fn() } };
     // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
     const nuxtBase = { base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" };
     const config = await resolveConfig({
@@ -325,6 +311,15 @@ describe("hubConnections", () => {
     expect(source).toContain('export default createConnectionsHandler({ actor: "development", basePath: "/_vitehub/connections" })');
     expect(source).not.toMatch(/from "(h3|nitro)/);
     expect(source).not.toContain("event");
+  });
+
+  it.each(["node-server", "cloudflare-module"])("preserves the Nuxt app base in production H3 requests on %s", async (preset) => {
+    const root = await createTempProject();
+    const config = { nitro: { preset, handlers: [] as Array<{ handler: string }> }, root, base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/portal/", [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections({ management: { actor: "#app/connections-actor" } }).config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
+    const handlers = config.nitro.handlers;
+    const source = await readFile(handlers[0]!.handler, "utf8");
+    expect(source).toContain('basePath: "/portal/_vitehub/connections"');
   });
 
   it("checks every development request with the actor module, or the development policy without one", async () => {

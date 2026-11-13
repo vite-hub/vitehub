@@ -43,14 +43,16 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
 import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
+import { babysitterRepositories, type BabysitterRepositories } from "../src/babysitter/repositories.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
+import { createPullRequestWorkspaces, type PullRequestWorkspaces } from "../src/babysitter/pr-workspaces.ts";
 import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
-import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
+import { approvedIfOutside, feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey, resolveBabysitterMerge } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../src/github/pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 import * as githubInstalls from "../src/github/install.ts";
@@ -68,7 +70,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -110,11 +112,13 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   const extraCheckRuns: Record<string, unknown>[] = [];
   const pr = () => ({
     number: 12,
+    node_id: "PR_12",
     state: "open",
-    draft: false,
+    draft: preset.draft ?? false,
     title: "Fix value",
     body: "Repair the exported value.",
     user: { login: "developer" },
+    author_association: preset.authorAssociation ?? "MEMBER",
     labels: [{ name: "repair" }],
     head: { sha: head, ref: "fix", repo: { full_name: "acme/app" } },
     base: { sha: baseHead, ref: preset.base ?? "main", repo: { full_name: "acme/app", default_branch: "main", owner: { login: "acme" } } },
@@ -133,7 +137,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         id: "PR_12",
         number: 12,
         state: "OPEN",
-        isDraft: false,
+        isDraft: preset.draft ?? false,
         headRefOid: head,
         headRefName: "fix",
         baseRefName: "main",
@@ -141,7 +145,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         title: "Fix value",
         body: "Repair the exported value.",
         author: { login: "developer", __typename: "User" },
-        authorAssociation: "MEMBER",
+        authorAssociation: preset.authorAssociation ?? "MEMBER",
         isCrossRepository: false,
         headRepository: { nameWithOwner: "acme/app" },
         labels: { nodes: [{ name: "repair" }], pageInfo },
@@ -170,9 +174,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       if (text.includes("BabysitterOpenPullRequests")) {
         const current = pr();
         const node = {
-          number: current.number, title: current.title, isDraft: false, headRefOid: current.head.sha, headRefName: current.head.ref,
+          number: current.number, title: current.title, isDraft: current.draft, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
-          authorAssociation: "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
+          authorAssociation: preset.authorAssociation ?? "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
         };
         return { stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: openPullRequests ? [node] : [], pageInfo } } } }), stderr: "" };
@@ -265,6 +269,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       : ["api", ...(request.method === "GET" ? [] : ["-X", request.method]), path, ...fields];
     try {
       const result = await command(args, { signal: request.signal });
+      if (request.path.endsWith("/logs")) return result.stdout;
       const values: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
       if (request.path === "/graphql") {
         const first = values[0];
@@ -335,7 +340,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       },
     })] as never,
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
-    options: { filter: { labels: { allow: ["repair"] } }, ...(autoMerge ? { merge: "auto" as const } : {}), ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
+    options: { filter: { labels: { allow: ["repair"] } }, merge: (preset.merge ?? (autoMerge ? "auto" : false)) as false, ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.sandbox ? { sandbox: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.sandboxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
     driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
@@ -344,7 +349,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(discovered ? { agentName: preset.agentName ?? "babysitter" } : {}),
     github,
     inboxPath: preset.inboxPath ?? join(root, "inbox.sqlite"),
-    repositories: ["acme/app"],
+    repositories: preset.repositories ?? ["acme/app"],
     concurrency: 1,
     activityAuthors: preset.activityBarrier ? ["repair-bot"] : ["vitehub-agent"],
     admission: preset.admission,
@@ -353,9 +358,11 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(preset.postPushGraceMs === undefined ? {} : { postPushGraceMs: preset.postPushGraceMs }),
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
     mergeabilityRetryDelayMs: 1,
+    ...(preset.workspaces ? { workspaces: preset.workspaces } : {}),
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string; environment?: NodeJS.ProcessEnv }> = [];
   const operationResults: unknown[] = [];
+  const cwds: Array<string | undefined> = [];
   let operation: "refreshDependencies" | "checkDependencies" | "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
   let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async (options: { settings?: { launchArgs?: string }; environment?: NodeJS.ProcessEnv }) => {
@@ -377,7 +384,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       close: async () => {},
       stopSession: async () => {},
       interruptTurn: async () => {},
-      startSession: async (input: { mcp?: typeof mcp, runtimeMode?: string, approvalPolicy?: string, threadId: string }) => {
+      startSession: async (input: { mcp?: typeof mcp, runtimeMode?: string, approvalPolicy?: string, threadId: string, cwd?: string }) => {
+        cwds.push(input.cwd);
         mcp = input.mcp ?? mcp;
         threadId = input.threadId;
         runtimeMode = input.runtimeMode;
@@ -481,6 +489,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     runtime,
     reconcile,
     passes,
+    cwds,
     operationResults,
     errors,
     events,
@@ -508,6 +517,17 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
 }
 
 describe("Babysitter preset runtime", () => {
+  it("discovers open pull requests in every installed repository without an allow list", async () => {
+    const read = vi.fn(async () => [{ repository: "acme/app", installationId: 1, archived: false }, { repository: "acme/archive", installationId: 1, archived: true }]);
+    const f = await fixture(false, false, { repositories: babysitterRepositories({}, read) });
+    try {
+      await f.reconcile();
+      expect(read).toHaveBeenCalledOnce();
+      expect(f.runtime.repositories.known()).toEqual(["acme/app"]);
+      expect(await f.runtime.inbox.get("acme/app", 12)).toBeDefined();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("retries a direct-source worker blocker only when its source revision changes", async () => {
     vi.stubGlobal("__VITEHUB_PRESETS_BUILD_REVISION__", undefined);
     const revision = vi.spyOn(buildRevisions, "presetsBuildRevision").mockReturnValue("source-first");
@@ -894,12 +914,126 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("does not retain a merge assessment for an external wait", async () => {
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
+  it("merges a reviewed head whose pass parked on an external reason once the merge gate opens", async () => {
+    // 2026-10-19: a PR reported no P0 or P1 three times, parked on a failing approval check each time, and never merged.
+    let ready = false;
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => ready || "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
+    try {
+      await f.reconcile();
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ version: 2, head: "a".repeat(40) });
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait?.retryAt).toBeTypeOf("number");
+      ready = true;
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([
+    ["no wake", undefined, true],
+    ["checks of a commit that never changes", { kind: "checks", repository: "acme/app", headSha: "e".repeat(40) }, true],
+    ["its own pull request", { kind: "pull-request", repository: "acme/app", number: 12 }, true],
+    ["another pull request", { kind: "pull-request", repository: "acme/app", number: 13 }, false],
+  ] as const)("retries an external wait on %s after two hours unless it waits for another PR", async (_name, wake, retried) => {
+    // 2026-10-19: about 45 PRs sat in external waits for 13 hours or more, one on checks of a main commit 90 commits back.
+    const reason = "Needs a maintainer";
+    const f = await fixture(false, false, { result: { disposition: "park", text: reason, wait: { kind: "external", reason, ...wake ? { wake } : {} } } });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason });
+      if (!retried) {
+        expect(waiting?.wait?.retryAt).toBeUndefined();
+        return;
+      }
+      expect(waiting?.wait?.retryAt).toBeGreaterThanOrEqual(started + 2 * 60 * 60_000);
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a reviewed draft until it is marked ready for review, then merges it", async () => {
+    // 2026-11-01: a reviewed draft retried its refused merge every two minutes up to generation 1929.
+    let draft = true;
+    const f = await fixture(false, false, { merge: "direct", result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const result = await command(args, request);
+      if (!draft || !args.includes("repos/acme/app/pulls/12") || args.includes("-X")) return result;
+      return { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), draft: true }) };
+    });
+    try {
+      await f.reconcile();
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      const now = vi.spyOn(Date, "now").mockReturnValue(reviewed!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait).toMatchObject({ kind: "external", reason: "draft" });
+      expect(parked?.wait?.retryAt).toBeUndefined();
+      draft = false;
+      await f.runtime.inbox.ingest("ready-for-review", "pull_request", { repository: { full_name: "acme/app" }, action: "ready_for_review", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a reviewed PR whose base is not the default branch, and wakes it when that branch's PR merges", async () => {
+    // 2026-10-31: a PR on a branch without a parent PR retried its refused merge every two minutes for two days,
+    // and a parked child stayed on its parent's branch two days after the parent merged.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const parents: unknown[] = [];
+    const f = await fixture(false, false, { base: "pilot/comments", parents, merge: "direct", result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      vi.setSystemTime(reviewed!.wait!.retryAt! + 1);
+      await f.reconcile();
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait).toMatchObject({ kind: "external", reason: "non-default-base" });
+      expect(parked?.wait?.retryAt).toBeUndefined();
+      expect(parked?.lastResult).toMatch(/pilot\/comments is not the default branch/);
+      vi.setSystemTime(started + 6 * 60 * 60_000);
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
+      parents.push({ state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { ref: "pilot/comments", repo: { owner: { login: "acme" } } }, base: { ref: "main" } });
+      vi.setSystemTime(started + 7 * 60 * 60_000);
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=main"]));
+      expect(f.passes).toHaveLength(1);
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
+  it("does not retain a merge assessment for an external wait without direct merges", async () => {
+    const f = await fixture(false, false, { merge: false, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40), wait: { kind: "external", reason: "Needs approval" } } });
     try {
       await f.reconcile();
       expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeNull();
       expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.kind).toBe("external");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("doubles the merge gate timer while a reviewed head stays blocked", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    try {
+      await f.reconcile();
+      const delays: number[] = [];
+      for (let retry = 0; retry < 6; retry++) {
+        const clock = (await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! + 1;
+        const now = vi.spyOn(Date, "now").mockReturnValue(clock);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        delays.push((await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! - clock);
+      }
+      expect(f.passes).toHaveLength(1);
+      expect(delays).toEqual([240_000, 480_000, 960_000, 1_800_000, 1_800_000, 1_800_000]);
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1037,6 +1171,69 @@ describe("Babysitter preset runtime", () => {
       expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "merge_method=squash", "merge_action=direct_merge", `sha=${"a".repeat(40)}`]));
       expect(createProviderRuntime).not.toHaveBeenCalled();
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  /** A required `test` Actions job that fails on the PR head and on the base tip with `log` and `baseLog`. */
+  function inheritFailure(f: Awaited<ReturnType<typeof fixture>>, log: string, baseLog = log) {
+    const command = f.command.getMockImplementation()!;
+    const run = (id: number, sha: string) => ({ id, name: "test", head_sha: sha, status: "completed", conclusion: "failure", completed_at: "2026-11-09T00:00:00Z",
+      app: { slug: "github-actions", id: 15368 }, html_url: `https://github.com/acme/app/actions/runs/${id}/job/${id}` });
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path.includes("/check-runs")) return { stdout: JSON.stringify(path.includes(`/commits/${f.pr().head.sha}/`) ? run(1, f.pr().head.sha) : run(2, f.pr().base.sha)), stderr: "" };
+      if (path === "repos/acme/app/actions/jobs/1/logs") return { stdout: log, stderr: "" };
+      if (path === "repos/acme/app/actions/jobs/2/logs") return { stdout: baseLog, stderr: "" };
+      if (path === "repos/acme/app/branches/main/protection") return { stdout: JSON.stringify({ required_status_checks: { strict: false, contexts: ["test"] }, enforce_admins: { enabled: true },
+        required_signatures: { enabled: false }, lock_branch: { enabled: false }, required_linear_history: { enabled: false } }), stderr: "" };
+      return command(args, request);
+    });
+  }
+  const failedLog = (lines: string[]) => ["2026-11-09T00:00:00.0000000Z ##[group]Run pnpm test", "pnpm test", "##[endgroup]", ...lines, "##[error]Process completed with exit code 1."].join("\n");
+
+  it("parks a PR whose required check fails the same way on the base, without a pass", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds", "Test Files  1 failed | 3 passed (4)"]), failedLog([" FAIL  test/a.test.ts > adds", "Test Files  1 failed | 9 passed (10)"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait?.reason).toBe("unrelated-ci-failure");
+      expect(parked?.lastResult).toContain("test fails the same way on main");
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a configured main-repair branch even when its failure repeats the base", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false, mainRepairBranchPrefix: "fix" } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).not.toBe("unrelated-ci-failure");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a required check whose output names a failure the base lacks", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds", " FAIL  test/b.test.ts > new"]), failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).not.toBe("unrelated-ci-failure");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("merges past an inherited required check only where bypassInheritedChecks names it", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", bypassInheritedChecks: { "Acme/App": ["test"] } }, options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT"));
+      expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "bypass_rules=true", `sha=${"a".repeat(40)}`]));
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+      expect(await f.runtime.inbox.meta("inherited-merge-proof:acme/app#12")).toMatchObject({ head: "a".repeat(40), base: "c".repeat(40), checks: ["test"], checkIds: [1] });
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1231,9 +1428,36 @@ describe("Babysitter preset runtime", () => {
       expect(current?.wait?.retryAt).toBeGreaterThan(Date.now());
       expect(current?.lastResult).toMatch(/mergeability/i);
       uncertain = false;
-      vi.setSystemTime(Date.now() + 31_000);
+      vi.setSystemTime(Date.now() + 121_000);
       await f.reconcile();
       expect(createProviderRuntime.mock.calls.length).toBeGreaterThan(0);
+    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+  });
+
+  it("runs the pass after GitHub leaves mergeability unknown for 10 minutes", async () => {
+    // 2026-10-21: 15 stack PRs stayed unknown for hours although each merged cleanly, and rechecked every 30 seconds without a pass.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture();
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const result = await command(args, request);
+      if (args.includes("repos/acme/app/pulls/12")) return { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), mergeable: null, mergeable_state: "unknown" }) };
+      return result;
+    });
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait?.retryAt).toBe(started + 120_000);
+      for (let minutes = 2; minutes < 10; minutes += 2) {
+        vi.setSystemTime(started + minutes * 60_000 + 1);
+        await f.reconcile();
+        expect(createProviderRuntime).not.toHaveBeenCalled();
+      }
+      vi.setSystemTime(started + 10 * 60_000 + 1);
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.mergeability.unknown_proceeding")).toBe(true);
     } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
 
@@ -1509,21 +1733,84 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
     expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", markDraftsReady: [" "] } } })).toThrow(expect.objectContaining({ code: "PRESETS_MERGE_DRAFT_AUTHORS_INVALID" }));
+  });
+
+  describe("merge.markDraftsReady", () => {
+    const markReady = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.filter(([args]) => args.join(" ").includes("markPullRequestReadyForReview"));
+    async function reviewedDraft(merge: unknown) {
+      const f = await fixture(false, false, { merge, draft: true });
+      await f.runtime.inbox.ingest("draft-opened", "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: f.pr() });
+      const snapshot = (await f.runtime.inbox.get("acme/app", 12))!;
+      await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(snapshot), feedback: [] });
+      return f;
+    }
+
+    it("marks a listed author's reviewed draft ready instead of waiting on it", async () => {
+      const f = await reviewedDraft({ strategy: "direct", markDraftsReady: ["Developer"] });
+      try {
+        await f.reconcile();
+        expect(markReady(f)).toHaveLength(1);
+        expect(markReady(f)[0]![0]).toContain("id=PR_12");
+        expect(f.passes).toHaveLength(0);
+        expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the reviewed draft ready for review so it can merge." });
+        expect(f.events).toHaveBeenCalledWith("babysitter.draft.ready", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("leaves drafts alone by default and for authors it does not list", async () => {
+      for (const merge of ["direct", { strategy: "direct", markDraftsReady: ["maintainer"] }]) {
+        const f = await reviewedDraft(merge);
+        try {
+          await f.reconcile();
+          expect(markReady(f)).toHaveLength(0);
+          expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Reviewed, but the pull request is a draft. It merges once it is marked ready for review." });
+        } finally { await f.runtime.inbox.close(); }
+      }
+    });
   });
 
   it("maps lifecycle labels into the shared PR filter", () => {
-    const filter = { repository: { allow: ["acme/app"] } };
+    const filter = { repository: { allow: ["acme/app"] }, author: { allow: ["octocat"] } };
     expect(resolveBabysitterLifecycleFilter(filter, { labels: { require: ["agent:repair"], deny: ["agent:paused"] } })).toEqual({
-      repository: { allow: ["acme/app"] },
+      ...filter,
       labels: { allow: ["agent:repair"], deny: ["agent:paused"] },
     });
-    expect(resolveBabysitterLifecycleFilter(filter, undefined)).toBe(filter);
+    expect(resolveBabysitterLifecycleFilter({ ...filter, labels: { deny: ["hold"] } }, undefined)).toEqual({ ...filter, labels: { deny: ["hold"] } });
     expect(() => resolveBabysitterLifecycleFilter(filter, null as never)).toThrow(/lifecycle must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: null as never })).toThrow(/must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { deny: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter({ labels: { allow: ["repair"] } }, { labels: { require: ["agent:repair"] } })).toThrow(/lifecycle labels or filter\.labels/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: [""] } })).toThrow(/non-empty strings/);
+  });
+
+  it("selects only PRs from people with write access and skips babysitter:skip by default", () => {
+    const writeAccess = { allow: ["OWNER", "MEMBER", "COLLABORATOR"] };
+    expect(resolveBabysitterLifecycleFilter({}, {})).toEqual({ authorAssociation: writeAccess, labels: { deny: ["babysitter:skip"] } });
+    expect(resolveBabysitterLifecycleFilter({ author: { allow: ["renovate[bot]"] } }, {})).toEqual({ author: { allow: ["renovate[bot]"] }, labels: { deny: ["babysitter:skip"] } });
+    expect(resolveBabysitterLifecycleFilter({ authorAssociation: {} }, { labels: {} })).toEqual({ authorAssociation: {} });
+    expect(resolveBabysitterLifecycleFilter({}, { labels: { require: ["agent:repair"] } })).toEqual({ authorAssociation: writeAccess, labels: { allow: ["agent:repair"] } });
+  });
+
+  it("leaves an outside contributor's PR alone without an author rule", async () => {
+    const outside = await fixture(false, false, { authorAssociation: "NONE", options: { filter: {} } });
+    try {
+      await outside.reconcile();
+      expect(outside.passes).toHaveLength(0);
+    } finally { await outside.runtime.inbox.close(); }
+    const member = await fixture(false, false, { options: { filter: {} } });
+    try {
+      await member.reconcile();
+      expect(member.passes).toHaveLength(1);
+    } finally { await member.runtime.inbox.close(); }
+  });
+
+  it("merges directly and holds outside contributors for approval by default", () => {
+    expect(resolveBabysitterMerge(babysitter.options.merge)).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
+    expect(resolveBabysitterMerge({ strategy: "direct", method: "rebase" })).toEqual({ mode: "direct", method: "rebase", ready: approvedIfOutside });
+    expect(resolveBabysitterMerge({ strategy: "direct", markDraftsReady: ["Octocat"] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, markDraftsReady: new Set(["octocat"]) });
   });
 
   it("applies lifecycle labels before admitting a model pass", async () => {
@@ -1543,6 +1830,10 @@ describe("Babysitter preset runtime", () => {
 
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
+    for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
+      expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: authorAssociation as never } } })).toThrow(/filter\.authorAssociation must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { filter: { authorAssociation: { allow: ["OWNER", "MEMBER"], deny: ["NONE"] } } } })).not.toThrow();
     for (const noProgressBudget of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }
@@ -1550,6 +1841,15 @@ describe("Babysitter preset runtime", () => {
       expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget } })).toThrow(/reviewPushBudget must be a positive integer or false/);
     }
     expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget: false } })).not.toThrow();
+    for (const minorReviewRounds of [0, 1.5, true as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds } })).toThrow(/minorReviewRounds must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewPushBudget: false } })).toThrow(/minorReviewRounds needs a reviewPushBudget/);
+    for (const reviewConvergencePushes of [0, 2.5, "2" as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { reviewConvergencePushes } })).toThrow(/reviewConvergencePushes must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { ignoreAssessedBotThreads: "yes" as unknown as boolean } })).toThrow(/ignoreAssessedBotThreads must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewConvergencePushes: 2, ignoreAssessedBotThreads: true } })).not.toThrow();
     for (const dailyPassBudget of [0, 2.5, "16" as unknown as number]) {
       expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget } })).toThrow(/dailyPassBudget must be a positive integer or false/);
     }
@@ -1562,7 +1862,8 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
-    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: false } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: "direct" } })).not.toThrow();
     for (const modelConcurrency of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);
@@ -1620,6 +1921,87 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("asks each pass for its automated review class and settles review after minorReviewRounds minor heads", async () => {
+    const result: Record<string, unknown> = { disposition: "park", text: "Assessed; only a P2 finding is left.", automatedReview: "P2" };
+    const f = await fixture(false, false, { result, options: { minorReviewRounds: 2, deferWhilePending: false } });
+    const botReview = (id: number) => f.runtime.inbox.ingest(`bot-review-${id}`, "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id, body: `Finding ${id}`, user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]!.prompt).toContain("<automated-review-severity>");
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 0, heads: [], minorHeads: ["a".repeat(40)] });
+      const next = "d".repeat(40);
+      f.advanceHead(next);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 3, heads: [next], minorHeads: ["a".repeat(40), next] });
+      // Automated review is settled, so new bot feedback parks without a pass.
+      await botReview(401);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.wait?.reason).toBe("review-push-budget");
+      expect(parked.lastResult).toMatch(/^Automated review settled: 2 heads in a row had no finding above P2/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks for a class-level fix from reviewConvergencePushes review-driven pushes on", async () => {
+    const f = await fixture(false, false, { options: { reviewConvergencePushes: 1, deferWhilePending: false } });
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(f.passes[0]!.prompt).not.toContain("<review-convergence>");
+      f.choose(undefined);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 501, body: "Another alias case is missing.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.passes[1]!.prompt).toContain("<review-convergence>\nThis PR already has 1 review-driven repair pushes.");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("keeps read tools working after new evidence arrives mid-pass", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 601, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("ends the pass at the first write that new evidence refuses", async () => {
+    const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
+    f.choose("updatePullRequest", { title: "Fix value now" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 602, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("evidence changed");
+      expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("does not count a push that repairs a failing check against the review push budget", async () => {
     const f = await fixture(false, false, { options: { reviewPushBudget: 1 } });
     f.reportCheckRun({ id: 9, name: "lint", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
@@ -1642,19 +2024,24 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       expect(f.passes).toHaveLength(1);
-      const [first] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
       await botReview(301);
       await f.reconcile();
-      expect(f.passes).toHaveLength(1);
+      // The head's required checks pass, so it gets one assessment pass past the budget.
+      expect(f.passes).toHaveLength(2);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.exempt", expect.objectContaining({ exemption: `assessment:${f.pr().head.sha}` }));
+      const [, second] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
+      await botReview(304);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
       const parked = (await f.runtime.inbox.get("acme/app", 12))!;
-      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: first! + 24 * 60 * 60_000 });
-      expect(parked.lastResult).toMatch(/1 model pass in the last 24 hours.*next pass can start at/);
+      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: second! + 24 * 60 * 60_000 });
+      expect(parked.lastResult).toMatch(/2 model passes in the last 24 hours.*next pass can start at/);
       expect(f.events).toHaveBeenCalledWith("babysitter.wait.kept", expect.objectContaining({ reason: "daily-pass-budget", avoided_invocation: true }));
       // A person's comment is exempt and still starts a pass.
       await f.runtime.inbox.ingest("human-comment", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
         comment: { id: 302, body: "Please look again.", user: { login: "developer", type: "User" } } });
       await f.reconcile();
-      expect(f.passes).toHaveLength(2);
+      expect(f.passes).toHaveLength(3);
       // Bot feedback runs again once the window frees a pass.
       const db = new DatabaseSync(inboxPath);
       try {
@@ -1665,8 +2052,89 @@ describe("Babysitter preset runtime", () => {
       } finally { db.close(); }
       await botReview(303);
       await f.reconcile();
-      expect(f.passes).toHaveLength(3);
+      expect(f.passes).toHaveLength(4);
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("lifts the daily pass budget for a PR with a priority label", async () => {
+    const f = await fixture(false, false, { options: { dailyPassBudget: 1, noProgressBudget: false, priorityLabels: ["Urgent"] } });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      const labelled = { ...f.pr(), labels: [{ name: "repair" }, { name: "urgent" }] };
+      await f.runtime.inbox.ingest("labelled", "pull_request", { repository: { full_name: "acme/app" }, action: "labeled", pull_request: labelled });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: labelled,
+        review: { id: 301, body: "Finding", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.exempt", expect.objectContaining({ exemption: "priority-label" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("records each repair push under the daily push budget and refuses one past it", async () => {
+    const recordingPush = (f: Awaited<ReturnType<typeof fixture>>) => {
+      const push = f.push.getMockImplementation()!;
+      f.push.mockImplementation(async (target, options) => {
+        await options?.beforePush?.();
+        const head = await push(target, options);
+        await options?.afterPush?.(head);
+        return head;
+      });
+    };
+    const allowed = await fixture(false, false, { options: { dailyPushBudget: 1 } });
+    allowed.choose("pushRepair");
+    recordingPush(allowed);
+    try {
+      await allowed.reconcile();
+      expect(allowed.pr().head.sha).toBe("b".repeat(40));
+      expect(await allowed.runtime.inbox.meta("repair-pushes:acme/app#12")).toEqual([expect.any(Number)]);
+    } finally { await allowed.runtime.inbox.close(); }
+    const refused = await fixture(false, false, { options: { dailyPushBudget: 1 }, expectedOperationErrorAt: 0 });
+    refused.choose("pushRepair");
+    recordingPush(refused);
+    const earlier = Date.now() - 60_000;
+    await refused.runtime.inbox.setMeta("repair-pushes:acme/app#12", [earlier]);
+    try {
+      await refused.reconcile();
+      expect(JSON.stringify(refused.operationResults[0])).toContain("Daily push budget spent");
+      expect(refused.pr().head.sha).toBe("a".repeat(40));
+      expect(await refused.runtime.inbox.meta("repair-pushes:acme/app#12")).toEqual([earlier]);
+    } finally { await refused.runtime.inbox.close(); }
+  });
+
+  it("parks a failing PR without a pass while the daily push budget refuses its repair", async () => {
+    const f = await fixture(false, false, { options: { dailyPushBudget: 1, ciRecovery: false } });
+    f.reportCheckRun({ id: 9, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+    const lastPush = Date.now() - 60_000;
+    await f.runtime.inbox.setMeta("repair-pushes:acme/app#12", [lastPush]);
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      // A failing PR may push again two hours after its last push.
+      expect(parked.wait).toMatchObject({ reason: "daily-push-budget", retryAt: lastPush + 2 * 60 * 60_000 + 60_000 });
+      expect(parked.lastResult).toMatch(/1 repair pushes in the last 24 hours/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("gives a reviewed head with failing required checks its repair pass while the daily push budget allows a push", async () => {
+    const passesAfterRetry = async (options: Record<string, unknown>) => {
+      const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, options: { ciRecovery: false, ...options },
+        result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+      f.reportCheckRun({ id: 9, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+      try {
+        await f.reconcile();
+        const retryAt = (await f.runtime.inbox.get("acme/app", 12))?.wait?.retryAt;
+        expect(retryAt).toBeTypeOf("number");
+        const now = vi.spyOn(Date, "now").mockReturnValue(retryAt! + 1);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        return f.passes.length;
+      } finally { await f.runtime.inbox.close(); }
+    };
+    expect(await passesAfterRetry({})).toBe(1);
+    expect(await passesAfterRetry({ dailyPushBudget: 1 })).toBe(2);
   });
 
   it("retries a pass after a network error instead of failing it", async () => {
@@ -2165,6 +2633,25 @@ describe("Babysitter preset runtime", () => {
       expect(state.status).toBe("waiting");
       expect(state.wait?.headSha).toBe("b".repeat(40));
       expect(state.lease).toBeNull();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("opens the provider cooldown on the first rate limit with providerRetries 0 and gives back the daily pass", async () => {
+    const f = await fixture(false, false, { providerRetryDelayMs: 1, options: { providerRetries: 0 } });
+    const provider = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async (...args: unknown[]) => {
+      const runtime = await provider(...args);
+      return { ...runtime, sendTurn: async () => ({ turnId: "quota-turn" }), events: { async *[Symbol.asyncIterator]() {
+        yield { type: "turn.completed", turnId: "quota-turn", payload: { state: "failed", errorMessage: "429 Too Many Requests" } };
+      } } };
+    });
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalledOnce();
+      expect(await f.runtime.inbox.metaNumber("provider-quota-blocked-until")).toBeGreaterThan(Date.now());
+      // The provider failed the pass before it did any work, so it does not count against the daily budget.
+      expect((await f.runtime.inbox.get("acme/app", 12))?.dailyPassBudget?.passes).toEqual([]);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.released", expect.objectContaining({ reason: expect.stringContaining("429") }));
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -3358,6 +3845,37 @@ describe("Babysitter preset runtime", () => {
     expect(f.passes).toHaveLength(2);
     expect(new Set(f.passes.map(pass => pass.session)).size).toBe(2);
     expect(f.runtime.workload()).toEqual({ running: 0 });
+    await f.runtime.inbox.close();
+  });
+
+  it.each([true, false])("works in the PR's kept workspace and continues the provider thread after a push only with resumeThreads %s", async (resumeThreads) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-kept-"));
+    roots.push(root);
+    const workspaces = createPullRequestWorkspaces({ root, resumeThreads });
+    const f = await fixture(false, false, { workspaces });
+    const work = join(root, "acme+app+12", "work");
+    f.choose("pushRepair");
+    await f.reconcile();
+    expect(f.prepare).toHaveBeenCalledExactlyOnceWith(work, { reuse: false, reason: "cold" });
+    expect(f.events).toHaveBeenCalledWith("babysitter.owner.finished", expect.objectContaining({ outcome: "waiting", workspace: "reset", workspace_reason: "cold" }));
+    f.choose(undefined);
+    await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+    await f.runtime.inbox.ingest("new-feedback", "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id: 42, body: "Check this follow-up", user: { login: "another-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    f.reportCheckRun({ id: 3, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success" });
+    await f.runtime.inbox.ingest("check-passed", "check_run", {
+      repository: { full_name: "acme/app" }, action: "completed",
+      check_run: { id: 3, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", pull_requests: [{ number: 12 }] },
+    });
+    await f.reconcile();
+    expect(f.passes).toHaveLength(2);
+    // The pass pushed this head, so the next one keeps its tree.
+    expect(f.prepare).toHaveBeenLastCalledWith(work, { reuse: true, reason: "warm" });
+    expect(f.cwds).toEqual([work, work]);
+    expect(f.passes[1]?.session === f.passes[0]?.session).toBe(resumeThreads);
+    expect(f.passes[1]?.prompt.includes("<resumed-pass>")).toBe(resumeThreads);
     await f.runtime.inbox.close();
   });
 

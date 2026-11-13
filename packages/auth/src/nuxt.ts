@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -50,6 +51,7 @@ type NuxtLike = {
       options?: { sensitive?: boolean }
     }
     serverDir?: string
+    srcDir?: string
     ssr?: boolean
     vite?: {
       define?: Record<string, unknown>
@@ -80,11 +82,22 @@ const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
+const manifestRegistered = new WeakSet<object>()
 const pageCacheCheckRegistered = new WeakSet<object>()
 
 type NitroBuild = {
   hooks: { hook: (name: "build:config", callback: () => Promise<void> | void) => void }
   options: { routeRules: Parameters<typeof assertNoCachedPageGuards>[1] }
+}
+
+/** Better Auth's Vue client file, which `createAuthClient()` imports on first use. */
+function resolveBetterAuthVueClient(): string | undefined {
+  try {
+    return realpathSync(fileURLToPath(import.meta.resolve("better-auth/vue")))
+  }
+  catch {
+    return undefined
+  }
 }
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
@@ -174,7 +187,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
-      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/hosts. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
+      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/protect-pages. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
     })
   }
 
@@ -201,6 +214,20 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
           shortPath: filePath,
         })
       }
+    })
+  }
+
+  if (!manifestRegistered.has(nuxt) && nuxt.hook) {
+    manifestRegistered.add(nuxt)
+    // Nuxt prefetches the dynamic imports of the app entry on every page. The Auth plugin's client imports Better Auth
+    // on first use, so remove that import from the hints: a page that does not use Auth does not download Better Auth.
+    ;(nuxt.hook as unknown as (name: "build:manifest", handler: (manifest: Record<string, { dynamicImports?: string[] }>) => void) => void)("build:manifest", (manifest) => {
+      const client = resolveBetterAuthVueClient()
+      // Vite writes manifest keys relative to its root. Nuxt resolves `vite.root` to `srcDir` unless the app sets it.
+      const root = nuxt.options.vite?.root || nuxt.options.srcDir || nuxt.options.rootDir || process.cwd()
+      const key = client && Object.keys(manifest).find(id => resolve(root, id) === client)
+      if (!key) return
+      for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => id !== key)
     })
   }
 

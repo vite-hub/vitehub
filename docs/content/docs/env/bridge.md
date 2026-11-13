@@ -80,7 +80,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -105,7 +105,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -129,7 +129,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -167,7 +167,7 @@ await bridge.grant(owner, {
 Server code then reads it through Server Env.
 
 ```ts
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 const env = await loadServerEnv()
 const token = env.githubToken.unseal()
