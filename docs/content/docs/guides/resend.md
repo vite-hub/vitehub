@@ -26,7 +26,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-  	preset: 'vercel',
+  	host: 'vercel',
   	email: {
   		driver: 'resend',
   		options: {
@@ -47,7 +47,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'vercel',
+		host: 'vercel',
 		email: {
 			driver: 'resend',
 			options: {
@@ -67,7 +67,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'vercel',
+		host: 'vercel',
 		email: {
 			driver: 'resend',
 			options: {

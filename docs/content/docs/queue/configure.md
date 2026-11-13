@@ -8,14 +8,14 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Turn on Queue with `queue: true`. The `preset` picks the Queue Provider (the service that stores and delivers jobs).
+Turn on Queue with `queue: true`. The `host` picks the Queue Provider (the service that stores and delivers jobs).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare', queue: true },
 })
 ```
 :::
@@ -27,7 +27,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
 })
 ```
 :::
@@ -38,27 +38,53 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare', queue: true })],
 })
 ```
 :::
 ::
 
-With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. For the other options, such as `region`, use the Queue package alone. Pass them to `hubQueue()`, or to a top-level `queue` key, which wins:
+With `vitehub()`, the host sets `provider`, and on Cloudflare the app name sets `namePrefix`. To set other options, such as `region`, pass an object to `queue`. An option that you set wins over the host:
 
-```ts [vite.config.ts]
-import { hubQueue } from '@vite-hub/queue/vite'
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-
-export default defineConfig({
-  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' }), nitro()],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'vercel', queue: { provider: 'vercel', region: 'iad1' } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'vercel', queue: { provider: 'vercel', region: 'iad1' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'vercel', queue: { provider: 'vercel', region: 'iad1' } })],
+})
+```
+:::
+::
+
+With `@vite-hub/queue` alone, pass the same options to `hubQueue()` from `@vite-hub/queue/vite`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, `local` on a Node server (`preset: 'node'` or Nitro `node-server`), and Vercel for other production builds. On Netlify, set `provider` or turn Queue off. |
+| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, `local` on a Node server (`host: 'node'` or Nitro `node-server`), and Vercel for other production builds. On Netlify, set `provider` or turn Queue off. |
 | `cache` | `boolean` | `true` | Reuses named QueueClients where the provider allows it. Cloudflare clients still read the request's binding on each request. |
 | `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. Works with one Queue Definition only. |
 | `namePrefix` | `string` | none | Cloudflare only. Prefix of generated queue names: `<namePrefix>queue--<hex-name>`. |
@@ -67,7 +93,7 @@ export default defineConfig({
 
 ### `queue: false`
 
-Turns off runtime dispatch and the generated Vercel consumer functions. Runtime calls throw `QUEUE_DISABLED`.
+Turns Queue off. The server then has no Queue runtime, so `sendQueue()` throws `QUEUE_DEFINITION_NOT_FOUND`. This applies to `vitehub()` and to `hubQueue(false)` from `@vite-hub/queue`. `hubQueue(false)` also adds no Vercel consumer functions. In Vitest, the generated test setup installs the `false` config, so Queue calls throw `QUEUE_DISABLED`.
 
 ## Providers
 
@@ -75,7 +101,7 @@ Turns off runtime dispatch and the generated Vercel consumer functions. Runtime 
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
 | Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
+| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
 
 ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 

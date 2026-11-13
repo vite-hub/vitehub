@@ -391,6 +391,7 @@ function addContributedRoutes(navigation) {
         ...(section === "rate-limits" ? { rateLimitBase: "/_vitehub/api/rate-limit" } : {}),
         ...(section === "schedules" ? { scheduleRunBase: "/_vitehub/api/schedule-run" } : {}),
         ...(section === "workflows" ? { workflowBase: "/_vitehub/api/workflow" } : {}),
+        ...(details.view.kind === "workspace-browser" ? { workspaceFilesBase: "/_vitehub/api/workspace-files" } : {}),
         kvBase: "/_vitehub/api/kv",
         searchBase: "/_vitehub/api/search",
         sectionsBase,

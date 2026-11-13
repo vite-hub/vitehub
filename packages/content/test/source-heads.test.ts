@@ -482,7 +482,7 @@ describe("commit cache", () => {
     expect(await title(content, "/intro")).toBe("Intro")
     expect(downloads()).toBe(1)
     const head = await content.sources.head("docs")
-    expect(head.cache).toEqual({ key: expect.stringMatching(new RegExp(`^content:[0-9a-f]{16}:${first}:docs$`)), hits: { memory: expect.any(Number), kv: 0 }, misses: 1 })
+    expect(head.cache).toEqual({ key: expect.stringMatching(new RegExp(`^content:[0-9a-f]{16}:${first}:docs$`)), hits: { memory: expect.any(Number), build: 0, kv: 0 }, misses: 1 })
     const [, stored] = await kv.get(head.cache.key!)
     expect(stored).toMatchObject({ name: "docs", data: expect.any(String) })
 

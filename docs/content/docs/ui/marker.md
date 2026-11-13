@@ -13,7 +13,7 @@ icon: i-lucide-flag
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/marker`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";

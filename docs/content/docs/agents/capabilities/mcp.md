@@ -76,7 +76,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         analyticsToken: env({ optional: true, secret: true }),
@@ -96,7 +96,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         analyticsToken: env({ optional: true, secret: true }),
@@ -115,7 +115,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         analyticsToken: env({ optional: true, secret: true }),
@@ -152,6 +152,27 @@ export default defineAgent({
   ],
 })
 ```
+
+## Limit a server to some Channels
+
+Each MCP server adds its tools, with their full input schemas, to every model request of the Invocation. Set `channels` on a server entry to connect it only for Invocations that those Channels start. Use the Channel keys of the Agent's `channels`.
+
+```ts [server/agents/support.ts] fragment
+export default defineAgent({
+  channels: { github: github(), teams: teams() },
+  capabilities: [
+    mcp({
+      servers: {
+        airtable: { connection: 'airtable' },
+        productlane: { connection: 'productlane', channels: ['teams'] },
+      },
+      unavailableNotice: true,
+    }),
+  ],
+})
+```
+
+A pull request Invocation from `github` gets only the `airtable` tools. ViteHub does not connect to `productlane` for it and records no unavailable warning or notice. An Invocation that no Channel starts, such as a direct `runAgent()` call, also leaves the server out. A server without `channels` applies to every Invocation. A resolver can also return `channels` with its config.
 
 ## Extend the parent's servers
 
@@ -401,6 +422,7 @@ Integrity checks run before each run. Static inspection does not connect to serv
 | `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, optional absent values, or resolvers keyed by server name. |
 | `servers.<name>.connection` | `string` | none | Connection in `server/connections/` for an `http` or `sse` config. Without `transport.url`, uses the provider's `mcp` endpoint. |
 | `servers.<name>.optional` | `boolean` | `false` | With `connection`, leave the server out until the Connection is connected. |
+| `servers.<name>.channels` | `string[]` | every Invocation | Connect the server only for Invocations that these Channels start. Other Invocations leave it out, without an unavailable notice. |
 | `servers.<name>.tools` | `string[]` | every tool | Expose only these server tool names. |
 | `inherit` | `boolean` | `true` | With `extends`, `false` replaces the parent's `mcp()`. |
 | `servers.<name>.skills` | `boolean` | `true` | Install the server's `skill://` Skills at `.agents/skills/<name>/`. |

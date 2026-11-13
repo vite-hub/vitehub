@@ -66,7 +66,7 @@ describe("vitehub() without database", () => {
       "src/server.ts": `import { useDatabase } from ${JSON.stringify(specifier)}\nexport const notes = useDatabase("default")\n`,
     })
 
-    await expect(build(serverBuild(root, vitehub({ preset: "node", env: false }))))
+    await expect(build(serverBuild(root, vitehub({ host: "node", env: false }))))
       .rejects.toThrow(`Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports ${JSON.stringify(specifier)}. Set \`database: true\` in vitehub() to enable Database.`)
   })
 
@@ -76,14 +76,14 @@ describe("vitehub() without database", () => {
       "src/server.ts": `import { useDatabase } from "vite-hub/database/drizzle"\nexport const notes = useDatabase("default")\n`,
     })
 
-    await expect(build(serverBuild(root, vitehub({ preset: "node", database: true, env: false })))).resolves.toBeDefined()
+    await expect(build(serverBuild(root, vitehub({ host: "node", database: true, env: false })))).resolves.toBeDefined()
   }, 30_000)
 
   it("lets an explicitly composed Database integration provide the runtime", async () => {
     const root = await createProject({ "server/databases/default.ts": databaseDefinition })
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
     const databasePlugin = hubDb() as unknown as Plugin
-    const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
+    const plugins = [vitehub({ host: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
     const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
@@ -98,7 +98,7 @@ describe("vitehub() without database", () => {
 
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
     const databasePlugin = hubDb() as unknown as Plugin
-    const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
+    const plugins = [vitehub({ host: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
     const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
@@ -114,7 +114,7 @@ describe("vitehub() without database", () => {
 
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
     const databasePlugin = hubDb() as unknown as Plugin
-    const plugins = [vitehub({ preset: "node", database: false, env: false }), databasePlugin]
+    const plugins = [vitehub({ host: "node", database: false, env: false }), databasePlugin]
     await expect(build(serverBuild(root, plugins))).rejects.toThrow(
       `Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database/drizzle". Set \`database: true\` in vitehub() to enable Database.`,
     )
@@ -122,7 +122,7 @@ describe("vitehub() without database", () => {
 
   it("explains the db commands when Database Definitions exist", async () => {
     const root = await createProject({ "server/databases/default.ts": databaseDefinition })
-    const plugins = vitehub({ preset: "node", env: false })
+    const plugins = vitehub({ host: "node", env: false })
 
     const help = await runDb(root, plugins, ["database", "--help"])
     expect(help.exitCode).toBe(0)
@@ -135,7 +135,7 @@ describe("vitehub() without database", () => {
 
   it("adds no database commands when the project defines no Database", async () => {
     const root = await createProject({ "src/server.ts": "export {}\n" })
-    const result = await runDb(root, vitehub({ preset: "node", env: false }), ["database", "--help"])
+    const result = await runDb(root, vitehub({ host: "node", env: false }), ["database", "--help"])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Unknown ViteHub CLI namespace: database")
   })

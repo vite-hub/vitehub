@@ -93,11 +93,11 @@ A queue file threw when it loaded. `error.cause` holds the import error.
 
 ### QUEUE_DEFINITION_NOT_FOUND
 
-No queue has this name, or a Cloudflare queue maps to no Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the queues, so a script outside it, or an app built without Queue, finds none. With `queue: false`, `sendQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
+No queue has this name, or a Cloudflare queue maps to no Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the queues, so a script outside it, or an app built without Queue, finds none. In Vitest, with `hubQueue(false)`, `sendQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
 
 ### QUEUE_DISABLED
 
-The Vite config sets `queue: false`, or this runtime has no Queue config.
+The Queue config that this runtime installed is `false`. The generated Vitest setup installs `false` when `hubQueue()` gets `false`, or when `queue.provider` does not match the host. A dev or built server registers no Queue runtime in these cases, so Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](#queue_definition_not_found) there.
 
 ### QUEUE_INVALID_BINDING
 
@@ -121,11 +121,11 @@ A direct Vercel client from `createQueueClient()` needs a `topic`. `useQueue()` 
 
 ### QUEUE_PROVIDER_MISMATCH
 
-The generated runtime got another provider. Set `queue.provider` to match the deployment preset, and build again.
+The generated runtime got another provider. Set `queue.provider` to match the deployment host, and build again.
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
-The Queue runtime has no client factory, which the generated server output installs. Add `hubQueue()` to the Vite config, build, and run the built server.
+The Queue runtime has no client factory, which the generated server output installs. Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build and run the built server.
 
 ### QUEUE_VERCEL_SDK_INVALID
 
@@ -167,7 +167,7 @@ The generated Cloudflare queue name has characters that Cloudflare rejects. Use 
 
 ### QUEUE_MISSING_PROVIDER
 
-ViteHub cannot pick a provider for the host, such as Netlify or Deno. Set `queue.provider`, use the Cloudflare, Vercel, or Node preset, or set `queue: false`.
+ViteHub cannot pick a provider for the host, such as Netlify or Deno. Set `queue.provider`, use the Cloudflare, Vercel, or Node host, or set `queue: false`.
 
 ### QUEUE_NAME_COLLISION
 
@@ -183,7 +183,7 @@ The `hubQueue()` plugin does not expose the Queue Nitro config, because the app 
 
 ## Local delivery
 
-The local provider is the Node preset's provider. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare and Vercel apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
+The local provider is the Node host's provider. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare and Vercel apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
 
 - `sendQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server then runs the queue.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs per queue and deletes older ones. `vitehub queue list` counts them and shows the limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes them.

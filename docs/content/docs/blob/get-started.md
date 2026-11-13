@@ -31,7 +31,7 @@ Add `blob: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`.
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', blob: true },
+  vitehub: { host: 'node', blob: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', blob: true }), nitro()],
+  plugins: [vitehub({ host: 'node', blob: true }), nitro()],
 })
 ```
 ::::
@@ -56,13 +56,11 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', blob: true })],
+  plugins: [vitehub({ host: 'node', blob: true })],
 })
 ```
 ::::
 :::
-
-Did you choose Nuxt in Installation? Then add `blob: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 
 ::
 

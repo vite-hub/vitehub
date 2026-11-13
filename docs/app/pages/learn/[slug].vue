@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { usePlaygroundDevice } from "@vite-hub/ui/playground-container";
+import { usePlaygroundDevice } from "@vite-hub/ui/workspace";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
 import { frameworkNodes, splitTutorialDocument } from "~/utils/runnable-tutorial";

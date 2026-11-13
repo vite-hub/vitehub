@@ -773,7 +773,7 @@ describe("room authorities", () => {
 
       await expect(response.text()).resolves.toBe("forwarded")
     }
-    // Nitro's cloudflare-durable entry sends every WebSocket upgrade to the instance named "server".
+    // Nitro's Cloudflare entry sends every WebSocket upgrade to the instance named "server".
     expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 

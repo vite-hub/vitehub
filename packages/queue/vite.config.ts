@@ -12,6 +12,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/durability.ts",
       "src/index.ts",
       "src/operations.ts",
       "src/vite.ts",

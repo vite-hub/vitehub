@@ -10,6 +10,7 @@ import { inspectKVValue, kvValueType } from "./inspect-value.ts"
 
 import { previewKVValue } from "./preview.ts"
 
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "../results.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -160,7 +161,8 @@ function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
 
 function selectStore(stores: readonly KVDevStore[], name = "default"): { driver: KVDriver, name: string, storage: KVStorage } {
   if (stores.length === 0) {
-    throw new KVOperationError("KV is disabled in this runtime. Configure `hubKv()` without `kv: false`.", 409, "KV_DISABLED", "Enable KV with hubKv() or vitehub({ kv: true }).")
+    const error = kvErrorDiagnostics.KV_DISABLED()
+    throw new KVOperationError(error.message, 409, error.code, error.fix)
   }
   const store = stores.find(entry => entry.name === name)
   if (!store) {

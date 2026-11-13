@@ -7,13 +7,13 @@ navigation.group: Auth
 icon: i-simple-icons-betterauth
 ---
 
-Set `preset: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**`. To keep users and sessions in D1, add `database: true` and `database: authDatabase()`, and ViteHub adds the tables and their migration. For social sign-in with no database, use the `stateless()` preset.
+Set `host: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**`. To keep users and sessions in D1, add `database: true` and `database: authDatabase()`, and ViteHub adds the tables and their migration. For social sign-in with no database, use the `stateless()` preset.
 
 ## What Better Auth, Workers, and D1 are
 
 [Better Auth](https://better-auth.com) is a TypeScript auth framework for sign-in methods, OAuth providers, sessions, and plugins. You put its options in `server/auth.ts`. ViteHub mounts the routes, guards pages, and supplies the signing secret. See [Auth hosts](/docs/auth/hosts) for who owns what.
 
-[Cloudflare Workers](https://developers.cloudflare.com/workers/) runs your server code on Cloudflare. [Cloudflare D1](https://developers.cloudflare.com/d1/) is a SQLite-style database that a Worker reads through a binding. The `cloudflare` preset writes the Worker, its `wrangler.json`, and the D1 binding.
+[Cloudflare Workers](https://developers.cloudflare.com/workers/) runs your server code on Cloudflare. [Cloudflare D1](https://developers.cloudflare.com/d1/) is a SQLite-style database that a Worker reads through a binding. The `cloudflare` host writes the Worker, its `wrangler.json`, and the D1 binding.
 
 ## Choose where sessions live
 
@@ -42,7 +42,7 @@ pnpm add -D drizzle-kit wrangler
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', auth: true, database: true },
+  vitehub: { host: 'cloudflare', auth: true, database: true },
 })
 ```
 :::
@@ -54,7 +54,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true, database: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', auth: true, database: true }), nitro()],
 })
 ```
 :::
@@ -65,13 +65,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true, database: true })],
+  plugins: [vitehub({ host: 'cloudflare', auth: true, database: true })],
 })
 ```
 :::
 ::
 
-On the `cloudflare` preset, `database: true` picks the D1 driver. `vitehub()` includes the Nitro Vite plugin.
+On the `cloudflare` host, `database: true` picks the D1 driver. `vitehub()` includes the Nitro Vite plugin.
 
 ### Connect Better Auth to the database
 
@@ -112,7 +112,7 @@ pnpm vitehub database migrate
 
 ## How to run Better Auth locally
 
-In dev, the `cloudflare` preset uses the local SQLite file `.vitehub/data/database/sqlite.db` instead of D1. It uses the real D1 database only when the Definition sets `cloudflare.http`. If `VITEHUB_SECRET` is not set, dev generates one in `.vitehub/env/secret`, so sessions survive a restart.
+In dev, the `cloudflare` host uses the local SQLite file `.vitehub/data/database/sqlite.db` instead of D1. It uses the real D1 database only when the Definition sets `cloudflare.http`. If `VITEHUB_SECRET` is not set, dev generates one in `.vitehub/env/secret`, so sessions survive a restart.
 
 ```bash [Terminal]
 pnpm dev
@@ -177,7 +177,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare', auth: true,
+    host: 'cloudflare', auth: true,
     env: {
       server: {
         auth: {
@@ -202,7 +202,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     auth: true,
     env: {
       server: {
@@ -227,7 +227,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     auth: true,
     env: {
       server: {
@@ -261,7 +261,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 }))
 ```
 
-Store `GITHUB_CLIENT_SECRET` and `VITEHUB_SECRET` with `wrangler secret put`. The build lists required secrets in `secrets.required` in `wrangler.json`, and Wrangler stops the deploy if one is missing. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database) for what the preset sets and which options fail with it.
+Store `GITHUB_CLIENT_SECRET` and `VITEHUB_SECRET` with `wrangler secret put`. The build lists required secrets in `secrets.required` in `wrangler.json`, and Wrangler stops the deploy if one is missing. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database) for what the host sets and which options fail with it.
 
 ## Limits worth knowing
 
@@ -275,9 +275,9 @@ See [Auth limits and errors](/docs/auth/limits-and-errors) for all error codes.
 
 ## Move the same Auth to another host
 
-`server/auth.ts` stays the same. Change the preset, and the Database uses the new host's storage:
+`server/auth.ts` stays the same. Change the host, and the Database uses the new host's storage:
 
-| Preset | Database for Better Auth |
+| Host | Database for Better Auth |
 | --- | --- |
 | `node` | A local SQLite file on the server disk. |
 | `vercel` | Hosted libSQL from `database.connection`, or D1 over HTTP with `cloudflare.http`. |
