@@ -38,6 +38,7 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { withSourceSkills } from "./internal/source-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -389,8 +390,11 @@ export function workspaceDefinitionFromOptions<
   const { commit: _commit, materialize, ...workspace } = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
+  const materialized = withDefaultMaterialize(workspace, materialize)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    withDefaultMaterialize(workspace, materialize),
+    materialized.sources && usesProviderDriver(options)
+      ? { ...materialized, sources: withSourceSkills(materialized.sources) }
+      : materialized,
     staticAgentCapabilities(options.capabilities),
   ), options)
 }
@@ -578,6 +582,14 @@ function providerDriverHasInstructions<
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const driver = normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>)
   return driver.kind === "provider" && driver.instructions !== undefined
+}
+
+function usesProviderDriver<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  // SAFETY: Only the presence of the driver option is read here; normalization validates it.
+  return (asUnknownBoundary(options) as { driver?: unknown }).driver !== undefined && workspaceAgentDriverKind(options) === "provider"
 }
 
 function workspaceAgentDriverKind<

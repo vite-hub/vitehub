@@ -42,7 +42,7 @@
     "knip": "catalog:tooling",
     "nitro": "catalog:unjs",
     "oxlint": "catalog:tooling",
-    "pkg-pr-new": "0.0.91",
+    "pkg-pr-new": "0.0.93",
     "semver": "^7.8.5",
     "tsrs": "0.20.0-ts7.1.0-beta",
     "typescript": "catalog:tooling",

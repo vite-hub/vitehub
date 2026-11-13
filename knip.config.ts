@@ -148,8 +148,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: viteHubAppEntries,
     vite: false,
   },
-  // test/mcp.test.ts reads normalizeToolResult() from the docs toolkit by file path.
-  content: { ignoreDependencies: ["@nuxtjs/mcp-toolkit"] },
   // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
   database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
@@ -321,6 +319,26 @@ const config: KnipConfiguration = {
         "@vite-hub/source",
         "h3",
         "vue-tsc",
+      ],
+    },
+    "packages/docs/playground": {
+      entry: [
+        ...appEntries("packages/docs/playground"),
+        // Markdown and Nuxt auto-import these components and their helpers.
+        "app/components/**/*.vue",
+        "app/utils/*.ts",
+        // Maintainers run these content and illustration tools directly.
+        "scripts/*.mjs",
+        "illustrations/*.mjs",
+        ".claude/skills/illustration-isometric-mono/scripts/*.mjs",
+      ],
+      ignoreDependencies: [
+        // Nuxt Icon loads icon collections by name from the app and the docs layer.
+        /^@iconify-json\//,
+        // The docs MCP endpoint loads agents/mcp on Cloudflare.
+        "agents",
+        // The README runs Wrangler directly for local migrations and Worker previews.
+        "wrangler",
       ],
     },
     "playground/logs": { entry: appEntries("playground/logs"), vite: false },

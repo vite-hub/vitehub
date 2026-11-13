@@ -20,6 +20,56 @@ export interface ContentSourceOptions {
    * lists the documents of a Source with a `url`.
    */
   url?: ContentDocumentUrl
+  /** The display name of the Source, such as its `llms.txt` section. Defaults to the Source name in title case. */
+  label?: string
+  /**
+   * The SEO values of a document, for frontmatter that does not use Content's `seo` field: `{ title, description,
+   * noindex, canonical }`. Defaults to `data.seo`, then the `title` and `description` fields. A `noindex` page keeps its
+   * Markdown copy, but the sitemap, `llms.txt`, and `list-pages` leave it out.
+   */
+  seo?: (document: { id: string, key?: string, data: Record<string, unknown> }) => ContentSourceSeo | undefined
+  /**
+   * The Markdown copy of a page for agents, such as `/docs/kv.md`, when the file needs more than its frontmatter removed.
+   * `text` is the whole file. Return a string, or `{ markdown, footer }`: the copy at `<url>.md` ends with `footer`, and
+   * `llms-full.txt` and the MCP `get-page` tool leave it out, because their readers see every page. Return null for a
+   * page without a copy. Defaults to the title as a heading, the description as a quote, then the body.
+   */
+  markdown?: (page: ContentSourceMarkdownPage) => ContentSourceMarkdown | null | Promise<ContentSourceMarkdown | null>
+}
+
+/** The SEO values of a Source document, from `contentSource(input, { seo })`. */
+export interface ContentSourceSeo {
+  title?: string
+  description?: string
+  noindex?: boolean
+  canonical?: string
+}
+
+/** A Source page that `contentSource(input, { markdown })` renders. */
+export interface ContentSourceMarkdownPage {
+  /** The document path without its leading slash, such as `docs/kv`. */
+  id: string
+  /** The Source key of the file, such as `docs/kv.md`. */
+  key: string
+  /** The page path, such as `/docs/kv`. */
+  path: string
+  /** The whole file, with its frontmatter. */
+  text: string
+  title?: string
+  description?: string
+  /** The public origin, such as `https://example.com`, when it is known. */
+  site?: string
+}
+
+/** A Markdown copy: the text, or the text and a footer that only the copy at `<url>.md` ends with. */
+export type ContentSourceMarkdown = string | { markdown: string, footer?: string }
+
+/** The page options of a Source with a `url`. */
+export interface ContentSourceRoute {
+  url: ContentDocumentUrl
+  label?: string
+  seo?: ContentSourceOptions["seo"]
+  markdown?: ContentSourceOptions["markdown"]
 }
 
 type ContentSourceItem = SourceItem<string, unknown, object>
@@ -33,7 +83,7 @@ export interface ContentSourceCommits {
   /** The parsed documents of the commit that the instance serves, as a Comark parsed Source over `origin`. */
   documents(origin: ComarkContentSource): ParsedSource
 }
-type ContentSourceFactoryOptions = Omit<ContentSourceOptions, "url"> & { commits?: ContentSourceCommits }
+type ContentSourceFactoryOptions = Omit<ContentSourceOptions, keyof ContentSourceRoute> & { commits?: ContentSourceCommits }
 type ContentSourceFactory = {
   create(options?: ContentSourceFactoryOptions): ComarkContentSource
 }
@@ -54,7 +104,7 @@ export type ContentSourceInput =
   | ComarkContentSource
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
-const contentSourceUrlKey = Symbol("vitehub.contentSourceUrl")
+const contentSourceRouteKey = Symbol("vitehub.contentSourceRoute")
 /** The `@vite-hub/source` Source definition that each adapter reads. */
 const contentSourceDefinitions = new WeakMap<ComarkContentSource, Source<string, unknown, object>>()
 const typedArrayTag = Object.getOwnPropertyDescriptor(
@@ -295,9 +345,14 @@ function createContentSourceFactory(
   return factory
 }
 
+/** The page options that `contentSource(input, { url, label, seo, markdown })` set, if it set a `url`. */
+export function contentSourceRoute(input: ContentSourceInput | undefined): ContentSourceRoute | undefined {
+  return isRuntimeObject(input) ? Reflect.get(input, contentSourceRouteKey) as ContentSourceRoute | undefined : undefined
+}
+
 /** The `url` that `contentSource(input, { url })` set, if any. */
 export function contentSourceUrl(input: ContentSourceInput | undefined): ContentDocumentUrl | undefined {
-  return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
+  return contentSourceRoute(input)?.url
 }
 
 /** The `@vite-hub/source` Source definition behind an input, if any. */
@@ -322,10 +377,17 @@ export async function contentSourceKeys(input: ContentSourceInput): Promise<stri
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  const { url = contentSourceUrl(input), prefix, schema } = options
+  const inherited = contentSourceRoute(input)
+  const { url = inherited?.url, label = inherited?.label, seo = inherited?.seo, markdown = inherited?.markdown, prefix, schema } = options
   const comarkOptions = { prefix, schema }
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
+  }
+  if ((label !== undefined && (String(label) !== label || !label.trim())) || (seo !== undefined && !isRuntimeFunction(seo)) || (markdown !== undefined && !isRuntimeFunction(markdown))) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] contentSource({ label, seo, markdown }) takes label as text, and seo and markdown as functions." })
+  }
+  if (url === undefined && (label !== undefined || seo !== undefined || markdown !== undefined)) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] contentSource({ label, seo, markdown }) needs a url, such as '/:id': they describe the pages of the Source." })
   }
   let source: ComarkContentSource
   if (isComarkContentSource(input)) {
@@ -337,7 +399,10 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   else {
     source = createContentSourceFactory(input, comarkOptions).create()
   }
-  if (url !== undefined) Object.defineProperty(source, contentSourceUrlKey, { value: url })
+  if (url !== undefined) {
+    const route: ContentSourceRoute = { url, ...label === undefined ? {} : { label }, ...seo ? { seo } : {}, ...markdown ? { markdown } : {} }
+    Object.defineProperty(source, contentSourceRouteKey, { value: route })
+  }
   return source
 }
 
