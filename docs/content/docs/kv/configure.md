@@ -88,21 +88,23 @@ export default defineConfig({
 
 | Provider | Driver | Default resolution in a build |
 | --- | --- | --- |
-| Redis | `redis` | Selected with `driver: 'redis'`; the server reads the URL at runtime. |
+| Redis | `redis` | Used on Node and Vercel when the build has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`. The server reads the URL at runtime. |
 | Database | `database` | Used on Node when the app has a Postgres Default Database. |
 | Local filesystem | `fs-lite` | Used on Node when neither applies. |
 | Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
 | Deno KV | `deno-kv` | Used on Deno hosting. |
-| Upstash | `upstash` | Used when Upstash env vars are present during the build or when Vercel hosting is detected. |
+| Upstash | `upstash` | Used when Upstash env vars are present during the build, or on Vercel when the build has no Redis URL. |
 
 ### Node picks a shared store
 
 Several Node processes share KV keys only through a shared store. Without a `driver`, a Node build picks the store in this order:
 
-1. `database` when the app has a Default Database on Postgres. The build reads the Database integration's resolved configuration, without running the Database.
-2. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
+1. `upstash` when the build has the Upstash REST variables.
+2. `redis` when the build has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`. NuxtHub uses the same order.
+3. `database` when the app has a Default Database on Postgres. The build reads the Database integration's resolved configuration, without running the Database.
+4. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
 
-The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver.
+The driver is selected at build time. An inferred `redis` store reads the same variable when it starts, so supply it on every process. A missing URL fails instead of falling back to another store. A `REDIS_URL` that only the server has does not change the driver. If the build has a `REDIS_URL` for another service, set a `driver`. The server prints the selected store at boot, for example `KV store "default" uses Redis at the URL in REDIS_URL`.
 
 `vitehub inspect definitions --kind kv` and `vitehub kv list` report the selected driver. `vitehub({ dataDir })` selects `fs-lite` in that directory. `vite dev` keeps the inferred store on `fs-lite`.
 
@@ -175,7 +177,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. The development server prints `KV store "default" is remote` on the first operation, and `vitehub inspect definitions --kind kv` shows `Development: Remote`.
 ::
 
-With `remote: true`, development infers the driver as a build does: Upstash env, or the Vercel or Cloudflare host. On Cloudflare, ViteHub writes `remote: true` on the generated Wrangler KV binding, so the dev runtime connects the binding to the real namespace. This needs a runner that provides bindings. Use `remote: true` on the store instead of `experimental_remote` in your own `kv_namespaces`.
+With `remote: true`, development infers the driver as a build does: Upstash env, `REDIS_URL`, or the Vercel or Cloudflare host. On Cloudflare, ViteHub writes `remote: true` on the generated Wrangler KV binding, so the dev runtime connects the binding to the real namespace. This needs a runner that provides bindings. Use `remote: true` on the store instead of `experimental_remote` in your own `kv_namespaces`.
 
 Upstash credentials in development can come from Vite's `.env` files for the current mode and `envDir`. Existing process environment values take precedence. These credentials stay in the development server runtime.
 

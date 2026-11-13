@@ -29,11 +29,37 @@ describe("normalizeKVOptions", () => {
     })
   })
 
-  it("ignores REDIS_URL and the Database at build time on hosted presets", () => {
+  it("keeps the Cloudflare and Deno hosts over REDIS_URL, because Workers and Deno Deploy have no Redis TCP client", () => {
     const env = { REDIS_URL: "redis://localhost:6379" }
     expect(normalizeKVOptions(undefined, { env, hosting: "cloudflare-module", postgresDatabase: true })?.store.driver).toBe("cloudflare-kv-binding")
-    expect(normalizeKVOptions(undefined, { env, hosting: "vercel", postgresDatabase: true })?.store.driver).toBe("upstash")
     expect(normalizeKVOptions(undefined, { env, hosting: "deno-deploy", postgresDatabase: true })?.store.driver).toBe("deno-kv")
+  })
+
+  it("infers redis from REDIS_URL at build time on Node and Vercel, before the Database", () => {
+    const redis = { base: "vitehub:kv:default", driver: "redis", inferred: true, url: "env:REDIS_URL" }
+    const env = { REDIS_URL: "redis://localhost:6379" }
+    expect(normalizeKVOptions(undefined, { env, hosting: "node-server" })).toEqual({ store: redis })
+    expect(normalizeKVOptions(undefined, { env, hosting: "node-server", postgresDatabase: true })).toEqual({ store: redis })
+    expect(normalizeKVOptions(undefined, { env, hosting: "vercel" })).toEqual({ store: redis })
+    expect(normalizeKVOptions(undefined, { env, hosting: "" })).toEqual({ store: redis })
+  })
+
+  it("infers redis from a TLS KV_URL, as NuxtHub does", () => {
+    expect(normalizeKVOptions(undefined, { env: { KV_URL: "rediss://default:secret@example.com:6380" }, hosting: "node-server" })).toEqual({
+      store: { base: "vitehub:kv:default", driver: "redis", inferred: true, url: "env:KV_URL" },
+    })
+    expect(normalizeKVOptions(undefined, { env: { KV_URL: "redis://localhost:6379" }, hosting: "node-server" })?.store.driver).toBe("fs-lite")
+  })
+
+  it("lets Upstash env beat REDIS_URL", () => {
+    const env = { KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://example.upstash.io", REDIS_URL: "redis://localhost:6379" }
+    expect(normalizeKVOptions(undefined, { env, hosting: "vercel" })?.store.driver).toBe("upstash")
+  })
+
+  it("uses the inferred Redis store in development only with remote: true", () => {
+    const env = { REDIS_URL: "redis://localhost:6379" }
+    expect(normalizeKVOptions(undefined, { dev: true, env, hosting: "node-server" })?.store.driver).toBe("fs-lite")
+    expect(normalizeKVOptions({ remote: true }, { dev: true, env, hosting: "node-server" })?.store).toMatchObject({ driver: "redis", url: "env:REDIS_URL" })
   })
 
   it("lets Upstash env at build time beat the Database", () => {
@@ -63,15 +89,6 @@ describe("normalizeKVOptions", () => {
   })
 })
 
-describe("build-selected Node stores", () => {
-  it.each([false, true])("ignores unrelated REDIS_URL values when Postgres is %s", (postgresDatabase) => {
-    const input = { env: {}, hosting: "node-server", postgresDatabase }
-    const config = normalizeKVOptions(undefined, input)
-    expect(normalizeKVOptions(undefined, { ...input, env: { REDIS_URL: "redis://localhost:6379" } })).toEqual(config)
-    expect(config?.store.driver).toBe(postgresDatabase ? "database" : "fs-lite")
-  })
-})
-
 describe("kvInferredStoreNotice", () => {
   const inferred = { database: "default", driver: "database" as const, inferred: true as const, namespace: "default" }
 
@@ -81,6 +98,7 @@ describe("kvInferredStoreNotice", () => {
     vi.stubEnv("REDIS_URL", "")
     expect(kvInferredStoreNotice("default", inferred)).toBe("[vitehub] KV store \"default\" uses the table vitehub_kv of the Database \"default\", selected at build time.")
     expect(kvInferredStoreNotice("default", { base: ".vitehub/data/kv", driver: "fs-lite", inferred: true })).toContain("Other server processes cannot read its keys.")
+    expect(kvInferredStoreNotice("default", { base: "vitehub:kv:default", driver: "redis", inferred: true, url: "env:REDIS_URL" })).toBe("[vitehub] KV store \"default\" uses Redis at the URL in `REDIS_URL`, selected at build time.")
     vi.unstubAllEnvs()
   })
 

@@ -73,6 +73,15 @@ export function redisStorePrefix(name: string): string {
   return `vitehub:kv:${segment}`
 }
 
+/**
+ * The variable that selects an inferred `redis` store at build time, in NuxtHub's order: `REDIS_URL`, then `KV_URL` when
+ * it is a TLS Redis URL. The store reads the same variable again when it starts.
+ */
+function readRedisUrlEnvName(env: Record<string, string | undefined>): string | undefined {
+  if (readEnv(env, redisUrlEnvName)) return redisUrlEnvName
+  if (readEnv(env, "KV_URL")?.startsWith("rediss://")) return "KV_URL"
+}
+
 export function resolveRedisStore(config: Partial<RedisKVStoreConfig>, name: string): ResolvedRedisKVStoreConfig {
   // An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis database.
   return {
@@ -176,11 +185,14 @@ export function normalizeKVOptions(
     return inferred(resolveDenoStore())
   }
   if (hosted && hasUpstashEnv(env)) return inferred(resolveUpstashStore())
+  // Workers have no Redis TCP client, so the Cloudflare host keeps its KV binding.
+  const redisEnv = hosted && !hosting.includes("cloudflare") ? readRedisUrlEnvName(env) : undefined
+  if (redisEnv) return inferred({ ...resolveRedisStore({ url: `env:${redisEnv}` }, "default"), inferred: true })
   if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore())
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
   if (input.dev) return inferred(resolveFsLiteStore())
-  // Node and other servers keep the build-selected driver. Redis requires an explicit driver.
+  // Node and other servers keep the build-selected driver.
   if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
   return inferred({ ...resolveFsLiteStore(), inferred: true })
 }
@@ -190,6 +202,7 @@ export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig
   if (!("inferred" in store) || !store.inferred) return
   if (store.driver === "database") return `[vitehub] KV store "${name}" uses the table vitehub_kv of the Database "${store.database}", selected at build time.`
   if (store.driver === "fs-lite") return `[vitehub] KV store "${name}" uses fs-lite in ${store.base}, selected at build time. Other server processes cannot read its keys.`
+  if (store.driver === "redis") return `[vitehub] KV store "${name}" uses Redis at the URL in \`${store.url.slice(4)}\`, selected at build time.`
 }
 
 export function warnVercelKVFallback(

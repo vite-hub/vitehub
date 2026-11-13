@@ -893,3 +893,53 @@ describe("blob config in vite dev", () => {
     expect(normalizeBlobOptions({ remote: true }, { env: {} })?.store.driver).toBe("fs")
   })
 })
+
+describe("NuxtHub S3 env", () => {
+  const env = { S3_ACCESS_KEY_ID: "test-key", S3_BUCKET: "assets", S3_ENDPOINT: "https://account.r2.cloudflarestorage.com", S3_REGION: "auto", S3_SECRET_ACCESS_KEY: "test-secret" }
+  const s3 = {
+    bucket: "assets",
+    credentials: { accessKeyId: "********", secretAccessKey: "********" },
+    driver: "s3",
+    endpoint: "https://account.r2.cloudflarestorage.com",
+    region: "auto",
+    secretEnv: { "credentials.accessKeyId": "S3_ACCESS_KEY_ID", "credentials.secretAccessKey": "S3_SECRET_ACCESS_KEY" },
+  }
+
+  it("infers an s3 store from S3_* env before the host, as NuxtHub does", () => {
+    for (const hosting of ["", "node-server", "vercel", "cloudflare-module", "netlify"]) {
+      expect(normalizeBlobOptions(undefined, { env, hosting })).toEqual({ store: s3 })
+    }
+    expect(normalizeBlobOptions(undefined, { env: { ...env, BLOB_READ_WRITE_TOKEN: "vercel-token" }, hosting: "vercel" })?.store.driver).toBe("s3")
+  })
+
+  it("keeps credentials out of the build and reads them at runtime", () => {
+    const config = normalizeBlobOptions(undefined, { env, hosting: "node-server" })
+    expect(JSON.stringify(config)).not.toMatch(/test-key|test-secret/)
+    if (!config) throw new Error("Expected a store.")
+    expect(resolveRuntimeBlobSecrets(config.store, { S3_ACCESS_KEY_ID: "runtime-key", S3_SECRET_ACCESS_KEY: "runtime-secret" })).toMatchObject({
+      credentials: { accessKeyId: "runtime-key", secretAccessKey: "runtime-secret" },
+    })
+  })
+
+  it("needs the key, the secret, and the bucket; region and endpoint are optional", () => {
+    expect(normalizeBlobOptions(undefined, { env: { S3_ACCESS_KEY_ID: "k", S3_BUCKET: "assets", S3_SECRET_ACCESS_KEY: "s" } })?.store)
+      .toEqual({ bucket: "assets", credentials: { accessKeyId: "********", secretAccessKey: "********" }, driver: "s3", secretEnv: s3.secretEnv })
+    expect(normalizeBlobOptions(undefined, { env: { S3_ACCESS_KEY_ID: "k", S3_SECRET_ACCESS_KEY: "s" } })?.store.driver).toBe("fs")
+    expect(normalizeBlobOptions(undefined, { env: { S3_BUCKET: "assets", S3_SECRET_ACCESS_KEY: "s" } })?.store.driver).toBe("fs")
+  })
+
+  it("stays local in vite dev unless remote: true", () => {
+    expect(normalizeBlobOptions(undefined, { dev: true, env, hosting: "node-server" })?.store).toEqual({ base: ".vitehub/data/blob", driver: "fs" })
+    expect(normalizeBlobOptions({ remote: true }, { dev: true, env, hosting: "node-server" })?.store).toEqual({ ...s3, remote: true })
+  })
+
+  it.each(["accessKeyId", "secretAccessKey", "sessionToken"])("names the credentials shape for a top-level s3 %s", (option) => {
+    const store = { bucket: "assets", driver: "s3", [option]: "test-value" }
+    expect(() => normalizeBlobOptions(store as never, { env: { S3_VALUE: "test-value" } })).toThrow(expect.objectContaining({
+      code: "BLOB_C0021",
+      message: expect.stringContaining(`\`blob.credentials.${option}\``),
+    }))
+    expect(() => normalizeBlobOptions({ stores: { default: store } } as never, { env: {} }))
+      .toThrow(`\`blob.stores.default.${option}\``)
+  })
+})

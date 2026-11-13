@@ -14,11 +14,13 @@ import type {
   MinioBlobStoreConfig,
   NetlifyBlobsStoreConfig,
   ResolvedBlobModuleOptions,
+  ResolvedBlobStoreSecrets,
   ResolvedBlobStoreConfig,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
   ResolvedMinioBlobStoreConfig,
   ResolvedVercelBlobStoreConfig,
+  S3BlobStoreConfig,
   VercelBlobStoreConfig,
   BlobServeOptions,
 } from "./types.ts"
@@ -276,9 +278,42 @@ function resolveMinioStore(
   }
 }
 
+/** The NuxtHub names for an S3 bucket. ViteHub infers an `s3` store when the build has the key, the secret, and the bucket. */
+const NUXTHUB_S3_SECRET_ENV = { "credentials.accessKeyId": "S3_ACCESS_KEY_ID", "credentials.secretAccessKey": "S3_SECRET_ACCESS_KEY" }
+
+/** An `s3` store from NuxtHub's `S3_*` variables. The credentials stay in env: the build output has only their names. */
+function resolveS3EnvStore(env: Record<string, string | undefined>): (S3BlobStoreConfig & ResolvedBlobStoreSecrets) | undefined {
+  const bucket = readEnv(env, "S3_BUCKET")
+  if (!bucket || !readEnv(env, "S3_ACCESS_KEY_ID") || !readEnv(env, "S3_SECRET_ACCESS_KEY")) return
+  const endpoint = readEnv(env, "S3_ENDPOINT")
+  const region = readEnv(env, "S3_REGION")
+  return {
+    bucket,
+    credentials: { accessKeyId: MASKED_BLOB_RUNTIME_VALUE, secretAccessKey: MASKED_BLOB_RUNTIME_VALUE },
+    driver: "s3",
+    ...(endpoint ? { endpoint } : {}),
+    ...(region ? { region } : {}),
+    secretEnv: { ...NUXTHUB_S3_SECRET_ENV },
+  }
+}
+
+/** The build has NuxtHub's `S3_*` variables, so a store without a `driver` uses that bucket. */
+export function hasS3BlobEnv(env: Record<string, string | undefined>): boolean {
+  return resolveS3EnvStore(env) !== undefined
+}
+
+/** NuxtHub's `s3` driver took the credentials at the top level. ViteHub's takes them in `credentials`. */
+function assertS3CredentialsShape(store: S3BlobStoreConfig, path: string): void {
+  for (const option of ["accessKeyId", "secretAccessKey", "sessionToken"]) {
+    if (!Object.hasOwn(store, option)) continue
+    throw blobErrorDiagnostics.BLOB_C0021({ message: `\`${path}.${option}\` is not an option of the s3 driver. Set \`${path}.credentials.${option}\` instead.` })
+  }
+}
+
 function resolveExplicitStore(
   store: BlobStoreConfig,
   env: Record<string, string | undefined>,
+  path: string,
 ) {
   switch (store.driver) {
     case "cloudflare-r2":
@@ -291,9 +326,11 @@ function resolveExplicitStore(
       return resolveNetlifyStore(store)
     case "vercel-blob":
       return resolveVercelStore(store, env)
+    case "s3":
+      assertS3CredentialsShape(store, path)
+      return store
     case "azure":
     case "gcs":
-    case "s3":
       return store
     default:
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
@@ -421,7 +458,7 @@ function readRemote(value: unknown, path: string): boolean | undefined {
 }
 
 /**
- * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob store that env or the
+ * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob or S3 store that env or the
  * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store of the Cloudflare preset keeps
  * a dev runner's R2 binding, which is a local emulation, and uses `fs` without one. Netlify Blobs keeps the local sandbox
  * of `netlify dev`. An explicit `driver` is used as configured. Builds ignore `remote`.
@@ -440,7 +477,7 @@ function applyDevelopmentMode(
   if (!options.dev) return local
   if (options.remote) return { ...local, remote: true }
   if (!options.inferred) return local
-  if (local.driver === "vercel-blob") return resolveFsStore({}, options.env)
+  if (local.driver === "vercel-blob" || local.driver === "s3") return resolveFsStore({}, options.env)
   if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
   return local
 }
@@ -477,7 +514,7 @@ export function normalizeBlobOptions(
       Object.entries(options.stores).map(([name, store]) => {
         const path = `blob.stores.${name}.remote`
         const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
-        return [name, applyDevelopmentMode(resolveExplicitStore(store, env), { dev, env, inferred: false, path, remote })]
+        return [name, applyDevelopmentMode(resolveExplicitStore(store, env, `blob.stores.${name}`), { dev, env, inferred: false, path, remote })]
       }),
     )
     const defaultStore = resolvedStores.default
@@ -489,7 +526,13 @@ export function normalizeBlobOptions(
   const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
 
   if (explicit?.driver) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env, "blob"), mode), undefined, serve, images)
+  }
+
+  // NuxtHub checks its `S3_*` variables before the host, so an app that moves from NuxtHub keeps its bucket.
+  const s3 = resolveS3EnvStore(env)
+  if (s3) {
+    return createResolvedConfig(env, applyDevelopmentMode(s3, mode), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {

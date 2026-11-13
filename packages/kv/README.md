@@ -57,14 +57,16 @@ Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://deve
 
 Several Node processes share keys only through a shared store. Without a `driver`, a Node build picks:
 
-1. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
-2. `fs-lite` in `.vitehub/data/kv` otherwise.
+1. `upstash` when the Upstash REST variables are set.
+2. `redis` when `REDIS_URL` is set, or `KV_URL` starts with `rediss://`. This is the order of NuxtHub. Vercel builds also use it.
+3. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
+4. `fs-lite` in `.vitehub/data/kv` otherwise.
 
 `{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart. The generated store segment escapes `%`, `:`, `/`, `\`, and `?`; an empty store name uses `%`. This keeps store names separate after key normalization. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. A Redis listing cursor holds its whole state, so another server process can read the next page.
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
 
-The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
+The driver is selected at build time, from the build environment. An inferred `redis` store reads the same variable again when it starts, so every process must supply it, and a missing URL fails. A `REDIS_URL` that is set only on the server does not change the selected driver. If your build has a `REDIS_URL` for another service, set a `driver`. The server prints the selected store at boot. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
 
 This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 
