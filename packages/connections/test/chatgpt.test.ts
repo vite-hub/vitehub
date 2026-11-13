@@ -29,11 +29,11 @@ async function setup() {
     store, fetch: fake.fetch, now: () => clock.now, chatgptHostId: async () => hostId,
   }
   const runtime = createConnectionsRuntime(options)
-  const authorize = () => runtime.authorize({ name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
+  const authorize = () => runtime.authorize({ actor: "user:owner", name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
   const connect = async () => {
     const attempt = await authorize()
     const callback = await fake.callback(attempt.url)
-    return await runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined })
+    return await runtime.complete({ actor: "user:owner", state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined })
   }
   const use = (target = runtime) => useChatGPTCredential(target)("chatgpt", { access: agentEnvAccess({ name: "assistant" }) }, async credential => ({ expiresAt: credential.expiresAt, clientInfo: credential.clientInfo }))
   return { authorize, clock, connect, fake, hostId, options, runtime, store, use }
@@ -65,12 +65,12 @@ describe("ChatGPT plan Connections", () => {
       return await test.fake.fetch(input, init)
     }
     const runtime = createConnectionsRuntime({ ...test.options, fetch: workerFetch })
-    const attempt = await runtime.authorize({ name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
+    const attempt = await runtime.authorize({ actor: "user:owner", name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
     const callback = await test.fake.callback(attempt.url)
-    await expect(runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined }))
+    await expect(runtime.complete({ actor: "user:owner", state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined }))
       .resolves.toMatchObject({ chatgpt: { plan: "enabled" } })
     await expect(chatgptTransfers(runtime).models({ actor: "user:host-managed", name: "chatgpt" })).resolves.toEqual([{ id: "gpt-6.1-sol", name: "GPT-6.1" }])
-    await expect(runtime.revoke({ name: "chatgpt" })).resolves.toMatchObject({ status: "revoked" })
+    await expect(runtime.revoke({ actor: "user:owner", name: "chatgpt" })).resolves.toMatchObject({ status: "revoked" })
     expect(test.fake.state.revoked).toBe(1)
   })
 
@@ -83,7 +83,7 @@ describe("ChatGPT plan Connections", () => {
     if (failure === "account") test.fake.state.subject = "other-account"
     const read = failure === "read" ? vi.spyOn(test.store.secrets, "read").mockRejectedValueOnce(new Error("read unavailable")) : undefined
     const persist = failure === "persist" ? vi.spyOn(test.store.state, "putForToken").mockRejectedValueOnce(new Error("state unavailable")) : undefined
-    await expect(test.runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined })).rejects.toThrow()
+    await expect(test.runtime.complete({ actor: "user:owner", state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined })).rejects.toThrow()
     read?.mockRestore()
     persist?.mockRestore()
     test.clock.now += 61_000
@@ -105,17 +105,17 @@ describe("ChatGPT plan Connections", () => {
 
   it.each(["https://app.example/callback", "http://localhost:1455/callback", "http://127.0.0.1:1455/other"])("rejects the redirect %s", async (redirectUri) => {
     const test = await setup()
-    await expect(test.runtime.authorize({ name: "chatgpt", redirectUri })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_LOOPBACK" })
+    await expect(test.runtime.authorize({ actor: "user:owner", name: "chatgpt", redirectUri })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_LOOPBACK" })
     expect(test.fake.calls).toHaveLength(0)
   })
 
   it("rejects a missing or mismatched callback client ID before exchange", async () => {
     const test = await setup()
     const attempt = await test.authorize()
-    await expect(test.runtime.complete({ code: "code", state: attempt.state })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_REGISTRATION" })
+    await expect(test.runtime.complete({ actor: "user:owner", code: "code", state: attempt.state })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_REGISTRATION" })
     await test.connect()
     const returning = await test.authorize()
-    await expect(test.runtime.complete({ code: "code", state: returning.state, clientId: "oaiapp_different" })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_REGISTRATION" })
+    await expect(test.runtime.complete({ actor: "user:owner", code: "code", state: returning.state, clientId: "oaiapp_different" })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_REGISTRATION" })
     expect(test.fake.calls.filter(call => call.path.endsWith("/token"))).toHaveLength(1)
   })
 
@@ -123,9 +123,9 @@ describe("ChatGPT plan Connections", () => {
     const test = await setup()
     const attempt = await test.authorize()
     await expect(test.runtime.complete({ error: "access_denied", state: attempt.state, actor: "user:other" })).rejects.toMatchObject({ code: "CONNECTIONS_FORBIDDEN" })
-    await expect(test.runtime.complete({ error: "access_denied", state: attempt.state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
+    await expect(test.runtime.complete({ actor: "user:owner", error: "access_denied", state: attempt.state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
     const denied = await test.authorize()
-    await expect(test.runtime.complete({ error: "access_denied", state: denied.state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_CANCELLED" })
+    await expect(test.runtime.complete({ actor: "user:owner", error: "access_denied", state: denied.state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_CANCELLED" })
   })
 
   it("retains a valid identity-only grant but never spends without plan scopes", async () => {
@@ -215,7 +215,7 @@ describe("ChatGPT plan Connections", () => {
   it("revokes the rotating refresh token with the issued client ID and keeps the host", async () => {
     const test = await setup()
     await test.connect()
-    expect(await test.runtime.revoke({ name: "chatgpt" })).toMatchObject({ status: "revoked", chatgpt: { clientId: "oaiapp_test_1", hostId: test.hostId } })
+    expect(await test.runtime.revoke({ actor: "user:owner", name: "chatgpt" })).toMatchObject({ status: "revoked", chatgpt: { clientId: "oaiapp_test_1", hostId: test.hostId } })
     expect(test.fake.state.revoked).toBe(1)
     expect(JSON.parse((await test.store.secrets.read("connection/chatgpt"))!.value)).toEqual({ revoked: true })
     await test.connect()
@@ -244,7 +244,7 @@ describe("ChatGPT plan Connections", () => {
     const credential = await chatgptTransfers(test.runtime).export({ name: "chatgpt", actor: "user:local" })
     await expect(test.use()).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     expect(JSON.parse((await test.store.secrets.read("connection/chatgpt"))!.value)).toEqual({ transferred: true })
-    await test.runtime.revoke({ name: "chatgpt" })
+    await test.runtime.revoke({ actor: "user:owner", name: "chatgpt" })
     expect(test.fake.state.revoked).toBe(0)
     const destination = createConnectionsRuntime({ ...test.options, store: createStore(), chatgptHostId: async () => "urn:uuid:destination" })
     const result = await chatgptTransfers(destination).import({ name: "chatgpt", actor: "user:local", credential })

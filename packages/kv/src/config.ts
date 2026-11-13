@@ -62,8 +62,19 @@ function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefin
   return remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
-function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): ResolvedFsLiteKVStoreConfig {
-  return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: ".vitehub/data/kv" })
+/**
+ * The folder of an `fs-lite` store without `base`. The default store keeps `.vitehub/data/kv`. Each named store gets its
+ * own folder next to it, so stores never share keys. It is not inside `.vitehub/data/kv`, because the default store
+ * treats folders there as keys from the old layout.
+ */
+function fsLiteStoreBase(name: string): string {
+  if (name === "default") return ".vitehub/data/kv"
+  // Keep the name in one folder segment, also for `.` and `..`.
+  return `.vitehub/data/kv-stores/${encodeURIComponent(name).replace(/\./g, "%2E") || "%"}`
+}
+
+function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}, name = "default"): ResolvedFsLiteKVStoreConfig {
+  return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: fsLiteStoreBase(name) })
 }
 
 /** The key prefix of a Redis store without `base`. Every store has one, so a shared Redis keeps other keys apart. */
@@ -120,7 +131,7 @@ function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | u
     case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
     case "database": return resolveDatabaseStore(store, name)
     case "deno-kv": return resolveDenoStore(store)
-    case "fs-lite": return resolveFsLiteStore(store)
+    case "fs-lite": return resolveFsLiteStore(store, name)
     case "redis": return resolveRedisStore(store, name)
     case "upstash": return resolveUpstashStore(store)
     // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.

@@ -98,6 +98,22 @@ Copy the whole `.output` directory to the server. With a built-in coding
 provider, build on the server's operating system and CPU type, because the
 build packages only the build machine's native binaries.
 
+## Check health
+
+Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It answers
+`{ ok: true, commit }`, and with a Database it runs `SELECT 1` on each one and
+answers `503` when one fails. Point a container health check or a load
+balancer at it:
+
+```dockerfile [Dockerfile]
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+```
+
+A Docker build context often has no `.git`. Pass the commit as `COMMIT_REF`
+or `GITHUB_SHA` at build time, or `commit` is `null`. See
+[`health` options](/docs/reference/config-options#vite-integration-options).
+
 ## Run the server with systemd
 
 A production build on the `node` host also writes a systemd unit to
