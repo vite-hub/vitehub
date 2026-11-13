@@ -75,6 +75,7 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
   // The session that this process made for each identity. The browser does not have its cookie when the first
   // requests come from server code, such as a guard, so later requests reuse the session instead of making another.
   const sessions = new Map<string, { token: string, userId: string, expiresAt: number }>()
+  const signIns = new Map<string, Promise<void>>()
 
   return {
     id: forwardAuthPluginId,
@@ -111,35 +112,48 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
             }
           }
 
-          let session = known ? await live(known.token) : null
-          if (!session || session.session.userId !== known?.userId) {
-            sessions.delete(key)
-            const { data } = await handleOAuthUserInfo(ctx, {
-              userInfo: {
-                id: identity.accountId,
-                email: identity.email,
-                emailVerified: identity.emailVerified,
-                image: identity.image ?? undefined,
-                name: identity.name,
-              },
-              account: {
-                providerId: identity.providerId,
-                accountId: identity.accountId,
-                ...(identity.accessToken ? { accessToken: identity.accessToken } : {}),
-              },
-              overrideUserInfo: true,
-            })
-            // Better Auth refused the sign-in, for example a database hook or an unverified email of an existing user.
-            if (!data) return
-            session = data
-          }
+          // Parallel first requests of one identity wait for each other, so they share one sign-in and one user.
+          const previous = signIns.get(key)
+          let release = () => {}
+          const turn = new Promise<void>((resolve) => { release = resolve })
+          signIns.set(key, turn)
+          await previous
+          try {
+            const reusable = sessions.get(key)
+            let session = reusable ? await live(reusable.token) : null
+            if (!session || session.session.userId !== reusable?.userId) {
+              sessions.delete(key)
+              const { data } = await handleOAuthUserInfo(ctx, {
+                userInfo: {
+                  id: identity.accountId,
+                  email: identity.email,
+                  emailVerified: identity.emailVerified,
+                  image: identity.image ?? undefined,
+                  name: identity.name,
+                },
+                account: {
+                  providerId: identity.providerId,
+                  accountId: identity.accountId,
+                  ...(identity.accessToken ? { accessToken: identity.accessToken } : {}),
+                },
+                overrideUserInfo: true,
+              })
+              // Better Auth refused the sign-in, for example a database hook or an unverified email of an existing user.
+              if (!data) return
+              session = data
+            }
 
-          const now = Date.now()
-          for (const [entry, stored] of sessions) if (stored.expiresAt <= now) sessions.delete(entry)
-          sessions.set(key, { token: session.session.token, userId: session.session.userId, expiresAt: new Date(session.session.expiresAt).getTime() })
-          await setSessionCookie(ctx, session)
-          // The endpoint and the later hooks read the cookie from these same headers, so they see the session now.
-          applySetCookies(headers, ctx.responseHeaders?.getSetCookie() ?? [])
+            const now = Date.now()
+            for (const [entry, stored] of sessions) if (stored.expiresAt <= now) sessions.delete(entry)
+            sessions.set(key, { token: session.session.token, userId: session.session.userId, expiresAt: new Date(session.session.expiresAt).getTime() })
+            await setSessionCookie(ctx, session)
+            // The endpoint and the later hooks read the cookie from these same headers, so they see the session now.
+            applySetCookies(headers, ctx.responseHeaders?.getSetCookie() ?? [])
+          }
+          finally {
+            release()
+            if (signIns.get(key) === turn) signIns.delete(key)
+          }
           return { context: { headers } }
         }),
       }],

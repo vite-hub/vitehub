@@ -97,6 +97,16 @@ describe("forwardAuth()", () => {
     expect(db.session).toHaveLength(1)
   })
 
+  it("signs parallel first requests of one identity in once", async () => {
+    const { db, definition } = createForwardAuth(async ({ value }) => tokens[value] ?? null)
+
+    const responses = await Promise.all([1, 2, 3].map(() => getSession(definition, { [header]: "gho_ada" })))
+
+    for (const response of responses) expect(await response.json()).toMatchObject({ user: { email: "ada@example.com" } })
+    expect(db.user).toHaveLength(1)
+    expect(db.session).toHaveLength(1)
+  })
+
   it("gives another identity its own session, also when the cookie has someone else's", async () => {
     const { db, definition } = createForwardAuth()
     const cookie = cookiePairs(await getSession(definition, { [header]: "gho_ada" }))
