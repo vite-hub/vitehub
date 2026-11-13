@@ -73,6 +73,32 @@ describe("nuxthub", () => {
     })
   })
 
+  it("keeps the Turso connection that NuxtHub read from env files", async () => {
+    const files = {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
+      "server/db/schema.ts": "export const tables = {}\n",
+    }
+    const turso = await app("turso", { ...files, ".env": "TURSO_DATABASE_URL=libsql://app.turso.io\nexport TURSO_AUTH_TOKEN=secret\n" })
+    const urlOnly = await app("turso-url-only", { ...files, ".env.production": "TURSO_DATABASE_URL=libsql://app.turso.io\n" })
+    const definition = async (directory: string) => (await runCodemod("nuxthub", { cwd: directory, dryRun: true })).result.edits.find(edit => edit.path === "server/databases/default/index.ts")?.after
+
+    expect(await definition(turso)).toBe([
+      "import { defineDatabase } from \"vite-hub/database\"",
+      "import * as schema from \"./schema\"",
+      "",
+      "export default defineDatabase({",
+      "  connection: {",
+      "    url: process.env.TURSO_DATABASE_URL,",
+      "    authToken: process.env.TURSO_AUTH_TOKEN,",
+      "  },",
+      "  schema,",
+      "})",
+      "",
+    ].join("\n"))
+    // NuxtHub switched to Turso only when both variables were set.
+    expect(await definition(urlOnly)).not.toContain("connection")
+  })
+
   it("runs through the migration and deletes the moved schema", async () => {
     const directory = join(scratch, "wizard")
     await rm(directory, { recursive: true, force: true })

@@ -167,6 +167,30 @@ export default defineDatabase({
 })
 ```
 
+### Keep a Turso or libSQL connection
+
+NuxtHub connects to `TURSO_DATABASE_URL`, `LIBSQL_URL`, or `DATABASE_URL`
+without config. A ViteHub Database Definition reads only its `connection`.
+Without one, it uses the local file `.vitehub/data/database/sqlite.db` and
+prints `DATABASE_URL_VARIABLE_IGNORED` when one of these variables is set. Name
+the variable in the Definition:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from "vite-hub/database"
+import * as schema from "./schema"
+
+export default defineDatabase({
+  connection: {
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+  schema,
+})
+```
+
+When the variable is not set, as on your computer, the Definition still uses
+the local file.
+
 `vite-hub/database` exports `db` and `schema` for the `default`
 Database, so only the import path changes. Queries do not change.
 

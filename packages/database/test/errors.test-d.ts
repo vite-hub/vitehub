@@ -59,6 +59,7 @@ describe("Database error types", () => {
       | "DATABASE_SCHEMA_LOAD_FAILED"
       | "DATABASE_UNKNOWN_OPTION"
       | "DATABASE_UNSUPPORTED_URL"
+      | "DATABASE_URL_VARIABLE_IGNORED"
       | "DATABASE_WRANGLER_BINDING_CONFLICT"
     >()
   })
