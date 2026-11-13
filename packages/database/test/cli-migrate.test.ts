@@ -622,7 +622,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
       expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
       expect(applied.stdout).toContain("applied 0002_sign_project_calls.sql.")
       await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([
-        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"],
+        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"], ["0003_comments.sql"],
       ])
       const columns = (await d1.rows("SELECT name FROM pragma_table_info('console_projects')")).flat()
       expect(columns).toContain("key_sealed")
@@ -632,7 +632,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
 
       const staged = join(project.rootDir, "staged")
       await copyD1MigrationFiles(migrationsDir, staged)
-      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql"])
+      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql", "0003_comments.sql"])
       await expect(readFile(join(staged, "0000_careful_stature.sql"), "utf8")).resolves.toBe(initial)
     }
     finally {
