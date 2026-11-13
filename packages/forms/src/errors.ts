@@ -12,6 +12,8 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
     FORMS_C0001: dynamicError,
     /** A file of `server/forms/` has a name that is not a route segment, or two files define the same form. */
     FORMS_B0001: dynamicError,
+    /** A production build has forms that store submissions, but the app has no Database. */
+    FORMS_B0002: dynamicError,
     /** The store could not read or write submissions. */
     FORMS_R0001: dynamicError,
     /** No submission has that id. */

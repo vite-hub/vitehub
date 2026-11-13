@@ -47,7 +47,7 @@ Two fields are not form data: `_page`, the app path of the form (default: the `R
 
 | Service | Does | Without it |
 | --- | --- | --- |
-| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
+| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. In a ViteHub app, the Database is the store. Without it, a development server keeps submissions in memory, and a build fails with `FORMS_B0002` when a form stores submissions. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
 | `email` | Sends `notify.email`. | A stored submission is kept; without `store` the request gets 503. |
 | `rateLimit` | Decides each request. | No rate limit. |
 | `identify` | Returns the signed-in user. | Every sender is anonymous. |
