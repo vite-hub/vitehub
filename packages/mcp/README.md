@@ -25,6 +25,7 @@ Turn it on with `vitehub({ auth: true, mcp: true })` and `mcpOAuth()` from `vite
 - With `publicRoute`, such as `mcp: { route: "/mcp/account", publicRoute: "/mcp" }`, a second server answers at that route with only the tools that set `public: true`. It needs no sign-in, never answers `401`, and the protected resource metadata does not name it. MCP clients do not sign in on a URL that answers without a token, so a server that has public tools and tools for a person needs two URLs. `publicRoute` with `auth: false` fails the build with `MCP_B0003`. A tool that sets `public` on a server without `publicRoute` fails `createMcpHandler()` with `MCP_R0001`, so `public: false` never looks like protection that it is not.
 - With a non-root Nitro `baseURL` (including Nuxt `app.baseURL`), the MCP URL includes that base. Configure the `mcpOAuth()` resource with that full URL. OAuth discovery stays at the origin root through global middleware.
 - The protocol is the stateless JSON subset of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, from `@vite-hub/internal/runtime/mcp-server`. The Console MCP uses the same server.
+- The server answers with stateless JSON, so a tool cannot send server requests such as `elicitation/create`. `toElicitation()` of `vite-hub/forms` builds those params from a form schema for a client session that can send them.
 - `vitehub inspect definitions --kind mcp-tool` lists the tools.
 
 ## Public imports
