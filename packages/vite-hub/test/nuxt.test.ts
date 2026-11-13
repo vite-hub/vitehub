@@ -286,6 +286,20 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.vitehub).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["the vitehub key", { vitehub: { preset: "cloudflare" } }, {}],
+    ["inline options", {}, { preset: "cloudflare" }],
+  ])("fails on the renamed preset option in %s", async (_, config, inline) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt.options, config)
+    // SAFETY: an old nuxt.config.ts still sets `preset`, which ViteHubNuxtOptions no longer declares.
+    await expect(viteHubNuxtModule(inline as Parameters<typeof viteHubNuxtModule>[0], application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0024",
+      message: expect.stringContaining("`preset` in the `vitehub` options of nuxt.config.ts is no longer a ViteHub option."),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
   it("sets up on a Nuxt 5 nightly", async () => {
     const application = createNuxt(false)
     Object.assign(application.nuxt, { _version: "5.0.0-2611052317-a04317f" })

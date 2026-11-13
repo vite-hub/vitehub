@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { join, matchesGlob } from "node:path"
+import { join, matchesGlob, resolve } from "node:path"
 
 import { defineContent } from "@vite-hub/content"
 import { createSource, glob } from "@vite-hub/source"
@@ -11,14 +11,24 @@ import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
 import type { ContentRuntime } from "@vite-hub/content"
+import type { Source } from "@vite-hub/source"
 import type { DocsSectionFile } from "./schema.ts"
 import type { z } from "zod"
 import type { DocsAppPage, DocsManifest, DocsPage, DocsSection } from "./types.ts"
 
+/**
+ * Pages from a Content Source, such as `glob()` or `github()` from `@vite-hub/source`. The build reads its `.md` files
+ * and its `.navigation.yml` files.
+ */
+export type DocsContentSource = Source<string, unknown, object>
+
 export interface DocsSource {
-  /** Content directory, absolute for createDocsManifest and relative to the app root for the Nuxt module. */
-  dir: string;
-  /** Public path at which this directory is mounted. Defaults to `/`. */
+  /**
+   * A folder of Markdown pages, or a Content Source such as `github({ repo, root })`. A folder is relative to the app
+   * root for the Nuxt module and absolute for `createDocsManifest()`. The module watches a folder in development.
+   */
+  source: string | DocsContentSource;
+  /** Public path at which these pages are mounted. Defaults to `/`. */
   mount?: string;
   /** File globs relative to this source to leave out, such as `partials/**`. */
   exclude?: string[];
@@ -29,14 +39,38 @@ export interface DocsSource {
   ) => Record<string, unknown>;
 }
 
+/** One entry of `sources`: a folder, a Content Source, or either one with a mount, excludes, or a frontmatter adapter. */
+export type DocsSourceInput = string | DocsContentSource | DocsSource
+
+/** A docs source with its folder made absolute: `dir` for a folder, `source` for a Content Source. */
+export interface ResolvedDocsSource extends Omit<DocsSource, "source"> {
+  dir?: string;
+  source?: DocsContentSource;
+}
+
 export interface DocsManifestOptions {
   /** Absolute path of the content directory. Used when sources is omitted. */
   dir: string;
   base: string;
-  /** Mapped content directories. Replaces dir when supplied. */
-  sources?: DocsSource[];
+  /** Pages from folders and Content Sources. Replaces dir when supplied. */
+  sources?: readonly DocsSourceInput[];
+  /** Folder that relative folders and the paths of a `glob()` Source resolve from. Defaults to the working directory. */
+  rootDir?: string;
   /** Section metadata, overriding the corresponding .navigation.yml fields. */
   sections?: Record<string, DocsSectionFile>;
+}
+
+const isContentSource = (input: DocsContentSource | DocsSource): input is DocsContentSource => "getKeys" in input
+
+/** The `sources` entries with absolute folders, in order. Page `source` names, such as `docs-1`, follow this order. */
+export function resolveDocsSources(inputs: readonly DocsSourceInput[], rootDir: string = process.cwd()): ResolvedDocsSource[] {
+  return inputs.map((input) => {
+    const { source, ...options } = typeof input === "string" || isContentSource(input) ? { source: input } : input
+    const mount = normalizeDocsBase(options.mount ?? "/")
+    if (mount.split("/").some((part) => part === "." || part === "..") || /[?#\\]/.test(mount))
+      throw new Error(`Invalid docs source mount: ${mount}`);
+    return typeof source === "string" ? { ...options, dir: resolve(rootDir, source) } : { ...options, source }
+  })
 }
 
 /** A page whose frontmatter or section file does not match the schema. The build stops on it. */
@@ -54,21 +88,23 @@ export class DocsContentError extends Error {
 const contentName = (index: number) => `docs_${index}`
 
 /**
- * One `glob()` Source per docs folder, with its Markdown pages and its `.navigation.yml` files as YAML documents. The
- * manifest lists them through Content, so another Source, such as `github()`, gives the same manifest.
+ * One Content Source per docs source, with its Markdown pages and its `.navigation.yml` files as YAML documents. A
+ * folder is a `glob()` Source of those files. A Content Source, such as `github()`, is read as it is, from `rootDir`.
  */
-export function createDocsContent(sources: readonly Pick<DocsSource, "dir">[]): ContentRuntime {
+export function createDocsContent(sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[], rootDir: string = process.cwd()): ContentRuntime {
   return defineContent({
     route: false,
     live: false,
     // A `.navigation.yml` that does not parse stops the build, like a page whose frontmatter does not parse.
     plugins: [yaml({ onError: "throw" })],
-    sources: Object.fromEntries(sources.map((source, index) => [
+    sources: Object.fromEntries(sources.map(({ dir, source }, index) => [
       contentName(index),
-      // A folder that does not exist yet has no pages.
-      existsSync(source.dir)
-        ? () => createSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: source.dir })
-        : { items: async () => [] },
+      source
+        ? () => createSource(source, { rootDir })
+        // A folder that does not exist yet has no pages.
+        : dir && existsSync(dir)
+          ? () => createSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
+          : { items: async () => [] },
     ])),
   })
 }
@@ -76,11 +112,12 @@ export function createDocsContent(sources: readonly Pick<DocsSource, "dir">[]): 
 interface DocsContentFile {
   /** Path in its Source, such as `guide/install.md`. */
   file: string;
-  absolute: string;
+  /** The file in errors: its absolute path for a folder, else its path in the Source. */
+  label: string;
   data: Record<string, unknown>;
-  /** The Markdown, read only for a `frontmatter` adapter or a file that Content does not list. */
+  /** The Markdown, read for a `frontmatter` adapter, a Content Source, or a file that Content does not list. */
   markdown?: string;
-  source: DocsSource;
+  source: ResolvedDocsSource;
   index: number;
 }
 
@@ -89,7 +126,7 @@ interface DocsContentFile {
  * URL, so it lists one of two files with the same URL, such as `guide.md` and `guide/index.md`, and no empty file.
  * Those are read from the Source, so the manifest still names both files or the empty one in a `DocsContentError`.
  */
-async function listDocsContent(content: ContentRuntime, sources: readonly DocsSource[]): Promise<DocsContentFile[]> {
+async function listDocsContent(content: ContentRuntime, sources: readonly ResolvedDocsSource[]): Promise<DocsContentFile[]> {
   const files: DocsContentFile[] = []
   for (const [index, source] of sources.entries()) {
     const name = contentName(index)
@@ -99,23 +136,37 @@ async function listDocsContent(content: ContentRuntime, sources: readonly DocsSo
       const navigation = file === ".navigation.yml" || file.endsWith("/.navigation.yml")
       if (!navigation && !file.endsWith(".md")) continue
       if (source.exclude?.some((pattern) => matchesGlob(file, pattern))) continue
-      const markdown = !navigation && (source.frontmatter || !listed.has(file)) ? String(await reader.getItem(file)) : undefined
+      const markdown = !navigation && (source.frontmatter || source.source || !listed.has(file)) ? String(await reader.getItem(file)) : undefined
       const data = listed.get(file) ?? (markdown === undefined ? {} : parseFrontmatter(markdown).data)
-      files.push({ file, absolute: join(source.dir, file), data, ...(markdown === undefined ? {} : { markdown }), source, index })
+      const label = source.dir ? join(source.dir, file) : file
+      files.push({ file, label, data, ...(markdown === undefined ? {} : { markdown }), source, index })
     }
   }
   return files
 }
 
+/** The manifest, and the Markdown of each page of a Content Source, which the server cannot read from a folder. */
+export interface DocsContentSnapshot {
+  manifest: DocsManifest;
+  /** Pages of Content Sources: `source` is the page's `docs-<index>`, `file` its path in the Source. */
+  files: { source: string; file: string; markdown: string }[];
+}
+
 /** Read every docs source through Content and compute sections, pages, and their order. */
 export async function createDocsManifest(options: DocsManifestOptions): Promise<DocsManifest> {
-  const sources = options.sources ?? [{ dir: options.dir }];
-  for (const source of sources) {
-    const mount = normalizeDocsBase(source.mount ?? "/");
-    if (mount.split("/").some((part) => part === "." || part === "..") || /[?#\\]/.test(mount))
-      throw new Error(`Invalid docs source mount: ${mount}`);
+  return (await readDocsContent(options)).manifest
+}
+
+/** Like `createDocsManifest()`, and also returns the Markdown of the pages of Content Sources. */
+export async function readDocsContent(options: DocsManifestOptions): Promise<DocsContentSnapshot> {
+  const sources = options.sources ? resolveDocsSources(options.sources, options.rootDir) : [{ dir: options.dir }]
+  const listed = await listDocsContent(createDocsContent(sources, options.rootDir), sources)
+  return {
+    manifest: docsManifestOf(options, listed),
+    files: listed.flatMap(entry => entry.source.source && entry.markdown !== undefined && entry.file.endsWith(".md")
+      ? [{ source: `docs-${entry.index}`, file: entry.file, markdown: entry.markdown }]
+      : []),
   }
-  return docsManifestOf(options, await listDocsContent(createDocsContent(sources), sources))
 }
 
 function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsContentFile[]): DocsManifest {
@@ -132,8 +183,8 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
     }
     const previous = files.get(logical);
     if (previous)
-      throw new DocsContentError(entry.absolute, [
-        { path: ["path"], message: `${logical} is also produced by ${previous.absolute}` },
+      throw new DocsContentError(entry.label, [
+        { path: ["path"], message: `${logical} is also produced by ${previous.label}` },
       ]);
     files.set(logical, entry);
   }
@@ -143,7 +194,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
       ? entry.source.frontmatter(entry.data, { file: entry.file, path, markdown: entry.markdown ?? "" })
       : entry.data;
     return {
-      ...docsPageOf(parse(entry.absolute, docsPageSchema, docsFrontmatter(fields)), {
+      ...docsPageOf(parse(entry.label, docsPageSchema, docsFrontmatter(fields)), {
         id,
         path,
         file: entry.file,
@@ -182,7 +233,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
         );
       let fields: DocsSectionFile = {};
       for (const file of folders.get(sectionPrefix.slice(0, -1)) ?? [])
-        fields = { ...fields, ...parse(file.absolute, docsSectionSchema, file.data) };
+        fields = { ...fields, ...parse(file.label, docsSectionSchema, file.data) };
       const navigation = parse(id, docsSectionSchema, { ...fields, ...options.sections?.[id] });
       const overview = pages.find((page) => page.id === "index");
       return {

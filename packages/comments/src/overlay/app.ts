@@ -742,7 +742,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function markerToolbar(): VNode {
     const busy = finishing.value
     return h("div", { class: "toolbar", role: "group", "aria-label": "Highlight" }, [
-      ...(Object.keys(markerColors) as MarkerColor[]).map(name => h("button", {
+      h("div", { class: "swatches" }, (Object.keys(markerColors) as MarkerColor[]).map(name => h("button", {
         key: name,
         class: "swatch",
         type: "button",
@@ -753,9 +753,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           markColor.value = name
           marker?.recolor()
         },
-      }, h("span", { style: { background: markerColors[name] } }))),
+      }, h("span", { style: { background: markerColors[name] } })))),
       h("span", { class: "sep" }),
-      h("button", { type: "button", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: busy || marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
+      h("button", { type: "button", class: "icon", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: busy || marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
       h("button", { type: "button", disabled: busy, onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
       h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", "aria-busy": busy ? "true" : undefined, disabled: !busy && marks.value === 0, onClick: () => void finishMarking(), title: "Comment on the highlighted area (Enter)" }, busy ? "Taking picture…" : "Done"),
     ])
