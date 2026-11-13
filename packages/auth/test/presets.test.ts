@@ -42,9 +42,7 @@ describe("stateless()", () => {
 
 describe("stateless() conflicts", () => {
   it.each([
-    ["database metadata", { database: true }, "AUTH_C0044"],
-    ["a named database", { database: { name: "auth" } }, "AUTH_C0044"],
-    ["secondary storage", { secondaryStorage: { store: "auth" } }, "AUTH_C0045"],
+    ["authDatabase()", { database: Object.assign(() => ({}), { vitehubDatabase: "default" }) }, "AUTH_C0044"],
     ["email and password", { emailAndPassword: { enabled: true } }, "AUTH_C0046"],
     ["a plugin with tables", { plugins: [jwt()] }, "AUTH_C0047"],
     ["a plugin with verification tokens", { plugins: [magicLink({ sendMagicLink: async () => {} })] }, "AUTH_C0047"],
@@ -71,6 +69,10 @@ describe("stateless() conflicts", () => {
     const adapter = () => ({})
     const callback = defineAuth(() => ({ database: adapter as never, preset: stateless() }))
     expect(() => resolveAuthOptions(callback).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0044" }))
+
+    const secondaryStorage = { get: async () => null, set: async () => {}, delete: async () => {}, getAndDelete: async () => null, increment: async () => 1 }
+    const storage = defineAuth(() => ({ preset: stateless(), secondaryStorage }))
+    expect(() => resolveAuthOptions(storage).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0045" }))
 
     const runtime = defineAuth({ preset: stateless(), runtime: () => ({ emailAndPassword: { enabled: true } }) })
     expect(() => resolveAuthOptions(runtime).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0046" }))

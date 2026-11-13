@@ -119,7 +119,7 @@ it("shares private authority across packed Agent, Connections, and Env", { timeo
           return new Response("ok");
         },
       });
-      await runtime.setKey({ name: "service", key: "packed-secret" });
+      await runtime.setKey({ actor: "user:owner", name: "service", key: "packed-secret" });
       for (const name of ["owner", "other"]) {
         const agent = defineAgent({ name, runtime: false, driver: { async run(context) {
           const access = agentEnvAccess(context.agentIdentity);

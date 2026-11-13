@@ -47,7 +47,7 @@ describe("Connection policy validation", () => {
       definitions: { mail: async () => ({ default: { provider: testProvider(), scopes: ["mail.read"], ...policy } }) },
       fetch, store: createStore(),
     })
-    await expect(runtime.authorize({ name: "mail", redirectUri: "http://localhost/callback" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_FOUND" })
+    await expect(runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://localhost/callback" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_FOUND" })
     expect(fetch).not.toHaveBeenCalled()
   })
 

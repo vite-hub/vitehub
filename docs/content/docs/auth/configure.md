@@ -28,8 +28,8 @@ export default defineAuth({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed to `betterAuth()` without the ViteHub fields. |
-| `database` | `authDatabase(name?)`, or `true \| { name, dedicated? }` | In-memory store | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. `true` and `{ name }` only record the planned Database for inspection. |
-| `secondaryStorage` | `true \| { store }` | Disabled | Records the planned Default or named KV Store for inspection. It creates no Better Auth secondary storage adapter. |
+| `database` | `authDatabase(name?)` | In-memory store | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. Return another Better Auth adapter from the Definition callback or `runtime`. See [Storage adapters](#storage-adapters). |
+| `secondaryStorage` | None in the static options | Disabled | Return a Better Auth `secondaryStorage` adapter from the Definition callback or `runtime`. |
 | `preset` | `stateless()` | None | Sets a preset's Better Auth options and checks the other options against it. See [Sessions without a database](#sessions-without-a-database). |
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
@@ -213,7 +213,7 @@ Because `preset` is a ViteHub option, ViteHub checks the other options against i
 
 | Code | Combination |
 | --- | --- |
-| `AUTH_C0044` | `database`, metadata or an adapter |
+| `AUTH_C0044` | `database` |
 | `AUTH_C0045` | `secondaryStorage` |
 | `AUTH_C0046` | `emailAndPassword.enabled`, because users and passwords need a database |
 | `AUTH_C0047` | A Better Auth plugin that adds tables or fields, such as `jwt()`, `admin()`, or `organization()`, or one that stores verification tokens, such as `magicLink()`, `emailOTP()`, or `oneTimeToken()` |
@@ -470,30 +470,24 @@ export default defineSchedule({
 
 `olderThan` sets the age in milliseconds. `limit` sets how many clients one call checks, 500 by default.
 
-## Storage placement metadata
+## Storage adapters
 
-The `database` and `secondaryStorage` fields record, for inspection, which ViteHub Database or KV Store Auth should use. ViteHub removes them before it calls `betterAuth()`. They do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.
+`database` and `secondaryStorage` take Better Auth adapters only.
 
-| Value | Records |
-| --- | --- |
-| `database` omitted or `true` | The Default Database. |
-| `database: { name: 'auth' }` | The Named Database `auth`. |
-| `database: { name: 'auth', dedicated: true }` | The Named Database `auth`, dedicated to Auth. |
-| `secondaryStorage` omitted | No secondary storage. |
-| `secondaryStorage: true` | The Default KV Store. |
-| `secondaryStorage: { store: 'auth' }` | The named KV Store `auth`. |
+- In a static Definition, `database` takes only [`authDatabase()`](#keep-users-in-the-app-database). `authDatabase('auth')` uses the Named Database `auth`.
+- Return another Better Auth `database` adapter, or a `secondaryStorage` adapter, from the Definition callback or `runtime`.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
   appName: 'Acme',
-  database: { name: 'auth', dedicated: true },
-  secondaryStorage: { store: 'auth' },
+  database: authDatabase('auth'),
 })
 ```
 
-To keep Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-database), or return a real Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`. This metadata does not replace the adapter.
+`true`, `{ name }`, and `{ store }` do not create storage. Auth rejects them at build time (`AUTH_C0014`, `AUTH_C0017`), when the Definition loads (`AUTH_C0021`, `AUTH_C0024`), and when a callback or `runtime` returns them (`AUTH_C0061`, `AUTH_C0062`).
 
 ## Vite Integration options
 
