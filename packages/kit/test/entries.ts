@@ -19,4 +19,4 @@ export const uiSdkEntries: string[] = exportKeys(readFileSync(new URL(import.met
   .map((subpath) => subpath.slice(2));
 
 /** The entries the kit adds to ui-sdk's, with components that ui-sdk does not have. */
-export const ownEntries: string[] = ["editable", "form", "tag-group", "tags-input"];
+export const ownEntries: string[] = ["tags-input"];
