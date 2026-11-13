@@ -1,7 +1,7 @@
 import virtualSchema from "#vitehub/database/schema"
 import { ensureDatabaseMigrations } from "./migrate-on-start.ts"
 
-import { createAgentDatabase, createDatabaseBindingLookup } from "./agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup, pingDatabaseEntries } from "./agent.ts"
 import { getRuntimeDatabases } from "./drizzle-runtime.ts"
 import { createUseDatabase } from "./use-database.ts"
 
@@ -122,6 +122,15 @@ const lookupDatabaseBinding = createDatabaseBindingLookup(databases)
  */
 export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding {
   return lookupDatabaseBinding(name)
+}
+
+/**
+ * Runs `SELECT 1` on every Database of the app and returns whether each one answered, by name. It does not throw: a
+ * Database that fails is `false`, and its error goes to the server log.
+ */
+export function pingDatabases(): Promise<Record<string, boolean>> {
+  const runtime = getRuntimeDatabases()
+  return pingDatabaseEntries(runtime.databases, [...runtime.configured])
 }
 
 /** The Database Agent Capability handle. Generated Agent routes pass it to the Capability. */

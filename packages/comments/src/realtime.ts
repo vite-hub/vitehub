@@ -20,9 +20,9 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
 
 /**
  * The Realtime Definition of the page presence rooms: who is on a page and where their cursor is. Rooms hold no
- * document; threads stay in the Database. Connections are read-only, and the server binds account presence to the user
- * that Comments resolves. Guests name themselves in the browser. ViteHub adds it as the `comments` definition when the
- * host has a room authority.
+ * document; threads stay in the Database. The server binds account presence to the user that Comments resolves.
+ * Guests name themselves in the browser. ViteHub adds it as the `comments` definition when the host has a room
+ * authority.
  */
 export function commentsRealtime(comments: Comments, options: CommentsSessionOptions = {}): RealtimeDefinition {
   // Realtime drops policy fields such as role. Keep the whole identity for this request's page-aware check.
@@ -47,12 +47,6 @@ export function commentsRealtime(comments: Comments, options: CommentsSessionOpt
       const { subject } = await resolveCommentsPage(comments, event, request, page)
       return await comments.can({ user: identity.user, action: "read", subject }, identity.gate)
     },
-    document: {
-      kind: "comments",
-      load: async () => ({ body: "", digest: null }),
-      // Read-only connections never change the room, so there is nothing to store.
-      save: async () => ({ digest: "comments" }),
-    },
-    persistence: false,
+    document: false,
   }
 }
