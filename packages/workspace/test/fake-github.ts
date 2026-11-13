@@ -96,6 +96,8 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
   /** `headRepo` names the fork that a pull request comes from. Without it, the head branch is in this repository. */
   const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, headRepo?: string, labels?: string[], merged: boolean, number: number, state: "closed" | "open", title: string }> = []
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
+  /** The comments of issues and pull requests, by `issue` number, in the order GitHub lists them. */
+  const comments: Array<{ body: string, id: number, issue: number, user: string }> = []
   /** Requests that GitHub answered with `304 Not Modified`, as it does for a matching `If-None-Match`. */
   const notModified: FakeRequest[] = []
   let commitIndex = 0
@@ -363,6 +365,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     return new Response(createTarGz(files, `${owner}-${repo}-${commit.sha.slice(0, 7)}/`))
   }
 
+  function commentBody(comment: (typeof comments)[number]) {
+    return { body: comment.body, html_url: `https://github.com/${owner}/${repo}/pull/${comment.issue}#issuecomment-${comment.id}`, id: comment.id, user: { login: comment.user } }
+  }
+
   function route(request: FakeRequest, url: URL): Response {
     const { method, path } = request
     if (path === "/graphql" && method === "POST") return graphql(request)
@@ -425,6 +431,32 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     if (/^\/pulls\/\d+$/.test(rest) && method === "GET") {
       const pull = pulls.find(entry => entry.number === Number(rest.slice("/pulls/".length)))
       return pull ? json(pullBody(pull)) : failure(404, "Not Found")
+    }
+    if (/^\/pulls\/\d+\/files$/.test(rest) && method === "GET") {
+      const pull = pulls.find(entry => entry.number === Number(rest.split("/")[2]))
+      const base = pull && branches.get(pull.base)
+      const head = pull && branches.get(pull.head)
+      if (!pull || !base || !head) return failure(404, "Not Found")
+      // GitHub lists the files that changed from the merge base to the head commit of the pull request.
+      const from = mergeBase(base, head) ?? base
+      return page([...treeChanges(commits.get(from)!.tree, commits.get(head)!.tree)].map(([filename, status]) => ({ filename, status })), url)
+    }
+    const issueComments = /^\/issues\/(\d+)\/comments$/.exec(rest)
+    if (issueComments && method === "GET") {
+      return page(comments.filter(comment => comment.issue === Number(issueComments[1])).map(comment => commentBody(comment)), url)
+    }
+    if (issueComments && method === "POST") {
+      if (!pulls.some(pull => pull.number === Number(issueComments[1]))) return failure(404, "Not Found")
+      const comment = { body: String(request.body?.body), id: 1000 + comments.length, issue: Number(issueComments[1]), user: "vitehub-bot" }
+      comments.push(comment)
+      return json(commentBody(comment), { status: 201 })
+    }
+    const issueComment = /^\/issues\/comments\/(\d+)$/.exec(rest)
+    if (issueComment && method === "PATCH") {
+      const comment = comments.find(entry => entry.id === Number(issueComment[1]))
+      if (!comment) return failure(404, "Not Found")
+      comment.body = String(request.body?.body)
+      return json(commentBody(comment))
     }
     if (rest === "/branches" && method === "GET") {
       return page([...branches].sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ commit: { sha }, name, protected: false })), url)
@@ -638,6 +670,8 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     },
     /** The pull requests that were opened. */
     pulls,
+    /** The comments of issues and pull requests. Push one to model a comment that a person wrote. */
+    comments,
     /** Every branch name. */
     branchNames: () => [...branches.keys()],
     /**

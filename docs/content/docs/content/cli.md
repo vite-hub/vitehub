@@ -39,6 +39,7 @@ The commands appear when the app has a Content file. Without `--url`, they call 
 | `vitehub content scheduled [collection] [id]` | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule <schedule>` | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Print the sitemap URLs of published documents. |
+| `vitehub content previews comment --pr <number>` | Print, or post with `--post`, the comment with the preview link of each page that a pull request changes. |
 | `vitehub content head [source]` | Show the commit that each `github()` Source serves, and what holds it back. |
 | `vitehub content advance [source]` | Move the head to the latest commit of the branch when every document parses and `check` finds no error. |
 | `vitehub content pin <sha> [source]` | Serve one commit until `unpin`, for example to roll back. |
@@ -253,6 +254,28 @@ docs
 `advance` and `unpin` exit with status 1 when the head is held back, so a CI step fails on a broken push. A pinned head does not move and exits with status 0. `pin` needs the full 40-character SHA and checks that every document of the commit parses. `--json` prints the [`ContentSourceHead`](https://github.com/vite-hub/vitehub/tree/main/packages/content#live-github-sources), with the diagnostic in `diagnostic: { code, message, fix }`. `head --json` prints `{ "heads": [...] }`.
 
 `head` needs the `content` section of the Console access, read-only is enough. `advance`, `pin`, and `unpin` need the whole section. `defineContent({ authorize })` does not apply, because Sources are read-only and public.
+
+## Pull request previews
+
+`previews comment` prints a Markdown comment with the [preview link](/docs/content/preview#branch-commit-and-pull-request-previews) of each page that a pull request adds or changes. It needs `previews: true` in `server/content.ts`.
+
+```bash [Terminal]
+pnpm vitehub content previews comment --pr 12 --url https://docs.example.com
+```
+
+```md [Output]
+<!-- vitehub-content-previews -->
+**Preview** of commit `9d1c4e2`
+
+- [/docs/kv](https://docs.example.com/pr/12/docs/kv?vitehub-content-token=v1.1794407400.WyJkb2NzIiwicHIvMTIiXQ.…)
+- [/docs/queue](https://docs.example.com/pr/12/docs/queue?vitehub-content-token=v1.1794407400.WyJkb2NzIiwicHIvMTIiXQ.…)
+
+The pull request is private, so each link has a signed token. Anyone with a link can open the preview until 2026-11-11T14:30:00.000Z. Run `vitehub content previews comment --pr 12` again for new links.
+```
+
+A pull request from the same repository gets plain links and no note. A private one, such as a CMS publish, gets links with a token that works for one hour, or `--max-age` seconds up to 86400. A fork pull request without the `preview:enabled` label gets plain links that open after a maintainer adds the label. `--site` sets the origin of the links; without it, they use `seo.site`, else they are paths.
+
+`--post` creates the comment on the pull request, or updates the comment that starts with `<!-- vitehub-content-previews -->`, so each run keeps one comment. It uses `VITEHUB_GITHUB_TOKEN` from the environment of the command, which must be able to write pull request comments. Without it, the command fails with [`CONTENT_R0077`](/docs/content/diagnostics/content_r0077). The command signs links, so it needs the whole `content` section of the Console access. To post from CI, see [Comment preview links from GitHub Actions](/docs/content/preview#comment-preview-links-from-github-actions).
 
 ## Check
 

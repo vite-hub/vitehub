@@ -565,6 +565,10 @@ export interface ViteHubConsoleDocumentRevision {
 export interface ViteHubConsoleDocumentPublished {
   revision: string | null
   documents: Array<{ collection: string, id: string, change: "add" | "update" | "delete" }>
+  /** Set when the owner publishes through a pull request: the documents go live when it merges. */
+  pullRequest?: { number: number, url: string }
+  /** The signed preview link of each document of `pullRequest` with a page URL, and when it expires as an ISO date. */
+  previews?: Array<{ collection: string, id: string, locale?: string, url: string, expiresAt: string }>
 }
 
 /** One unpublished change with what the dashboard shows of it. */

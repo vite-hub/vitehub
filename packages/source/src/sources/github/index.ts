@@ -362,6 +362,12 @@ export function github(options: GitHubSourceOptions): GitHubSource {
       const prefix = root ? `${root}/` : ""
       return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
     },
+    async pullChanges(number) {
+      const paths = await client.pullPaths(number, await resolveAuth())
+      if (!paths) return
+      const prefix = root ? `${root}/` : ""
+      return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
+    },
     async resolveRef(ref, refOptions) {
       const token = await resolveAuth()
       const signal = refOptions?.signal
