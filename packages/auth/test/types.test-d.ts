@@ -74,6 +74,8 @@ describe("types", () => {
     expectTypeOf(definition.options.database).toEqualTypeOf<AuthAppDatabase>()
     // @ts-expect-error `runtime` is removed. A callback returns all options.
     defineAuth({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) })
+    // @ts-expect-error A callback cannot return `runtime` either.
+    defineAuth(() => ({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) }))
     expectTypeOf<AuthRuntimeEnv>().toMatchTypeOf<Record<string, unknown>>()
   })
 

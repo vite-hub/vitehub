@@ -141,7 +141,7 @@ export type AuthDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthB
 
 export type AuthResolvedDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthBetterAuthOptions> =
   TOptions
-  & Omit<AuthViteHubOptions, "database" | "runtime" | "secondaryStorage">
+  & Omit<AuthViteHubOptions, "database" | "secondaryStorage">
   & AuthRuntimeOptions
 
 export type AuthDefinitionResolver<TOptions extends AuthResolvedDefinitionOptions = AuthResolvedDefinitionOptions> =
