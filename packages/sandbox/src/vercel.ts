@@ -13,6 +13,7 @@ import {
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
 import { shellQuote } from "./internal/shell-quote.ts";
 import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
+import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const vercelSandboxPackage = "@vercel/sandbox";
@@ -58,9 +59,14 @@ export interface VercelSandboxCreateOptions {
   token?: string;
 }
 
+/** The signals that the Vercel Sandbox SDK sends by name. Other signals use their number. */
+const vercelSignalNames = ["SIGHUP", "SIGINT", "SIGQUIT", "SIGKILL", "SIGTERM", "SIGCONT", "SIGSTOP"] as const;
+
+export type VercelSandboxSignal = typeof vercelSignalNames[number] | number;
+
 export interface VercelSandboxCommand {
   closeStdin(): Promise<void>;
-  kill(): Promise<void>;
+  kill(signal?: VercelSandboxSignal): Promise<void>;
   logs(options?: { signal?: AbortSignal }): AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>;
   stderr(): Promise<string>;
   stdout(): Promise<string>;
@@ -257,7 +263,7 @@ function createVercelSession(
     let abort: (() => void) | undefined;
     const aborted = new Promise<never>((_, reject) => {
       abort = () => {
-        void process.kill().catch(() => undefined);
+        void process.kill("SIGKILL").catch(() => undefined);
         reject(options.abortSignal!.reason);
       };
       options.abortSignal?.addEventListener("abort", abort, { once: true });
@@ -385,7 +391,8 @@ function createVercelSession(
     run,
     async spawn(options) {
       const process = await startCommand(options);
-      return vercelProcess(process, options.stdin);
+      // The SDK signal only cancels the start request of a detached command.
+      return killOnAbort(vercelProcess(process, options.stdin), options.abortSignal);
     },
     async stop() {},
     async writeBinaryFile({ abortSignal, content, path }) {
@@ -413,8 +420,8 @@ function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined
           }),
         }
       : {}),
-    async kill() {
-      await process.kill();
+    async kill(signal?: string) {
+      await process.kill(vercelSignal(signal));
     },
     async wait() {
       return await wait;
@@ -479,4 +486,14 @@ function streamLogs(command: VercelSandboxCommand) {
     }
   })();
   return output;
+}
+
+function vercelSignal(signal: string | undefined): VercelSandboxSignal | undefined {
+  if (signal === undefined) return undefined;
+  if (/^\d+$/.test(signal)) return Number(signal);
+  const name = `SIG${signal.toUpperCase().replace(/^SIG/, "")}`;
+  const known = vercelSignalNames.find(value => value === name);
+  if (!known)
+    throw sandboxErrorDiagnostics.SANDBOX_R0165({ message: `[vitehub] Vercel Sandbox cannot send ${JSON.stringify(signal)} by name. Use ${vercelSignalNames.join(", ")}, or a signal number.` });
+  return known;
 }

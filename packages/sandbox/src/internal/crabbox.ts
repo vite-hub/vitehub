@@ -1162,7 +1162,10 @@ function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: Abort
     // SAFETY: child-process stdout yields Buffer chunks, which are Uint8Array values.
     stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     wait: () => wait,
-    async kill() {
+    async kill(signal?: string) {
+      // kill() signals the local Crabbox CLI with SIGTERM. The CLI does not forward a chosen signal to the remote command.
+      if (signal !== undefined && signal.toUpperCase().replace(/^SIG/, "") !== "TERM")
+        throw sandboxErrorDiagnostics.SANDBOX_R0165({ message: `[vitehub] Crabbox Sandbox can only send SIGTERM, not ${JSON.stringify(signal)}.` })
       child.kill()
       await wait.catch(() => undefined)
     },
