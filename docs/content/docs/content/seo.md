@@ -257,7 +257,7 @@ The tools read only what readers can see: published collection documents, and th
 
 `name` is the server name that MCP clients show. It defaults to the host name of `site`, or of the request. The server answers `POST` in the stateless JSON form of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, and refuses requests from a browser page on another origin.
 
-`content.pages({ offset, limit })` and `content.page(path)` return the same data from code. ViteHub generates `/mcp` like the sitemap. The [app MCP server](/docs/development/app-mcp) also answers at `/mcp`, so give one of them another path when you turn on both. In another server, mount `defineContentMcpHandler(content)`.
+`content.pages({ offset, limit })` and `content.page(path)` return the same data from code. ViteHub generates `/mcp` like the sitemap. The [app MCP server](/docs/mcp/configure) also answers at `/mcp`. With both on, the build stops with [`SOURCE_B0010`](/docs/source/diagnostics/source_b0010): give the app MCP server another `route`, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or set `seo: { mcp: false }`. In another server, mount `defineContentMcpHandler(content)`.
 
 ## Markdown for agents
 
